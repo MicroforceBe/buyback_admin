@@ -1,13 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-
-export const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
-
-
+// app/admin/catalog/page.tsx
 import { supabaseServer } from '@/lib/supabaseServer';
+
+export const metadata = {
+  title: 'Catalogus — Buyback Admin'
+};
 
 export default async function Page() {
   const supabase = supabaseServer();
@@ -20,11 +16,17 @@ export default async function Page() {
     .order('capacity_gb');
 
   if (error) {
-    return <pre className="text-red-600 p-4 bg-red-50 rounded">DB error: {error.message}</pre>;
+    return (
+      <main className="p-6">
+        <h2 className="text-lg font-semibold mb-3">Catalogus</h2>
+        <pre className="text-red-600 p-4 bg-red-50 rounded">DB error: {error.message}</pre>
+      </main>
+    );
   }
+
   return (
-    <main>
-      <h2 className="text-lg font-medium mb-4">Catalogus (read-only start)</h2>
+    <main className="p-6">
+      <h2 className="text-lg font-semibold mb-3">Catalogus (read-only start)</h2>
       <div className="overflow-auto border rounded">
         <table className="min-w-[900px] w-full text-sm">
           <thead className="bg-gray-100">
@@ -35,7 +37,7 @@ export default async function Page() {
             </tr>
           </thead>
           <tbody>
-            {(data ?? []).map((r, i) => (
+            {(data ?? []).map((r: any, i: number) => (
               <tr key={i} className="hover:bg-gray-50">
                 <td className="p-2 border-b">{r.brand}</td>
                 <td className="p-2 border-b">{r.model}</td>
@@ -47,7 +49,7 @@ export default async function Page() {
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-gray-600">We maken het hierna inline-editable.</p>
+      <p className="mt-3 text-gray-600">We maken dit hierna inline-editable.</p>
     </main>
   );
 }
