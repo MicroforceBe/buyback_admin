@@ -1,5 +1,4 @@
-import { supabaseServer } from '@/lib/supabaseServer';
-import CatalogTable from './table';
+import { supabaseServer } from '@/lib/supabaseServer'; import CatalogTable from './table'; import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 
 export const metadata = { title: 'Catalogus — Buyback Admin' };
 
@@ -13,14 +12,16 @@ export default async function Page() {
     .order('variant')
     .order('capacity_gb');
 
-  if (error) {
-    return <pre className="p-6 text-red-600">Fout: {error.message}</pre>;
-  }
+  if (error) return <pre className="text-red-600">{error.message}</pre>;
 
   return (
-    <main className="p-6">
-      <h2 className="text-lg font-semibold mb-3">Catalogus — Inline edit</h2>
-      <CatalogTable rows={data ?? []} />
-    </main>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader title="Catalogus — Inline edit" />
+        <CardBody>
+          <CatalogTable rows={data ?? []} />
+        </CardBody>
+      </Card>
+    </div>
   );
 }
