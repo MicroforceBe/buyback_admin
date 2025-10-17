@@ -1,12 +1,13 @@
 import { supabaseServer } from '@/lib/supabaseServer';
 import MultipliersTable from './table';
+import ModelPicker from './ModelPicker';
 
 export const metadata = { title: 'Multipliers — Buyback Admin' };
 
 export default async function Page({ searchParams }: { searchParams: { model?: string } }) {
   const supabase = supabaseServer();
 
-  // Haal lijst van modellen op waar multipliers voor bestaan
+  // modellen ophalen
   const { data: modelsData, error: modelsError } = await supabase
     .from('buyback_multipliers_norm')
     .select('model')
@@ -16,10 +17,11 @@ export default async function Page({ searchParams }: { searchParams: { model?: s
   if (modelsError) {
     return <main className="p-6"><pre className="text-red-600">Fout: {modelsError.message}</pre></main>;
   }
-  const models = Array.from(new Set((modelsData ?? []).map(m => m.model))).sort();
+
+  const models = Array.from(new Set((modelsData ?? []).map((m: any) => m.model))).sort();
   const selected = searchParams.model || models[0] || '';
 
-  // Haal multipliers voor geselecteerd model
+  // rijen voor geselecteerd model ophalen
   let rows: any[] = [];
   if (selected) {
     const { data, error } = await supabase
@@ -39,26 +41,15 @@ export default async function Page({ searchParams }: { searchParams: { model?: s
   return (
     <main className="p-6 space-y-4">
       <h2 className="text-lg font-semibold">Multipliers</h2>
-
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-600">Model:</span>
-        <select
-          className="border px-2 py-1 rounded"
-          value={selected}
-          onChange={(e) => {
-            const url = new URL(window.location.href);
-            if (e.target.value) url.searchParams.set('model', e.target.value);
-            else url.searchParams.delete('model');
-            // client nav zonder extra dependency:
-            window.location.href = url.toString();
-          }}
-        >
-          {models.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </div>
-
-      {selected ? (
-        <MultipliersTable rows={rows as any[]} model={selected} />
+      {models.length > 0 ? (
+        <>
+          <ModelPicker models={models} selected={selected} />
+          {selected ? (
+            <MultipliersTable rows={rows as any[]} model={selected} />
+          ) : (
+            <p className="text-gray-600">Geen model geselecteerd.</p>
+          )}
+        </>
       ) : (
         <p className="text-gray-600">Geen modellen met multipliers gevonden.</p>
       )}
