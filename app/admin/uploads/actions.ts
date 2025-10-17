@@ -35,9 +35,7 @@ function splitCsvLine(line: string, delimiter: string): string[] {
 function parseCsv(text: string): { header: string[]; rows: string[][]; delimiter: string } {
   const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const lines = raw.split('\n').filter((l) => l.trim() !== '');
-  if (lines.length < 2) {
-    throw new Error('CSV bevat geen data (minstens 2 regels verwacht).');
-  }
+  if (lines.length < 2) throw new Error('CSV bevat geen data (minstens 2 regels verwacht).');
   const delimiter = detectDelimiter(lines[0]);
   const header = splitCsvLine(lines[0], delimiter);
   const rows = lines.slice(1).map((ln) => splitCsvLine(ln, delimiter));
@@ -62,10 +60,39 @@ function filterToAllowed(obj: Record<string, any>, allowed: string[]) {
   return out;
 }
 
+// === NIEUW: normalisatie naar DB-typen ===
+const NUMERIC_INT_KEYS = new Set(['year','storage_gb','ram_gb','ssd_gb']);
+
+function toIntOrNull(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const cleaned = s.replace(/[^0-9\-]/g, '');
+  if (cleaned === '' || cleaned === '-' ) return null;
+  const n = parseInt(cleaned, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sanitizeForLanding(record: Record<string, any>, isPrices: boolean) {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(record)) {
+    // lege string -> null
+    const val = (v === '') ? null : v;
+
+    if (isPrices && NUMERIC_INT_KEYS.has(k)) {
+      out[k] = toIntOrNull(val);
+    } else {
+      out[k] = val;
+    }
+  }
+  return out;
+}
+
 export async function importCsv(input: z.input<typeof FileSchema>): Promise<ImportResult> {
   try {
     const { type, csv } = FileSchema.parse(input);
-    // 1) CSV inlezen/ontleden
+
+    // 1) CSV inlezen
     const parsed = parseCsv(csv);
     const normHeader = parsed.header.map(normalizeKey);
 
@@ -103,13 +130,14 @@ export async function importCsv(input: z.input<typeof FileSchema>): Promise<Impo
       'pay_bank_tip','pay_voucher_tip'
     ];
 
-    const target = type === 'prices' ? 'buyback_prices_landing' : 'buyback_multipliers_landing';
-    const allowed = type === 'prices' ? allowedPrices : allowedMultipliers;
+    const isPrices = type === 'prices';
+    const target = isPrices ? 'buyback_prices_landing' : 'buyback_multipliers_landing';
+    const allowed = isPrices ? allowedPrices : allowedMultipliers;
 
-    // verplichte kolommen checken
-    if (type === 'prices') {
-      const must = ['brand', 'model', 'storage_gb', 'base_price'];
-      const missing = must.filter((m) => !normHeader.includes(m));
+    // verplichte kolommen
+    if (isPrices) {
+      const must = ['brand','model','storage_gb','base_price'];
+      const missing = must.filter(m => !normHeader.includes(m));
       if (missing.length) {
         return { ok: false, error: `CSV mist verplichte kolommen: ${missing.join(', ')}`, details: { header: parsed.header, detectedDelimiter: parsed.delimiter } };
       }
@@ -119,47 +147,37 @@ export async function importCsv(input: z.input<typeof FileSchema>): Promise<Impo
       }
     }
 
-    // 2) Records bouwen
-    const records = parsed.rows.map((row) => {
+    // 2) Records bouwen + sanitiseren
+    const rawRecords = parsed.rows.map((row) => {
       const obj: Record<string, any> = {};
-      for (let i = 0; i < normHeader.length; i++) {
-        const key = normHeader[i];
-        obj[key] = row[i] ?? null;
-      }
+      for (let i = 0; i < normHeader.length; i++) obj[normHeader[i]] = row[i] ?? null;
       return filterToAllowed(obj, allowed);
     });
+    const records = rawRecords.map(r => sanitizeForLanding(r, isPrices));
 
-    // 3) Landing table opschonen
+    // 3) Landing tabel leegmaken
     {
       const { error: delErr } = await supabaseAdmin.from(target).delete().gte('model', '');
-      if (delErr) {
-        console.error('Landing delete error', delErr);
-        return { ok: false, error: `Opschonen van ${target} mislukt: ${delErr.message}` };
-      }
+      if (delErr) return { ok: false, error: `Opschonen van ${target} mislukt: ${delErr.message}` };
     }
 
-    // 4) In batches inserten
+    // 4) Insert in batches
     const chunkSize = 500;
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
       const { error } = await supabaseAdmin.from(target).insert(chunk);
       if (error) {
-        console.error('Landing insert error', error, 'example', chunk[0]);
         return { ok: false, error: `Insert in ${target} mislukt: ${error.message}`, details: { example: chunk[0] } };
       }
     }
 
     // 5) RPC draaien
-    const fn = type === 'prices' ? 'import_buyback_prices' : 'import_buyback_multipliers';
+    const fn = isPrices ? 'import_buyback_prices' : 'import_buyback_multipliers';
     const { error: fnErr } = await supabaseAdmin.rpc(fn);
-    if (fnErr) {
-      console.error('RPC error', fn, fnErr);
-      return { ok: false, error: `Function ${fn} mislukt: ${fnErr.message}` };
-    }
+    if (fnErr) return { ok: false, error: `Function ${fn} mislukt: ${fnErr.message}` };
 
     return { ok: true, count: records.length };
   } catch (e: any) {
-    console.error('importCsv fatal error', e);
     return { ok: false, error: e?.message || 'Onbekende fout' };
   }
 }
