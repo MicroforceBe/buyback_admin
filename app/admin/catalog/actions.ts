@@ -2,27 +2,30 @@
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-// Schema-validatie
+// Schema-validatie (active is optioneel; default zetten we na parse)
 const CatalogRow = z.object({
   brand: z.string().min(1),
   model: z.string().min(1),
   variant: z.string().nullable().optional(),
   capacity_gb: z.number().int().positive(),
   base_price_cents: z.number().int().min(0),
-  active: z.boolean().optional().default(true)
+  active: z.boolean().optional()
 });
 
-// upsert
-export async function upsertCatalogRow(input: z.infer<typeof CatalogRow>) {
+export async function upsertCatalogRow(input: z.input<typeof CatalogRow>) {
   const row = CatalogRow.parse(input);
+  // Defaults/normalisatie
+  if (row.active === undefined) row.active = true;
+  if (row.variant === undefined) row.variant = null;
+
   const { error } = await supabaseAdmin
     .from('buyback_catalog')
     .upsert([row], { onConflict: 'brand,model,variant,capacity_gb' });
+
   if (error) throw new Error(error.message);
   return { ok: true };
 }
 
-// delete
 export async function deleteCatalogRow(key: {
   brand: string;
   model: string;
