@@ -13,15 +13,14 @@ export default function UploadsClient() {
     const reader = new FileReader();
     reader.onload = () => {
       startTransition(async () => {
-        try {
-          setLog(`Bezig met importeren van ${file.name}...`);
-          const result = await importCsv({ type, csv: reader.result as string });
-          setLog(`✅ ${file.name}: ${result.count} rijen geïmporteerd.`);
-        } catch (err: any) {
-          setLog(`❌ Fout: ${err.message}`);
-        }
-      });
-    };
+      const result = await importCsv({ type, csv: reader.result as string });
+      if (result.ok) {
+        setLog(`✅ ${file.name}: ${result.count} rijen geïmporteerd.`);
+      } else {
+        setLog(`❌ Fout: ${result.error}${result.details ? '\nDetails: ' + JSON.stringify(result.details) : ''}`);
+      }
+    });
+  };
     reader.readAsText(file);
   }
 
