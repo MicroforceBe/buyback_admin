@@ -57,3 +57,6 @@
 .bb-badge.warn    { background:#fff7ed; color:#9a3412; border-color:#ffedd5; }
 
 .bb-dot { width:.5rem; height:.5rem; border-radius:9999px; background:#d1d5db; flex:0 0 auto; }
+table thead th { font-weight: 600; font-size: .82rem; }
+table tbody td { font-size: .9rem; }
+table a { color: inherit; }
