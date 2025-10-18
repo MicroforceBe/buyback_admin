@@ -1,3 +1,4 @@
+// app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
@@ -72,7 +73,7 @@ type SearchParams = {
   f_price_max?: string;     // EUR
   f_status?: string;
 
-  // sortering/paging
+  // sort/paging
   sort?: string;
   dir?: "asc" | "desc";
   page?: string;
@@ -236,11 +237,12 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // bouw base QS
+  // base QS (om sort/paging-links te genereren)
   const qsBase: Record<string, string> = {};
   const keep = {
-    q, from, to, sort, dir,
-    f_order, f_date_from, f_date_to, f_customer, f_model, f_variant, f_price_min, f_price_max, f_status
+    q, from, to,
+    f_order, f_date_from, f_date_to, f_customer, f_model, f_variant, f_price_min, f_price_max, f_status,
+    sort, dir
   };
   Object.entries(keep).forEach(([k, v]) => {
     if (v && String(v).length) qsBase[k] = String(v);
@@ -254,7 +256,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     sp.set("dir", nextDir);
     sp.set("page", "1");
     return `?${sp.toString()}`;
-    };
+  };
   const pageHref = (p: number) => {
     const sp = new URLSearchParams(qsBase);
     sp.set("page", String(p));
@@ -272,98 +274,179 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </div>
       </div>
 
-      {/* Globale filterbalk (compact) */}
-      <form className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 p-3 border rounded-lg bg-white" method="GET">
-        {Object.entries(qsBase).map(([k, v]) =>
-          !["q", "from", "to", "limit", "page"].includes(k) ? (
-            <input key={k} type="hidden" name={k} value={v} />
-          ) : null
-        )}
-        <input name="q" defaultValue={q} placeholder="Zoek overal…" className="bb-input h-9 px-3 py-2 text-sm w-full border rounded-md" />
-        <div className="flex gap-2">
-          <input type="date" name="from" defaultValue={from} className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
-          <input type="date" name="to" defaultValue={to} className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
+      {/* Compacte filterblokken: globaal + kolomspecifiek in één formulier */}
+      <form className="space-y-2 p-3 border rounded-lg bg-white" method="GET">
+        {/* rij 1: globale */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+          <input name="q" defaultValue={q} placeholder="Zoek overal…" className="bb-input h-9 px-3 py-2 text-sm w-full border rounded-md" />
+          <div className="flex gap-2">
+            <input type="date" name="from" defaultValue={from} className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" />
+            <input type="date" name="to" defaultValue={to} className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" />
+          </div>
+          <select name="limit" defaultValue={String(limit)} className="bb-select h-9 px-3 py-2 text-sm border rounded-md">
+            <option value="25">25 / p</option>
+            <option value="50">50 / p</option>
+            <option value="100">100 / p</option>
+          </select>
+          <div className="flex gap-2">
+            <button className="bb-btn h-9 px-3" type="submit">Filteren</button>
+            <Link href="/admin/leads" className="bb-btn h-9 px-3 subtle">Reset</Link>
+          </div>
         </div>
-        <select name="limit" defaultValue={String(limit)} className="bb-select h-9 px-3 py-2 text-sm border rounded-md">
-          <option value="25">25 / p</option>
-          <option value="50">50 / p</option>
-          <option value="100">100 / p</option>
-        </select>
-        <div className="flex gap-2">
-          <button className="bb-btn h-9 px-3" type="submit">Filteren</button>
-          <Link href="/admin/leads" className="bb-btn h-9 px-3 subtle">Reset</Link>
+
+        {/* rij 2: kolom-filters (orde, datum, klant, model) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+          <input name="f_order" defaultValue={f_order} placeholder="Order ID (BB…)" className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
+          <div className="flex gap-2">
+            <input type="date" name="f_date_from" defaultValue={f_date_from} className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" />
+            <input type="date" name="f_date_to" defaultValue={f_date_to} className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" />
+          </div>
+          <input name="f_customer" defaultValue={f_customer} placeholder="Klant (naam/email/tel)" className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
+          <input name="f_model" defaultValue={f_model} placeholder="Model" className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
+        </div>
+
+        {/* rij 3: kolom-filters (variant, prijs min/max, status) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          <input name="f_variant" defaultValue={f_variant} placeholder="Variant (GB)" className="bb-input h-9 px-3 py-2 text-sm border rounded-md" />
+          <div className="flex gap-2">
+            <input name="f_price_min" defaultValue={f_price_min} placeholder="Prijs min (EUR)" className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" inputMode="decimal" />
+            <input name="f_price_max" defaultValue={f_price_max} placeholder="Prijs max (EUR)" className="bb-input h-9 px-3 py-2 text-sm border rounded-md w-full" inputMode="decimal" />
+          </div>
+          <select name="f_status" defaultValue={f_status} className="bb-select h-9 px-3 py-2 text-sm border rounded-md">
+            <option value="">Status — alle</option>
+            <option value="new">Nieuw</option>
+            <option value="received_store">Ontvangen in winkel</option>
+            <option value="label_created">Verzendlabel aangemaakt</option>
+            <option value="shipment_received">Zending ontvangen</option>
+            <option value="check_passed">Controle succesvol</option>
+            <option value="check_failed">Controle gefaald</option>
+            <option value="done">Afgewerkt</option>
+          </select>
+
+          {/* lege spacer op grote schermen zodat grid mooi uitlijnt */}
+          <div className="hidden lg:block" />
         </div>
       </form>
 
-      {/* Tabel */}
+      {/* Tabel: enkel header + data (geen filters hier) */}
       <div className="overflow-auto">
-        <form method="GET">
-          {/* bewaar alle niet-kolom-velden bij submit van kolomfilters */}
-          {Object.entries(qsBase).map(([k, v]) =>
-            ![
-              "f_order","f_date_from","f_date_to","f_customer","f_model","f_variant","f_price_min","f_price_max","f_status","page"
-            ].includes(k) ? (
-              <input key={k} type="hidden" name={k} value={v} />
-            ) : null
-          )}
-          <table className="w-full text-sm border border-gray-200">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-gray-700">
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[160px]">
-                  <a href={makeSortHref("order_code")} className="font-semibold hover:underline">Order ID</a>
-                  <div className="text-[11px] text-gray-500">klik om orderdetails te tonen</div>
-                </th>
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[170px]">
-                  <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Datum</a>
-                </th>
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
-                  <span className="font-semibold">Klant</span>
-                  <div className="text-[11px] text-gray-500">klik om klantinfo te tonen</div>
-                </th>
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
-                  <a href={makeSortHref("model")} className="font-semibold hover:underline">Model</a>
-                </th>
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[120px]">
-                  <a href={makeSortHref("capacity_gb")} className="font-semibold hover:underline">Variant</a>
-                </th>
-                <th className="px-3 py-2 border-b border-r border-gray-200 w-[180px]">
-                  <a href={makeSortHref("final_price_cents")} className="font-semibold hover:underline">Prijs (EUR)</a>
-                </th>
-                <th className="px-3 py-2 border-b border-gray-200 w-[220px]">
-                  <span className="font-semibold">Status</span>
-                </th>
-              </tr>
+        <table className="w-full text-sm border border-gray-200">
+          <thead className="bg-gray-50">
+            <tr className="text-left text-gray-700">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[160px]">
+                <a href={makeSortHref("order_code")} className="font-semibold hover:underline">Order ID</a>
+                <div className="text-[11px] text-gray-500">klik om orderdetails te tonen</div>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[170px]">
+                <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Datum</a>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
+                <span className="font-semibold">Klant</span>
+                <div className="text-[11px] text-gray-500">klik om klantinfo te tonen</div>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
+                <a href={makeSortHref("model")} className="font-semibold hover:underline">Model</a>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[120px]">
+                <a href={makeSortHref("capacity_gb")} className="font-semibold hover:underline">Variant</a>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[180px]">
+                <a href={makeSortHref("final_price_cents")} className="font-semibold hover:underline">Prijs (EUR)</a>
+              </th>
+              <th className="px-3 py-2 border-b border-gray-200 w-[220px]">
+                <a href={makeSortHref("status")} className="font-semibold hover:underline">Status</a>
+              </th>
+            </tr>
+          </thead>
 
-              {/* Tweede header-rij: kolomfilters */}
-              <tr className="bg-white border-b border-gray-200">
-                <th className="px-2 py-2 border-r">
-                  <input name="f_order" defaultValue={f_order} placeholder="BB0000…" className="bb-input h-8 w-full px-2 text-xs" />
-                </th>
-                <th className="px-2 py-2 border-r">
-                  <div className="flex gap-1">
-                    <input type="date" name="f_date_from" defaultValue={f_date_from} className="bb-input h-8 w-1/2 px-2 text-xs" />
-                    <input type="date" name="f_date_to" defaultValue={f_date_to} className="bb-input h-8 w-1/2 px-2 text-xs" />
-                  </div>
-                </th>
-                <th className="px-2 py-2 border-r">
-                  <input name="f_customer" defaultValue={f_customer} placeholder="naam/email/tel" className="bb-input h-8 w-full px-2 text-xs" />
-                </th>
-                <th className="px-2 py-2 border-r">
-                  <input name="f_model" defaultValue={f_model} placeholder="Model" className="bb-input h-8 w-full px-2 text-xs" />
-                </th>
-                <th className="px-2 py-2 border-r">
-                  <input name="f_variant" defaultValue={f_variant} placeholder="GB" className="bb-input h-8 w-full px-2 text-xs" />
-                </th>
-                <th className="px-2 py-2 border-r">
-                  <div className="flex gap-1">
-                    <input name="f_price_min" defaultValue={f_price_min} placeholder="min" className="bb-input h-8 w-1/2 px-2 text-xs" inputMode="decimal" />
-                    <input name="f_price_max" defaultValue={f_price_max} placeholder="max" className="bb-input h-8 w-1/2 px-2 text-xs" inputMode="decimal" />
-                  </div>
-                </th>
-                <th className="px-2 py-2">
-                  <div className="flex items-center gap-1">
-                    <select name="f_status" defaultValue={f_status} className="bb-select h-8 px-2 text-xs w-full">
-                      <option value="">—</option>
+          <tbody>
+            {(data ?? []).map((lead, idx) => (
+              <tr
+                key={lead.id}
+                className={`border-t border-gray-200 ${idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"}`}
+              >
+                {/* Order ID met details */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  <details>
+                    <summary className="cursor-pointer font-mono">{lead.order_code}</summary>
+                    <div className="mt-2 text-xs leading-5 space-y-2">
+                      <div className="font-semibold text-gray-700">Volledige orderinfo</div>
+                      <div><span className="text-gray-500">Aangemaakt: </span>{fmtDate(lead.created_at)}</div>
+                      <div><span className="text-gray-500">Model: </span>{lead.model ?? "—"} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}</div>
+                      <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
+                      <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
+                      <div><span className="text-gray-500">Levering: </span>
+                        {lead.delivery_method === "ship"
+                          ? `Verzenden — ${[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ")}`
+                          : lead.delivery_method === "dropoff"
+                          ? `Binnenbrengen — ${lead.shop_location ?? "—"}`
+                          : "—"}
+                      </div>
+                      <div className="text-gray-500">Antwoorden:</div>
+                      <pre className="bg-white border border-gray-200 rounded p-2 overflow-auto max-h-[220px]">{lead.answers ? JSON.stringify(lead.answers, null, 2) : "—"}</pre>
+                      <div className="pt-1">
+                        <form action={deleteLeadAction}>
+                          <input type="hidden" name="id" value={lead.id} />
+                          <button className="bb-btn danger" type="submit">Verwijderen</button>
+                        </form>
+                      </div>
+                    </div>
+                  </details>
+                </td>
+
+                {/* Datum */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  {fmtDate(lead.created_at)}
+                </td>
+
+                {/* Klant */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  <details>
+                    <summary className="cursor-pointer">
+                      {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
+                    </summary>
+                    <div className="mt-2 text-xs leading-5 space-y-1">
+                      <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
+                      <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
+                      <div><span className="text-gray-500">Adres: </span>
+                        {[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ") || "—"}
+                      </div>
+                      <div><span className="text-gray-500">IBAN: </span>{lead.iban ?? "—"}</div>
+                    </div>
+                  </details>
+                </td>
+
+                {/* Model */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  {lead.model ?? "—"}
+                </td>
+
+                {/* Variant */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  {lead.capacity_gb ? `${lead.capacity_gb} GB` : "—"}
+                </td>
+
+                {/* Prijs (editable) */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                  <div className="text-gray-600 mb-1">{eur(lead.final_price_cents)}</div>
+                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
+                    <input type="hidden" name="id" value={lead.id} />
+                    <input
+                      name="final_price_eur"
+                      defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
+                      className="bb-input h-9 w-28"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                    />
+                    <button className="bb-btn subtle h-9 px-3" type="submit" title="Opslaan">💾</button>
+                  </form>
+                </td>
+
+                {/* Status (editable) */}
+                <td className="px-3 py-2 align-top">
+                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
+                    <input type="hidden" name="id" value={lead.id} />
+                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select h-9">
                       <option value="new">Nieuw</option>
                       <option value="received_store">Ontvangen in winkel</option>
                       <option value="label_created">Verzendlabel aangemaakt</option>
@@ -372,124 +455,21 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <option value="check_failed">Controle gefaald</option>
                       <option value="done">Afgewerkt</option>
                     </select>
-                    <button className="bb-btn h-8 px-2 text-xs" type="submit">Filter</button>
-                  </div>
-                </th>
+                    <button className="bb-btn subtle h-9 px-3" type="submit" title="Opslaan">💾</button>
+                  </form>
+                </td>
               </tr>
-            </thead>
+            ))}
 
-            <tbody>
-              {(data ?? []).map((lead, idx) => (
-                <tr
-                  key={lead.id}
-                  className={`border-t border-gray-200 ${idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"}`}
-                >
-                  {/* Order ID met details */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    <details>
-                      <summary className="cursor-pointer font-mono">{lead.order_code}</summary>
-                      <div className="mt-2 text-xs leading-5 space-y-2">
-                        <div className="font-semibold text-gray-700">Volledige orderinfo</div>
-                        <div><span className="text-gray-500">Aangemaakt: </span>{fmtDate(lead.created_at)}</div>
-                        <div><span className="text-gray-500">Model: </span>{lead.model ?? "—"} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}</div>
-                        <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
-                        <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
-                        <div><span className="text-gray-500">Levering: </span>
-                          {lead.delivery_method === "ship"
-                            ? `Verzenden — ${[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ")}`
-                            : lead.delivery_method === "dropoff"
-                            ? `Binnenbrengen — ${lead.shop_location ?? "—"}`
-                            : "—"}
-                        </div>
-                        <div className="text-gray-500">Antwoorden:</div>
-                        <pre className="bg-white border border-gray-200 rounded p-2 overflow-auto max-h-[220px]">{lead.answers ? JSON.stringify(lead.answers, null, 2) : "—"}</pre>
-                        <div className="pt-1">
-                          <form action={deleteLeadAction}>
-                            <input type="hidden" name="id" value={lead.id} />
-                            <button className="bb-btn danger" type="submit">Verwijderen</button>
-                          </form>
-                        </div>
-                      </div>
-                    </details>
-                  </td>
-
-                  {/* Datum */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    {fmtDate(lead.created_at)}
-                  </td>
-
-                  {/* Klant */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    <details>
-                      <summary className="cursor-pointer">
-                        {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
-                      </summary>
-                      <div className="mt-2 text-xs leading-5 space-y-1">
-                        <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
-                        <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
-                        <div><span className="text-gray-500">Adres: </span>
-                          {[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ") || "—"}
-                        </div>
-                        <div><span className="text-gray-500">IBAN: </span>{lead.iban ?? "—"}</div>
-                      </div>
-                    </details>
-                  </td>
-
-                  {/* Model */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    {lead.model ?? "—"}
-                  </td>
-
-                  {/* Variant */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    {lead.capacity_gb ? `${lead.capacity_gb} GB` : "—"}
-                  </td>
-
-                  {/* Prijs (editable) */}
-                  <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    <div className="text-gray-600 mb-1">{eur(lead.final_price_cents)}</div>
-                    <form action={updateLeadInlineAction} className="flex items-center gap-2">
-                      <input type="hidden" name="id" value={lead.id} />
-                      <input
-                        name="final_price_eur"
-                        defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
-                        className="bb-input h-9 w-28"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                      />
-                      <button className="bb-btn subtle h-9 px-3" type="submit" title="Opslaan">💾</button>
-                    </form>
-                  </td>
-
-                  {/* Status (editable) */}
-                  <td className="px-3 py-2 align-top">
-                    <form action={updateLeadInlineAction} className="flex items-center gap-2">
-                      <input type="hidden" name="id" value={lead.id} />
-                      <select name="status" defaultValue={lead.status ?? "new"} className="bb-select h-9">
-                        <option value="new">Nieuw</option>
-                        <option value="received_store">Ontvangen in winkel</option>
-                        <option value="label_created">Verzendlabel aangemaakt</option>
-                        <option value="shipment_received">Zending ontvangen</option>
-                        <option value="check_passed">Controle succesvol</option>
-                        <option value="check_failed">Controle gefaald</option>
-                        <option value="done">Afgewerkt</option>
-                      </select>
-                      <button className="bb-btn subtle h-9 px-3" type="submit" title="Opslaan">💾</button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-
-              {(!data || data.length === 0) && (
-                <tr>
-                  <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
-                    Geen resultaten
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </form>
+            {(!data || data.length === 0) && (
+              <tr>
+                <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
+                  Geen resultaten
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Paginatie */}
