@@ -69,9 +69,9 @@ type SearchParams = {
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
   const q       = (searchParams.q ?? '').trim();
-  const method  = (searchParams.method ?? '') as SearchParams['method'];
-  const voucher = (searchParams.voucher ?? '') as SearchParams['voucher'];
-  const statusF = (searchParams.status ?? '') as SearchParams['status'];
+  const method  = (searchParams.method  ?? '') as 'ship' | 'dropoff' | '';
+  const voucher = (searchParams.voucher ?? '') as 'yes'  | 'no'      | '';
+  const statusF = (searchParams.status  ?? '') as 'new'  | 'in_progress' | 'done' | '';
   const from    = (searchParams.from ?? '').trim();
   const to      = (searchParams.to ?? '').trim();
   const page    = Math.max(1, parseInt(searchParams.page ?? '1', 10) || 1);
