@@ -4,9 +4,11 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// Service role gebruiken (server-only env vars, geen NEXT_PUBLIC)
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,  // bypass RLS, volledige rechten
+  { auth: { persistSession: false } }
 );
 
 function j(data: any, status = 200) {
@@ -14,16 +16,11 @@ function j(data: any, status = 200) {
 }
 
 export async function GET() {
-  // Healthcheck: zo kan je in de browser zien dat de route bestaat
   return j({ ok: true, expects: 'POST', table: 'buyback_leads' }, 200);
 }
 
 export async function OPTIONS() {
-  // Voor de volledigheid (preflight). Niet strikt nodig, maar netjes.
-  return new NextResponse(null, {
-    status: 204,
-    headers: { 'Allow': 'GET, POST, OPTIONS' },
-  });
+  return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } });
 }
 
 export async function POST(req: Request) {
