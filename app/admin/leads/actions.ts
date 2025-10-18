@@ -42,7 +42,6 @@ function isUUID(v: string) {
 export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "");
   if (!isUUID(id)) {
-    // harde redirect met query hint zodat je in de UI kunt zien wat er misliep
     redirect("/admin/leads?msg=invalid_id");
   }
 
@@ -72,13 +71,12 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   if (!touched) {
-    // Niets gewijzigd → terug naar overzicht
     redirect("/admin/leads?msg=no_changes");
   }
 
   const sb = supabaseAdmin();
 
-  // 1) Haal vorige waarden (ter verificatie & debug)
+  // 1) Haal vorige waarden (debug)
   const { data: before, error: selErr } = await sb
     .from("buyback_leads")
     .select("id,status,final_price_cents")
@@ -89,11 +87,12 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=select_before_error_${encodeURIComponent(selErr.message)}`);
   }
 
-  // 2) Update met return=representation
+  // 2) Update met select() om gewijzigde rij terug te krijgen (géén returning-optie in v2)
   patch.updated_at = new Date().toISOString();
+
   const { data: after, error: updErr } = await sb
     .from("buyback_leads")
-    .update(patch, { returning: "representation" })
+    .update(patch)
     .eq("id", id)
     .select("id,status,final_price_cents,updated_at")
     .single();
@@ -104,11 +103,10 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   // 3) Verifieer zichtbare wijziging (vooral status)
   if (patch.status && after?.status !== patch.status) {
-    // Kolom mismatch of policy → helpende hint
     redirect(`/admin/leads?msg=status_not_changed_check_column_or_rls`);
   }
 
-  // 4) Harde reload (navigatie) zodat UI altijd bijgewerkt is
+  // 4) Harde reload zodat UI zeker ververst
   redirect("/admin/leads?msg=updated");
 }
 
