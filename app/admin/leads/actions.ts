@@ -1,16 +1,14 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
-// ── Supabase Admin client ──────────────────────────────────────────────────────
+// ── Supabase Admin client (service role) ───────────────────────────────────────
 function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error(
-      "Supabase admin env ontbreekt: NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL of SUPABASE_SERVICE_ROLE_KEY."
-    );
+    throw new Error("Supabase admin env ontbreekt: NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL of SUPABASE_SERVICE_ROLE_KEY.");
   }
   return createClient(url, key, { auth: { persistSession: false } });
 }
@@ -26,16 +24,14 @@ const ALLOWED_STATUSES = [
   "done",
 ] as const;
 
-function parsePriceToCents(input: string | null | undefined): number | null {
-  if (input == null) return null;          // geen veld aanwezig -> geen wijziging
-  const raw = String(input);
-  const trimmed = raw.trim();
-  if (trimmed === "") return null;         // lege string -> overslaan (géén fout)
-  const normalized = trimmed.replace(/\s+/g, "").replace(",", ".");
+function parsePriceToCents(input: FormDataEntryValue | null): number | null {
+  if (input == null) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  const normalized = s.replace(/\s+/g, "").replace(",", ".");
   const num = Number(normalized);
-  if (!isFinite(num) || num < 0) return null; // ongeldig -> overslaan
-  const cents = Math.round(num * 100);
-  return Number.isFinite(cents) ? cents : null;
+  if (!isFinite(num) || num < 0) return null;
+  return Math.round(num * 100);
 }
 
 function isUUID(v: string) {
@@ -45,75 +41,88 @@ function isUUID(v: string) {
 // ── Actions ───────────────────────────────────────────────────────────────────
 export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "");
-  if (!isUUID(id)) return { ok: false, error: "Ongeldig ID" };
+  if (!isUUID(id)) {
+    // harde redirect met query hint zodat je in de UI kunt zien wat er misliep
+    redirect("/admin/leads?msg=invalid_id");
+  }
 
-  // Velden kunnen ontbreken of leeg zijn — dan slaan we over i.p.v. fouten te gooien
   const statusRaw = formData.get("status");
-  const priceRaw = formData.get("final_price_eur");
+  const priceRaw  = formData.get("final_price_eur");
 
   const patch: Record<string, any> = {};
   let touched = false;
 
-  // Status
+  // Status verwerken (optioneel)
   if (statusRaw !== null) {
     const s = String(statusRaw).trim();
-    if (s !== "") {
+    if (s) {
       if (!ALLOWED_STATUSES.includes(s as any)) {
-        return { ok: false, error: `Ongeldige status: ${s}` };
+        redirect(`/admin/leads?msg=invalid_status_${encodeURIComponent(s)}`);
       }
       patch.status = s;
       touched = true;
     }
   }
 
-  // Prijs
-  const cents = parsePriceToCents(priceRaw as any);
+  // Prijs verwerken (optioneel)
+  const cents = parsePriceToCents(priceRaw);
   if (cents !== null) {
     patch.final_price_cents = cents;
     touched = true;
   }
 
   if (!touched) {
-    // Niets te wijzigen — niet als fout behandelen
-    return { ok: true, message: "Geen wijzigingen" };
+    // Niets gewijzigd → terug naar overzicht
+    redirect("/admin/leads?msg=no_changes");
   }
 
+  const sb = supabaseAdmin();
+
+  // 1) Haal vorige waarden (ter verificatie & debug)
+  const { data: before, error: selErr } = await sb
+    .from("buyback_leads")
+    .select("id,status,final_price_cents")
+    .eq("id", id)
+    .single();
+
+  if (selErr) {
+    redirect(`/admin/leads?msg=select_before_error_${encodeURIComponent(selErr.message)}`);
+  }
+
+  // 2) Update met return=representation
   patch.updated_at = new Date().toISOString();
+  const { data: after, error: updErr } = await sb
+    .from("buyback_leads")
+    .update(patch, { returning: "representation" })
+    .eq("id", id)
+    .select("id,status,final_price_cents,updated_at")
+    .single();
 
-  try {
-    const sb = supabaseAdmin();
-    // return=representation + .select() forceert dat we de gewijzigde rij terugkrijgen
-    const { data, error } = await sb
-      .from("buyback_leads")
-      .update(patch)
-      .eq("id", id)
-      .select("id,status,final_price_cents,updated_at")
-      .single();
-
-    if (error) {
-      return { ok: false, error: error.message };
-    }
-
-    // Zorg dat SSR/ISR caches verversen
-    revalidatePath("/admin/leads");
-    return { ok: true, data };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e) };
+  if (updErr) {
+    redirect(`/admin/leads?msg=update_error_${encodeURIComponent(updErr.message)}`);
   }
+
+  // 3) Verifieer zichtbare wijziging (vooral status)
+  if (patch.status && after?.status !== patch.status) {
+    // Kolom mismatch of policy → helpende hint
+    redirect(`/admin/leads?msg=status_not_changed_check_column_or_rls`);
+  }
+
+  // 4) Harde reload (navigatie) zodat UI altijd bijgewerkt is
+  redirect("/admin/leads?msg=updated");
 }
 
 export async function deleteLeadAction(formData: FormData) {
   const id = String(formData.get("id") || "");
-  if (!isUUID(id)) return { ok: false, error: "Ongeldig ID" };
-
-  try {
-    const sb = supabaseAdmin();
-    const { error } = await sb.from("buyback_leads").delete().eq("id", id);
-    if (error) return { ok: false, error: error.message };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e) };
+  if (!isUUID(id)) {
+    redirect("/admin/leads?msg=invalid_id");
   }
 
-  revalidatePath("/admin/leads");
-  return { ok: true };
+  const sb = supabaseAdmin();
+  const { error } = await sb.from("buyback_leads").delete().eq("id", id);
+  if (error) {
+    redirect(`/admin/leads?msg=delete_error_${encodeURIComponent(error.message)}`);
+  }
+
+  redirect("/admin/leads?msg=deleted");
 }
