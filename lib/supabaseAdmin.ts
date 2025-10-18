@@ -1,7 +1,9 @@
+// Server-side Supabase client met service role (RLS bypass in admin)
+import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 
 export const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
+  process.env.SUPABASE_URL!,                // ⬅️ géén NEXT_PUBLIC_
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,   // ⬅️ service role
+  { auth: { persistSession: false } }
 );
