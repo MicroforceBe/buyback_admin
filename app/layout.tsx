@@ -1,3 +1,4 @@
+import "@/app/globals.css";
 export const metadata = { title: 'Buyback Admin', description: 'Admin UI' }; 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
