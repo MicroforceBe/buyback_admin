@@ -13,7 +13,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
  * - check_failed              = Controle gefaald
  * - done                      = Afgewerkt
  */
-export const ALLOWED_STATUSES = [
+const ALLOWED_STATUSES = [
   'new',
   'received_store',
   'label_created',
