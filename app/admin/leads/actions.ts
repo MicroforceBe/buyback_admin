@@ -1,19 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-// ── Supabase Admin client (service role) ───────────────────────────────────────
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Supabase admin env ontbreekt: NEXT_PUBLIC_SUPABASE_URL/SUPABASE_URL of SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 const ALLOWED_STATUSES = [
   "new",
   "received_store",
@@ -24,103 +14,117 @@ const ALLOWED_STATUSES = [
   "done",
 ] as const;
 
-function parsePriceToCents(input: FormDataEntryValue | null): number | null {
-  if (input == null) return null;
-  const s = String(input).trim();
-  if (!s) return null;
-  const normalized = s.replace(/\s+/g, "").replace(",", ".");
-  const num = Number(normalized);
-  if (!isFinite(num) || num < 0) return null;
-  return Math.round(num * 100);
+type StatusCode = (typeof ALLOWED_STATUSES)[number];
+
+function assertStatus(s: string): s is StatusCode {
+  return (ALLOWED_STATUSES as readonly string[]).includes(s);
 }
 
-function isUUID(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+/** Helper: Slack melding (optioneel) */
+async function postSlack(text: string) {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+  } catch {
+    // stil falen; geen crash bij Slack issues
+  }
 }
 
-// ── Actions ───────────────────────────────────────────────────────────────────
+/** Inline update: status &/of price */
 export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "");
-  if (!isUUID(id)) {
-    redirect("/admin/leads?msg=invalid_id");
-  }
+  if (!id) redirect(`/admin/leads?msg=missing_id`);
 
-  const statusRaw = formData.get("status");
-  const priceRaw  = formData.get("final_price_eur");
+  const statusRaw = String(formData.get("status") ?? "").trim();
+  const priceRaw = String(formData.get("final_price_eur") ?? "").trim().replace(",", ".");
 
   const patch: Record<string, any> = {};
-  let touched = false;
 
-  // Status verwerken (optioneel)
-  if (statusRaw !== null) {
-    const s = String(statusRaw).trim();
-    if (s) {
-      if (!ALLOWED_STATUSES.includes(s as any)) {
-        redirect(`/admin/leads?msg=invalid_status_${encodeURIComponent(s)}`);
-      }
-      patch.status = s;
-      touched = true;
-    }
+  if (statusRaw) {
+    if (!assertStatus(statusRaw)) redirect(`/admin/leads?msg=invalid_status`);
+    patch.status = statusRaw;
   }
 
-  // Prijs verwerken (optioneel)
-  const cents = parsePriceToCents(priceRaw);
-  if (cents !== null) {
-    patch.final_price_cents = cents;
-    touched = true;
+  if (priceRaw) {
+    const eur = Number(priceRaw);
+    if (!Number.isFinite(eur) || eur < 0) redirect(`/admin/leads?msg=invalid_price`);
+    patch.final_price_cents = Math.round(eur * 100);
   }
 
-  if (!touched) {
-    redirect("/admin/leads?msg=no_changes");
-  }
+  if (Object.keys(patch).length === 0) redirect(`/admin/leads?msg=nothing_to_update`);
 
   const sb = supabaseAdmin();
-
-  // 1) Haal vorige waarden (debug)
-  const { data: before, error: selErr } = await sb
-    .from("buyback_leads")
-    .select("id,status,final_price_cents")
+  const { data: before, error: selErr } = await sb.from("buyback_leads")
+    .select("id, status, final_price_cents, order_code")
     .eq("id", id)
     .single();
-
-  if (selErr) {
-    redirect(`/admin/leads?msg=select_before_error_${encodeURIComponent(selErr.message)}`);
-  }
-
-  // 2) Update met select() om gewijzigde rij terug te krijgen (géén returning-optie in v2)
-  patch.updated_at = new Date().toISOString();
+  if (selErr || !before) redirect(`/admin/leads?msg=not_found`);
 
   const { data: after, error: updErr } = await sb
     .from("buyback_leads")
     .update(patch)
     .eq("id", id)
-    .select("id,status,final_price_cents,updated_at")
+    .select("id, status, final_price_cents, order_code")
     .single();
 
-  if (updErr) {
-    redirect(`/admin/leads?msg=update_error_${encodeURIComponent(updErr.message)}`);
+  if (updErr) redirect(`/admin/leads?msg=update_error_${encodeURIComponent(updErr.message)}`);
+
+  // Slack bij belangrijke statuswijzigingen
+  if (patch.status && before.status !== patch.status) {
+    await postSlack(`🔔 Lead ${after?.order_code ?? id} status: ${before.status} → ${patch.status}`);
   }
 
-  // 3) Verifieer zichtbare wijziging (vooral status)
-  if (patch.status && after?.status !== patch.status) {
-    redirect(`/admin/leads?msg=status_not_changed_check_column_or_rls`);
-  }
-
-  // 4) Harde reload zodat UI zeker ververst
-  redirect("/admin/leads?msg=updated");
+  revalidatePath("/admin/leads");
+  redirect(`/admin/leads?msg=updated`);
 }
 
-export async function deleteLeadAction(formData: FormData) {
-  const id = String(formData.get("id") || "");
-  if (!isUUID(id)) {
-    redirect("/admin/leads?msg=invalid_id");
-  }
+/** Bulk status update (meerdere leads in één keer) */
+export async function bulkUpdateStatusAction(formData: FormData) {
+  const idsStr = String(formData.get("ids") || ""); // CSV van UUIDs
+  const status = String(formData.get("status") || "").trim();
+
+  if (!idsStr) redirect(`/admin/leads?msg=missing_ids`);
+  if (!assertStatus(status)) redirect(`/admin/leads?msg=invalid_status`);
+
+  const ids = idsStr.split(",").map(s => s.trim()).filter(Boolean);
+  if (ids.length === 0) redirect(`/admin/leads?msg=no_ids`);
 
   const sb = supabaseAdmin();
-  const { error } = await sb.from("buyback_leads").delete().eq("id", id);
-  if (error) {
-    redirect(`/admin/leads?msg=delete_error_${encodeURIComponent(error.message)}`);
-  }
 
-  redirect("/admin/leads?msg=deleted");
+  // haal bestaande op voor slack logging
+  const { data: befores } = await sb.from("buyback_leads").select("id, order_code, status").in("id", ids);
+  const { error: updErr } = await sb.from("buyback_leads").update({ status }).in("id", ids);
+  if (updErr) redirect(`/admin/leads?msg=bulk_update_error_${encodeURIComponent(updErr.message)}`);
+
+  // Slack melding
+  try {
+    const changed = (befores ?? []).filter(x => x.status !== status);
+    if (changed.length > 0) {
+      await postSlack(`🔁 Bulk status update (${changed.length}): ${changed.map(x => x.order_code ?? x.id).join(", ")} → ${status}`);
+    }
+  } catch {}
+
+  revalidatePath("/admin/leads");
+  redirect(`/admin/leads?msg=bulk_updated`);
+}
+
+/** Alleen admin_note bijwerken (optioneel) */
+export async function upsertAdminNoteAction(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  const note = String(formData.get("admin_note") || "");
+
+  if (!id) redirect(`/admin/leads?msg=missing_id`);
+
+  const sb = supabaseAdmin();
+  const { error: updErr } = await sb.from("buyback_leads").update({ admin_note: note }).eq("id", id);
+
+  if (updErr) redirect(`/admin/leads?msg=note_error_${encodeURIComponent(updErr.message)}`);
+
+  revalidatePath("/admin/leads");
+  redirect(`/admin/leads?msg=note_updated`);
 }
