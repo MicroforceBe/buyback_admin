@@ -175,7 +175,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         "status",
         "admin_note",
         "updated_at",
-        "answers",
+        //"answers",
       ].join(","),
       { count: "exact" }
     );
@@ -201,8 +201,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   if (only === "new") query = query.eq("status", "new");
   if (only === "done") query = query.eq("status", "done");
   if (method) query = query.eq("delivery_method", method);
-  if (voucher === "yes") query = query.contains("answers", { voucher: true } as any);
-  if (voucher === "no") query = query.contains("answers", { voucher: false } as any);
+  //if (voucher === "yes") query = query.contains("answers", { voucher: true } as any);
+  //if (voucher === "no") query = query.contains("answers", { voucher: false } as any);
   if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
   if (to) query = query.lte("created_at", `${to}T23:59:59.999Z`);
 
@@ -522,8 +522,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                             ? `Binnenbrengen — ${lead.shop_location ?? "—"}`
                             : "—"}
                         </div>
-                        <div className="text-gray-500">Antwoorden:</div>
+                       /* <div className="text-gray-500">Antwoorden:</div>
                         <pre className="bg-white border border-gray-200 rounded p-2 overflow-auto max-h-[220px]">{lead.answers ? JSON.stringify(lead.answers, null, 2) : "—"}</pre>
+                        */
                         <div className="pt-1">
                           <form action={deleteLeadAction}>
                             <input type="hidden" name="id" value={lead.id} />
