@@ -182,7 +182,7 @@ if (error) {
         <div className="bb-card p-6 text-gray-600">Geen resultaten voor deze filters.</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-          {data.map((lead) => (
+          {data.map((lead: Lead) => (
             <article key={lead.id} className="bb-card p-4 hover:shadow-lg transition-shadow">
               <header className="flex items-start justify-between gap-3">
                 <div>
