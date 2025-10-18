@@ -291,9 +291,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     return `?${sp.toString()}`;
   };
 
-  const inputCls = "bb-input h-9 text-xs px-2 py-1";
-  const selectCls = "bb-select h-9 text-xs px-2 py-1";
-  const btnCls = "bb-btn h-9 text-xs px-3";
+  const inputCls = "bb-input-sm";
+  const selectCls = "bb-select-sm";
+  const btnCls = "bb-btn-sm";
+
 
 
   // Chips voor actieve filters
@@ -527,11 +528,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     <input
                   name="final_price_eur"
                   defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
-                  className="bb-input h-9 text-xs px-2 py-1 w-24"
-                  inputMode="decimal"
+                  className="bb-input-sm w-24"
+                      inputMode="decimal"
                   placeholder="0.00"
                 />
-                <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
+                <button className="bb-btn-sm subtle" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
 
@@ -539,7 +540,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <td className="px-3 py-2 align-top">
                   <form action={updateLeadInlineAction} className="flex items-center gap-2">
                     <input type="hidden" name="id" value={lead.id} />
-                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select h-8 text-xs px-2">
+                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select-sm">
                       <option value="new">Nieuw</option>
                       <option value="received_store">Ontvangen in winkel</option>
                       <option value="label_created">Verzendlabel aangemaakt</option>
@@ -548,7 +549,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <option value="check_failed">Controle gefaald</option>
                       <option value="done">Afgewerkt</option>
                     </select>
-                    <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
+                    <button className="bb-btn-sm subtle" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
               </tr>
@@ -568,11 +569,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       {/* Paginatie */}
       <div className="flex items-center justify-center gap-2">
         {page > 1 ? (
-          <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page - 1)}>
+          <Link className="bb-btn-sm subtle" href={pageHref(page - 1)}>
             ← Vorige
           </Link>
         ) : (
-          <span className="bb-btn h-8 text-xs px-3" aria-disabled>
+          <span className="bb-btn-sm subtle" aria-disabled>
             ← Vorige
           </span>
         )}
@@ -580,11 +581,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
           Pagina {page} / {totalPages} • Totaal {total}
         </span>
         {page < totalPages ? (
-          <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page + 1)}>
+          <Link className="bb-btn-sm subtle" href={pageHref(page + 1)}>
             Volgende →
           </Link>
         ) : (
-          <span className="bb-btn h-8 text-xs px-3" aria-disabled>
+          <span className="bb-btn-sm subtle" aria-disabled>
             Volgende →
           </span>
         )}
