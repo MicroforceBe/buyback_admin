@@ -12,7 +12,6 @@ type Lead = {
   // toestel
   model: string | null;
   capacity_gb: number | null;
-  variant: string | null;
 
   // prijzen
   base_price_cents: number | null;
@@ -85,7 +84,6 @@ export default async function LeadsPage() {
           // toestel
           "model",
           "capacity_gb",
-          "variant",
           // prijzen
           "base_price_cents",
           "final_price_cents",
@@ -175,7 +173,6 @@ export default async function LeadsPage() {
                 <h2 className="font-semibold text-gray-900 text-sm">
                   {lead.model ?? "—"}{" "}
                   {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
-                  {lead.variant ? ` • ${lead.variant}` : ""}
                 </h2>
                 <p className="text-xs text-gray-500">{fmtDate(lead.created_at)}</p>
               </div>
