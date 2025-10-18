@@ -1,53 +1,27 @@
-import Link from 'next/link';
+import type { ReactNode } from "react";
+import Nav from "./Nav";
 
-<nav className="flex flex-col gap-2 p-4 bg-gray-100 border-r">
-  <a href="/admin" className="bb-btn subtle">🏠 Dashboard</a>
-  <a href="/admin/leads" className="bb-btn subtle">📋 Leads</a>
-  <a href="/admin/catalog" className="bb-btn subtle">📦 Catalogus</a>
-  <a href="/admin/multipliers" className="bb-btn subtle">⚙️ Multipliers</a>
-</nav>
+export const metadata = {
+  title: "Buyback Admin",
+  description: "Beheer",
+};
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <aside className="fixed inset-y-0 left-0 w-64 bg-white border-r">
-        <div className="h-16 flex items-center px-5 border-b">
-          <span className="text-base font-semibold">Buyback Admin</span>
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[260px,1fr] bg-gray-50 text-gray-900">
+      {/* Sidebar */}
+      <aside className="border-r border-gray-200 bg-gray-100">
+        <div className="p-4 border-b border-gray-200">
+          <h1 className="text-lg font-semibold">Buyback Admin</h1>
+          <p className="text-xs text-gray-500">Beheerpanelen</p>
         </div>
-        <nav className="p-3 space-y-1">
-          <NavItem href="/admin/catalog" label="Catalogus" />
-          <NavItem href="/admin/multipliers" label="Multipliers" />
-          <NavItem href="/admin/tips" label="UI Tips" />
-        </nav>
+        <Nav />
       </aside>
 
-      <div className="ml-64">
-        <header className="h-16 bg-white border-b flex items-center justify-between px-6">
-          <div className="text-sm text-gray-500">
-            <span className="font-medium text-gray-900">Admin</span> · beheer
-          </div>
-          <div className="text-xs text-gray-500">v1</div>
-        </header>
-
-        <main className="p-6">
-          <div className="max-w-[1200px] mx-auto">{children}</div>
-        </main>
-      </div>
+      {/* Main content */}
+      <main className="p-4 md:p-6">
+        {children}
+      </main>
     </div>
-  );
-}
-
-function NavItem({ href, label }: { href: string; label: string }) {
-  const base =
-    'block px-3 py-2 rounded-md text-sm hover:bg-gray-100 hover:text-gray-900';
-  const active =
-    typeof window !== 'undefined' && window.location.pathname.startsWith(href);
-  return (
-    <Link
-      href={href}
-      className={`${base} ${active ? 'bg-gray-100 font-medium' : 'text-gray-700'}`}
-    >
-      {label}
-    </Link>
   );
 }
