@@ -525,13 +525,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   <form action={updateLeadInlineAction} className="flex items-center gap-2">
                     <input type="hidden" name="id" value={lead.id} />
                     <input
-                      name="final_price_eur"
-                      defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
-                      className="bb-input h-8 text-xs px-2 w-24"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                    />
-                    <button className="bb-btn subtle h-8 text-xs px-2" type="submit" title="Opslaan">💾</button>
+                  name="final_price_eur"
+                  defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
+                  className="bb-input h-9 text-xs px-2 py-1 w-24"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+                <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
 
@@ -548,7 +548,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <option value="check_failed">Controle gefaald</option>
                       <option value="done">Afgewerkt</option>
                     </select>
-                    <button className="bb-btn subtle h-8 text-xs px-2" type="submit" title="Opslaan">💾</button>
+                    <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
               </tr>
