@@ -1,12 +1,13 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { updateLeadInlineAction, deleteLeadAction } from "./actions";
 import Link from "next/link";
-import { updateStatusAction, saveNoteAction, deleteLeadAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type Lead = {
   id: string;
+  order_code: string;
   created_at: string;
 
   model: string | null;
@@ -36,74 +37,90 @@ type Lead = {
   status: "new" | "in_progress" | "done" | null;
   admin_note: string | null;
   updated_at: string | null;
-
   answers: any;
 };
 
-function eur(cents: number | null | undefined) {
+type SearchParams = {
+  q?: string;                   // algemene zoekterm
+  status?: "new" | "in_progress" | "done" | "";
+  method?: "ship" | "dropoff" | "";
+  from?: string;
+  to?: string;
+
+  // per kolom extra filters (optioneel)
+  order_code?: string;
+  model?: string;
+  email?: string;
+  city?: string;
+
+  // sortering
+  sort?: string; // kolomnaam
+  dir?: "asc" | "desc";
+
+  page?: string;
+  limit?: string;
+};
+
+function eur(cents?: number | null) {
   const v = (cents ?? 0) / 100;
   return v.toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 function fmtDate(ts?: string | null) {
   if (!ts) return "—";
   try {
-    return new Date(ts).toLocaleString("nl-BE", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  } catch {
-    return ts;
-  }
+    return new Date(ts).toLocaleString("nl-BE", { dateStyle: "short", timeStyle: "short" });
+  } catch { return ts; }
 }
-function maskIban(iban: string | null) {
-  if (!iban) return "—";
-  const clean = iban.replace(/\s+/g, "");
-  if (clean.length <= 6) return clean;
-  return clean.slice(0, 4) + "••••••••••••" + clean.slice(-4);
+function badge(status?: string | null) {
+  if (status === "done") return <span className="bb-badge success">Afgehandeld</span>;
+  if (status === "in_progress") return <span className="bb-badge warn">In behandeling</span>;
+  return <span className="bb-badge">Nieuw</span>;
 }
-
-type SearchParams = {
-  q?: string;
-  method?: "ship" | "dropoff" | "";
-  voucher?: "yes" | "no" | "";
-  status?: "new" | "in_progress" | "done" | "";
-  from?: string;
-  to?: string;
-  page?: string;
-  limit?: string;
-};
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
+  // basis filters
   const q       = (searchParams.q ?? "").trim();
-  const method  = (searchParams.method  ?? "") as "ship" | "dropoff" | "";
-  const voucher = (searchParams.voucher ?? "") as "yes"  | "no"      | "";
-  const statusF = (searchParams.status  ?? "") as "new"  | "in_progress" | "done" | "";
+  const statusF = (searchParams.status ?? "") as "new" | "in_progress" | "done" | "";
+  const method  = (searchParams.method ?? "") as "ship" | "dropoff" | "";
   const from    = (searchParams.from ?? "").trim();
   const to      = (searchParams.to ?? "").trim();
-  const page    = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
-  const limit   = Math.min(100, Math.max(12, parseInt(searchParams.limit ?? "24", 10) || 24));
-  const offset  = (page - 1) * limit;
 
+  // kolom-filters
+  const fOrder  = (searchParams.order_code ?? "").trim();
+  const fModel  = (searchParams.model ?? "").trim();
+  const fEmail  = (searchParams.email ?? "").trim();
+  const fCity   = (searchParams.city ?? "").trim();
+
+  // sortering
+  const sort    = (searchParams.sort ?? "created_at");
+  const dir     = (searchParams.dir  ?? "desc") as "asc" | "desc";
+
+  // paginatie
+  const page  = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
+  const limit = Math.min(200, Math.max(10, parseInt(searchParams.limit ?? "50", 10) || 50));
+  const offset = (page - 1) * limit;
+
+  // query
   let query = supabaseAdmin
     .from("buyback_leads")
     .select(
       [
-        "id","created_at",
+        "id","order_code","created_at",
         "model","capacity_gb",
         "base_price_cents","final_price_cents","final_price_with_voucher_cents","voucher_bonus_cents","wants_voucher",
         "first_name","last_name","email","phone",
-        "delivery_method","shop_location",
-        "street","house_number","postal_code","city","country",
+        "delivery_method","shop_location","street","house_number","postal_code","city","country",
         "iban",
         "status","admin_note","updated_at",
         "answers"
       ].join(","),
       { count: "exact" }
-    )
-    .order("created_at", { ascending: false });
+    );
 
+  // algemene zoekterm
   if (q) {
     query = query.or([
+      `order_code.ilike.%${q}%`,
       `model.ilike.%${q}%`,
       `first_name.ilike.%${q}%`,
       `last_name.ilike.%${q}%`,
@@ -113,23 +130,32 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       `shop_location.ilike.%${q}%`
     ].join(","));
   }
-  if (method === "ship")    query = query.eq("delivery_method", "ship");
-  if (method === "dropoff") query = query.eq("delivery_method", "dropoff");
 
-  if (voucher === "yes") query = query.eq("wants_voucher", true);
-  if (voucher === "no")  query = query.or("wants_voucher.is.null,wants_voucher.eq.false");
+  // individuele filters
+  if (fOrder) query = query.ilike("order_code", `%${fOrder}%`);
+  if (fModel) query = query.ilike("model", `%${fModel}%`);
+  if (fEmail) query = query.ilike("email", `%${fEmail}%`);
+  if (fCity)  query = query.ilike("city", `%${fCity}%`);
 
   if (statusF) query = query.eq("status", statusF);
+  if (method)  query = query.eq("delivery_method", method);
+  if (from)    query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to)      query = query.lte("created_at", `${to}T23:59:59.999Z`);
 
-  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
-  if (to)   query = query.lte("created_at", `${to}T23:59:59.999Z`);
+  // sort
+  const sortable = new Set([
+    "order_code","created_at","model","capacity_gb","final_price_cents","status","email","city"
+  ]);
+  const sortCol = sortable.has(sort) ? sort : "created_at";
+  query = query.order(sortCol as any, { ascending: dir === "asc" });
 
+  // paginatie
   query = query.range(offset, offset + limit - 1);
 
+  // fetch
   let data: Lead[] | null = null;
   let error: any = null;
   let count: number | null = null;
-
   try {
     const res = await query as unknown as { data: Lead[] | null; error: any; count: number | null };
     data = res.data; error = res.error; count = res.count;
@@ -139,9 +165,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
   if (error) {
     return (
-      <div className="mx-auto max-w-7xl p-6">
-        <Header count={count ?? 0} />
-        <div className="bb-card p-5 border-red-200 bg-red-50">
+      <div className="mx-auto max-w-[1400px] p-6">
+        <h1 className="text-2xl font-semibold mb-4">Leads (Excel view)</h1>
+        <div className="bb-card p-4 bg-red-50 border-red-200">
           <div className="text-red-700 font-medium">Fout bij laden</div>
           <pre className="text-xs mt-2 text-red-800 whitespace-pre-wrap break-words">
             {error?.message || JSON.stringify(error)}
@@ -151,252 +177,207 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil((count ?? 0) / limit));
-
-  return (
-    <div className="mx-auto max-w-7xl p-6 space-y-6">
-      <Header count={count ?? 0} />
-
-      {/* Sticky filters */}
-      <div className="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/95 border rounded-xl bb-shadow p-4">
-        <Filters initial={{ q, method, voucher, status: statusF, from, to, limit }} />
-      </div>
-
-      {/* Stats row */}
-      <StatsRow total={count ?? 0} page={page} perPage={limit} status={statusF || "alle"} query={q} />
-
-      {/* Grid */}
-      {!data?.length ? (
-        <div className="bb-card p-8 text-gray-600 text-center">Geen resultaten voor deze filters.</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-5">
-          {data.map((lead: Lead) => (
-            <LeadCard key={lead.id} lead={lead} />
-          ))}
-        </div>
-      )}
-
-      <Pagination
-        total={count ?? 0}
-        page={page}
-        limit={limit}
-        params={{ q, method, voucher, status: statusF, from, to }}
-        totalPages={totalPages}
-      />
-    </div>
-  );
-}
-
-/* === Presentatiecomponenten === */
-
-function Header({ count }: { count: number }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Leads</h1>
-        <p className="text-sm text-gray-500 mt-1">Beheer je buyback-aanvragen</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Link
-          href={`/admin/leads/export?download=1`}
-          className="bb-btn subtle"
-        >
-          ⬇︎ Export CSV
-        </Link>
-        <span className="bb-badge">{count} totaal</span>
-      </div>
-    </div>
-  );
-}
-
-function Filters({
-  initial
-}: {
-  initial: {
-    q: string;
-    method: "ship" | "dropoff" | "";
-    voucher: "yes" | "no" | "";
-    status: "new" | "in_progress" | "done" | "";
-    from: string;
-    to: string;
-    limit: number | string;
-  };
-}) {
-  const { q, method, voucher, status, from, to, limit } = initial;
-  return (
-    <form className="grid grid-cols-1 md:grid-cols-12 gap-3">
-      <input name="q" defaultValue={q} placeholder="Zoeken: model, klant, e-mail, stad…"
-             className="bb-input md:col-span-4" />
-      <select name="method" defaultValue={method} className="bb-select md:col-span-2">
-        <option value="">Alle leveringen</option>
-        <option value="ship">Verzenden</option>
-        <option value="dropoff">Binnenbrengen</option>
-      </select>
-      <select name="voucher" defaultValue={voucher} className="bb-select md:col-span-2">
-        <option value="">Voucher: alle</option>
-        <option value="yes">Met voucher</option>
-        <option value="no">Zonder voucher</option>
-      </select>
-      <select name="status" defaultValue={status} className="bb-select md:col-span-2">
-        <option value="">Status: alle</option>
-        <option value="new">Nieuw</option>
-        <option value="in_progress">In behandeling</option>
-        <option value="done">Afgehandeld</option>
-      </select>
-      <div className="flex gap-3 md:col-span-6">
-        <input type="date" name="from" defaultValue={from} className="bb-input"/>
-        <input type="date" name="to"   defaultValue={to}   className="bb-input"/>
-      </div>
-      <div className="flex gap-3 md:col-span-6 justify-end">
-        <select name="limit" defaultValue={String(limit)} className="bb-select w-28">
-          <option value="12">12 / p</option>
-          <option value="24">24 / p</option>
-          <option value="48">48 / p</option>
-          <option value="96">96 / p</option>
-        </select>
-        <button className="bb-btn primary" type="submit">Filteren</button>
-        <Link href="/admin/leads" className="bb-btn subtle">Reset</Link>
-      </div>
-    </form>
-  );
-}
-
-function StatsRow({ total, page, perPage, status, query }: { total: number; page: number; perPage: number; status: string; query: string }) {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-      <div className="bb-card p-4"><div className="text-xs text-gray-500">Totaal</div><div className="text-2xl font-semibold">{total.toLocaleString("nl-BE")}</div></div>
-      <div className="bb-card p-4"><div className="text-xs text-gray-500">Pagina</div><div className="text-2xl font-semibold">{page}</div></div>
-      <div className="bb-card p-4"><div className="text-xs text-gray-500">Per pagina</div><div className="text-2xl font-semibold">{perPage}</div></div>
-      <div className="bb-card p-4"><div className="text-xs text-gray-500">Status</div><div className="text-sm">{status}</div></div>
-      <div className="bb-card p-4"><div className="text-xs text-gray-500">Zoekterm</div><div className="text-sm truncate" title={query || "—"}>{query || "—"}</div></div>
-    </div>
-  );
-}
-
-function LeadCard({ lead }: { lead: Lead }) {
-  const price = eur(lead.final_price_with_voucher_cents ?? lead.final_price_cents);
-  return (
-    <article className="bb-card p-5 group">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-gray-500">{fmtDate(lead.created_at)}</div>
-          <h2 className="font-semibold tracking-tight mt-0.5">
-            {lead.model ?? "—"} {lead.capacity_gb ? <span className="text-gray-500">• {lead.capacity_gb} GB</span> : null}
-          </h2>
-        </div>
-        <div className="text-right">
-          <div className="text-lg font-semibold">{price}</div>
-          {lead.wants_voucher && lead.voucher_bonus_cents ? (
-            <div className="text-[11px] text-emerald-700">+ voucher {eur(lead.voucher_bonus_cents)}</div>
-          ) : null}
-          <StatusBadge status={lead.status ?? "new"} />
-        </div>
-      </header>
-
-      <div className="mt-4 grid grid-cols-1 gap-2 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="bb-dot" /> <span className="text-gray-500 w-24">Klant</span>
-          <span className="truncate">{[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="bb-dot" /> <span className="text-gray-500 w-24">Contact</span>
-          <span className="truncate">{lead.email || lead.phone || "—"}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="bb-dot" /> <span className="text-gray-500 w-24">IBAN</span>
-          <span className="font-mono">{maskIban(lead.iban)}</span>
-        </div>
-        <div className="flex items-start gap-2">
-          <span className="bb-dot" /> <span className="text-gray-500 w-24">Levering</span>
-          <span className="truncate">
-            {lead.delivery_method === "ship"
-              ? `Verzenden — ${[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ")}`
-              : lead.delivery_method === "dropoff"
-              ? `Binnenbrengen — ${lead.shop_location ?? "—"}`
-              : "—"}
-          </span>
-        </div>
-      </div>
-
-      {/* Acties */}
-      <section className="mt-5 space-y-3">
-        <form action={saveNoteAction} className="space-y-2">
-          <input type="hidden" name="id" value={lead.id} />
-          <label className="text-xs text-gray-500">Notities (intern)</label>
-          <textarea name="admin_note" defaultValue={lead.admin_note ?? ""} className="bb-textarea" placeholder="Bv. klant gecontacteerd op …" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">Laatst: {fmtDate(lead.updated_at)}</span>
-            <div className="flex flex-wrap gap-2">
-              <form action={updateStatusAction}>
-                <input type="hidden" name="id" value={lead.id} />
-                <input type="hidden" name="status" value="new" />
-                <button className="bb-btn subtle" type="submit">Nieuw</button>
-              </form>
-              <form action={updateStatusAction}>
-                <input type="hidden" name="id" value={lead.id} />
-                <input type="hidden" name="status" value="in_progress" />
-                <button className="bb-btn subtle" type="submit">In behandeling</button>
-              </form>
-              <form action={updateStatusAction}>
-                <input type="hidden" name="id" value={lead.id} />
-                <input type="hidden" name="status" value="done" />
-                <button className="bb-btn success" type="submit">Afgehandeld</button>
-              </form>
-              <button className="bb-btn" formAction={saveNoteAction} type="submit">Note opslaan</button>
-              <form action={deleteLeadAction}>
-                <input type="hidden" name="id" value={lead.id} />
-                <button className="bb-btn danger" type="submit" title="Verwijderen">Verwijderen</button>
-              </form>
-            </div>
-          </div>
-        </form>
-      </section>
-
-      {/* Antwoorden */}
-      <details className="mt-3 group">
-        <summary className="cursor-pointer select-none text-sm text-gray-700 flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-gray-300 group-open:bg-gray-500"></span>
-          Antwoorden (multipliers)
-        </summary>
-        <div className="mt-2 text-xs bg-gray-50 rounded p-3 border">
-          {lead.answers ? (
-            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(lead.answers, null, 2)}</pre>
-          ) : "—"}
-        </div>
-      </details>
-    </article>
-  );
-}
-
-function StatusBadge({ status }: { status: "new" | "in_progress" | "done" | string }) {
-  const label =
-    status === "done" ? "Afgehandeld" :
-    status === "in_progress" ? "In behandeling" : "Nieuw";
-
-  const cls =
-    status === "done" ? "bb-badge success" :
-    status === "in_progress" ? "bb-badge warn" : "bb-badge";
-
-  return <span className={cls}>{label}</span>;
-}
-
-function Pagination({
-  total, page, limit, params, totalPages
-}: { total: number; page: number; limit: number; totalPages: number; params: Record<string, string> }) {
-  const prev = Math.max(1, page - 1);
-  const next = Math.min(totalPages, page + 1);
-  const qs = (p: number) => {
-    const sp = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => { if (v) sp.set(k, v); });
-    sp.set("page", String(p));
-    sp.set("limit", String(limit));
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const makeSortHref = (col: string) => {
+    const sp = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(JSON.stringify(searchParams) as any)), sort: col, dir: (sort === col && dir === 'asc') ? 'desc' : 'asc' } as any);
     return `?${sp.toString()}`;
   };
+
+  // helpers voor filters-submit
+  const serialize = (name: string, value: string) => {
+    const sp = new URLSearchParams();
+    const entries = Object.entries({
+      q, status: statusF, method, from, to, order_code: fOrder, model: fModel, email: fEmail, city: fCity, sort, dir, limit: String(limit)
+    });
+    for (const [k,v] of entries) if (v) sp.set(k, v);
+    if (value) sp.set(name, value); else sp.delete(name);
+    // Reset naar pagina 1 als je filtert
+    sp.set('page','1');
+    return `?${sp.toString()}`;
+  };
+
   return (
-    <div className="flex items-center justify-center gap-2">
-      <Link aria-disabled={page<=1} className="bb-btn subtle" href={qs(prev)}>← Vorige</Link>
-      <span className="text-sm text-gray-600">Pagina {page} / {totalPages}</span>
-      <Link aria-disabled={page>=totalPages} className="bb-btn subtle" href={qs(next)}>Volgende →</Link>
+    <div className="mx-auto max-w-[1400px] p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Leads (Excel view)</h1>
+        <div className="flex gap-2">
+          <Link href={`/admin/leads/export?download=1`} className="bb-btn">⬇︎ Export CSV</Link>
+          <Link href="/admin" className="bb-btn">← Terug</Link>
+        </div>
+      </div>
+
+      {/* globale zoek + quick filters */}
+      <form className="flex flex-wrap items-center gap-3">
+        <input name="q" defaultValue={q} placeholder="Zoek overal…" className="bb-input w-[280px]" />
+        <select name="status" defaultValue={statusF} className="bb-select">
+          <option value="">Alle status</option>
+          <option value="new">Nieuw</option>
+          <option value="in_progress">In behandeling</option>
+          <option value="done">Afgehandeld</option>
+        </select>
+        <select name="method" defaultValue={method} className="bb-select">
+          <option value="">Alle leveringen</option>
+          <option value="ship">Verzenden</option>
+          <option value="dropoff">Binnenbrengen</option>
+        </select>
+        <input type="date" name="from" defaultValue={from} className="bb-input" />
+        <input type="date" name="to"   defaultValue={to}   className="bb-input" />
+        <select name="limit" defaultValue={String(limit)} className="bb-select">
+          <option value="25">25 / p</option>
+          <option value="50">50 / p</option>
+          <option value="100">100 / p</option>
+        </select>
+        <button className="bb-btn" type="submit">Filteren</button>
+        <Link href="/admin/leads" className="bb-btn">Reset</Link>
+      </form>
+
+      {/* TABEL */}
+      <div className="overflow-auto bb-card">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr className="text-left text-gray-700">
+              <th className="px-3 py-2 w-[140px]">
+                <a href={makeSortHref('order_code')} className="font-semibold hover:underline">Order</a>
+                <div className="mt-1">
+                  <input
+                    defaultValue={fOrder}
+                    placeholder="Filter…"
+                    className="bb-input"
+                    onChange={(e) => { (window as any).location = serialize('order_code', e.currentTarget.value); }}
+                  />
+                </div>
+              </th>
+              <th className="px-3 py-2 w-[160px]">
+                <a href={makeSortHref('created_at')} className="font-semibold hover:underline">Datum</a>
+              </th>
+              <th className="px-3 py-2 w-[240px]">
+                <a href={makeSortHref('model')} className="font-semibold hover:underline">Model</a>
+                <div className="mt-1">
+                  <input
+                    defaultValue={fModel}
+                    placeholder="Filter…"
+                    className="bb-input"
+                    onChange={(e) => { (window as any).location = serialize('model', e.currentTarget.value); }}
+                  />
+                </div>
+              </th>
+              <th className="px-3 py-2 w-[80px]">
+                <a href={makeSortHref('capacity_gb')} className="font-semibold hover:underline">GB</a>
+              </th>
+              <th className="px-3 py-2 w-[140px]">
+                <a href={makeSortHref('final_price_cents')} className="font-semibold hover:underline">Prijs (EUR)</a>
+              </th>
+              <th className="px-3 py-2 w-[160px]">
+                <a className="font-semibold">Status</a>
+              </th>
+              <th className="px-3 py-2 w-[220px]">
+                <a href={makeSortHref('email')} className="font-semibold hover:underline">Email</a>
+                <div className="mt-1">
+                  <input
+                    defaultValue={fEmail}
+                    placeholder="Filter…"
+                    className="bb-input"
+                    onChange={(e) => { (window as any).location = serialize('email', e.currentTarget.value); }}
+                  />
+                </div>
+              </th>
+              <th className="px-3 py-2 w-[160px]">
+                <a href={makeSortHref('city')} className="font-semibold hover:underline">Stad</a>
+                <div className="mt-1">
+                  <input
+                    defaultValue={fCity}
+                    placeholder="Filter…"
+                    className="bb-input"
+                    onChange={(e) => { (window as any).location = serialize('city', e.currentTarget.value); }}
+                  />
+                </div>
+              </th>
+              <th className="px-3 py-2">Acties</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {(data ?? []).map((lead) => (
+              <tr key={lead.id} className="border-b hover:bg-gray-50">
+                <td className="px-3 py-2 font-mono">{lead.order_code}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{fmtDate(lead.created_at)}</td>
+                <td className="px-3 py-2">
+                  <div className="font-medium">{lead.model ?? "—"}</div>
+                </td>
+                <td className="px-3 py-2">{lead.capacity_gb ?? "—"}</td>
+
+                {/* Inline prijs */}
+                <td className="px-3 py-2">
+                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
+                    <input type="hidden" name="id" value={lead.id} />
+                    <input
+                      name="final_price_eur"
+                      defaultValue={((lead.final_price_cents ?? 0)/100).toString()}
+                      className="bb-input w-28"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                    />
+                    <button className="bb-btn" type="submit">💾</button>
+                  </form>
+                </td>
+
+                {/* Inline status */}
+                <td className="px-3 py-2">
+                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
+                    <input type="hidden" name="id" value={lead.id} />
+                    <select name="status" defaultValue={lead.status ?? 'new'} className="bb-select">
+                      <option value="new">Nieuw</option>
+                      <option value="in_progress">In behandeling</option>
+                      <option value="done">Afgehandeld</option>
+                    </select>
+                    <button className="bb-btn" type="submit">💾</button>
+                  </form>
+                </td>
+
+                <td className="px-3 py-2">{lead.email ?? "—"}</td>
+                <td className="px-3 py-2">{lead.city ?? "—"}</td>
+
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    {badge(lead.status)}
+                    <form action={deleteLeadAction}>
+                      <input type="hidden" name="id" value={lead.id} />
+                      <button className="bb-btn danger" type="submit" title="Verwijderen">🗑️</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            ))}
+
+            {(!data || data.length === 0) && (
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">Geen resultaten</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Paginatie */}
+      <div className="flex items-center justify-center gap-2">
+        {page > 1 ? (
+          <Link className="bb-btn" href={buildPageHref(page-1, { q, statusF, method, from, to, fOrder, fModel, fEmail, fCity, sort, dir, limit })}>← Vorige</Link>
+        ) : <span className="bb-btn" aria-disabled>← Vorige</span>}
+        <span className="text-sm text-gray-600">Pagina {page} / {totalPages} &nbsp;•&nbsp; Totaal {total}</span>
+        {page < totalPages ? (
+          <Link className="bb-btn" href={buildPageHref(page+1, { q, statusF, method, from, to, fOrder, fModel, fEmail, fCity, sort, dir, limit })}>Volgende →</Link>
+        ) : <span className="bb-btn" aria-disabled>Volgende →</span>}
+      </div>
     </div>
   );
+}
+
+function buildPageHref(p: number, args: any) {
+  const sp = new URLSearchParams();
+  const map: Record<string,string> = {
+    q: args.q, status: args.statusF, method: args.method, from: args.from, to: args.to,
+    order_code: args.fOrder, model: args.fModel, email: args.fEmail, city: args.fCity,
+    sort: args.sort, dir: args.dir, limit: String(args.limit), page: String(p)
+  };
+  Object.entries(map).forEach(([k, v]) => { if (v) sp.set(k, v); });
+  return `?${sp.toString()}`;
 }
