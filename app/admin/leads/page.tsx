@@ -13,7 +13,6 @@ type Lead = {
   // toestel
   model: string | null;
   capacity_gb: number | null;
-  variant?: string | null;
 
   // prijzen
   base_price_cents: number | null;
@@ -53,10 +52,23 @@ type Lead = {
 };
 
 type SearchParams = {
-  // globale filters
+  // globaal
   q?: string;
   from?: string;
   to?: string;
+
+  // kolomfilters
+  order?: string;
+  customer?: string;
+  model?: string;
+  variant?: string;           // capacity in GB (exact)
+  status?: string;
+  method?: "ship" | "dropoff" | "";
+  price_min?: string;
+  price_max?: string;
+  city?: string;
+  shop?: string;
+  voucher?: "yes" | "no" | "";
 
   // sort/paging
   sort?: string;
@@ -75,19 +87,31 @@ function fmtDate(ts?: string | null) {
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
+  // === params ===
   const q = (searchParams.q ?? "").trim();
   const from = (searchParams.from ?? "").trim();
   const to = (searchParams.to ?? "").trim();
 
-  // sort: recentste bovenaan op created_at DESC (default)
+  const order = (searchParams.order ?? "").trim();
+  const customer = (searchParams.customer ?? "").trim();
+  const modelF = (searchParams.model ?? "").trim();
+  const variant = (searchParams.variant ?? "").trim();
+  const statusF = (searchParams.status ?? "").trim();
+  const method = (searchParams.method ?? "").trim() as "ship" | "dropoff" | "";
+  const priceMin = (searchParams.price_min ?? "").trim();
+  const priceMax = (searchParams.price_max ?? "").trim();
+  const cityF = (searchParams.city ?? "").trim();
+  const shop = (searchParams.shop ?? "").trim();
+  const voucher = (searchParams.voucher ?? "").trim() as "yes" | "no" | "";
+
   const sort = searchParams.sort ?? "created_at";
   const dir = (searchParams.dir ?? "desc") as "asc" | "desc";
-
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const limit = Math.min(200, Math.max(10, parseInt(searchParams.limit ?? "50", 10) || 50));
   const offset = (page - 1) * limit;
 
-  // --- Query zonder 'answers' (bewust, om crashes te vermijden) ---
+  // === query ===
+  // Let op: we selecteren GEEN 'answers' (we filteren voucher via JSON path)
   let query = supabaseAdmin
     .from("buyback_leads")
     .select(
@@ -118,6 +142,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       { count: "exact" }
     );
 
+  // Globale zoek
   if (q) {
     query = query.or(
       [
@@ -132,17 +157,80 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       ].join(",")
     );
   }
+
+  // Datum range
   if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
   if (to) query = query.lte("created_at", `${to}T23:59:59.999Z`);
 
-  // sorteerbare kolommen (Excel-achtig)
-  const sortable = new Set(["order_code", "created_at", "model", "capacity_gb", "final_price_cents", "status"]);
+  // Kolomfilters
+  if (order) query = query.ilike("order_code", `%${order}%`);
+  if (customer) {
+    query = query.or(
+      [
+        `first_name.ilike.%${customer}%`,
+        `last_name.ilike.%${customer}%`,
+        `email.ilike.%${customer}%`,
+        `phone.ilike.%${customer}%`,
+      ].join(",")
+    );
+  }
+  if (modelF) query = query.ilike("model", `%${modelF}%`);
+  if (variant) {
+    const n = parseInt(variant, 10);
+    if (!Number.isNaN(n)) query = query.eq("capacity_gb", n);
+  }
+  if (statusF) query = query.eq("status", statusF);
+  if (method === "ship" || method === "dropoff") query = query.eq("delivery_method", method);
+  if (priceMin) {
+    const cents = Math.round(parseFloat(priceMin.replace(",", ".")) * 100);
+    if (!Number.isNaN(cents)) query = query.gte("final_price_cents", cents);
+  }
+  if (priceMax) {
+    const cents = Math.round(parseFloat(priceMax.replace(",", ".")) * 100);
+    if (!Number.isNaN(cents)) query = query.lte("final_price_cents", cents);
+  }
+  if (cityF) query = query.ilike("city", `%${cityF}%`);
+  if (shop) query = query.ilike("shop_location", `%${shop}%`);
+
+  // Voucher (answers->>voucher) SAFE filter — GEEN select nodig van 'answers'
+  if (voucher === "yes") {
+    query = query.or(
+      [
+        "answers->>voucher.eq.true",
+        "answers->>voucher.eq.\"true\"",
+        "answers->>voucher.eq.1",
+        "answers->>voucher.eq.\"1\"",
+      ].join(",")
+    );
+  }
+  if (voucher === "no") {
+    query = query.or(
+      [
+        "answers.is.null",
+        "answers->>voucher.eq.false",
+        "answers->>voucher.eq.\"false\"",
+        "answers->>voucher.eq.0",
+        "answers->>voucher.eq.\"0\"",
+      ].join(",")
+    );
+  }
+
+  // sorteerbare kolommen
+  const sortable = new Set([
+    "order_code",
+    "created_at",
+    "model",
+    "capacity_gb",
+    "final_price_cents",
+    "status",
+  ]);
   const sortCol = sortable.has(sort) ? sort : "created_at";
   query = query.order(sortCol as any, { ascending: dir === "asc" });
 
   // paginatie
   query = query.range(offset, offset + limit - 1);
 
+  // execute
   let data: Lead[] | null = null;
   let error: any = null;
   let count: number | null = null;
@@ -172,13 +260,31 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  // base QS voor sort/paging behoud
   const qsBase: Record<string, string> = {};
-  if (q) qsBase.q = q;
-  if (from) qsBase.from = from;
-  if (to) qsBase.to = to;
-  if (sort) qsBase.sort = sort;
-  if (dir) qsBase.dir = dir;
-  qsBase.limit = String(limit);
+  // bewaar alle filters:
+  const kv: Record<string, string | undefined> = {
+    q,
+    from,
+    to,
+    order,
+    customer,
+    model: modelF,
+    variant,
+    status: statusF,
+    method,
+    price_min: priceMin,
+    price_max: priceMax,
+    city: cityF,
+    shop,
+    voucher,
+    sort,
+    dir,
+    limit: String(limit),
+  };
+  Object.entries(kv).forEach(([k, v]) => {
+    if (v && v !== "") qsBase[k] = v;
+  });
 
   const makeSortHref = (col: string) => {
     const sp = new URLSearchParams(qsBase);
@@ -200,13 +306,14 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Leads</h1>
         <div className="flex gap-2">
-          <Link href={`/admin/leads/export?download=1`} className="bb-btn">⬇︎Export CSV</Link>
+          {/* CSV export bewust niet meegeleverd */}
           <Link href="/admin" className="bb-btn">← Terug</Link>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Globale filters */}
       <form className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-white" method="GET">
+        {/* Verberg huidige sort/paging zodat ze behouden blijven */}
         {Object.entries(qsBase).map(([k, v]) =>
           !["q", "from", "to", "limit", "page"].includes(k) ? (
             <input key={k} type="hidden" name={k} value={v} />
@@ -220,6 +327,59 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
           <option value="50">50 / p</option>
           <option value="100">100 / p</option>
         </select>
+        <button className="bb-btn primary" type="submit">Filteren</button>
+        <Link href="/admin/leads" className="bb-btn subtle">Reset</Link>
+      </form>
+
+      {/* Kolomfilters (Excel-achtig) */}
+      <form className="flex flex-wrap gap-3 p-3 border rounded-lg bg-white" method="GET">
+        {/* behoud bestaande QS behalve deze kolomfilters/paging */}
+        {Object.entries(qsBase).map(([k, v]) =>
+          ![
+            "order",
+            "customer",
+            "model",
+            "variant",
+            "status",
+            "method",
+            "price_min",
+            "price_max",
+            "city",
+            "shop",
+            "voucher",
+            "page",
+          ].includes(k) ? <input key={k} type="hidden" name={k} value={v} /> : null
+        )}
+
+        <input name="order" defaultValue={order} placeholder="Order ID" className="bb-input w-[140px]" />
+        <input name="customer" defaultValue={customer} placeholder="Klant (naam/email/tel)" className="bb-input w-[220px]" />
+        <input name="model" defaultValue={modelF} placeholder="Model" className="bb-input w-[180px]" />
+        <input name="variant" defaultValue={variant} placeholder="Variant (GB)" className="bb-input w-[120px]" />
+        <select name="status" defaultValue={statusF} className="bb-select w-[210px]">
+          <option value="">Alle status</option>
+          <option value="new">Nieuw</option>
+          <option value="received_store">Ontvangen in winkel</option>
+          <option value="label_created">Verzendlabel aangemaakt</option>
+          <option value="shipment_received">Zending ontvangen</option>
+          <option value="check_passed">Controle succesvol</option>
+          <option value="check_failed">Controle gefaald</option>
+          <option value="done">Afgewerkt</option>
+        </select>
+        <select name="method" defaultValue={method} className="bb-select w-[170px]">
+          <option value="">Alle methodes</option>
+          <option value="ship">Verzenden</option>
+          <option value="dropoff">Binnenbrengen</option>
+        </select>
+        <input name="price_min" defaultValue={priceMin} placeholder="Prijs min (€)" className="bb-input w-[130px]" inputMode="decimal" />
+        <input name="price_max" defaultValue={priceMax} placeholder="Prijs max (€)" className="bb-input w-[130px]" inputMode="decimal" />
+        <input name="city" defaultValue={cityF} placeholder="Stad" className="bb-input w-[140px]" />
+        <input name="shop" defaultValue={shop} placeholder="Winkel" className="bb-input w-[160px]" />
+        <select name="voucher" defaultValue={voucher} className="bb-select w-[160px]">
+          <option value="">Alle (voucher)</option>
+          <option value="yes">Voucher: Ja</option>
+          <option value="no">Voucher: Nee of ontbreekt</option>
+        </select>
+
         <button className="bb-btn primary" type="submit">Filteren</button>
         <Link href="/admin/leads" className="bb-btn subtle">Reset</Link>
       </form>
