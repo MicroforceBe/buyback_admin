@@ -291,9 +291,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     return `?${sp.toString()}`;
   };
 
-  const inputCls = "bb-input h-8 text-xs px-2";
-  const selectCls = "bb-select h-8 text-xs px-2";
-  const btnCls = "bb-btn h-8 text-xs px-3";
+  const inputCls = "bb-input h-9 text-xs px-2 py-1";
+  const selectCls = "bb-select h-9 text-xs px-2 py-1";
+  const btnCls = "bb-btn h-9 text-xs px-3";
+
 
   // Chips voor actieve filters
   const chipItems: { label: string; param: keyof SearchParams; value: string }[] = [];
