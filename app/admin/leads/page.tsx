@@ -71,9 +71,9 @@ function maskIban(iban: string | null) {
 
 type SearchParams = {
   q?: string;
-  method?: 'ship' | 'dropoff' | '';
-  voucher?: 'yes' | 'no' | '';
-  status?: 'new' | 'in_progress' | 'done' | '';
+  method?: "ship" | "dropoff" | "";
+  voucher?: "yes" | "no" | "";
+  status?: "new" | "in_progress" | "done" | "";
   from?: string;
   to?: string;
   page?: string;
@@ -81,14 +81,14 @@ type SearchParams = {
 };
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
-  const q       = (searchParams.q ?? '').trim();
-  const method  = (searchParams.method  ?? '') as 'ship' | 'dropoff' | '';
-  const voucher = (searchParams.voucher ?? '') as 'yes'  | 'no'      | '';
-  const statusF = (searchParams.status  ?? '') as 'new'  | 'in_progress' | 'done' | '';
-  const from    = (searchParams.from ?? '').trim();
-  const to      = (searchParams.to ?? '').trim();
-  const page    = Math.max(1, parseInt(searchParams.page ?? '1', 10) || 1);
-  const limit   = Math.min(100, Math.max(10, parseInt(searchParams.limit ?? '24', 10) || 24));
+  const q       = (searchParams.q ?? "").trim();
+  const method  = (searchParams.method  ?? "") as "ship" | "dropoff" | "";
+  const voucher = (searchParams.voucher ?? "") as "yes"  | "no"      | "";
+  const statusF = (searchParams.status  ?? "") as "new"  | "in_progress" | "done" | "";
+  const from    = (searchParams.from ?? "").trim();
+  const to      = (searchParams.to ?? "").trim();
+  const page    = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
+  const limit   = Math.min(100, Math.max(10, parseInt(searchParams.limit ?? "24", 10) || 24));
   const offset  = (page - 1) * limit;
 
   let query = supabaseAdmin
@@ -118,18 +118,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       `phone.ilike.%${q}%`,
       `city.ilike.%${q}%`,
       `shop_location.ilike.%${q}%`
-    ].join(','));
+    ].join(","));
   }
-  if (method === 'ship')    query = query.eq('delivery_method', 'ship');
-  if (method === 'dropoff') query = query.eq('delivery_method', 'dropoff');
+  if (method === "ship")    query = query.eq("delivery_method", "ship");
+  if (method === "dropoff") query = query.eq("delivery_method", "dropoff");
 
-  if (voucher === 'yes') query = query.eq('wants_voucher', true);
-  if (voucher === 'no')  query = query.or('wants_voucher.is.null,wants_voucher.eq.false');
+  if (voucher === "yes") query = query.eq("wants_voucher", true);
+  if (voucher === "no")  query = query.or("wants_voucher.is.null,wants_voucher.eq.false");
 
-  if (statusF) query = query.eq('status', statusF);
+  if (statusF) query = query.eq("status", statusF);
 
-  if (from) query = query.gte('created_at', `${from}T00:00:00Z`);
-  if (to)   query = query.lte('created_at', `${to}T23:59:59.999Z`);
+  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to)   query = query.lte("created_at", `${to}T23:59:59.999Z`);
 
   query = query.range(offset, offset + limit - 1);
 
@@ -144,7 +144,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     error = e;
   }
 
-  // ----------- FOUTKAART -----------
+  // ---- Foutkaart i.p.v. crash ----
   if (error) {
     return (
       <div className="p-6">
@@ -159,15 +159,17 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     );
   }
 
-  // ----------- UI -----------
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold">Leads</h1>
         <div className="flex items-center gap-2">
-          <Link href={`/admin/leads/export?${new URLSearchParams({
-            q, method, voucher, status: statusF, from, to
-          }).toString()}&download=1`} className="bb-btn border bg-white hover:bg-gray-50">
+          <Link
+            href={`/admin/leads/export?${new URLSearchParams({
+              q, method, voucher, status: statusF, from, to
+            }).toString()}&download=1`}
+            className="bb-btn border bg-white hover:bg-gray-50"
+          >
             ⬇︎ Export CSV
           </Link>
           <Link href="/admin" className="bb-btn">← Terug</Link>
@@ -258,7 +260,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 </div>
               </section>
 
-              {/* Notitie + status acties */}
+              {/* Notitie + status acties (alleen server actions; geen client-events) */}
               <div className="mt-3 space-y-2">
                 <form action={saveNoteAction} className="flex flex-col gap-2">
                   <input type="hidden" name="id" value={lead.id}/>
@@ -287,11 +289,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         <input type="hidden" name="status" value="done"/>
                         <button className="bb-btn border bg-green-600 text-white border-green-600" type="submit">Afgehandeld</button>
                       </form>
-                      <button className="bb-btn border" formAction={saveNoteAction} type="submit">Note opslaan</button>
-                      <form action={deleteLeadAction} onSubmit={(e) => { if (!confirm('Deze lead definitief verwijderen?')) e.preventDefault(); }}>
+                      {/* eenvoudige delete zonder confirm (RSC-safe) */}
+                      <form action={deleteLeadAction}>
                         <input type="hidden" name="id" value={lead.id}/>
                         <button className="bb-btn border" type="submit" title="Verwijderen">🗑️</button>
                       </form>
+                      {/* notitie opslaan */}
+                      <button className="bb-btn border" formAction={saveNoteAction} type="submit">Note opslaan</button>
                     </div>
                   </div>
                 </form>
@@ -322,16 +326,16 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
 /* ===== UI helpers ===== */
 
-function StatusBadge({ status }: { status: 'new' | 'in_progress' | 'done' | string }) {
+function StatusBadge({ status }: { status: "new" | "in_progress" | "done" | string }) {
   const cls =
-    status === 'done'
-      ? 'bg-green-100 text-green-800 border-green-200'
-      : status === 'in_progress'
-      ? 'bg-amber-100 text-amber-800 border-amber-200'
-      : 'bg-gray-100 text-gray-800 border-gray-200';
+    status === "done"
+      ? "bg-green-100 text-green-800 border-green-200"
+      : status === "in_progress"
+      ? "bg-amber-100 text-amber-800 border-amber-200"
+      : "bg-gray-100 text-gray-800 border-gray-200";
   const label =
-    status === 'done' ? 'Afgehandeld' :
-    status === 'in_progress' ? 'In behandeling' : 'Nieuw';
+    status === "done" ? "Afgehandeld" :
+    status === "in_progress" ? "In behandeling" : "Nieuw";
   return <span className={`inline-block mt-2 px-2 py-1 text-[11px] rounded border ${cls}`}>{label}</span>;
 }
 
@@ -342,8 +346,8 @@ function Pagination({ total, page, limit, params }: { total: number; page: numbe
   const qs = (p: number) => {
     const sp = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => { if (v) sp.set(k, v); });
-    sp.set('page', String(p));
-    sp.set('limit', String(limit));
+    sp.set("page", String(p));
+    sp.set("limit", String(limit));
     return `?${sp.toString()}`;
   };
   return (
