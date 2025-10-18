@@ -5,3 +5,55 @@
 :root { scroll-behavior: smooth; }
 *:focus { outline: none; }
 :focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
+/* === Buyback Admin UI tokens === */
+.bb-shadow { box-shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1); }
+
+.bb-card {
+  background: #fff;
+  border: 1px solid rgb(229 231 235);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  transition: box-shadow .2s ease, transform .08s ease;
+}
+.bb-card:hover { box-shadow: 0 8px 24px rgba(16,24,40,.08); }
+
+.bb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap:.5rem; padding:.55rem .9rem; border-radius: .65rem; font-weight: 500;
+  border: 1px solid rgb(209 213 219); background: #fff; color:#111827;
+  transition: all .15s ease-in-out; text-decoration: none;
+}
+.bb-btn:hover { background: rgb(249 250 251); }
+.bb-btn.primary { background: rgb(22 163 74); border-color: rgb(22 163 74); color:#fff; }
+.bb-btn.primary:hover { background: rgb(21 128 61); }
+.bb-btn.success { background: rgb(16 185 129); border-color: rgb(16 185 129); color:#fff; }
+.bb-btn.success:hover { background: rgb(5 150 105); }
+.bb-btn.danger { background: #fff0f0; color:#991b1b; border-color:#fecaca; }
+.bb-btn.danger:hover { background:#fee2e2; }
+.bb-btn.subtle { background:#fff; color:#111827; }
+.bb-btn[aria-disabled="true"] { opacity:.5; pointer-events:none; }
+
+.bb-input, .bb-select, .bb-textarea {
+  width:100%;
+  padding:.55rem .75rem;
+  border:1px solid rgb(209 213 219);
+  border-radius:.65rem;
+  background:#fff;
+  outline: none;
+}
+.bb-input:focus, .bb-select:focus, .bb-textarea:focus {
+  border-color: rgb(22 163 74);
+  box-shadow: 0 0 0 3px rgba(22,163,74,.15);
+}
+
+.bb-textarea { min-height: 96px; resize: vertical; }
+
+.bb-badge {
+  display:inline-flex; align-items:center; gap:.35rem;
+  padding:.25rem .5rem; font-size:.72rem; font-weight:600;
+  background: #eef2ff; color:#3730a3; border:1px solid #e0e7ff; border-radius:.5rem;
+}
+.bb-badge.success { background:#ecfdf5; color:#065f46; border-color:#d1fae5; }
+.bb-badge.warn    { background:#fff7ed; color:#9a3412; border-color:#ffedd5; }
+
+.bb-dot { width:.5rem; height:.5rem; border-radius:9999px; background:#d1d5db; flex:0 0 auto; }
