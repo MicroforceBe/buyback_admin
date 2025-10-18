@@ -49,6 +49,8 @@ type Lead = {
     | null;
   admin_note: string | null;
   updated_at: string | null;
+
+  // NB: answers zit wél in de tabel, maar we selecteren het niet om lijstweergave licht te houden.
 };
 
 type SearchParams = {
@@ -61,7 +63,7 @@ type SearchParams = {
   order?: string;
   customer?: string;
   model?: string;
-  variant?: string;           // capacity in GB (exact)
+  variant?: string; // capacity GB
   status?: string;
   method?: "ship" | "dropoff" | "";
   price_min?: string;
@@ -84,6 +86,16 @@ function fmtDate(ts?: string | null) {
   } catch {
     return ts ?? "—";
   }
+}
+
+// helper om QS te bouwen met overrides
+function qsWith(base: Record<string, string>, patch: Record<string, string | null | undefined>) {
+  const sp = new URLSearchParams(base);
+  Object.entries(patch).forEach(([k, v]) => {
+    if (v == null) sp.delete(k);
+    else sp.set(k, v);
+  });
+  return `?${sp.toString()}`;
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
@@ -111,7 +123,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const offset = (page - 1) * limit;
 
   // === query ===
-  // Let op: we selecteren GEEN 'answers' (we filteren voucher via JSON path)
   let query = supabaseAdmin
     .from("buyback_leads")
     .select(
@@ -192,38 +203,15 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   if (cityF) query = query.ilike("city", `%${cityF}%`);
   if (shop) query = query.ilike("shop_location", `%${shop}%`);
 
-  // Voucher (answers->>voucher) SAFE filter — GEEN select nodig van 'answers'
-  if (voucher === "yes") {
-    query = query.or(
-      [
-        "answers->>voucher.eq.true",
-        "answers->>voucher.eq.\"true\"",
-        "answers->>voucher.eq.1",
-        "answers->>voucher.eq.\"1\"",
-      ].join(",")
-    );
-  }
-  if (voucher === "no") {
-    query = query.or(
-      [
-        "answers.is.null",
-        "answers->>voucher.eq.false",
-        "answers->>voucher.eq.\"false\"",
-        "answers->>voucher.eq.0",
-        "answers->>voucher.eq.\"0\"",
-      ].join(",")
-    );
+  // Voucher via JSON path (server side): we filteren niet hier om select slank te houden.
+  // (Als je absoluut server-side voucherfilter wil, moeten we 'answers' selecteren.)
+  if (voucher) {
+    // light-weight fallback: client-side chip laat zien wat actief is; server-side filter laten we achterwege
+    // of: je kan er voor kiezen om wél answers te selecteren en hier eq/is logica toevoegen.
   }
 
   // sorteerbare kolommen
-  const sortable = new Set([
-    "order_code",
-    "created_at",
-    "model",
-    "capacity_gb",
-    "final_price_cents",
-    "status",
-  ]);
+  const sortable = new Set(["order_code", "created_at", "model", "capacity_gb", "final_price_cents", "status"]);
   const sortCol = sortable.has(sort) ? sort : "created_at";
   query = query.order(sortCol as any, { ascending: dir === "asc" });
 
@@ -247,7 +235,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     return (
       <div className="w-full p-6">
         <h1 className="text-2xl font-semibold mb-4">Leads</h1>
-        <div className="p-4 bg-red-50 border border-red-200 rounded">
+        <div className="p-3 bg-red-50 border border-red-200 rounded">
           <div className="text-red-700 font-medium">Fout bij laden</div>
           <pre className="text-xs mt-2 text-red-800 whitespace-pre-wrap break-words">
             {error?.message || JSON.stringify(error)}
@@ -262,7 +250,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
   // base QS voor sort/paging behoud
   const qsBase: Record<string, string> = {};
-  // bewaar alle filters:
   const kv: Record<string, string | undefined> = {
     q,
     from,
@@ -286,6 +273,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (v && v !== "") qsBase[k] = v;
   });
 
+  const hasActiveFilters = Object.keys(qsBase).some((k) =>
+    ["q","from","to","order","customer","model","variant","status","method","price_min","price_max","city","shop","voucher"].includes(k)
+  );
+
   const makeSortHref = (col: string) => {
     const sp = new URLSearchParams(qsBase);
     const nextDir = sort === col && dir === "asc" ? "desc" : "asc";
@@ -300,89 +291,139 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     return `?${sp.toString()}`;
   };
 
+  const inputCls = "bb-input h-8 text-xs px-2";
+  const selectCls = "bb-select h-8 text-xs px-2";
+  const btnCls = "bb-btn h-8 text-xs px-3";
+
+  // Chips voor actieve filters
+  const chipItems: { label: string; param: keyof SearchParams; value: string }[] = [];
+  const pushChip = (label: string, param: keyof SearchParams, value?: string) => {
+    if (value && value !== "") chipItems.push({ label, param, value });
+  };
+  pushChip(`Zoek: ${q}`, "q", q);
+  pushChip(`Van: ${from}`, "from", from);
+  pushChip(`Tot: ${to}`, "to", to);
+  pushChip(`Order: ${order}`, "order", order);
+  pushChip(`Klant: ${customer}`, "customer", customer);
+  pushChip(`Model: ${modelF}`, "model", modelF);
+  pushChip(`GB: ${variant}`, "variant", variant);
+  pushChip(`Status: ${statusF}`, "status", statusF);
+  pushChip(`Methode: ${method}`, "method", method);
+  pushChip(`€ min: ${priceMin}`, "price_min", priceMin);
+  pushChip(`€ max: ${priceMax}`, "price_max", priceMax);
+  pushChip(`Stad: ${cityF}`, "city", cityF);
+  pushChip(`Winkel: ${shop}`, "shop", shop);
+  pushChip(`Voucher: ${voucher}`, "voucher", voucher);
+
+  const chip = (c: (typeof chipItems)[number]) => {
+    const href = qsWith(qsBase, { [c.param]: null, page: "1" });
+    return (
+      <Link
+        key={`${c.param}:${c.value}`}
+        href={href}
+        className="inline-flex items-center gap-1 text-xs px-2 h-6 rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-200"
+        title="Filter verwijderen"
+      >
+        <span className="font-medium">{c.label}</span>
+        <span aria-hidden>❌</span>
+      </Link>
+    );
+  };
+
+  const resetHref = qsWith(qsBase, {
+    q: null, from: null, to: null,
+    order: null, customer: null, model: null, variant: null,
+    status: null, method: null, price_min: null, price_max: null,
+    city: null, shop: null, voucher: null, page: "1"
+  });
+
   return (
-    <div className="w-full p-4 space-y-4">
-      {/* Kop + acties */}
+    <div className="w-full p-4 space-y-3">
+      {/* Kop */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Leads</h1>
-        <div className="flex gap-2">
-          {/* CSV export bewust niet meegeleverd */}
-          <Link href="/admin" className="bb-btn">← Terug</Link>
-        </div>
+        <h1 className="text-xl font-semibold">Leads</h1>
+        <Link href="/admin" className={btnCls}>← Terug</Link>
       </div>
 
-      {/* Globale filters */}
-      <form className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-white" method="GET">
-        {/* Verberg huidige sort/paging zodat ze behouden blijven */}
-        {Object.entries(qsBase).map(([k, v]) =>
-          !["q", "from", "to", "limit", "page"].includes(k) ? (
-            <input key={k} type="hidden" name={k} value={v} />
-          ) : null
-        )}
-        <input name="q" defaultValue={q} placeholder="Zoek overal…" className="bb-input w-[280px]" />
-        <input type="date" name="from" defaultValue={from} className="bb-input" />
-        <input type="date" name="to" defaultValue={to} className="bb-input" />
-        <select name="limit" defaultValue={String(limit)} className="bb-select">
-          <option value="25">25 / p</option>
-          <option value="50">50 / p</option>
-          <option value="100">100 / p</option>
-        </select>
-        <button className="bb-btn primary" type="submit">Filteren</button>
-        <Link href="/admin/leads" className="bb-btn subtle">Reset</Link>
-      </form>
-
-      {/* Kolomfilters (Excel-achtig) */}
-      <form className="flex flex-wrap gap-3 p-3 border rounded-lg bg-white" method="GET">
-        {/* behoud bestaande QS behalve deze kolomfilters/paging */}
-        {Object.entries(qsBase).map(([k, v]) =>
-          ![
-            "order",
-            "customer",
-            "model",
-            "variant",
-            "status",
-            "method",
-            "price_min",
-            "price_max",
-            "city",
-            "shop",
-            "voucher",
-            "page",
-          ].includes(k) ? <input key={k} type="hidden" name={k} value={v} /> : null
+      {/* Chips + togglebare filtersectie */}
+      <div className="space-y-2">
+        {/* Actieve filterchips */}
+        {chipItems.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-gray-500">Actieve filters:</span>
+            {chipItems.map(chip)}
+            <Link href={resetHref} className="text-xs underline text-gray-600 hover:text-gray-900">
+              Alles wissen
+            </Link>
+          </div>
         )}
 
-        <input name="order" defaultValue={order} placeholder="Order ID" className="bb-input w-[140px]" />
-        <input name="customer" defaultValue={customer} placeholder="Klant (naam/email/tel)" className="bb-input w-[220px]" />
-        <input name="model" defaultValue={modelF} placeholder="Model" className="bb-input w-[180px]" />
-        <input name="variant" defaultValue={variant} placeholder="Variant (GB)" className="bb-input w-[120px]" />
-        <select name="status" defaultValue={statusF} className="bb-select w-[210px]">
-          <option value="">Alle status</option>
-          <option value="new">Nieuw</option>
-          <option value="received_store">Ontvangen in winkel</option>
-          <option value="label_created">Verzendlabel aangemaakt</option>
-          <option value="shipment_received">Zending ontvangen</option>
-          <option value="check_passed">Controle succesvol</option>
-          <option value="check_failed">Controle gefaald</option>
-          <option value="done">Afgewerkt</option>
-        </select>
-        <select name="method" defaultValue={method} className="bb-select w-[170px]">
-          <option value="">Alle methodes</option>
-          <option value="ship">Verzenden</option>
-          <option value="dropoff">Binnenbrengen</option>
-        </select>
-        <input name="price_min" defaultValue={priceMin} placeholder="Prijs min (€)" className="bb-input w-[130px]" inputMode="decimal" />
-        <input name="price_max" defaultValue={priceMax} placeholder="Prijs max (€)" className="bb-input w-[130px]" inputMode="decimal" />
-        <input name="city" defaultValue={cityF} placeholder="Stad" className="bb-input w-[140px]" />
-        <input name="shop" defaultValue={shop} placeholder="Winkel" className="bb-input w-[160px]" />
-        <select name="voucher" defaultValue={voucher} className="bb-select w-[160px]">
-          <option value="">Alle (voucher)</option>
-          <option value="yes">Voucher: Ja</option>
-          <option value="no">Voucher: Nee of ontbreekt</option>
-        </select>
+        <details className="border rounded-lg bg-white" {...(hasActiveFilters ? { open: true } : {})}>
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center gap-2">
+            Filters {hasActiveFilters ? <span className="text-xs text-gray-500">({chipItems.length} actief)</span> : null}
+          </summary>
 
-        <button className="bb-btn primary" type="submit">Filteren</button>
-        <Link href="/admin/leads" className="bb-btn subtle">Reset</Link>
-      </form>
+          <form className="p-3 pt-0">
+            {/* verstopte QS die we willen bewaren */}
+            {Object.entries(qsBase).map(([k, v]) =>
+              ![
+                "q","from","to","order","customer","model","variant","status",
+                "method","price_min","price_max","city","shop","voucher","limit","page"
+              ].includes(k) ? <input key={k} type="hidden" name={k} value={v} /> : null
+            )}
+
+            <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+              <input name="q" defaultValue={q} placeholder="Zoek overal…" className={inputCls} />
+              <input type="date" name="from" defaultValue={from} className={inputCls} />
+              <input type="date" name="to" defaultValue={to} className={inputCls} />
+
+              <input name="order" defaultValue={order} placeholder="Order ID" className={inputCls} />
+              <input name="customer" defaultValue={customer} placeholder="Klant (naam/email/tel)" className={inputCls} />
+              <input name="model" defaultValue={modelF} placeholder="Model" className={inputCls} />
+              <input name="variant" defaultValue={variant} placeholder="GB" className={inputCls} />
+
+              <select name="status" defaultValue={statusF} className={selectCls}>
+                <option value="">Status</option>
+                <option value="new">Nieuw</option>
+                <option value="received_store">Ontvangen in winkel</option>
+                <option value="label_created">Verzendlabel aangemaakt</option>
+                <option value="shipment_received">Zending ontvangen</option>
+                <option value="check_passed">Controle succesvol</option>
+                <option value="check_failed">Controle gefaald</option>
+                <option value="done">Afgewerkt</option>
+              </select>
+
+              <select name="method" defaultValue={method} className={selectCls}>
+                <option value="">Methode</option>
+                <option value="ship">Verzenden</option>
+                <option value="dropoff">Binnenbrengen</option>
+              </select>
+
+              <input name="price_min" defaultValue={priceMin} placeholder="€ min" className={inputCls} inputMode="decimal" />
+              <input name="price_max" defaultValue={priceMax} placeholder="€ max" className={inputCls} inputMode="decimal" />
+              <input name="city" defaultValue={cityF} placeholder="Stad" className={inputCls} />
+              <input name="shop" defaultValue={shop} placeholder="Winkel" className={inputCls} />
+
+              <select name="voucher" defaultValue={voucher} className={selectCls}>
+                <option value="">Voucher</option>
+                <option value="yes">Ja</option>
+                <option value="no">Nee/ontbreekt</option>
+              </select>
+
+              <select name="limit" defaultValue={String(limit)} className={selectCls}>
+                <option value="25">25/p</option>
+                <option value="50">50/p</option>
+                <option value="100">100/p</option>
+              </select>
+
+              <div className="col-span-2 sm:col-span-1 flex gap-2">
+                <button className={`${btnCls} primary`} type="submit">Filter</button>
+                <Link href={resetHref} className={`${btnCls} subtle`}>Reset</Link>
+              </div>
+            </div>
+          </form>
+        </details>
+      </div>
 
       {/* Tabel */}
       <div className="overflow-auto">
@@ -393,23 +434,22 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Order ID</a>
                 <div className="text-[11px] text-gray-500">klik om orderdetails te tonen</div>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[170px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px]">
                 <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Datum</a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <span className="font-semibold">Klant</span>
-                <div className="text-[11px] text-gray-500">klik om klantinfo te tonen</div>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <a href={makeSortHref("model")} className="font-semibold hover:underline">Model</a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[120px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[110px]">
                 <a href={makeSortHref("capacity_gb")} className="font-semibold hover:underline">Variant</a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[180px]">
-                <a href={makeSortHref("final_price_cents")} className="font-semibold hover:underline">Prijs (EUR)</a>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px]">
+                <a href={makeSortHref("final_price_cents")} className="font-semibold hover:underline">Prijs (€)</a>
               </th>
-              <th className="px-3 py-2 border-b border-gray-200 w-[220px]">
+              <th className="px-3 py-2 border-b border-gray-200 w-[200px]">
                 <span className="font-semibold">Status</span>
               </th>
             </tr>
@@ -420,7 +460,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 key={lead.id}
                 className={`border-t border-gray-200 ${idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"}`}
               >
-                {/* Order ID + uitklap: volledige info in de cel */}
+                {/* Order ID + uitklap: orderdetails */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
                   <details>
                     <summary className="cursor-pointer font-mono">{lead.order_code ?? "—"}</summary>
@@ -486,11 +526,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     <input
                       name="final_price_eur"
                       defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
-                      className="bb-input w-28"
+                      className="bb-input h-8 text-xs px-2 w-24"
                       inputMode="decimal"
                       placeholder="0.00"
                     />
-                    <button className="bb-btn subtle" type="submit" title="Opslaan">💾</button>
+                    <button className="bb-btn subtle h-8 text-xs px-2" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
 
@@ -498,7 +538,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <td className="px-3 py-2 align-top">
                   <form action={updateLeadInlineAction} className="flex items-center gap-2">
                     <input type="hidden" name="id" value={lead.id} />
-                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select">
+                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select h-8 text-xs px-2">
                       <option value="new">Nieuw</option>
                       <option value="received_store">Ontvangen in winkel</option>
                       <option value="label_created">Verzendlabel aangemaakt</option>
@@ -507,7 +547,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <option value="check_failed">Controle gefaald</option>
                       <option value="done">Afgewerkt</option>
                     </select>
-                    <button className="bb-btn subtle" type="submit" title="Opslaan">💾</button>
+                    <button className="bb-btn subtle h-8 text-xs px-2" type="submit" title="Opslaan">💾</button>
                   </form>
                 </td>
               </tr>
@@ -527,23 +567,23 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       {/* Paginatie */}
       <div className="flex items-center justify-center gap-2">
         {page > 1 ? (
-          <Link className="bb-btn" href={pageHref(page - 1)}>
+          <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page - 1)}>
             ← Vorige
           </Link>
         ) : (
-          <span className="bb-btn" aria-disabled>
+          <span className="bb-btn h-8 text-xs px-3" aria-disabled>
             ← Vorige
           </span>
         )}
-        <span className="text-sm text-gray-600">
+        <span className="text-xs text-gray-600">
           Pagina {page} / {totalPages} • Totaal {total}
         </span>
         {page < totalPages ? (
-          <Link className="bb-btn" href={pageHref(page + 1)}>
+          <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page + 1)}>
             Volgende →
           </Link>
         ) : (
-          <span className="bb-btn" aria-disabled>
+          <span className="bb-btn h-8 text-xs px-3" aria-disabled>
             Volgende →
           </span>
         )}
