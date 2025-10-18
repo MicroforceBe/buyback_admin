@@ -78,10 +78,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const limit   = Math.min(100, Math.max(10, parseInt(searchParams.limit ?? '24', 10) || 24));
   const offset  = (page - 1) * limit;
 
-  let query = supabaseAdmin
-    .from('buyback_leads')
+ // let query = supabaseAdmin
+   // .from('buyback_leads')
     /*.select(
-      [
+    //  [
     //    'id','created_at','updated_at','status',
     //    'source','model','capacity_gb',
      //   'base_price_cents','final_price_cents','final_price_with_voucher_cents','voucher_bonus_cents','wants_voucher',
@@ -93,9 +93,34 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     //  { count: 'exact' }
    // )
    // .order('created_at', { ascending: false }); */
-  .select('id, created_at, model, final_price_cents', { count: 'exact' })
+  //.select('id, created_at, model, final_price_cents', { count: 'exact' })
+  //.order('created_at', { ascending: false });
+
+  let query = supabaseAdmin
+  .from('buyback_leads')
+  .select('…', { count: 'exact' })
   .order('created_at', { ascending: false });
 
+query = query.range(offset, offset + limit - 1);
+
+// ⬇️ Hier halen we data op
+const { data, error, count } = await query as unknown as {
+  data: Lead[] | null, error: any, count: number | null
+};
+/* Toon foutkaart i.p.v. crashen */
+if (error) {
+  return (
+    <div className="p-6">
+      <h1 className="text-xl font-semibold mb-2">Leads</h1>
+      <div className="bb-card p-4 bg-red-50 border-red-200">
+        <div className="font-medium text-red-700">Fout bij laden</div>
+        <pre className="text-xs mt-1 text-red-800 whitespace-pre-wrap break-words">
+          {error?.message || JSON.stringify(error)}
+        </pre>
+      </div>
+    </div>
+  );
+}
 
   if (q) {
     query = query.or([
