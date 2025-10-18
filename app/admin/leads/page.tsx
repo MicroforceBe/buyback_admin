@@ -80,19 +80,22 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
   let query = supabaseAdmin
     .from('buyback_leads')
-    .select(
-      [
-        'id','created_at','updated_at','status',
-        'source','model','capacity_gb',
-        'base_price_cents','final_price_cents','final_price_with_voucher_cents','voucher_bonus_cents','wants_voucher',
-        'first_name','last_name','email','phone',
-        'delivery_method','shop_location',
-        'street','house_number','postal_code','city','country','iban',
-        'admin_note','answers'
-      ].join(','),
-      { count: 'exact' }
-    )
-    .order('created_at', { ascending: false });
+    //.select(
+    //  [
+    //    'id','created_at','updated_at','status',
+    //    'source','model','capacity_gb',
+     //   'base_price_cents','final_price_cents','final_price_with_voucher_cents','voucher_bonus_cents','wants_voucher',
+    //    'first_name','last_name','email','phone',
+    //    'delivery_method','shop_location',
+   //     'street','house_number','postal_code','city','country','iban',
+    //    'admin_note','answers'
+   //   ].join(','),
+    //  { count: 'exact' }
+   // )
+   // .order('created_at', { ascending: false });
+  .select('id, created_at, model, final_price_cents', { count: 'exact' })
+  .order('created_at', { ascending: false });
+
 
   if (q) {
     query = query.or([
