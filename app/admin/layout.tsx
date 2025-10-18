@@ -1,5 +1,12 @@
 import Link from 'next/link';
 
+<nav className="flex flex-col gap-2 p-4 bg-gray-100 border-r">
+  <a href="/admin" className="bb-btn subtle">🏠 Dashboard</a>
+  <a href="/admin/leads" className="bb-btn subtle">📋 Leads</a>
+  <a href="/admin/catalog" className="bb-btn subtle">📦 Catalogus</a>
+  <a href="/admin/multipliers" className="bb-btn subtle">⚙️ Multipliers</a>
+</nav>
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
