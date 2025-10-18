@@ -121,18 +121,22 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
   query = query.range(offset, offset + limit - 1);
 
-  const { data, error, count } = await query as unknown as { data: Lead[] | null, error: any, count: number | null };
-  if (error) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold mb-2">Leads</h1>
-        <div className="bb-card p-4 bg-red-50 border-red-200">
-          <div className="font-medium text-red-700">Fout bij laden</div>
-          <pre className="text-xs mt-1 text-red-800 whitespace-pre-wrap">{error?.message || String(error)}</pre>
-        </div>
+const { data, error, count } = await query as any;
+
+if (error) {
+  return (
+    <div className="p-6">
+      <h1 className="text-xl font-semibold mb-2">Leads</h1>
+      <div className="bb-card p-4 bg-red-50 border-red-200">
+        <div className="font-medium text-red-700">Fout bij laden</div>
+        <pre className="text-xs mt-1 text-red-800 whitespace-pre-wrap">
+          {error?.message || JSON.stringify(error)}
+        </pre>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
 
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
