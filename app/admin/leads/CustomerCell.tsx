@@ -114,8 +114,8 @@ export default function CustomerCell(props: {
           <div className="flex flex-col">
             <label className={label}>Straat + huisnr</label>
             <div className="flex gap-1">
-              <input className={`${input} flex-1`} value={street} onChange={e => setStreet(e.target.value)} placeholder="Straat" />
-              <input className={`${input} w-24`} value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="Nr" />
+              <input className={`${input} flex-[2]`} value={street} onChange={e => setStreet(e.target.value)} placeholder="Straat" />
+              <input className={`${input} w-16`} value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="Nr" />
             </div>
           </div>
 
