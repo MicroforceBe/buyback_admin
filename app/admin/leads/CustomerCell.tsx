@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { updateLeadInlineActionJson } from './actions';
+import { updateLeadInlineAction } from './actions';
 
 export default function CustomerCell(props: {
   id: string;
