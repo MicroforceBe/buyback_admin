@@ -10,9 +10,14 @@ export default function DeviceCell(props: {
   sku?: string | null;
   imei_sn?: string | null;
 }) {
+  const [open, setOpen] = useState(false);
   const [sku, setSku] = useState(props.sku ?? '');
   const [imei, setImei] = useState(props.imei_sn ?? '');
   const [saving, setSaving] = useState(false);
+
+  const input = 'bb-input h-8 text-xs px-2 py-1 w-full border rounded';
+  const label = 'text-[11px] text-gray-500';
+  const btn = 'bb-btn h-8 text-xs px-2 border rounded';
 
   async function save() {
     setSaving(true);
@@ -21,9 +26,7 @@ export default function DeviceCell(props: {
       fd.append('id', props.id);
       fd.append('sku', sku);
       fd.append('imei_sn', imei);
-      const updated = await updateLeadInlineActionJson(fd);
-      setSku(updated.sku ?? '');
-      setImei(updated.imei_sn ?? '');
+      await updateLeadInlineActionJson(fd);
     } catch (e: any) {
       alert(e?.message ?? 'Opslaan mislukt');
     } finally {
@@ -31,27 +34,46 @@ export default function DeviceCell(props: {
     }
   }
 
-  const inputCls = 'bb-input h-8 text-xs px-2 py-1 w-full border rounded';
-  const btnCls = 'bb-btn h-8 text-xs px-2 border rounded';
-
   return (
     <div className="space-y-1">
-      <div className="text-sm">
-        {props.model ?? '—'} {props.capacity_gb ? `• ${props.capacity_gb} GB` : ''}
+      {/* compacte header */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm">
+            {props.model ?? '—'} {props.capacity_gb ? `• ${props.capacity_gb} GB` : ''}
+          </div>
+          <div className="text-[11px] text-gray-500 truncate">
+            SKU: {sku || '—'} • IMEI/SN: {imei || '—'}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="text-xs px-2 h-7 border rounded"
+          aria-expanded={open}
+          title={open ? 'Sluiten' : 'Bewerken'}
+        >
+          {open ? '▴' : '▾'} oog
+        </button>
       </div>
-      <div className="flex flex-col gap-1">
-        <div className="flex flex-col">
-          <label className="text-[11px] text-gray-500">SKU</label>
-          <input className={inputCls} value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU" />
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-1">
+          <div className="flex flex-col">
+            <label className={label}>SKU</label>
+            <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU" />
+          </div>
+          <div className="flex flex-col">
+            <label className={label}>IMEI (15c) of Serienummer</label>
+            <input className={input} value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI of SN" />
+          </div>
+          <div className="pt-1">
+            <button className={btn} onClick={save} disabled={saving}>
+              {saving ? 'Opslaan…' : 'Opslaan'}
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col">
-          <label className="text-[11px] text-gray-500">IMEI (15c) of Serienummer</label>
-          <input className={inputCls} value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI of SN" />
-        </div>
-        <div>
-          <button className={btnCls} onClick={save} disabled={saving}>{saving ? 'Opslaan…' : 'Opslaan'}</button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
