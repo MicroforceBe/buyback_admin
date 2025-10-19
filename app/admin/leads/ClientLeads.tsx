@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { updateLeadInlineActionJson, deleteLeadAction } from './actions';
+import { updateLeadInlineAction, deleteLeadAction } from './actions';
 
 /** Statuswaarden zoals in je DB/actions */
 type Status =
