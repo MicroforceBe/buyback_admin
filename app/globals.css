@@ -67,7 +67,7 @@ table a { color: inherit; }
 .bb-input-sm,
 .bb-select-sm,
 .bb-btn-sm {
-  height: 2.25rem;           /* h-9 */
+  height: 2.75rem;           /* h-9 */
   font-size: 0.75rem;        /* text-xs */
   padding: 0.25rem 0.5rem;   /* py-1 px-2 */
   line-height: 1.25rem;
