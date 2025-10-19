@@ -71,7 +71,7 @@ function LeadRow({ lead }: { lead: Lead }) {
       fd.append('imei_sn', p.imei_sn ?? '');
       fd.append('status', p.status);
 
-      const updated = await updateLeadInlineActionJson(fd);
+      const updated = await updateLeadInlineAction(fd);
 
       setForm(prev => ({
         ...prev,
