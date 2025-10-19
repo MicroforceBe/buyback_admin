@@ -2,7 +2,8 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
 import ClientLeads from './ClientLeads';
-
+import CustomerCell from './CustomerCell';
+import DeviceCell from './DeviceCell';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -544,24 +545,25 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
                 {/* Klantnaam + uitklap met klantdetails */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  <details>
-                    <summary className="cursor-pointer">
-                      {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
-                    </summary>
-                    <div className="mt-2 text-xs leading-5 space-y-1">
-                      <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
-                      <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
-                      <div><span className="text-gray-500">Adres: </span>
-                        {[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ") || "—"}
-                      </div>
-                      <div><span className="text-gray-500">IBAN: </span>{lead.iban ?? "—"}</div>
-                    </div>
-                  </details>
+                  <CustomerCell
+                      id={lead.id}
+                      first_name={lead.first_name}
+                      last_name={lead.last_name}
+                      email={lead.email}
+                      phone={lead.phone}
+                      customer_number={lead.customer_number}
+                    />
                 </td>
 
                 {/* Model */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  {lead.model ?? "—"}
+                  <DeviceCell
+                    id={lead.id}
+                    model={lead.model}
+                    capacity_gb={lead.capacity_gb}
+                    sku={lead.sku}
+                    imei_sn={lead.imei_sn}
+                  />
                 </td>
 
                 {/* Variant (capacity) */}
@@ -586,19 +588,41 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
                 {/* Status (inline editable) */}
                 <td className="px-3 py-2 align-top">
-                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
-                    <input type="hidden" name="id" value={lead.id} />
-                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select-sm">
-                      <option value="new">Nieuw</option>
-                      <option value="received_store">Ontvangen in winkel</option>
-                      <option value="label_created">Verzendlabel aangemaakt</option>
-                      <option value="shipment_received">Zending ontvangen</option>
-                      <option value="check_passed">Controle succesvol</option>
-                      <option value="check_failed">Controle gefaald</option>
-                      <option value="done">Afgewerkt</option>
-                    </select>
-                    <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
-                  </form>
+                {(() => {
+                  const canStatus =
+                    Boolean((lead.customer_number ?? '').trim()) &&
+                    Boolean((lead.sku ?? '').trim()) &&
+                    Boolean((lead.imei_sn ?? '').trim());
+              
+                  return (
+                    <form action={updateLeadInlineAction} className="flex flex-col gap-1 items-start">
+                      <input type="hidden" name="id" value={lead.id} />
+                      <select
+                        name="status"
+                        defaultValue={lead.status ?? 'new'}
+                        className="bb-select-sm"
+                        disabled={!canStatus}
+                        title={!canStatus ? 'Vul eerst klantnummer, SKU en IMEI/SN in' : 'Status wijzigen'}
+                      >
+                        <option value="new">Nieuw</option>
+                        <option value="received_store">Ontvangen in winkel</option>
+                        <option value="label_created">Verzendlabel aangemaakt</option>
+                        <option value="shipment_received">Zending ontvangen</option>
+                        <option value="check_passed">Controle succesvol</option>
+                        <option value="check_failed">Controle gefaald</option>
+                        <option value="done">Afgewerkt</option>
+                      </select>
+                      <button className="bb-btn subtle h-8 text-xs px-2" type="submit" disabled={!canStatus}>
+                        💾 Opslaan
+                      </button>
+                      {!canStatus && (
+                        <div className="text-[11px] text-amber-700">
+                          Vereist: klantnr, SKU en IMEI/SN.
+                        </div>
+                      )}
+                    </form>
+                  );
+                })()}
                 </td>
               </tr>
             ))}
