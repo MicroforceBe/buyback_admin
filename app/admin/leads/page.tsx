@@ -477,9 +477,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <a href={makeSortHref("model")} className="font-semibold hover:underline">Model</a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[110px]">
-                <a href={makeSortHref("capacity_gb")} className="font-semibold hover:underline">Variant</a>
-              </th>
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px]">
                 <a href={makeSortHref("final_price_cents")} className="font-semibold hover:underline">Prijs (€)</a>
               </th>
@@ -497,43 +494,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 {/* Order ID + uitklap: orderdetails */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
                   <details>
-                    <summary className="cursor-pointer font-mono">{lead.order_code ?? "—"}</summary>
-                    <div className="mt-2 text-xs leading-5 space-y-2">
-                      <div className="font-semibold text-gray-700">Volledige orderinfo</div>
-                      <div><span className="text-gray-500">Aangemaakt: </span>{fmtDate(lead.created_at)}</div>
-                      <div><span className="text-gray-500">Model: </span>{lead.model ?? "—"} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}</div>
-                      <div><span className="text-gray-500">Email: </span>{lead.email ?? "—"}</div>
-                      <div><span className="text-gray-500">Tel: </span>{lead.phone ?? "—"}</div>
-                      <div><span className="text-gray-500">Levering: </span>
-                        {lead.delivery_method === "ship"
-                          ? `Verzenden — ${[lead.street, lead.house_number, lead.postal_code, lead.city, lead.country].filter(Boolean).join(" ")}`
-                          : lead.delivery_method === "dropoff"
-                          ? `Binnenbrengen — ${lead.shop_location ?? "—"}`
-                          : "—"}
+                    <summary className="cursor-pointer font-mono">{lead.order_code ?? '—'}</summary>
+                
+                    <div className="mt-2 text-xs leading-5 space-y-1">
+                      <div><span className="text-gray-500">Aangemaakt op: </span>{fmtDate(lead.created_at)}</div>
+                      <div><span className="text-gray-500">Laatst gewijzigd op: </span>{fmtDate(lead.updated_at)}</div>
+                      <div><span className="text-gray-500">Model: </span>{lead.model ?? '—'} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ''}</div>
+                      <div><span className="text-gray-500">Leveringsmethode: </span>
+                        {lead.delivery_method === 'ship' ? 'Verzenden' :
+                         lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
                       </div>
-                      <div className="pt-1">
-                        <form action={deleteLeadAction}>
-                          <input type="hidden" name="id" value={lead.id} />
-                          <button className="bb-btn danger" type="submit">Verwijderen</button>
-                        </form>
-                      </div>
-                      {/* Inline editor (klantnummer, SKU, IMEI/SN, status) */}
-                      <div className="mt-3">
-                        <h4 className="text-sm font-semibold mb-2">Bewerken</h4>
-                        <ClientLeads
-                          leads={[{
-                            id: lead.id,
-                            first_name: lead.first_name,
-                            last_name: lead.last_name,
-                            email: lead.email,
-                            phone: lead.phone,
-                            customer_number: lead.customer_number,
-                            sku: lead.sku,
-                            imei_sn: lead.imei_sn,
-                            status: (lead.status as Status | null),
-                          }]}
-                        />
-                      </div>
+                      <div><span className="text-gray-500">Huidige status: </span>{lead.status ?? '—'}</div>
+                      <div><strong className="text-red-600">VOUCHER</strong></div>
                     </div>
                   </details>
                 </td>
@@ -564,11 +536,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     sku={lead.sku}
                     imei_sn={lead.imei_sn}
                   />
-                </td>
-
-                {/* Variant (capacity) */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  {lead.capacity_gb ? `${lead.capacity_gb} GB` : "—"}
                 </td>
 
                 {/* Prijs (inline editable) */}
