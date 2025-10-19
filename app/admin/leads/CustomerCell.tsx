@@ -87,83 +87,74 @@ export default function CustomerCell(props: {
         </button>
       </div>
 
-      {open && (
-        <div className="mt-2 flex flex-col gap-1">
-          {/* Volgorde: klantnummer, IBAN, Naam, Voornaam, Straat+Nr, Postcode, Gemeente, Land, Tel, Email (RO) */}
-          <div className="flex flex-col">
-            <label className={label}>Klantnummer</label>
-            <input className={`${input} ${missingCustomerNr ? danger : ''}`}
-                   value={customerNumber} onChange={e => setCustomerNumber(e.target.value)} placeholder="Klantnummer" />
-          </div>
+    {open && (
+      <form action={updateLeadInlineAction} className="mt-2 flex flex-col gap-1">
+        <input type="hidden" name="id" value={props.id} />
 
-          <div className="flex flex-col">
-            <label className={label}>IBAN</label>
-            <input className={input} value={iban} onChange={e => setIban(e.target.value)} placeholder="IBAN" />
-          </div>
+        <div className="flex flex-col">
+          <label className={label}>Klantnummer</label>
+          <input
+            name="customer_number"
+            className={`${input} ${missingCustomerNr ? danger : ''}`}
+            value={customerNumber}
+            onChange={e => setCustomerNumber(e.target.value)}
+            placeholder="Klantnummer"
+          />
+        </div>
 
-          <div className="flex flex-col">
-            <label className={label}>Naam</label>
-            <input className={input} value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Naam" />
-          </div>
+        <div className="flex flex-col">
+          <label className={label}>IBAN</label>
+          <input name="iban" className={input} value={iban} onChange={e => setIban(e.target.value)} placeholder="IBAN" />
+        </div>
 
-          <div className="flex flex-col">
-            <label className={label}>Voornaam</label>
-            <input className={input} value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Voornaam" />
-          </div>
+        <div className="flex flex-col">
+          <label className={label}>Naam</label>
+          <input name="last_name" className={input} value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Naam" />
+        </div>
 
-          <div className="flex flex-col">
-            <label className={label}>Straat + huisnr</label>
-          
-            {/* Grid met vaste min-breedte voor Straat en smalle Nr-kolom */}
-            <div className="grid gap-1 grid-cols-[minmax(14rem,1fr)_4.5rem]">
-              <input
-                className={`${input} w-full`}
-                value={street}
-                onChange={e => setStreet(e.target.value)}
-                placeholder="Straat"
-              />
-              <input
-                className={`${input} w-full`}
-                value={houseNumber}
-                onChange={e => setHouseNumber(e.target.value)}
-                placeholder="Nr"
-              />
-            </div>
-          </div>
+        <div className="flex flex-col">
+          <label className={label}>Voornaam</label>
+          <input name="first_name" className={input} value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Voornaam" />
+        </div>
 
-
-          <div className="flex flex-col">
-            <label className={label}>Postcode</label>
-            <input className={input} value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="Postcode" />
-          </div>
-
-          <div className="flex flex-col">
-            <label className={label}>Gemeente</label>
-            <input className={input} value={city} onChange={e => setCity(e.target.value)} placeholder="Gemeente" />
-          </div>
-
-          <div className="flex flex-col">
-            <label className={label}>Land</label>
-            <input className={input} value={country} onChange={e => setCountry(e.target.value)} placeholder="Land" />
-          </div>
-
-          <div className="flex flex-col">
-            <label className={label}>Tel</label>
-            <input className={input} value={phone} onChange={e => setPhone(e.target.value)} placeholder="Telefoon" />
-          </div>
-
-          <div className="flex flex-col">
-            <label className={label}>E-mail (read-only)</label>
-            <input className={`${input} bg-gray-50`} value={email} readOnly />
-          </div>
-
-          <div className="pt-1">
-            <button className={btn} onClick={save} disabled={saving}>
-              {saving ? 'Opslaan…' : 'Opslaan'}
-            </button>
+        <div className="flex flex-col">
+          <label className={label}>Straat + huisnr</label>
+          <div className="grid gap-1 grid-cols-[minmax(18rem,1fr)_4.5rem]">
+            <input name="street" className={`${input} w-full`} value={street} onChange={e => setStreet(e.target.value)} placeholder="Straat" />
+            <input name="house_number" className={`${input} w-full`} value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="Nr" />
           </div>
         </div>
-      )}
+
+        <div className="flex flex-col">
+          <label className={label}>Postcode</label>
+          <input name="postal_code" className={input} value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="Postcode" />
+        </div>
+
+        <div className="flex flex-col">
+          <label className={label}>Gemeente</label>
+          <input name="city" className={input} value={city} onChange={e => setCity(e.target.value)} placeholder="Gemeente" />
+        </div>
+
+        <div className="flex flex-col">
+          <label className={label}>Land</label>
+          <input name="country" className={input} value={country} onChange={e => setCountry(e.target.value)} placeholder="Land" />
+        </div>
+
+        <div className="flex flex-col">
+          <label className={label}>Tel</label>
+          <input name="phone" className={input} value={phone} onChange={e => setPhone(e.target.value)} placeholder="Telefoon" />
+        </div>
+
+        <div className="flex flex-col">
+          <label className={label}>E-mail (read-only)</label>
+          <input className={`${input} bg-gray-50`} value={email} readOnly />
+        </div>
+
+        <div className="pt-1">
+          <button className={btn} type="submit">{saving ? 'Opslaan…' : 'Opslaan'}</button>
+        </div>
+      </form>
+    )}
     </div>
   );
 }
