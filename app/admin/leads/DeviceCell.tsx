@@ -57,23 +57,26 @@ export default function DeviceCell(props: {
         </button>
       </div>
 
-      {open && (
-        <div className="mt-2 flex flex-col gap-1">
-          <div className="flex flex-col">
-            <label className={label}>SKU</label>
-            <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU" />
-          </div>
-          <div className="flex flex-col">
-            <label className={label}>IMEI (15c) of Serienummer</label>
-            <input className={input} value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI of SN" />
-          </div>
-          <div className="pt-1">
-            <button className={btn} onClick={save} disabled={saving}>
-              {saving ? 'Opslaan…' : 'Opslaan'}
-            </button>
-          </div>
-        </div>
-      )}
+{open && (
+  <form action={updateLeadInlineAction} className="mt-2 flex flex-col gap-1">
+    <input type="hidden" name="id" value={props.id} />
+
+    <div className="flex flex-col">
+      <label className={label}>SKU</label>
+      <input name="sku" className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU" />
+    </div>
+
+    <div className="flex flex-col">
+      <label className={label}>IMEI (15c) of Serienummer</label>
+      <input name="imei_sn" className={input} value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI of SN" />
+    </div>
+
+    <div className="pt-1">
+      <button className={btn} type="submit">Opslaan</button>
+    </div>
+  </form>
+)}
+
     </div>
   );
 }
