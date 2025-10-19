@@ -21,6 +21,33 @@ async function getLeads(): Promise<Lead[]> {
   return (data ?? []) as Lead[];
 }
 
+const leadsForEdit = (data ?? []).map(l => ({
+  id: l.id,
+  first_name: l.first_name,
+  last_name: l.last_name,
+  email: l.email,
+  phone: l.phone,
+  customer_number: l.customer_number,
+  sku: l.sku,
+  imei_sn: l.imei_sn,
+  status: l.status,
+}));
+
+
+async function getLeads(): Promise<Lead[]> {
+  const { data, error } = await supabaseAdmin
+    .from('buyback_leads')
+    .select('*')               // ← alles ophalen
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Error fetching leads:', error);
+    return [];
+  }
+  return (data ?? []) as Lead[];
+}
+
 
 type Lead = {
   id: string;
@@ -448,6 +475,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
       {/* Tabel */}
       <div className="overflow-auto">
+<h2 className="text-lg font-semibold mt-6">Inline bewerken (klant & toestel)</h2> <ClientLeads leads={leadsForEdit} />
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
