@@ -21,34 +21,6 @@ async function getLeads(): Promise<Lead[]> {
   return (data ?? []) as Lead[];
 }
 
-const leadsForEdit = (data ?? []).map(l => ({
-  id: l.id,
-  first_name: l.first_name,
-  last_name: l.last_name,
-  email: l.email,
-  phone: l.phone,
-  customer_number: l.customer_number,
-  sku: l.sku,
-  imei_sn: l.imei_sn,
-  status: l.status,
-}));
-
-
-async function getLeads(): Promise<Lead[]> {
-  const { data, error } = await supabaseAdmin
-    .from('buyback_leads')
-    .select('*')               // ← alles ophalen
-    .order('created_at', { ascending: false })
-    .limit(200);
-
-  if (error) {
-    console.error('Error fetching leads:', error);
-    return [];
-  }
-  return (data ?? []) as Lead[];
-}
-
-
 type Lead = {
   id: string;
   order_code: string | null;
@@ -292,6 +264,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     );
   }
 
+  const leadsForEdit = (data ?? []).map(l => ({
+    id: l.id,
+    first_name: l.first_name,
+    last_name: l.last_name,
+    email: l.email,
+    phone: l.phone,
+    customer_number: l.customer_number,
+    sku: l.sku,
+    imei_sn: l.imei_sn,
+    status: l.status,
+  }));
+  
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
