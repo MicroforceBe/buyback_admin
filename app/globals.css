@@ -83,7 +83,7 @@ table a { color: inherit; }
 .bb-select-sm {
   border: 1px solid #d1d5db;
   background-color: #fff;
-  padding-right: 1.75rem; /* ruimte voor dropdown arrow */
+  padding-right: 1.00rem; /* ruimte voor dropdown arrow */
 }
 
 /* Buttons (compact) */
