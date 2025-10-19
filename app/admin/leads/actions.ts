@@ -204,12 +204,14 @@ export async function updateLeadInlineActionJson(formData: FormData): Promise<Le
 
   // Gating: voor eind-statussen moet sku én imei_sn aanwezig zijn
   // (pas evt. aan naar jouw flow)
-  const gatedStatuses = new Set(["check_passed", "check_failed", "done"]);
+  // Gating: voor eind-statussen moet customer_number + sku + imei_sn aanwezig zijn
+  const gatedStatuses = new Set(['check_passed', 'check_failed', 'done']);
   if (patch.status && gatedStatuses.has(patch.status)) {
+    const customerOk = (patch.customer_number ?? before.customer_number)?.trim();
     const skuOk = (patch.sku ?? before.sku)?.trim();
     const imeiOk = (patch.imei_sn ?? before.imei_sn)?.trim();
-    if (!skuOk || !imeiOk) {
-      throw new Error("status_requires_sku_and_imei_sn");
+    if (!customerOk || !skuOk || !imeiOk) {
+      throw new Error('status_requires_customer_sku_imei');
     }
   }
 
