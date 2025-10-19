@@ -535,13 +535,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
                 {/* Model */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  <DeviceCell
-                    id={lead.id}
-                    model={lead.model}
-                    capacity_gb={lead.capacity_gb}
-                    sku={lead.sku}
-                    imei_sn={lead.imei_sn}
-                  />
+                <DeviceCell
+                  id={lead.id}
+                  model={lead.model}
+                  capacity_gb={lead.capacity_gb}
+                  sku={lead.sku}
+                  imei_sn={lead.imei_sn}
+                />
                 </td>
 
                 {/* Prijs (inline editable) */}
