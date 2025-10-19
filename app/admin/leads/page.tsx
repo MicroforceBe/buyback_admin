@@ -518,13 +518,19 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 {/* Klantnaam + uitklap met klantdetails */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
                   <CustomerCell
-                      id={lead.id}
-                      first_name={lead.first_name}
-                      last_name={lead.last_name}
-                      email={lead.email}
-                      phone={lead.phone}
-                      customer_number={lead.customer_number}
-                    />
+                    id={lead.id}
+                    customer_number={lead.customer_number}
+                    iban={lead.iban}
+                    last_name={lead.last_name}
+                    first_name={lead.first_name}
+                    street={lead.street}
+                    house_number={lead.house_number}
+                    postal_code={lead.postal_code}
+                    city={lead.city}
+                    country={lead.country}
+                    phone={lead.phone}
+                    email={lead.email}
+                  />
                 </td>
 
                 {/* Model */}
