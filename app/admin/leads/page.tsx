@@ -10,16 +10,7 @@ export const runtime = "nodejs";
 async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabaseAdmin
     .from('buyback_leads')
-    .select(`
-      id, order_code, created_at,
-      model, capacity_gb, variant,
-      base_price_cents, final_price_cents,
-      first_name, last_name, email, phone,
-      customer_number, sku, imei_sn, status,
-      -- ↓ deze misten nog in je select
-      delivery_method, shop_location, street, house_number, postal_code, city, country,
-      iban, admin_note, updated_at
-    `)
+    .select('*')               // ← alles ophalen
     .order('created_at', { ascending: false })
     .limit(200);
 
@@ -29,7 +20,6 @@ async function getLeads(): Promise<Lead[]> {
   }
   return (data ?? []) as Lead[];
 }
-
 
 
 type Lead = {
