@@ -539,7 +539,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <td className="px-3 py-2 align-top">
                   <form action={updateLeadInlineAction} className="flex items-center gap-2">
                     <input type="hidden" name="id" value={lead.id} />
-                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select h-8 text-xs px-2">
+                    <select name="status" defaultValue={lead.status ?? "new"} className="bb-select-sm">
                       <option value="new">Nieuw</option>
                       <option value="received_store">Ontvangen in winkel</option>
                       <option value="label_created">Verzendlabel aangemaakt</option>
