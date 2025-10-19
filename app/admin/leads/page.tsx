@@ -7,6 +7,16 @@ import ClientLeads from './ClientLeads';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Eén centrale status-union die matcht met je DB
+type Status =
+  | 'new'
+  | 'received_store'
+  | 'label_created'
+  | 'shipment_received'
+  | 'check_passed'
+  | 'check_failed'
+  | 'done';
+
 async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabaseAdmin
     .from('buyback_leads')
@@ -56,16 +66,7 @@ type Lead = {
   iban: string | null;
 
   // admin
-  status:
-    | "new"
-    | "received_store"
-    | "label_created"
-    | "shipment_received"
-    | "check_passed"
-    | "check_failed"
-    | "done"
-    | string
-    | null;
+  status: Status | null;
   admin_note: string | null;
   updated_at: string | null;
 
