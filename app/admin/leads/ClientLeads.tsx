@@ -41,28 +41,43 @@ function LeadRow({ lead }: { lead: Lead }) {
 
   const canChangeStatus = Boolean(form.sku?.trim() && form.imei_sn?.trim());
 
-  async function save(partial?: Partial<typeof form>) {
-    setSaving(true);
-    try {
-      const payload = { id: lead.id, ...form, ...(partial ?? {}) };
-      const updated = await updateLeadInlineAction(payload);
-      setForm(prev => ({
-        ...prev,
-        first_name: updated.first_name ?? '',
-        last_name: updated.last_name ?? '',
-        email: updated.email ?? '',
-        phone: updated.phone ?? '',
-        customer_number: updated.customer_number ?? '',
-        sku: updated.sku ?? '',
-        imei_sn: updated.imei_sn ?? '',
-        status: updated.status,
-      }));
-    } catch (e: any) {
-      alert(e?.message ?? 'Opslaan mislukt');
-    } finally {
-      setSaving(false);
-    }
+async function save(partial?: Partial<typeof form>) {
+  setSaving(true);
+  try {
+    const p = { ...form, ...(partial ?? {}), id: lead.id };
+
+    // ⬇️ Maak FormData i.p.v. een object door te geven
+    const fd = new FormData();
+    fd.append('id', p.id);
+    fd.append('first_name', p.first_name ?? '');
+    fd.append('last_name', p.last_name ?? '');
+    fd.append('email', p.email ?? '');
+    fd.append('phone', p.phone ?? '');
+    fd.append('customer_number', p.customer_number ?? '');
+    fd.append('sku', p.sku ?? '');
+    fd.append('imei_sn', p.imei_sn ?? '');
+    fd.append('status', String(p.status ?? 'nieuw'));
+
+    const updated = await updateLeadInlineAction(fd);
+
+    setForm(prev => ({
+      ...prev,
+      first_name: updated.first_name ?? '',
+      last_name: updated.last_name ?? '',
+      email: updated.email ?? '',
+      phone: updated.phone ?? '',
+      customer_number: updated.customer_number ?? '',
+      sku: updated.sku ?? '',
+      imei_sn: updated.imei_sn ?? '',
+      status: updated.status,
+    }));
+  } catch (e: any) {
+    alert(e?.message ?? 'Opslaan mislukt');
+  } finally {
+    setSaving(false);
   }
+}
+
 
   async function onDelete() {
     if (!confirm('Lead verwijderen?')) return;
