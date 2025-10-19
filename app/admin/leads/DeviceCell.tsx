@@ -13,29 +13,19 @@ type Props = {
 
 const input = 'bb-input h-9 text-xs px-2 py-1';
 const label = 'text-[11px] text-gray-500';
-const btn   = 'bb-btn h-8 text-xs px-3';
 
-export default function DeviceCell(props: Props) {
+export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  // lokale UX-state (server action leest de <form>-velden)
-  const [sku, setSku] = useState(props.sku ?? '');
-  const [imei, setImei] = useState(props.imei_sn ?? '');
-
-  const modelLine =
-    [props.model, props.capacity_gb ? `${props.capacity_gb} GB` : '']
-      .filter(Boolean)
-      .join(' • ') || '—';
+  const modelLine = [p.model, p.capacity_gb ? `${p.capacity_gb} GB` : ''].filter(Boolean).join(' • ') || '—';
 
   return (
     <div className="space-y-1">
-      {/* samenvatting + toggle */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate">{modelLine}</div>
           <div className="text-[11px] text-gray-500 truncate">
-            {/* Subinfo in klein */}
-            {sku ? `SKU: ${sku}` : 'SKU: —'} {imei ? `• IMEI/SN: ${imei}` : '• IMEI/SN: —'}
+            {p.sku ? `SKU: ${p.sku}` : 'SKU: —'} {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : '• IMEI/SN: —'}
           </div>
         </div>
 
@@ -50,36 +40,23 @@ export default function DeviceCell(props: Props) {
         </button>
       </div>
 
-      {/* editor */}
       {open && (
         <form action={updateLeadInlineAction} className="mt-2 flex flex-col gap-1">
-          <input type="hidden" name="id" value={props.id} />
+          <input type="hidden" name="id" value={p.id} />
 
           <div className="flex flex-col">
             <label className={label}>SKU</label>
-            <input
-              name="sku"
-              className={input}
-              value={sku}
-              onChange={e => setSku(e.target.value)}
-              placeholder="SKU"
-            />
+            <input name="sku" className={input} defaultValue={p.sku ?? ''} placeholder="SKU" />
           </div>
 
           <div className="flex flex-col">
             <label className={label}>IMEI (15c) of Serienummer</label>
-            <input
-              name="imei_sn"
-              className={input}
-              value={imei}
-              onChange={e => setImei(e.target.value)}
-              placeholder="IMEI of SN"
-            />
+            <input name="imei_sn" className={input} defaultValue={p.imei_sn ?? ''} placeholder="IMEI of SN" />
           </div>
 
           <div className="pt-1">
-            <button className={btn} type="submit" title="Opslaan" aria-label="Opslaan">
-              Opslaan
+            <button className="bb-btn h-8 text-xs px-3" type="submit" aria-label="Opslaan">
+              💾
             </button>
           </div>
         </form>
