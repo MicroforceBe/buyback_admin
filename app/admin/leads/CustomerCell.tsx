@@ -113,11 +113,24 @@ export default function CustomerCell(props: {
 
           <div className="flex flex-col">
             <label className={label}>Straat + huisnr</label>
-            <div className="flex gap-1">
-              <input className={`${input} flex-[2]`} value={street} onChange={e => setStreet(e.target.value)} placeholder="Straat" />
-              <input className={`${input} w-16`} value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="Nr" />
+          
+            {/* Grid met vaste min-breedte voor Straat en smalle Nr-kolom */}
+            <div className="grid gap-1 grid-cols-[minmax(14rem,1fr)_4.5rem]">
+              <input
+                className={`${input} w-full`}
+                value={street}
+                onChange={e => setStreet(e.target.value)}
+                placeholder="Straat"
+              />
+              <input
+                className={`${input} w-full`}
+                value={houseNumber}
+                onChange={e => setHouseNumber(e.target.value)}
+                placeholder="Nr"
+              />
             </div>
           </div>
+
 
           <div className="flex flex-col">
             <label className={label}>Postcode</label>
