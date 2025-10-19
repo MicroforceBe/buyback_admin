@@ -53,7 +53,7 @@ export default function DeviceCell(props: {
           aria-expanded={open}
           title={open ? 'Sluiten' : 'Bewerken'}
         >
-          {open ? '▴' : '▾'} oog
+          {open ? '▴' : '▾'}
         </button>
       </div>
 
