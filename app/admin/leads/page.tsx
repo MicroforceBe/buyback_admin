@@ -5,6 +5,7 @@ import CustomerCell from './CustomerCell';
 import DeviceCell from './DeviceCell';
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const runtime = "nodejs";
 
 // Eén centrale status-union die matcht met je DB
