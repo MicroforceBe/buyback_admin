@@ -7,9 +7,9 @@ import ClientLeads from './ClientLeads';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-async function getLeads() {
+async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabaseAdmin
-    .from('leads')
+    .from('buyback_leads')
     .select(`
       id, order_code, created_at,
       model, capacity_gb, variant,
@@ -24,8 +24,19 @@ async function getLeads() {
     console.error('Error fetching leads:', error);
     return [];
   }
-  return data ?? [];
+  return (data ?? []) as Lead[];
 }
+
+export default async function Page() {
+  const leads = await getLeads();
+  return (
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold">Leads admin</h1>
+      <ClientLeads leads={leads} />
+    </div>
+  );
+}
+
 
 type Lead = {
   id: string;
