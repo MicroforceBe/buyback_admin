@@ -3,6 +3,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
 import ClientLeads from './ClientLeads';
 
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function getLeads() {
   const { data, error } = await supabaseAdmin
     .from('leads')
@@ -22,9 +26,6 @@ async function getLeads() {
   }
   return data ?? [];
 }
-
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 type Lead = {
   id: string;
