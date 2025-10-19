@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { updateLeadInlineAction, deleteLeadAction } from './actions';
+import { updateLeadInlineActionJson } from './actions';
 
 type Lead = {
   id: string;
@@ -46,7 +47,6 @@ async function save(partial?: Partial<typeof form>) {
   try {
     const p = { ...form, ...(partial ?? {}), id: lead.id };
 
-    // ⬇️ Maak FormData i.p.v. een object door te geven
     const fd = new FormData();
     fd.append('id', p.id);
     fd.append('first_name', p.first_name ?? '');
@@ -56,9 +56,11 @@ async function save(partial?: Partial<typeof form>) {
     fd.append('customer_number', p.customer_number ?? '');
     fd.append('sku', p.sku ?? '');
     fd.append('imei_sn', p.imei_sn ?? '');
-    fd.append('status', String(p.status ?? 'nieuw'));
+    fd.append('status', String(p.status ?? 'new'));           // let op: jouw statuswaarden
+    // optioneel: prijs
+    // fd.append('final_price_eur', '123.45');
 
-    const updated = await updateLeadInlineAction(fd);
+    const updated = await updateLeadInlineActionJson(fd);
 
     setForm(prev => ({
       ...prev,
@@ -77,7 +79,6 @@ async function save(partial?: Partial<typeof form>) {
     setSaving(false);
   }
 }
-
 
   async function onDelete() {
     if (!confirm('Lead verwijderen?')) return;
