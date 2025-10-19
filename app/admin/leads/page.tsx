@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
-import ClientLeads from './ClientLeads';
 import CustomerCell from './CustomerCell';
 import DeviceCell from './DeviceCell';
 
