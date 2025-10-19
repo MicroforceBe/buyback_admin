@@ -273,7 +273,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     customer_number: l.customer_number,
     sku: l.sku,
     imei_sn: l.imei_sn,
-    status: l.status,
+    status: (l.status as Status | null),
   }));
   
   const total = count ?? 0;
