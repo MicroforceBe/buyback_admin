@@ -23,7 +23,6 @@ function isAllowedStatus(v: string): v is (typeof ALLOWED_STATUSES)[number] {
   return ALLOWED_STATUSES.includes(v as any);
 }
 
-
 /**
  * Eén action die ALLES kan updaten.
  * Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
