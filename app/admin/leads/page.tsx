@@ -460,7 +460,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
       {/* Tabel */}
       <div className="overflow-auto">
-<h2 className="text-lg font-semibold mt-6">Inline bewerken (klant & toestel)</h2> <ClientLeads leads={leadsForEdit} />
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
@@ -516,6 +515,23 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                           <input type="hidden" name="id" value={lead.id} />
                           <button className="bb-btn danger" type="submit">Verwijderen</button>
                         </form>
+                      </div>
+                      {/* Inline editor (klantnummer, SKU, IMEI/SN, status) */}
+                      <div className="mt-3">
+                        <h4 className="text-sm font-semibold mb-2">Bewerken</h4>
+                        <ClientLeads
+                          leads={[{
+                            id: lead.id,
+                            first_name: lead.first_name,
+                            last_name: lead.last_name,
+                            email: lead.email,
+                            phone: lead.phone,
+                            customer_number: lead.customer_number,
+                            sku: lead.sku,
+                            imei_sn: lead.imei_sn,
+                            status: (lead.status as Status | null),
+                          }]}
+                        />
                       </div>
                     </div>
                   </details>
