@@ -15,7 +15,10 @@ async function getLeads(): Promise<Lead[]> {
       model, capacity_gb, variant,
       base_price_cents, final_price_cents,
       first_name, last_name, email, phone,
-      customer_number, sku, imei_sn, status
+      customer_number, sku, imei_sn, status,
+      -- ↓ deze misten nog in je select
+      delivery_method, shop_location, street, house_number, postal_code, city, country,
+      iban, admin_note, updated_at
     `)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -26,6 +29,7 @@ async function getLeads(): Promise<Lead[]> {
   }
   return (data ?? []) as Lead[];
 }
+
 
 
 type Lead = {
