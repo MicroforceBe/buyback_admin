@@ -1,6 +1,27 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
+import ClientLeads from './ClientLeads';
+
+async function getLeads() {
+  const { data, error } = await supabaseAdmin
+    .from('leads')
+    .select(`
+      id, order_code, created_at,
+      model, capacity_gb, variant,
+      base_price_cents, final_price_cents,
+      first_name, last_name, email, phone,
+      customer_number, sku, imei_sn, status
+    `)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Error fetching leads:', error);
+    return [];
+  }
+  return data ?? [];
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,6 +44,10 @@ type Lead = {
   last_name: string | null;
   email: string | null;
   phone: string | null;
+  customer_number: string | null;
+  sku: string | null;
+  imei_sn: string | null;
+  status: 'nieuw' | 'controle_succes' | 'controle_gefaald' | 'afgewerkt';
 
   // levering
   delivery_method: "ship" | "dropoff" | null;
