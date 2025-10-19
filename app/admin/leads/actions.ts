@@ -49,7 +49,9 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   // prijs (EUR → cents)
-  const priceRaw = String(formData.get("final_price_eur") ?? "").replace(",", ".").trim();
+  const priceRaw = String(formData.get("final_price_eur") ?? "")
+    .replace(",", ".")
+    .trim();
   if (priceRaw) {
     const eur = Number(priceRaw);
     if (!Number.isFinite(eur) || eur < 0) {
@@ -58,7 +60,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     desired.final_price_cents = Math.round(eur * 100);
   }
 
-  // overige inline velden die we willen ondersteunen
+  // overige inline velden die we willen ondersteunen (allemaal TEXT in DB)
   const FIELDS = [
     "customer_number", "iban",
     "first_name", "last_name",
@@ -71,7 +73,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     const v = formData.get(k as string);
     if (typeof v === "string") {
       const trimmed = v.trim();
-      // lege string => null opslaan (is netter)
+      // lege string => null opslaan (netter en duidelijk in DB)
       desired[k] = trimmed === "" ? null : trimmed;
     }
   }
@@ -109,7 +111,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     const need = (key: "customer_number" | "sku" | "imei_sn") =>
       Object.prototype.hasOwnProperty.call(before, key)
         ? (patch[key] ?? (before as any)[key] ?? "").toString().trim()
-        : "";
+        : ""; // kolom bestaat niet → behandel als ontbrekend
     if (!need("customer_number") || !need("sku") || !need("imei_sn")) {
       redirect(`/admin/leads?msg=${encodeURIComponent("status_requires_customer_sku_imei")}`);
     }
@@ -121,19 +123,29 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   // 5) Update uitvoeren
+  const returningCols =
+    "id, status, final_price_cents, customer_number, sku, imei_sn, iban, " +
+    "first_name, last_name, street, house_number, postal_code, city, country, phone, updated_at";
+
   const { data: after, error: updErr } = await sb
     .from("buyback_leads")
     .update(patch)
     .eq("id", id)
-    .select("id, status, final_price_cents, updated_at")
+    .select(returningCols)
     .single();
 
   if (updErr) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  const tag = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
-  const msg = `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}${tag}`;
+  // 6) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
+  const setKeys = Object.keys(patch).sort();
+  const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
+  const msg =
+    `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}`
+    + (setKeys.length ? ` • set:${setKeys.join(",")}` : "")
+    + tagIgnored;
+
   redirect(`/admin/leads?msg=${encodeURIComponent(msg)}`);
 }
 
