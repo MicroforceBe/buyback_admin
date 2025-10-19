@@ -27,16 +27,6 @@ async function getLeads(): Promise<Lead[]> {
   return (data ?? []) as Lead[];
 }
 
-export default async function Page() {
-  const leads = await getLeads();
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Leads admin</h1>
-      <ClientLeads leads={leads} />
-    </div>
-  );
-}
-
 
 type Lead = {
   id: string;
@@ -59,7 +49,6 @@ type Lead = {
   customer_number: string | null;
   sku: string | null;
   imei_sn: string | null;
-  status: 'nieuw' | 'controle_succes' | 'controle_gefaald' | 'afgewerkt';
 
   // levering
   delivery_method: "ship" | "dropoff" | null;
