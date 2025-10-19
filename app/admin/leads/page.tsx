@@ -494,8 +494,19 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 {/* Order ID + uitklap: orderdetails */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
                   <details>
-                    <summary className="cursor-pointer font-mono">{lead.order_code ?? '—'}</summary>
-                
+                    <summary className="cursor-pointer">
+                      <div className="font-mono">{lead.order_code ?? '—'}</div>
+                      <div className="text-[11px] text-gray-500">
+                        {/* leveringsmethode */}
+                        {lead.delivery_method === 'ship' ? 'Verzenden' :
+                         lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
+                        {' • '}
+                        {/* betaalmethode op basis van data */}
+                        {((lead as any).answers?.voucher === true || (lead as any).voucher === true)
+                          ? 'Voucher'
+                          : (lead.iban ? 'Uitbetaling (IBAN)' : 'Uitbetaling')}
+                      </div>
+                    </summary>
                     <div className="mt-2 text-xs leading-5 space-y-1">
                       <div><span className="text-gray-500">Aangemaakt op: </span>{fmtDate(lead.created_at)}</div>
                       <div><span className="text-gray-500">Laatst gewijzigd op: </span>{fmtDate(lead.updated_at)}</div>
@@ -505,7 +516,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                          lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
                       </div>
                       <div><span className="text-gray-500">Huidige status: </span>{lead.status ?? '—'}</div>
-                      <div><strong className="text-red-600">VOUCHER</strong></div>
+                      <div><strong className="text-red-600">
+                      <div>
+                        <strong className="text-red-600">
+                          {((lead as any).answers?.voucher === true || (lead as any).voucher === true) ? 'VOUCHER' : 'UITBETALING'}
+                        </strong>
+                      </div>
+                      </strong></div>
                     </div>
                   </details>
                 </td>
@@ -585,9 +602,15 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         <option value="check_failed">Controle gefaald</option>
                         <option value="done">Afgewerkt</option>
                       </select>
-                      <button className="bb-btn subtle h-8 text-xs px-2" type="submit" disabled={!canStatus}>
-                        💾 Opslaan
-                      </button>
+                          <button
+                            className="bb-btn subtle h-8 text-xs px-2"
+                            type="submit"
+                            disabled={!canStatus}
+                            title="Opslaan"
+                            aria-label="Opslaan"
+                          >
+                            💾
+                          </button>
                       {!canStatus && (
                         <div className="text-[11px] text-amber-700">
                           Vereist: klantnr, SKU en IMEI/SN.
