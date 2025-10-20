@@ -144,6 +144,21 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const limit = Math.min(200, Math.max(10, parseInt(searchParams.limit ?? "50", 10) || 50));
   const offset = (page - 1) * limit;
 
+const statusLabel = (s: Status | null | undefined) => {
+  switch (s) {
+    case 'new':               return 'Nieuw';
+    case 'received_store':    return 'Ontvangen in winkel';
+    case 'label_created':     return 'Verzendlabel aangemaakt';
+    case 'shipment_received': return 'Zending ontvangen';
+    case 'check_passed':      return 'Controle succesvol';
+    case 'check_failed':      return 'Controle gefaald';
+    case 'done':              return 'Afgewerkt';
+    case 'cancelled':         return 'Cancel';
+    default:                  return '—';
+  }
+};
+
+  
   // === query ===
   let query = supabaseAdmin
     .from("buyback_leads")
