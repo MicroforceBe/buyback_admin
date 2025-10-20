@@ -33,7 +33,7 @@ export default function CustomerCell(p: Props) {
             {[p.first_name, p.last_name].filter(Boolean).join(' ') || '—'}
           </div>
           <div className="text-[11px] text-gray-500 truncate">
-            {p.email || '—'} {p.phone ? `• ${p.phone}` : ''}
+            {p.customer_number || '—'} 
           </div>
         </div>
 
