@@ -581,64 +581,64 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 </td>
 
                 {/* Status (inline editable) */}
-<td className="px-3 py-2 align-top">
-  {(() => {
-    const curr = (lead.status ?? 'new') as Status;
-    const trans = allowedTransitions(curr, {
-      customer_number: lead.customer_number,
-      sku: lead.sku,
-      imei_sn: lead.imei_sn,
-    }).filter(t => t.ok);
+              <td className="px-3 py-2 align-top">
+                {(() => {
+                  const curr = (lead.status ?? 'new') as Status;
+              
+                  // finale statussen: geen dropdown
+                  if (curr === 'done' || curr === 'cancelled') {
+                    return <div className="text-sm font-medium text-gray-700">{statusLabel(curr)}</div>;
+                  }
+              
+                  const trans = allowedTransitions(curr, {
+                    customer_number: lead.customer_number,
+                    sku: lead.sku,
+                    imei_sn: lead.imei_sn,
+                  }).filter(t => t.ok);
+              
+                  const hasChoices = trans.length > 0;
+              
+                  return (
+                    <form action={updateLeadInlineAction} className="inline-flex items-center gap-2">
+                      <input type="hidden" name="id" value={lead.id} />
+              
+                      {/* Belangrijk:
+                          - defaultValue={curr}  (géén placeholder)
+                          - eerste <option> is de huidige status met value={curr} EN niet disabled
+                          => na submit/render blijft de juiste status zichtbaar, geen fallback naar 1e optie (bv. Cancel)
+                      */}
+                      <select
+                        name="status"
+                        defaultValue={curr}
+                        className="bb-select-sm inline-block pr-8"
+                        title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
+                        disabled={!hasChoices}
+                      >
+                        {/* huidige status als eerste, geselecteerde optie */}
+                        <option value={curr}>{statusLabel(curr)}</option>
+              
+                        {/* toegestane volgende statussen */}
+                        {trans.map(t => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+              
+                      <button
+                        className="bb-btn subtle h-8 text-xs px-2"
+                        type="submit"
+                        disabled={!hasChoices}
+                        title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
+                        aria-label="Opslaan"
+                      >
+                        💾
+                      </button>
+                    </form>
+                  );
+                })()}
+              </td>
 
-    const hasChoices = trans.length > 0;
-    const isFinal = curr === 'done' || curr === 'cancelled';
-
-    // "Afgewerkt" en "Cancel" mogen niet meer gewijzigd worden
-    if (isFinal) {
-      return (
-        <div className="text-sm font-medium text-gray-700">
-          {statusLabel(curr)}
-        </div>
-      );
-    }
-
-    // andere statussen: dropdown met toegestane volgende statussen
-    return (
-      <form action={updateLeadInlineAction} className="inline-flex items-center gap-2">
-        <input type="hidden" name="id" value={lead.id} />
-
-        <select
-          name="status"
-          defaultValue=""
-          className="bb-select-sm inline-block pr-8"
-          title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
-          required={hasChoices}
-          disabled={!hasChoices}
-        >
-          {/* Placeholder toont enkel huidige status */}
-          <option value="">{statusLabel(curr)}</option>
-
-          {/* Toegestane volgende statussen */}
-          {trans.map(t => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-
-        <button
-          className="bb-btn subtle h-8 text-xs px-2"
-          type="submit"
-          disabled={!hasChoices}
-          title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
-          aria-label="Opslaan"
-        >
-          💾
-        </button>
-      </form>
-    );
-  })()}
-</td>
 
               </tr>
             ))}
