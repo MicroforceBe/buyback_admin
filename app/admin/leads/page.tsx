@@ -665,25 +665,26 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     >
                       <input type="hidden" name="id" value={lead.id} />
               
-                      <select
-                        name="status"
-                        defaultValue={curr}
-                        className="bb-select-sm inline-block"
-                        title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
-                      >
-                        {/* huidige status tonen maar niet selecteerbaar als doel */}
-                        <option value={curr} disabled>
-                          {statusLabel(curr)} (huidig)
-                        </option>
-              
-                        {/* toegestane volgende statussen */}
-                        {trans.map(t => (
-                          <option key={t.value} value={t.value}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
-              
+                    <select
+                              name="status"
+                              defaultValue=""                // ← placeholder geselecteerd
+                              className="bb-select-sm inline-block"
+                              title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
+                              required={hasChoices}          // ← dwingt een keuze af
+                              disabled={!hasChoices}         // ← geen keuzes? disable de select
+                            >
+                              {/* Placeholder toont de huidige status */}
+                              <option value="" disabled>
+                                Huidig: {statusLabel(curr)}
+                              </option>
+                    
+                              {/* alleen toegestane volgende statussen zichtbaar */}
+                              {trans.map(t => (
+                                <option key={t.value} value={t.value}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </select>
                       <button
                         className="bb-btn subtle h-8 text-xs px-2"
                         type="submit"
