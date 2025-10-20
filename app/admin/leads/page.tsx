@@ -586,14 +586,16 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     Boolean((lead.customer_number ?? '').trim()) &&
                     Boolean((lead.sku ?? '').trim()) &&
                     Boolean((lead.imei_sn ?? '').trim());
-              
                   return (
-                    <form action={updateLeadInlineAction} className="flex flex-col gap-1 items-start" className="inline-flex items-center gap-2>
+                    <form
+                      action={updateLeadInlineAction}
+                      className="inline-flex items-center gap-2"
+                    >
                       <input type="hidden" name="id" value={lead.id} />
                       <select
                         name="status"
                         defaultValue={lead.status ?? 'new'}
-                        className="bb-select-sm"
+                        className="bb-select-sm inline-block"
                         disabled={!canStatus}
                         title={!canStatus ? 'Vul eerst klantnummer, SKU en IMEI/SN in' : 'Status wijzigen'}
                       >
