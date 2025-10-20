@@ -581,123 +581,65 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 </td>
 
                 {/* Status (inline editable) */}
-                <td className="px-3 py-2 align-top">
-                {(() => {
+<td className="px-3 py-2 align-top">
+  {(() => {
+    const curr = (lead.status ?? 'new') as Status;
+    const trans = allowedTransitions(curr, {
+      customer_number: lead.customer_number,
+      sku: lead.sku,
+      imei_sn: lead.imei_sn,
+    }).filter(t => t.ok);
 
-                    const curr = (lead.status ?? 'new') as Status;
-                    const trans = allowedTransitions(curr, {
-                      customer_number: lead.customer_number,
-                      sku: lead.sku,
-                      imei_sn: lead.imei_sn,
-                    }).filter(t => t.ok); // alleen toegestane doelen tonen
-                
-                    const hasChoices = trans.length > 0;               
+    const hasChoices = trans.length > 0;
+    const isFinal = curr === 'done' || curr === 'cancelled';
 
-                    const statusLabel = (s: Status | null | undefined) => {
-                      switch (s) {
-                        case 'new': return 'Nieuw';
-                        case 'received_store': return 'Ontvangen in winkel';
-                        case 'label_created': return 'Verzendlabel aangemaakt';
-                        case 'shipment_received': return 'Zending ontvangen';
-                        case 'check_passed': return 'Controle succesvol';
-                        case 'check_failed': return 'Controle gefaald';
-                        case 'done': return 'Afgewerkt';
-                        case 'cancelled': return 'Cancel';
-                        default: return '—';
-                      }
-                    };
-                    
-                    type Transition = { value: Status; label: string; ok: boolean; reason?: string };
-                    
-                    function allowedTransitions(curr: Status | null | undefined, f: {
-                      customer_number?: string | null;
-                      sku?: string | null;
-                      imei_sn?: string | null;
-                    }): Transition[] {
-                      const hasCust = Boolean((f.customer_number ?? '').trim());
-                      const hasSKU  = Boolean((f.sku ?? '').trim());
-                      const hasIMEI = Boolean((f.imei_sn ?? '').trim());
-                    
-                      switch (curr) {
-                        case 'new':
-                          return [
-                            { value: 'received_store', label: 'Ontvangen in winkel', ok: hasCust, reason: 'Klantnummer vereist' },
-                            { value: 'label_created',  label: 'Verzendlabel aangemaakt', ok: hasCust, reason: 'Klantnummer vereist' },
-                            { value: 'cancelled',      label: 'Cancel', ok: true },
-                          ];
-                        case 'received_store':
-                          return [
-                            { value: 'check_passed', label: 'Controle succesvol', ok: hasSKU && hasIMEI, reason: 'SKU + IMEI/SN vereist' },
-                            { value: 'check_failed', label: 'Controle gefaald',  ok: hasIMEI,          reason: 'IMEI/SN vereist' },
-                          ];
-                        case 'label_created':
-                          return [
-                            { value: 'shipment_received', label: 'Zending ontvangen', ok: true },
-                            { value: 'cancelled',         label: 'Cancel',            ok: true },
-                          ];
-                        case 'shipment_received':
-                          return [
-                            { value: 'check_passed', label: 'Controle succesvol', ok: hasSKU && hasIMEI, reason: 'SKU + IMEI/SN vereist' },
-                            { value: 'check_failed', label: 'Controle gefaald',  ok: hasIMEI,          reason: 'IMEI/SN vereist' },
-                            { value: 'cancelled',    label: 'Cancel',            ok: true },
-                          ];
-                        case 'check_failed':
-                          return [
-                            { value: 'check_passed', label: 'Controle succesvol', ok: hasSKU && hasIMEI, reason: 'SKU + IMEI/SN vereist' },
-                            { value: 'cancelled',    label: 'Cancel',            ok: true },
-                          ];
-                        case 'check_passed':
-                          return [
-                            { value: 'done',      label: 'Afgewerkt', ok: true },
-                            { value: 'cancelled', label: 'Cancel',    ok: true },
-                          ];
-                        case 'done':
-                        case 'cancelled':
-                        default:
-                          return [];
-                      }
-                    }
-                
-                  return (
-                    <form
-                      action={updateLeadInlineAction}
-                      className="inline-flex items-center gap-2"
-                    >
-                      <input type="hidden" name="id" value={lead.id} />
-              
-                    <select
-                              name="status"
-                              defaultValue=""                // ← placeholder geselecteerd
-                              className="bb-select-sm inline-block"
-                              title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
-                              required={hasChoices}          // ← dwingt een keuze af
-                              disabled={!hasChoices}         // ← geen keuzes? disable de select
-                            >
-                              {/* Placeholder toont de huidige status */}
-                              <option value="" disabled>
-                                Huidig: {statusLabel(curr)}
-                              </option>
-                    
-                              {/* alleen toegestane volgende statussen zichtbaar */}
-                              {trans.map(t => (
-                                <option key={t.value} value={t.value}>
-                                  {t.label}
-                                </option>
-                              ))}
-                            </select>
-                      <button
-                        className="bb-btn subtle h-8 text-xs px-2"
-                        type="submit"
-                        disabled={!hasChoices}
-                        title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
-                        aria-label="Opslaan"
-                      >
-                        💾
-                      </button>
-                    </form>
-                  );
-                })()}
-                </td>
+    // "Afgewerkt" en "Cancel" mogen niet meer gewijzigd worden
+    if (isFinal) {
+      return (
+        <div className="text-sm font-medium text-gray-700">
+          {statusLabel(curr)}
+        </div>
+      );
+    }
+
+    // andere statussen: dropdown met toegestane volgende statussen
+    return (
+      <form action={updateLeadInlineAction} className="inline-flex items-center gap-2">
+        <input type="hidden" name="id" value={lead.id} />
+
+        <select
+          name="status"
+          defaultValue=""
+          className="bb-select-sm inline-block pr-8"
+          title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
+          required={hasChoices}
+          disabled={!hasChoices}
+        >
+          {/* Placeholder toont enkel huidige status */}
+          <option value="">{statusLabel(curr)}</option>
+
+          {/* Toegestane volgende statussen */}
+          {trans.map(t => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+
+        <button
+          className="bb-btn subtle h-8 text-xs px-2"
+          type="submit"
+          disabled={!hasChoices}
+          title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
+          aria-label="Opslaan"
+        >
+          💾
+        </button>
+      </form>
+    );
+  })()}
+</td>
+
               </tr>
             ))}
 
