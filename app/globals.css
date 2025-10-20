@@ -81,10 +81,25 @@ table a { color: inherit; }
 }
 
 .bb-select-sm {
-  border: 1px solid #d1d5db;
-  background-color: #fff;
-  padding-right: 1.00rem; /* ruimte voor dropdown arrow */
+  /* bestaande styles ... */
+  padding-right: 2rem;           /* ruimte voor caret */
+  appearance: none;              /* native stijl uit */
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    linear-gradient(to right, transparent, transparent); /* fallback */
+  background-position:
+    calc(100% - 1.1rem) 50%,
+    calc(100% - 0.7rem) 50%,
+    100% 0;
+  background-size:
+    6px 6px,
+    6px 6px,
+    2.5rem 100%;
+  background-repeat: no-repeat;
 }
+
 
 /* Buttons (compact) */
 .bb-btn-sm {
