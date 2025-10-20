@@ -588,7 +588,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                     Boolean((lead.imei_sn ?? '').trim());
               
                   return (
-                    <form action={updateLeadInlineAction} className="flex flex-col gap-1 items-start">
+                    <form action={updateLeadInlineAction} className="flex flex-col gap-1 items-start" className="inline-flex items-center gap-2>
                       <input type="hidden" name="id" value={lead.id} />
                       <select
                         name="status"
