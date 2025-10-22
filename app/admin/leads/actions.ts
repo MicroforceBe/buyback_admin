@@ -26,11 +26,18 @@ function isAllowedStatus(v: string): v is Status {
   return ALLOWED_STATUSES.includes(v as any);
 }
 
+// === Helper: converteer form-waarden naar boolean/null (voorkomt "Boolean('false')" valkuil) ===
+function toBoolOrNull(v: unknown): boolean | null {
+  if (v === true || v === "true" || v === "1" || v === 1 || v === "on") return true;
+  if (v === false || v === "false" || v === "0" || v === 0 || v === "") return false;
+  return null;
+}
+
 /**
  * Eén action die ALLES kan updaten.
  * Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
  * customer_number, iban, first_name, last_name, street, house_number,
- * postal_code, city, country, phone
+ * postal_code, city, country, phone, wants_voucher
  */
 export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "").trim();
@@ -60,13 +67,28 @@ export async function updateLeadInlineAction(formData: FormData) {
     desired.final_price_cents = Math.round(eur * 100);
   }
 
+  // wants_voucher (boolean in DB) — alleen meenemen als het veld in het formulier zat
+  // Tip in de UI: gebruik een hidden default <input type="hidden" name="wants_voucher" value="0" />
+  // plus checkbox met value="1", zodat de key altijd gepost wordt.
+  const rawWantsVoucher = formData.get("wants_voucher");
+  if (rawWantsVoucher !== null) {
+    desired.wants_voucher = toBoolOrNull(rawWantsVoucher);
+  }
+
   // overige inline velden die we willen ondersteunen (allemaal TEXT in DB)
   const FIELDS = [
-    "customer_number", "iban",
-    "first_name", "last_name",
-    "street", "house_number", "postal_code", "city", "country",
+    "customer_number",
+    "iban",
+    "first_name",
+    "last_name",
+    "street",
+    "house_number",
+    "postal_code",
+    "city",
+    "country",
     "phone",
-    "sku", "imei_sn",
+    "sku",
+    "imei_sn",
   ] as const;
 
   for (const k of FIELDS) {
@@ -124,7 +146,7 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   // 5) Update uitvoeren
   const returningCols =
-    "id, status, final_price_cents, customer_number, sku, imei_sn, iban, " +
+    "id, status, final_price_cents, wants_voucher, customer_number, sku, imei_sn, iban, " +
     "first_name, last_name, street, house_number, postal_code, city, country, phone, updated_at";
 
   const { data: after, error: updErr } = await sb
@@ -142,9 +164,9 @@ export async function updateLeadInlineAction(formData: FormData) {
   const setKeys = Object.keys(patch).sort();
   const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
   const msg =
-    `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}`
-    + (setKeys.length ? ` • set:${setKeys.join(",")}` : "")
-    + tagIgnored;
+    `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}` +
+    (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
+    tagIgnored;
 
   redirect(`/admin/leads?msg=${encodeURIComponent(msg)}`);
 }
