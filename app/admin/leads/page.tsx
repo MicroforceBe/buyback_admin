@@ -65,7 +65,7 @@ type Lead = {
   country: string | null;
 
   // betaling
-  iban?: string | null;
+  iban: string | null;
   wants_voucher: boolean | null;
 
   // admin
