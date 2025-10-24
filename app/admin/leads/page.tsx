@@ -571,9 +571,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                           {lead.delivery_method === 'ship' ? 'Verzenden' :
                            lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
                           {' • '}
-                          {((lead as any).answers?.voucher === true || (lead as any).voucher === true)
-                            ? 'Voucher'
-                            : (lead.iban ? 'Uitbetaling (IBAN)' : 'Uitbetaling')}
+                          {lead.wants_voucher
+                            ? <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">Voucher</span>
+                            : <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">Overschrijving</span>
+                          }
                         </div>
                       </div>
                     </summary>
