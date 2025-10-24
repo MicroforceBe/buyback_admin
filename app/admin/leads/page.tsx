@@ -66,6 +66,7 @@ type Lead = {
 
   // betaling
   iban: string | null;
+  wants_voucher: boolean | null;
 
   // admin
   status: Status | null;
