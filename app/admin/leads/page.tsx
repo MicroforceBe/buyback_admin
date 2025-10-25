@@ -534,11 +534,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[180px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Order ID</a>
                 <div className="text-[11px] text-gray-500">klik om orderdetails te tonen</div>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[120px]">
                 <a href={makeSortHref("created_at")} className="font-semibold hover:underline">Datum</a>
               </th>
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
@@ -568,18 +568,19 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <span className="inline-block transition-transform group-open:-rotate-180">▾</span>
                       <div>
                         <div className="font-mono">{lead.order_code ?? '—'}</div>
-                        <div className="text-[11px] text-gray-500">
-                          {lead.delivery_method === 'ship' ? 'Verzenden' :
-                           lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
-                          {' • '}
-                          {lead.wants_voucher
-                            ? <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">Voucher</span>
-                            : <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">Overschrijving</span>
-                          }
-                        </div>
+                          <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
+                            <span>
+                              {lead.delivery_method === 'ship' ? 'Verzenden' :
+                               lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
+                            </span>
+                            <span aria-hidden>•</span>
+                            {lead.wants_voucher
+                              ? <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">Voucher</span>
+                              : <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">Overschrijving</span>
+                            }
+                          </div>
                       </div>
                     </summary>
-                
                     <div className="mt-2 text-xs leading-5 space-y-1">
                       <div><span className="text-gray-500">Aangemaakt op: </span>{fmtDate(lead.created_at)}</div>
                       <div><span className="text-gray-500">Laatst gewijzigd op: </span>{fmtDate(lead.updated_at)}</div>
