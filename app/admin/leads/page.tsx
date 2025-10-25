@@ -589,11 +589,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                          lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
                       </div>
                       <div><span className="text-gray-500">Huidige status: </span>{lead.status ?? '—'}</div>
-                      <div>
-                        <strong className="text-red-600">
-                          {((lead as any).answers?.voucher === true || (lead as any).voucher === true) ? 'VOUCHER' : 'UITBETALING'}
-                        </strong>
-                      </div>
                     </div>
                   </details>
                 </td>
