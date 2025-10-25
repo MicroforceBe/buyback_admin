@@ -239,6 +239,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         "status",
         "admin_note",
         "updated_at",
+        "wants_voucher",
       ].join(","),
       { count: "exact" }
     );
