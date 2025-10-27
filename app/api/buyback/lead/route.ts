@@ -1,22 +1,42 @@
-import { NextResponse } from 'next/server'; import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** Gebruik server-only vars (service role) */ const supabase = createClient(
+/** Gebruik server-only vars (service role) */
+const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
 
 function j(data: any, status = 200) {
-  return NextResponse.json(data, { status }); }
+  return NextResponse.json(data, { status });
+}
 
 export async function GET() {
-  return j({ ok: true, expects: 'POST', table: 'buyback_leads' }, 200); }
+  return j({ ok: true, expects: 'POST', table: 'buyback_leads' }, 200);
+}
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } }); }
+  return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } });
+}
+
+/** Helpers voor order_code generatie */
+function yymmddUTC() {
+  const d = new Date();
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+function utcRangeToday() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  return { start: start.toISOString(), end: end.toISOString() };
+}
 
 export async function POST(req: Request) {
   let body: any;
@@ -44,11 +64,27 @@ export async function POST(req: Request) {
     iban = null,
     delivery_method = null,   // 'ship' | 'dropoff'
     shop_location = null,     // bij dropoff
-    wants_voucher = false
+    wants_voucher = false,
+
+    // idempotency (optioneel, sterk aangeraden)
+    idempotency_key = null,
   } = body || {};
 
   if (!model || !answers || typeof base_price_cents !== 'number' || typeof final_price_cents !== 'number') {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
+  }
+
+  // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
+  if (idempotency_key) {
+    const { data: existing, error: exErr } = await supabase
+      .from('buyback_leads')
+      .select('id, order_code')
+      .eq('idempotency_key', idempotency_key)
+      .single();
+
+    if (!exErr && existing) {
+      return j({ ok: true, id: existing.id, order_code: existing.order_code ?? existing.id }, 200);
+    }
   }
 
   // voucher +5% (op final_price_cents) — afgerond op 5 euro (zoals in de widget)
@@ -60,20 +96,61 @@ export async function POST(req: Request) {
     voucher_bonus_cents = final_price_with_voucher_cents - final_price_cents;
   }
 
-  const { data, error } = await supabase
-    .from('buyback_leads')
-    .insert([{
-      source, model, capacity_gb, answers,
-      base_price_cents, final_price_cents,
-      final_price_with_voucher_cents, voucher_bonus_cents,
-      first_name, last_name, customer_name,
-      email, phone,
-      street, house_number, postal_code, city, country,
-      iban, delivery_method, shop_location,
-      wants_voucher
-    }])
-    .select('id')
-    .single();
+  // Genereer unieke order_code: BBYYMMDD-###
+  // Gebruik count-then-insert met kleine retry bij UNIQUE race (23505)
+  const prefix = `BB${yymmddUTC()}-`;
+  const { start, end } = utcRangeToday();
 
-  if (error) return j({ error: error.message }, 500);
-  return j({ ok: true, id: data?.id }, 201); }
+  let result: { id: string; order_code: string | null } | null = null;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    // tel hoeveel er vandaag al zijn (geef head=true om alleen count te krijgen)
+    const { count } = await supabase
+      .from('buyback_leads')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', start)
+      .lte('created_at', end);
+
+    const seq = (count ?? 0) + 1 + attempt; // simple backoff
+    const order_code = `${prefix}${String(seq).padStart(3, '0')}`;
+
+    const { data, error } = await supabase
+      .from('buyback_leads')
+      .insert([{
+        source, model, capacity_gb, answers,
+        base_price_cents, final_price_cents,
+        final_price_with_voucher_cents, voucher_bonus_cents,
+        first_name, last_name, customer_name,
+        email, phone,
+        street, house_number, postal_code, city, country,
+        iban, delivery_method, shop_location,
+        wants_voucher,
+        order_code,          // ✅ nieuw veld
+        idempotency_key,     // ✅ voor dedupe
+      }])
+      .select('id, order_code')
+      .single();
+
+    if (!error && data) {
+      result = { id: data.id, order_code: data.order_code ?? null };
+      lastError = null;
+      break;
+    }
+
+    // 23505 = unique_violation (bijv. order_code of idempotency_key)
+    if (error && (error as any).code === '23505') {
+      lastError = error;
+      continue; // probeer volgende sequentie
+    } else {
+      lastError = error;
+      break; // ander type fout: breek af
+    }
+  }
+
+  if (!result) {
+    return j({ error: lastError?.message || 'Insert failed' }, 500);
+  }
+
+  return j({ ok: true, id: result.id, order_code: result.order_code ?? result.id }, 201);
+}
