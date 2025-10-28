@@ -570,8 +570,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         <div className="font-mono">{lead.order_code ?? '—'}</div>
                           <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
                             <span>
-                              {lead.delivery_method === 'ship' ? 'Verzenden' :
-                               lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
+                             // {lead.delivery_method === 'ship' ? 'Verzenden' :
+                             //  lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
+                                 {lead.delivery_method === 'dropoff' ? `Winkel: ${lead.shop_location || '—'}`
+                                  : 'Verzending'}
                             </span>
                             <span aria-hidden>•</span>
                             {lead.wants_voucher
