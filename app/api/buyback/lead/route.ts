@@ -23,7 +23,7 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, OPTIONS' } });
 }
 
-/** Helpers voor order_code generatie */
+/** (Optioneel) helpers — momenteel niet gebruikt
 function yymmddUTC() {
   const d = new Date();
   const yy = String(d.getUTCFullYear()).slice(-2);
@@ -37,6 +37,7 @@ function utcRangeToday() {
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
   return { start: start.toISOString(), end: end.toISOString() };
 }
+*/
 
 export async function POST(req: Request) {
   let body: any;
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     base_price_cents,
     final_price_cents,
 
-    // nieuw:
+    // klant
     first_name = null,
     last_name = null,
     customer_name = null, // backward compat
@@ -63,10 +64,15 @@ export async function POST(req: Request) {
     country = null,
     iban = null,
     delivery_method = null,   // 'ship' | 'dropoff'
-    shop_location = null,     // bij dropoff
+
+    // winkel (NIEUW)
+    shop_id = null,           // uuid -> buyback_shops.id
+    shop_location = null,     // compat: naam
+
+    // voucher
     wants_voucher = false,
 
-    // optioneel:
+    // idempotency (optioneel)
     idempotency_key = null,
   } = body || {};
 
@@ -86,7 +92,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // voucher +5% afronden op 5 euro (zoals in de widget)
+  // voucher +5% — afronden op 5 euro (zoals in de widget)
   let voucher_bonus_cents = 0;
   let final_price_with_voucher_cents = final_price_cents;
   if (wants_voucher) {
@@ -95,12 +101,25 @@ export async function POST(req: Request) {
     voucher_bonus_cents = final_price_with_voucher_cents - final_price_cents;
   }
 
-  // ✅ NIEUW: vraag de volgende code op volgens jouw oude formaat 'BB########'
+  // Als er een shop_id is, en geen naam, haal de naam (compat) op
+  let resolved_shop_location = shop_location;
+  if (shop_id && !resolved_shop_location) {
+    const { data: shopRow, error: shopErr } = await supabase
+      .from('buyback_shops')
+      .select('name')
+      .eq('id', shop_id)
+      .single();
+    if (!shopErr && shopRow?.name) {
+      resolved_shop_location = shopRow.name;
+    }
+  }
+
+  // Order code volgens jouw oude formaat 'BB########' via RPC
   const { data: ocData, error: ocErr } = await supabase.rpc('next_buyback_order_code_global', { prefix: 'BB' });
   if (ocErr || !ocData) return j({ error: ocErr?.message || 'Could not allocate order code' }, 500);
   const order_code: string = String(ocData);
 
-  // Insert met order_code (en idempotency_key als je die kolom hebt)
+  // Insert met order_code, idempotency_key en shop_id + shop_location (compat)
   const { data, error } = await supabase
     .from('buyback_leads')
     .insert([{
@@ -110,7 +129,9 @@ export async function POST(req: Request) {
       first_name, last_name, customer_name,
       email, phone,
       street, house_number, postal_code, city, country,
-      iban, delivery_method, shop_location,
+      iban, delivery_method,
+      shop_id: shop_id || null,
+      shop_location: resolved_shop_location || shop_location || null,
       wants_voucher,
       order_code,
       idempotency_key,
