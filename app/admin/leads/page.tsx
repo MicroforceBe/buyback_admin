@@ -570,10 +570,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         <div className="font-mono">{lead.order_code ?? '—'}</div>
                           <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
                             <span>
-                             // {lead.delivery_method === 'ship' ? 'Verzenden' :
-                             //  lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
-                                 {lead.delivery_method === 'dropoff' ? `Winkel: ${lead.shop_location || '—'}`
-                                  : 'Verzending'}
+                              {lead.delivery_method === 'ship' ? 'Verzenden' :
+                               lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
                             </span>
                             <span aria-hidden>•</span>
                             {lead.wants_voucher
@@ -587,9 +585,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <div><span className="text-gray-500">Aangemaakt op: </span>{fmtDate(lead.created_at)}</div>
                       <div><span className="text-gray-500">Laatst gewijzigd op: </span>{fmtDate(lead.updated_at)}</div>
                       <div><span className="text-gray-500">Model: </span>{lead.model ?? '—'} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ''}</div>
-                      <div><span className="text-gray-500">Leveringsmethode: </span>
-                        {lead.delivery_method === 'ship' ? 'Verzenden' :
-                         lead.delivery_method === 'dropoff' ? 'Binnenbrengen' : '—'}
+                      <div className="font-mono text-sm">
+                        {lead.order_code || lead.id}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {lead.delivery_method === 'dropoff'
+                          ? `Winkel: ${lead.shop_location || '—'}`
+                          : 'Verzending'}
                       </div>
                       <div><span className="text-gray-500">Huidige status: </span>{lead.status ?? '—'}</div>
                     </div>
