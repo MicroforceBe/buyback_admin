@@ -604,9 +604,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                       <div><span className="text-gray-500">Aangemaakt op: </span>{fmtDate(lead.created_at)}</div>
                       <div><span className="text-gray-500">Laatst gewijzigd op: </span>{fmtDate(lead.updated_at)}</div>
                       <div><span className="text-gray-500">Model: </span>{lead.model ?? '—'} {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ''}</div>
-                      <div className="font-mono text-sm">
-                        {lead.order_code || lead.id}
-                      </div>
                       <div className="text-xs text-gray-500">
                         {lead.delivery_method === 'dropoff'
                           ? `Winkel: ${lead.shop_location || '—'}`
