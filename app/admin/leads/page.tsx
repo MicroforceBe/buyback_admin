@@ -145,6 +145,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const limit = Math.min(200, Math.max(10, parseInt(searchParams.limit ?? "50", 10) || 50));
   const offset = (page - 1) * limit;
 
+  // === winkels ophalen voor de filter dropdown ===
+  const { data: shopRows, error: shopsErr } = await supabaseAdmin
+    .from('buyback_shops')
+    .select('id,name,city')
+    .order('name', { ascending: true });
+
+  const shops = (shopRows ?? []).map(s => ({
+    id: s.id as string,
+    name: s.name as string,
+    city: (s as any).city as string | null
+  }));
+
   const statusLabel = (s: Status | null | undefined) => {
     switch (s) {
       case 'new':               return 'Nieuw';
@@ -208,7 +220,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     }
   }
 
-  
   // === query ===
   let query = supabaseAdmin
     .from("buyback_leads")
@@ -292,13 +303,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (!Number.isNaN(cents)) query = query.lte("final_price_cents", cents);
   }
   if (cityF) query = query.ilike("city", `%${cityF}%`);
+
+  // Winkel-filter op basis van shop_location (waarde = winkelnaam uit dropdown)
   if (shop) query = query.ilike("shop_location", `%${shop}%`);
 
   // Voucher via JSON path (server side): we filteren niet hier om select slank te houden.
-  // (Als je absoluut server-side voucherfilter wil, moeten we 'answers' selecteren.)
   if (voucher) {
-    // light-weight fallback: client-side chip laat zien wat actief is; server-side filter laten we achterwege
-    // of: je kan er voor kiezen om wél answers te selecteren en hier eq/is logica toevoegen.
+    // (optioneel: answers selecteren en filteren)
   }
 
   // sorteerbare kolommen
@@ -397,7 +408,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   const inputCls = "bb-input h-9 text-xs px-2 py-1";
   const selectCls = "bb-select h-9 text-xs px-2 py-1";
   const btnCls = "bb-btn h-9 text-xs px-3";
-
 
   // Chips voor actieve filters
   const chipItems: { label: string; param: keyof SearchParams; value: string }[] = [];
@@ -506,7 +516,16 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               <input name="price_min" defaultValue={priceMin} placeholder="€ min" className={inputCls} inputMode="decimal" />
               <input name="price_max" defaultValue={priceMax} placeholder="€ max" className={inputCls} inputMode="decimal" />
               <input name="city" defaultValue={cityF} placeholder="Stad" className={inputCls} />
-              <input name="shop" defaultValue={shop} placeholder="Winkel" className={inputCls} />
+
+              {/* --- Winkel -> dropdown met winkels uit DB (waarde = naam) --- */}
+              <select name="shop" defaultValue={shop} className={selectCls}>
+                <option value="">{shops.length ? 'Alle winkels' : (shopsErr ? 'Winkels niet geladen' : 'Winkels laden…')}</option>
+                {shops.map(s => (
+                  <option key={s.id} value={s.name}>
+                    {s.city ? `${s.name} (${s.city})` : s.name}
+                  </option>
+                ))}
+              </select>
 
               <select name="voucher" defaultValue={voucher} className={selectCls}>
                 <option value="">Voucher</option>
