@@ -8,10 +8,21 @@ type Shop = {
   address1?: string | null;
   zip?: string | null;
   city?: string | null;
-  opening_hours?: Record<string, string> | null;
+  opening_hours?: Record<string, string> | null; // bv. { mon:"09:00-18:00", ... }
   active: boolean;
   created_at?: string;
   updated_at?: string;
+};
+
+const DAYS_ORDER = ['mon','tue','wed','thu','fri','sat','sun'];
+const DAY_LABEL: Record<string,string> = {
+  mon: 'Maandag',
+  tue: 'Dinsdag',
+  wed: 'Woensdag',
+  thu: 'Donderdag',
+  fri: 'Vrijdag',
+  sat: 'Zaterdag',
+  sun: 'Zondag',
 };
 
 export default function ShopsSettingsClient() {
@@ -19,6 +30,7 @@ export default function ShopsSettingsClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Shop | null>(null);
+  const [viewHours, setViewHours] = useState<Shop | null>(null); // ← NEW
 
   const [form, setForm] = useState({
     name: '',
@@ -258,12 +270,20 @@ export default function ShopsSettingsClient() {
                   <tr key={s.id} className="border-t">
                     <td className="py-2 pr-3 font-medium">{s.name}</td>
                     <td className="py-2 pr-3">{s.address1 || '—'}</td>
-                    <td className="py-2 pr-3">
-                      {[s.zip, s.city].filter(Boolean).join(' ') || '—'}
-                    </td>
+                    <td className="py-2 pr-3">{[s.zip, s.city].filter(Boolean).join(' ') || '—'}</td>
                     <td className="py-2 pr-3">
                       {s.opening_hours ? (
-                        <code className="text-xs">{shorten(JSON.stringify(s.opening_hours))}</code>
+                        <span className="text-xs">
+                          {formatShortHours(s.opening_hours)}
+                          {' · '}
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={() => setViewHours(s)} // ← OPEN DIALOG
+                          >
+                            Bekijk
+                          </button>
+                        </span>
                       ) : '—'}
                     </td>
                     <td className="py-2 pr-3">
@@ -287,10 +307,74 @@ export default function ShopsSettingsClient() {
           </div>
         )}
       </div>
+
+      {/* === Openingstijden dialoog === */}
+      {viewHours && (
+        <HoursDialog
+          shop={viewHours}
+          onClose={() => setViewHours(null)}
+        />
+      )}
     </div>
   );
 }
 
+/* Helpers */
 function shorten(s: string, max = 48) {
   return s.length > max ? s.slice(0, max) + '…' : s;
+}
+function formatShortHours(hours?: Record<string,string> | null) {
+  if (!hours) return '—';
+  const keys = DAYS_ORDER.filter(k => hours[k]);
+  if (!keys.length) return '—';
+  // Toon bijv. "Ma–Vr 09:00-18:00, Za 10:00-17:00"
+  const groups: string[] = [];
+  let i = 0;
+  while (i < DAYS_ORDER.length) {
+    const k = DAYS_ORDER[i];
+    if (!hours[k]) { i++; continue; }
+    const spanStart = i;
+    const time = hours[k];
+    let j = i + 1;
+    while (j < DAYS_ORDER.length && hours[DAYS_ORDER[j]] === time) j++;
+    const label = spanLabel(spanStart, j - 1);
+    groups.push(`${label} ${time}`);
+    i = j;
+  }
+  return groups.join(', ');
+}
+function spanLabel(startIdx: number, endIdx: number) {
+  const names = DAYS_ORDER.map(d => DAY_LABEL[d]);
+  return startIdx === endIdx ? names[startIdx] : `${names[startIdx].slice(0,2)}–${names[endIdx].slice(0,2)}`;
+}
+
+/* === Dialoog component === */
+function HoursDialog({ shop, onClose }: { shop: Shop; onClose: () => void }) {
+  const h = shop.opening_hours || {};
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md rounded-lg shadow-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-semibold">Openingstijden — {shop.name}</div>
+          <button className="bb-btn" onClick={onClose}>Sluiten</button>
+        </div>
+        <table className="w-full text-sm">
+          <tbody>
+            {DAYS_ORDER.map(k => (
+              <tr key={k} className="border-t">
+                <td className="py-2 pr-3 text-gray-600">{DAY_LABEL[k]}</td>
+                <td className="py-2">{h[k] || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {shop.address1 || shop.city ? (
+          <div className="mt-3 text-xs text-gray-500">
+            {shop.address1 || ''}{shop.address1 && (shop.zip || shop.city) ? ', ' : ''}{[shop.zip, shop.city].filter(Boolean).join(' ')}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
