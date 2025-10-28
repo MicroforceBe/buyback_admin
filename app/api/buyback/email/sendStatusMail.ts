@@ -240,19 +240,3 @@ export async function sendStatusMail(lead: Lead) {
     html,
   });
 }
-
-2.
-
-import { sendStatusMail } from "@/app/api/buyback/email/sendStatusMail";
-
-// ... na je Supabase update:
-const { data: updated, error } = await supabaseAdmin
-  .from("buyback_leads")
-  .select("*")
-  .eq("id", id)
-  .single();
-
-// alleen mailen als status écht veranderd is
-if (!error && updated && prevStatus !== updated.status) {
-  await sendStatusMail(updated);
-}
