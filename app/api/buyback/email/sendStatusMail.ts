@@ -1,242 +1,209 @@
 // app/api/buyback/email/sendStatusMail.ts
 import { Resend } from "resend";
-import { format } from "date-fns";
-import { nlBE } from "date-fns/locale";
+
+/**
+ * Vereiste ENV variabelen op Vercel:
+ * - RESEND_API_KEY      (uit Resend dashboard)
+ * - MAIL_FROM           (bv. "Microforce Buyback <noreply@jouwdomein.be>")
+ * - MAIL_REPLY_TO       (bv. "info@jouwdomein.be")
+ */
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
+const FROM = process.env.MAIL_FROM!;
+const REPLY_TO = process.env.MAIL_REPLY_TO || "info@microforce.be";
 
-/** Eventuele eigen afzender + reply-to configuratie */
-const FROM = process.env.RESEND_FROM || "Microforce Buyback <no-reply@microforce.be>";
-const REPLY_TO = process.env.RESEND_REPLY_TO || "support@microforce.be";
+type DeliveryMethod = "ship" | "dropoff" | null;
 
-/** Helper: € formatteren */
-function eur(cents?: number | null) {
-  const v = ((cents ?? 0) / 100);
+type LeadForMail = {
+  // ontvanger
+  email: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+
+  // order
+  order_code?: string | null;
+  model?: string | null;
+  capacity_gb?: number | null;
+  final_price_cents?: number | null;
+  wants_voucher?: boolean | null;
+  iban?: string | null;
+
+  // levering
+  delivery_method?: DeliveryMethod;
+
+  // winkel (optioneel, bij dropoff)
+  shop_location?: string | null; // naam
+  shop_address1?: string | null;
+  shop_zip?: string | null;
+  shop_city?: string | null;
+  opening_hours?:
+    | Record<"mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun", string | null | undefined>
+    | string
+    | null;
+};
+
+const DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const DAY_LABEL: Record<(typeof DAYS_ORDER)[number], string> = {
+  mon: "Maandag",
+  tue: "Dinsdag",
+  wed: "Woensdag",
+  thu: "Donderdag",
+  fri: "Vrijdag",
+  sat: "Zaterdag",
+  sun: "Zondag",
+};
+
+function eur(cents: number | null | undefined): string {
+  const v = typeof cents === "number" ? cents / 100 : 0;
   return new Intl.NumberFormat("nl-BE", { style: "currency", currency: "EUR" }).format(v);
 }
 
-/** Label voor status (NL) */
-function statusLabel(s?: string | null) {
-  switch (s) {
-    case "new":               return "Nieuw";
-    case "received_store":    return "Ontvangen in winkel";
-    case "label_created":     return "Verzendlabel aangemaakt";
-    case "shipment_received": return "Zending ontvangen";
-    case "check_passed":      return "Controle succesvol";
-    case "check_failed":      return "Controle gefaald";
-    case "done":              return "Afgewerkt";
-    case "cancelled":         return "Geannuleerd";
-    default:                  return "Update";
-  }
+function safe(s: unknown): string {
+  return String(s ?? "").replace(/[<>&]/g, (m) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[m]!));
 }
 
-/** Type van de lead zoals we 'm nodig hebben in de mail */
-type Lead = {
-  id: string;
-  order_code?: string | null;
-  created_at?: string | null;
-
-  // toestel
-  model?: string | null;
-  capacity_gb?: number | null;
-
-  // prijzen
-  base_price_cents?: number | null;
-  final_price_cents?: number | null;
-  final_price_with_voucher_cents?: number | null;
-  voucher_bonus_cents?: number | null;
-
-  // klant
-  first_name?: string | null;
-  last_name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-
-  // levering
-  delivery_method?: "ship" | "dropoff" | null;
-  shop_location?: string | null;
-
-  // betaling
-  iban?: string | null;
-  wants_voucher?: boolean | null;
-
-  // admin
-  status?: string | null;
-
-  // optioneel: antwoorden
-  answers?: any;
-};
-
-/** Subject + intro per status */
-function subjectFor(lead: Lead) {
-  const oc = lead.order_code ? ` ${lead.order_code}` : "";
-  const base = `Buyback ${statusLabel(lead.status)}${oc}`;
-  switch (lead.status) {
-    case "new":
-      return `Bevestiging van jouw buyback-aanvraag${oc}`;
-    case "received_store":
-      return `We hebben je toestel ontvangen${oc}`;
-    case "label_created":
-      return `Je verzendlabel is aangemaakt${oc}`;
-    case "shipment_received":
-      return `Je zending is ontvangen${oc}`;
-    case "check_passed":
-      return `Controle geslaagd — betaling in voorbereiding${oc}`;
-    case "check_failed":
-      return `Update: controle niet geslaagd${oc}`;
-    case "done":
-      return `Buyback afgerond${oc}`;
-    case "cancelled":
-      return `Buyback geannuleerd${oc}`;
-    default:
-      return base;
-  }
+function compactAddress(parts: Array<string | null | undefined>) {
+  return parts.filter(Boolean).join(", ");
 }
 
-/** Korte status-specifieke lead-in tekst */
-function introFor(lead: Lead) {
-  switch (lead.status) {
-    case "new":
-      return "Bedankt! We hebben je buyback-aanvraag goed ontvangen. Hieronder vind je een overzicht van je bestelling.";
-    case "received_store":
-      return "We hebben je toestel in de winkel ontvangen. We plannen nu de controle in.";
-    case "label_created":
-      return "Je verzendlabel is aangemaakt. Volg de instructies in de bijlage of in je account/overzicht.";
-    case "shipment_received":
-      return "Je zending is aangekomen bij ons. We starten met de controle van het toestel.";
-    case "check_passed":
-      return "Goed nieuws! Je toestel is succesvol door de controle. We bereiden de betaling voor.";
-    case "check_failed":
-      return "Tijdens de controle voldeed het toestel niet aan alle voorwaarden. Hieronder vind je je orderdetails. Neem contact op als je vragen hebt.";
-    case "done":
-      return "Je buyback is afgerond. Bedankt voor je vertrouwen!";
-    case "cancelled":
-      return "Je buyback is geannuleerd. Als dit niet de bedoeling was, neem dan even contact met ons op.";
-    default:
-      return "Hieronder vind je de meest recente informatie over je buyback-aanvraag.";
+function renderOpeningHours(hours: LeadForMail["opening_hours"]): { inline: string; htmlList: string } {
+  if (!hours) return { inline: "—", htmlList: "<em>—</em>" };
+
+  if (typeof hours === "string") {
+    const txt = hours.trim();
+    return { inline: txt || "—", htmlList: txt ? safe(txt) : "<em>—</em>" };
   }
+
+  const lines: string[] = [];
+  for (const d of DAYS_ORDER) {
+    const v = (hours as any)?.[d];
+    if (v && String(v).trim()) {
+      lines.push(`${DAY_LABEL[d]}: ${String(v).trim()}`);
+    }
+  }
+  if (lines.length === 0) return { inline: "—", htmlList: "<em>—</em>" };
+  return {
+    inline: lines.join(" • "),
+    htmlList:
+      "<ul style=\"margin:8px 0 0 0;padding-left:18px;\">" +
+      lines.map((l) => `<li>${safe(l)}</li>`).join("") +
+      "</ul>",
+  };
 }
 
-/** Optionele ‘volgende stap’ tip per status */
-function nextStepHint(lead: Lead) {
-  switch (lead.status) {
-    case "new":
-      return lead.delivery_method === "ship"
-        ? "Je ontvangt apart instructies om je toestel veilig op te sturen."
-        : lead.delivery_method === "dropoff"
-          ? `Breng je toestel binnen in ${lead.shop_location ?? "de gekozen winkel"}.`
-          : null;
-    case "label_created":
-      return "Print het label, verpak je toestel stevig en geef het pakket af volgens de instructies.";
-    case "check_passed":
-      return lead.wants_voucher
-        ? "Je ontvangt je voucher per e-mail. Deze kan je gebruiken in onze winkels/webshop."
-        : "De betaling wordt per overschrijving verwerkt op het door jou opgegeven IBAN.";
-    case "check_failed":
-      return "Neem contact op met onze support als je een herbeoordeling wilt bespreken.";
-    default:
-      return null;
+export async function sendStatusMail(lead: LeadForMail) {
+  // Minimale validatie
+  if (!lead?.email) {
+    return { ok: false, error: "Missing recipient email" };
   }
-}
+  if (!FROM) {
+    return { ok: false, error: "MAIL_FROM is not configured" };
+  }
 
-/** (optioneel) antwoorden overzicht in HTML (compact, veilig) */
-function answersHtml(a: any) {
-  if (!a || typeof a !== "object") return "";
+  const firstName = lead.first_name?.trim() || "";
+  const fullName =
+    [lead.first_name?.trim(), lead.last_name?.trim()].filter(Boolean).join(" ") || "klant";
+  const orderCode = lead.order_code || "—";
+  const price = eur(lead.final_price_cents ?? 0);
+  const subject = `Bevestiging van jouw Buyback-aanvraag – order ${orderCode}`;
+
+  const isDropoff = lead.delivery_method === "dropoff";
+  const address = compactAddress([lead.shop_address1, [lead.shop_zip, lead.shop_city].filter(Boolean).join(" ")]);
+  const hours = renderOpeningHours(lead.opening_hours);
+
+  // HTML body
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+  <body style="font-family: Arial, sans-serif; background-color:#f7f7f7; padding:40px;">
+    <div style="max-width:600px;margin:auto;background:white;padding:30px;border-radius:8px;border:1px solid #e5e5e5;">
+      <h2 style="color:#0078d7;margin-bottom:5px;">Bevestiging van jouw Buyback-aanvraag</h2>
+      <p style="margin-top:0;color:#555;">Bedankt, <strong>${safe(firstName || fullName)}</strong>! We hebben je aanvraag succesvol ontvangen.</p>
+      <p style="font-size:14px;">Jouw ordernummer is: <strong style="font-size:16px;">${safe(orderCode)}</strong></p>
+
+      <h3 style="border-bottom:1px solid #ddd;padding-bottom:4px;">Toestelgegevens</h3>
+      <ul style="list-style:none;padding-left:0;line-height:1.6;">
+        <li><strong>Model:</strong> ${safe(lead.model || "—")}</li>
+        <li><strong>Opslagcapaciteit:</strong> ${lead.capacity_gb ?? "—"} GB</li>
+        <li><strong>Prijsvoorstel:</strong> ${safe(price)}</li>
+        ${
+          lead.wants_voucher
+            ? `<li><strong>Uitbetaling:</strong> Voucher (+5% bonus)</li>`
+            : `<li><strong>Uitbetaling:</strong> Overschrijving</li>
+               <li><strong>IBAN:</strong> ${safe(lead.iban || "—")}</li>`
+        }
+      </ul>
+
+      <h3 style="border-bottom:1px solid #ddd;padding-bottom:4px;">Leveringsmethode</h3>
+      ${
+        isDropoff
+          ? `<p>Je hebt gekozen om het toestel <strong>binnen te brengen in de winkel</strong>:</p>
+             <p>
+               <strong>${safe(lead.shop_location || "—")}</strong><br />
+               ${safe(address || "—")}<br />
+               <span style="font-size:13px;color:#666;">Openingsuren:</span>
+               ${hours.htmlList}
+             </p>`
+          : `<p>Je ontvangt binnenkort een verzendlabel via e-mail.<br>
+             Verpak het toestel goed en verstuur het gratis naar ons.</p>`
+      }
+
+      <p style="margin-top:30px;color:#555;">Je ontvangt een update zodra we jouw toestel hebben ontvangen en gecontroleerd.</p>
+
+      <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;color:#777;font-size:13px;">
+        Vragen? Antwoord op deze e-mail of contacteer ons via
+        <a href="mailto:${safe(REPLY_TO)}">${safe(REPLY_TO)}</a>.<br/><br/>
+        <em>Met vriendelijke groeten,<br/>Het Microforce Buyback-team</em>
+      </div>
+    </div>
+  </body>
+</html>`;
+
+  // Tekstversie
+  const text = [
+    `Bedankt, ${firstName || fullName}!`,
+    ``,
+    `We hebben je buyback-aanvraag succesvol ontvangen.`,
+    `Ordernummer: ${orderCode}`,
+    ``,
+    `Toestel: ${lead.model || "—"} (${lead.capacity_gb ?? "—"} GB)`,
+    `Prijsvoorstel: ${price}`,
+    ``,
+    lead.wants_voucher
+      ? `Uitbetaling via voucher (+5% bonus)`
+      : `Uitbetaling via overschrijving (IBAN: ${lead.iban || "—"})`,
+    ``,
+    isDropoff
+      ? [
+          `Je brengt het toestel binnen in:`,
+          `${lead.shop_location || "—"}`,
+          `${address || "—"}`,
+          `Openingsuren: ${
+            typeof lead.opening_hours === "string"
+              ? lead.opening_hours || "—"
+              : hours.inline
+          }`,
+        ].join("\n")
+      : `Je ontvangt binnenkort een verzendlabel per e-mail.`,
+    ``,
+    `Met vriendelijke groeten,`,
+    `Het Microforce Buyback-team`,
+  ].join("\n");
+
   try {
-    const entries = Object.entries(a as Record<string, any>);
-    if (!entries.length) return "";
-    const rows = entries.map(([k, v]) => {
-      const val = typeof v === "string" ? v : JSON.stringify(v);
-      return `<tr><td style="padding:4px 8px; color:#666;">${escapeHtml(k)}</td><td style="padding:4px 8px;">${escapeHtml(val)}</td></tr>`;
-    }).join("");
-    return `
-      <h3 style="margin:18px 0 8px;">Jouw antwoorden</h3>
-      <table style="width:100%; border-collapse:collapse; border:1px solid #eee;">
-        ${rows}
-      </table>
-    `;
-  } catch {
-    return "";
+    const { data, error } = await resend.emails.send({
+      from: FROM,
+      to: lead.email!,
+      replyTo: REPLY_TO,
+      subject,
+      html,
+      text,
+    });
+    if (error) throw error;
+
+    console.log(`[MAIL] Confirmation sent to ${lead.email} for order ${orderCode} (id: ${data?.id || "n/a"})`);
+    return { ok: true, id: data?.id || null };
+  } catch (e: any) {
+    console.error("[MAIL ERROR]", e);
+    return { ok: false, error: String(e?.message || e) };
   }
-}
-
-function escapeHtml(s: any) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/** Hoofd-template */
-function renderHtml(lead: Lead) {
-  const created = lead.created_at
-    ? format(new Date(lead.created_at), "dd MMMM yyyy 'om' HH:mm", { locale: nlBE })
-    : "Onbekend";
-  const total = lead.wants_voucher
-    ? (lead.final_price_with_voucher_cents ?? lead.final_price_cents)
-    : lead.final_price_cents;
-
-  const paymentLine = lead.wants_voucher
-    ? `Uitbetaling: <strong>Voucher</strong>${lead.voucher_bonus_cents ? ` (incl. +5% bonus)` : ""}`
-    : `Uitbetaling: Overschrijving naar <strong>${escapeHtml(lead.iban || "—")}</strong>`;
-
-  const deliverLine =
-    lead.delivery_method === "dropoff"
-      ? `Levering: <strong>Binnenbrengen in winkel</strong>${lead.shop_location ? ` — ${escapeHtml(lead.shop_location)}` : ""}`
-      : lead.delivery_method === "ship"
-        ? "Levering: <strong>Verzenden</strong>"
-        : "Levering: —";
-
-  const hint = nextStepHint(lead);
-
-  return `
-  <div style="font-family:Arial, sans-serif; max-width:640px; margin:auto; color:#222; line-height:1.5;">
-    <div style="padding:16px 0;">
-      <h2 style="margin:0; color:#0a7c46;">${statusLabel(lead.status)} — Buyback</h2>
-      <p style="margin:8px 0 0;">${introFor(lead)}</p>
-      ${hint ? `<p style="margin:6px 0 0; color:#444;">${hint}</p>` : ""}
-    </div>
-
-    <div style="border:1px solid #e5e7eb; border-radius:8px; padding:16px;">
-      <h3 style="margin:0 0 10px;">Order</h3>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr><td style="padding:4px 8px; color:#666;">Ordernummer</td><td style="padding:4px 8px;"><strong>${escapeHtml(lead.order_code || "—")}</strong></td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">Datum</td><td style="padding:4px 8px;">${created}</td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">Model</td><td style="padding:4px 8px;">${escapeHtml(lead.model || "—")}${lead.capacity_gb ? ` • ${lead.capacity_gb} GB` : ""}</td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">Bedrag</td><td style="padding:4px 8px;"><strong>${eur(total ?? 0)}</strong>${lead.wants_voucher && lead.final_price_cents ? ` <span style="color:#059669;">(was ${eur(lead.final_price_cents)} + bonus)</span>` : ""}</td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">Status</td><td style="padding:4px 8px;">${escapeHtml(statusLabel(lead.status))}</td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">${lead.wants_voucher ? "Voucher" : "IBAN"}</td><td style="padding:4px 8px;">${lead.wants_voucher ? "Ja" : escapeHtml(lead.iban || "—")}</td></tr>
-        <tr><td style="padding:4px 8px; color:#666;">Levering</td><td style="padding:4px 8px;">${deliverLine}</td></tr>
-      </table>
-    </div>
-
-    ${answersHtml(lead.answers)}
-
-    <p style="margin:20px 0 0; font-size:13px; color:#666;">
-      Vragen of iets onjuist? Antwoord gerust op deze e-mail of mail ons via
-      <a href="mailto:${REPLY_TO}" style="color:#0a7c46; text-decoration:underline;">${REPLY_TO}</a>.
-    </p>
-
-    <hr style="margin:16px 0; border:none; border-top:1px solid #eee;">
-    <p style="margin:0; font-size:12px; color:#889;">Deze e-mail werd automatisch verstuurd door Microforce Buyback.</p>
-  </div>
-  `;
-}
-
-/**
- * Publieke functie: verstuur statusmail naar klant.
- * - Roept niets aan als er geen klant-e-mailadres is.
- * - Maakt onderwerp + HTML op basis van lead.status
- */
-export async function sendStatusMail(lead: Lead) {
-  if (!lead?.email) return;
-
-  const subject = subjectFor(lead);
-  const html = renderHtml(lead);
-
-  await resend.emails.send({
-    from: FROM,
-    to: lead.email,
-    replyTo: REPLY_TO,
-    subject,
-    html,
-  });
 }
