@@ -1,89 +1,63 @@
-// app/api/debug/sendStatusMail/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendStatusMail } from "@/lib/email/sendStatusMail";
+import { NextResponse, NextRequest } from "next/server";
 import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM = process.env.MAIL_FROM!;
-const REPLY_TO = process.env.MAIL_REPLY_TO ?? FROM;
-
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function j(data: any, status = 200, headers?: HeadersInit) {
-  return new NextResponse(JSON.stringify(data, null, 2), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...(headers || {}) },
-  });
-}
+// ✅ Resend client + afzender
+const resend = new Resend(process.env.RESEND_API_KEY!);
+const FROM = process.env.MAIL_FROM!;                 // bv. "Buyback <noreply@jouwdomein.be>"
+const REPLY_TO = process.env.MAIL_REPLY_TO ?? FROM;  // optioneel andere reply-to
 
-function isAuthorized(req: NextRequest) {
-  const required = process.env.ADMIN_DEBUG_SECRET;
-  if (!required) return true;
-  const url = new URL(req.url);
-  const querySecret = url.searchParams.get("secret");
-  const auth = req.headers.get("authorization") || "";
-  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : null;
-  return querySecret === required || bearer === required;
-}
-
-export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return j({ error: "Unauthorized. Provide ?secret=... or Authorization: Bearer ..." }, 401);
-  }
-
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id");
-  const orderCode = url.searchParams.get("order_code");
-  const dry = url.searchParams.get("dry") === "1";
-
-  if (!id && !orderCode) {
-    return j({ error: "Specify ?id=<lead-id> or ?order_code=<BB########>" }, 400);
-  }
-
-  // fetch lead
-  let query = supabaseAdmin.from("buyback_leads").select("*").limit(1);
-  if (id) query = query.eq("id", id);
-  if (orderCode) query = query.eq("order_code", orderCode);
-
-  const { data, error } = await query.single();
-  if (error) return j({ error: error.message }, 500);
-  if (!data) return j({ error: "Lead not found" }, 404);
-  if (!data.email) return j({ error: "Lead has no email; nothing to send" }, 400);
-
-  if (dry) {
-    return j({
-      dry_run: true,
-      to: data.email,
-      subject_preview: `...`,
-      lead_id: data.id,
-      order_code: data.order_code ?? null,
-      status: data.status ?? null,
-    });
-  }
-
+export async function POST(req: NextRequest) {
   try {
+    const data = await req.json();
+
+    // ✅ Deze bestonden nog niet: maak ze aan
+    const subject = `Bevestiging buyback order ${data.order_code ?? ""}`;
+    const html = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+        <h2>Bedankt voor je aanvraag${data.first_name ? `, ${data.first_name}` : ""}!</h2>
+        <p>We hebben je buyback geregistreerd onder referentie
+          <strong style="font-family:ui-monospace,Menlo,Consolas,monospace">${data.order_code ?? "—"}</strong>.
+        </p>
+        <ul>
+          <li><strong>Model:</strong> ${data.model ?? "—"} ${data.capacity_gb ? `• ${data.capacity_gb} GB` : ""}</li>
+          <li><strong>Methode:</strong> ${data.delivery_method === "dropoff" ? "Binnenbrengen in winkel" : "Verzenden"}</li>
+          ${data.shop_location ? `<li><strong>Winkel:</strong> ${data.shop_location}</li>` : ""}
+          <li><strong>Geschatte prijs:</strong> €${((data.final_price_cents ?? 0) / 100).toFixed(2)}</li>
+          ${data.wants_voucher ? "<li><strong>Voucher:</strong> Ja (+5%)</li>" : ""}
+        </ul>
+        <p>Je ontvangt een update zodra de status wijzigt.</p>
+      </div>
+    `;
+
     const res = await resend.emails.send({
       from: FROM,
       to: data.email!,
       replyTo: REPLY_TO,
-      subject,
-      html,
+      subject,     // ✅ nu bestaat 'subject'
+      html,        // ✅ en 'html' ook
     });
-    
-    // 👇 haal het message-id correct op
-    const messageId = res.data?.id ?? null;
-    
+
     return NextResponse.json({
       ok: true,
-      sent_to: data.email,
-      id: messageId,                 // <-- niet res.id
+      id: res.data?.id ?? null,
+      sent_to: data.email ?? null,
       order_code: data.order_code ?? null,
-      status: data.status ?? null,
     });
   } catch (e: any) {
-    return j({ error: "sendStatusMail failed", details: String(e?.message || e) }, 500);
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
   }
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, expects: "POST" });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: { Allow: "GET, POST, OPTIONS" } });
 }
