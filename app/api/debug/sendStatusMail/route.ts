@@ -59,11 +59,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await sendStatusMail(data);
-    return j({
+    const res = await resend.emails.send({
+      from: FROM,
+      to: data.email!,
+      replyTo: REPLY_TO,
+      subject,
+      html,
+    });
+    
+    // 👇 haal het message-id correct op
+    const messageId = res.data?.id ?? null;
+    
+    return NextResponse.json({
       ok: true,
       sent_to: data.email,
-      id: res.id ?? undefined,
+      id: messageId,                 // <-- niet res.id
       order_code: data.order_code ?? null,
       status: data.status ?? null,
     });
