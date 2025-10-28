@@ -2,6 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendStatusMail } from "@/lib/email/sendStatusMail";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY!);
+const FROM = process.env.MAIL_FROM!;
+const REPLY_TO = process.env.MAIL_REPLY_TO ?? FROM;
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
