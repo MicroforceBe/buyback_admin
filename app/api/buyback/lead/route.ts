@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
+import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
   if (idempotency_key) {
     const { data: existing } = await supabase
       .from('buyback_leads')
-      .select('id, order_code, email')
+      .select('id, order_code')
       .eq('idempotency_key', idempotency_key)
       .single();
     if (existing) {
@@ -122,16 +122,28 @@ export async function POST(req: Request) {
     voucher_bonus_cents = final_price_with_voucher_cents - final_price_cents;
   }
 
-  // Als er een shop_id is, en geen naam, haal de naam (compat) op
-  let resolved_shop_location = shop_location;
-  if (shop_id && !resolved_shop_location) {
+  // Als er een shop_id is, haal naam/adres/openingsuren op (maildetails)
+  let resolved_shop_location = shop_location as string | null;
+  let shop_address1: string | null = null;
+  let shop_zip: string | null = null;
+  let shop_city: string | null = null;
+  let opening_hours: any = null;
+
+  if (shop_id) {
     const { data: shopRow, error: shopErr } = await supabase
       .from('buyback_shops')
-      .select('name')
+      .select('name, address1, zip, city, opening_hours')
       .eq('id', shop_id)
       .single();
-    if (!shopErr && shopRow?.name) {
-      resolved_shop_location = shopRow.name;
+    if (!shopErr && shopRow) {
+      resolved_shop_location = shopRow.name ?? resolved_shop_location ?? null;
+      shop_address1 = shopRow.address1 ?? null;
+      shop_zip = shopRow.zip ?? null;
+      shop_city = shopRow.city ?? null;
+      opening_hours = shopRow.opening_hours ?? null;
+    } else if (!resolved_shop_location) {
+      // fallback: als we geen rij kregen en ook geen naam, laat compat-naam ongewijzigd (kan null zijn)
+      console.warn('[ADMIN][LEAD] shop lookup failed or missing; continuing without shop details');
     }
   }
 
@@ -162,80 +174,31 @@ export async function POST(req: Request) {
 
   if (error) return j({ error: error.message }, 500);
 
-  // ===== Klant-bevestigingsmail (best effort, non-blocking) =====
-  try {
-    const to = (data?.email || email || '').trim();
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const FROM = process.env.MAIL_FROM;          // bv. "Microforce Buyback <info@microforce.be>"
-    const REPLY_TO = process.env.MAIL_REPLY_TO || FROM;
-
-    if (RESEND_API_KEY && FROM && to) {
-      const resend = new Resend(RESEND_API_KEY);
-
-      const subject = `Bevestiging buyback-aanvraag ${order_code}`;
-      const euro = (cents: number | null | undefined) =>
-        typeof cents === 'number' ? (cents / 100).toLocaleString('nl-BE', { style: 'currency', currency: 'EUR' }) : '—';
-
-      const prijsRegel = wants_voucher
-        ? `${euro(final_price_with_voucher_cents)} <small style="color:#166534;">(incl. +5% voucher — was ${euro(final_price_cents)})</small>`
-        : euro(final_price_cents);
-
-      const leverRegel = delivery_method === 'dropoff'
-        ? `Binnenbrengen in winkel${resolved_shop_location ? `: <strong>${resolved_shop_location}</strong>` : ''}`
-        : 'Verzenden (we bezorgen je zo meteen verdere instructies)';
-
-      const html = `
-        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#111827;">
-          <h2 style="margin:0 0 8px">Bedankt voor je buyback-aanvraag</h2>
-          <p style="margin:0 0 16px">We hebben je aanvraag goed ontvangen.</p>
-
-          <table style="border-collapse:collapse;width:100%;max-width:620px">
-            <tr>
-              <td style="padding:8px 0;width:180px;color:#6b7280;">Referentie</td>
-              <td style="padding:8px 0;"><strong style="font-family:ui-monospace,Menlo,Consolas,monospace">${order_code}</strong></td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6b7280;">Toestel</td>
-              <td style="padding:8px 0;">${model ?? '—'}${capacity_gb ? ` • ${capacity_gb} GB` : ''}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6b7280;">Geschatte uitbetaling</td>
-              <td style="padding:8px 0;font-size:18px;"><strong>${prijsRegel}</strong></td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6b7280;">Levering</td>
-              <td style="padding:8px 0;">${leverRegel}</td>
-            </tr>
-            ${iban && !wants_voucher ? `
-            <tr>
-              <td style="padding:8px 0;color:#6b7280;">IBAN</td>
-              <td style="padding:8px 0;">${iban}</td>
-            </tr>` : ``}
-          </table>
-
-          <p style="margin:16px 0 0;color:#374151;">Je ontvangt binnenkort een vervolgmail met de praktische stappen.</p>
-          <p style="margin:4px 0 0;color:#374151;">Vragen? Antwoord gerust op deze mail.</p>
-
-          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-          <p style="margin:0;color:#6b7280;font-size:12px">Microforce Buyback — dit is een automatische bevestiging.</p>
-        </div>
-      `;
-
-      await resend.emails.send({
-        from: FROM,
-        to,
-        replyTo: REPLY_TO,
-        subject,
-        html,
+  // === MAIL: stuur professionele bevestigingsmail ===
+  // Niet-blockerend voor de response; errors worden gelogd.
+  (async () => {
+    try {
+      await sendStatusMail({
+        email: data?.email ?? email ?? null,
+        first_name,
+        last_name,
+        order_code,
+        model,
+        capacity_gb,
+        final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+        wants_voucher,
+        iban: wants_voucher ? null : (iban ?? null),
+        delivery_method,
+        shop_location: resolved_shop_location ?? shop_location ?? null,
+        shop_address1,
+        shop_zip,
+        shop_city,
+        opening_hours,
       });
-      console.log('[ADMIN][LEAD] confirmation mail queued via Resend for', to, 'order', order_code);
-    } else {
-      console.log('[ADMIN][LEAD] mail not sent — missing RESEND_API_KEY/MAIL_FROM or no recipient email');
+    } catch (mailErr) {
+      console.error('[ADMIN][LEAD][MAIL] sendStatusMail failed:', mailErr);
     }
-  } catch (mailErr: any) {
-    console.warn('[ADMIN][LEAD] mail send error:', mailErr?.message || mailErr);
-    // niet blokkeren; we geven gewoon de succesvolle response terug
-  }
+  })();
 
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
