@@ -235,7 +235,7 @@ export async function sendStatusMail(lead: Lead) {
   await resend.emails.send({
     from: FROM,
     to: lead.email,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     subject,
     html,
   });
