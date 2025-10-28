@@ -176,37 +176,30 @@ export async function POST(req: Request) {
 
   // === MAIL: stuur professionele bevestigingsmail ===
   // Niet-blockerend voor de response; errors worden gelogd.
-  const recipientEmail = data?.email ?? email ?? null;
-  if (recipientEmail) {
-    console.log('[ADMIN][LEAD][MAIL] queue confirm mail', { order_code, to: recipientEmail });
-// === MAIL: stuur professionele bevestigingsmail ===
-(async () => {
-  try {
-    const mailRes = await sendStatusMail({
-      email: data?.email ?? email ?? null,
-      first_name,
-      last_name,
-      order_code,
-      model,
-      capacity_gb,
-      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
-      wants_voucher,
-      iban: wants_voucher ? null : (iban ?? null),
-      delivery_method,
-      shop_location: resolved_shop_location ?? shop_location ?? null,
-      shop_address1,
-      shop_zip,
-      shop_city,
-      opening_hours,
-    });
-    console.log("[ADMIN][LEAD][MAIL] sent ok:", mailRes);
-  } catch (mailErr) {
-    console.error("[ADMIN][LEAD][MAIL] sendStatusMail failed:", mailErr);
-  }
-})();
-  } else {
-    console.log('[ADMIN][LEAD][MAIL] skip — no recipient email', { order_code });
-  }
+  (async () => {
+    try {
+      const mailRes = await sendStatusMail({
+        to: data?.email ?? email ?? null, // <-- FIX: 'to' i.p.v. 'email'
+        first_name,
+        last_name,
+        order_code,
+        model,
+        capacity_gb,
+        final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+        wants_voucher,
+        iban: wants_voucher ? null : (iban ?? null),
+        delivery_method,
+        shop_location: resolved_shop_location ?? shop_location ?? null,
+        shop_address1,
+        shop_zip,
+        shop_city,
+        opening_hours,
+      });
+      console.log('[ADMIN][LEAD][MAIL] result:', mailRes);
+    } catch (mailErr) {
+      console.error('[ADMIN][LEAD][MAIL] sendStatusMail failed:', mailErr);
+    }
+  })();
 
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
