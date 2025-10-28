@@ -13,7 +13,7 @@ const items: Item[] = [
   { href: "/admin/multipliers", label: "Multipliers", emoji: "⚙️" },
   { href: "/admin/uploads", label: "Uploads", emoji: "⤴️" },
   // ✅ Nieuw menu-item voor instellingenpagina (shopsbeheer)
-  { href: "/settings/shops", label: "Shops", emoji: "🏬" },
+  { href: "admin/settings/shops", label: "Shops", emoji: "🏬" },
 ];
 
 export default function Nav() {
