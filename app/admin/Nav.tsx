@@ -12,6 +12,8 @@ const items: Item[] = [
   { href: "/admin/catalog", label: "Catalogus", emoji: "📦" },
   { href: "/admin/multipliers", label: "Multipliers", emoji: "⚙️" },
   { href: "/admin/uploads", label: "Uploads", emoji: "⤴️" },
+  // ✅ Nieuw menu-item voor instellingenpagina (shopsbeheer)
+  { href: "/settings/shops", label: "Shops", emoji: "🏬" },
 ];
 
 export default function Nav() {
@@ -43,9 +45,5 @@ export default function Nav() {
     });
   }, [pathname]);
 
-  return (
-    <nav className="flex flex-col gap-2 p-4">
-      {links}
-    </nav>
-  );
+  return <nav className="flex flex-col gap-2 p-4">{links}</nav>;
 }
