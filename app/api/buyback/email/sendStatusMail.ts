@@ -55,13 +55,13 @@ function eur(cents?: number | null) {
 const ORDERED_KEYS = ["functional", "icloud", "eu", "eu_model", "battery", "screen", "housing", "status"] as const;
 
 const LABELS: Record<string, string> = {
-  functional: "Werkt het toestel?",
-  icloud: "iCloud/Google-vergrendeling",
-  eu: "EU-model",
-  eu_model: "EU-model",
+  functional: "Werken alle functies op jouw toestel?",
+  icloud: "iCloud/Google-vergrendeling is verwijderd?",
+  eu: "Is het een EU-model?",
+  eu_model: "Is het een EU-model?",
   battery: "Batterijconditie",
-  screen: "Scherm",
-  housing: "Behuizing",
+  screen: "Staat van het scherm",
+  housing: "Staat van de behuizing",
   status: "Algemene staat",
 };
 
