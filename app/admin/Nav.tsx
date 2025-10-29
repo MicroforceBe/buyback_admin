@@ -12,8 +12,8 @@ const items: Item[] = [
   { href: "/admin/catalog", label: "Catalogus", emoji: "📦" },
   { href: "/admin/multipliers", label: "Multipliers", emoji: "⚙️" },
   { href: "/admin/uploads", label: "Uploads", emoji: "⤴️" },
-  // ✅ Nieuw menu-item voor instellingenpagina (shopsbeheer)
-  { href: "/admin/settings/shops", label: "Shops", emoji: "🏬" },
+  // ✅ Nieuw hoofdniveau: algemene instellingen
+  { href: "/admin/settings", label: "Settings", emoji: "🛠️" },
 ];
 
 export default function Nav() {
@@ -25,7 +25,7 @@ export default function Nav() {
         pathname === it.href || (pathname?.startsWith(it.href + "/") ?? false);
 
       const base =
-        "flex items-center gap-2 px-3 py-2 rounded-md border text-sm";
+        "flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors";
       const activeCls =
         "bg-white border-gray-300 text-gray-900 font-medium shadow-sm";
       const inactiveCls =
