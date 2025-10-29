@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
+import { sendStatusUpdateMail } from "@/app/api/buyback/email/sendStatusUpdateMail";
 
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
 // in andere een factory-functie. Deze helper vangt beide af.
@@ -34,11 +35,11 @@ function toBoolOrNull(v: unknown): boolean | null {
 }
 
 /**
- * Eén action die ALLES kan updaten.
- * Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
- * customer_number, iban, first_name, last_name, street, house_number,
- * postal_code, city, country, phone, wants_voucher
- */
+* Eén action die ALLES kan updaten.
+* Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
+* customer_number, iban, first_name, last_name, street, house_number,
+* postal_code, city, country, phone, wants_voucher
+*/
 export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
@@ -145,9 +146,34 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   // 5) Update uitvoeren
+  // Uitgebreider returning-pakket zodat we meteen alle mail-data hebben
   const returningCols =
-    "id, status, final_price_cents, wants_voucher, customer_number, sku, imei_sn, iban, " +
-    "first_name, last_name, street, house_number, postal_code, city, country, phone, updated_at";
+    [
+      "id",
+      "status",
+      "final_price_cents",
+      "wants_voucher",
+      "customer_number",
+      "sku",
+      "imei_sn",
+      "iban",
+      "first_name",
+      "last_name",
+      "street",
+      "house_number",
+      "postal_code",
+      "city",
+      "country",
+      "phone",
+      "email",
+      "order_code",
+      "model",
+      "capacity_gb",
+      "delivery_method",
+      "shop_id",
+      "shop_location",
+      "updated_at",
+    ].join(", ");
 
   const { data: after, error: updErr } = await sb
     .from("buyback_leads")
@@ -160,7 +186,58 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  // 6) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
+  // 6) Fire-and-forget: stuur status-update mail wanneer status net 'received_store' wordt
+  const newStatus = (patch.status as Status | undefined) ?? (after as any)?.status;
+  const becameReceivedStore =
+    newStatus === "received_store" && (before as any)?.status !== "received_store";
+
+  if (becameReceivedStore && after?.email) {
+    // Niet blokkeren: run async zonder await
+    (async () => {
+      try {
+        // Shopdetails ophalen indien beschikbaar
+        let shop_address1: string | null = null;
+        let shop_zip: string | null = null;
+        let shop_city: string | null = null;
+        let opening_hours: Record<string, string> | null = null;
+
+        if ((after as any).shop_id) {
+          const { data: shop, error: shopErr } = await sb
+            .from("buyback_shops")
+            .select("name, address1, zip, city, opening_hours")
+            .eq("id", (after as any).shop_id)
+            .single();
+
+          if (!shopErr && shop) {
+            shop_address1 = shop.address1 ?? null;
+            shop_zip = shop.zip ?? null;
+            shop_city = shop.city ?? null;
+            opening_hours = (shop.opening_hours as any) ?? null;
+          }
+        }
+
+        await sendStatusUpdateMail({
+          to: (after as any).email,
+          first_name: (after as any).first_name,
+          last_name: (after as any).last_name,
+          order_code: (after as any).order_code,
+          model: (after as any).model,
+          capacity_gb: (after as any).capacity_gb,
+          final_price_cents: (after as any).final_price_cents,
+          delivery_method: (after as any).delivery_method,
+          shop_location: (after as any).shop_location,
+          shop_address1,
+          shop_zip,
+          shop_city,
+          opening_hours,
+        });
+      } catch (e: any) {
+        console.error("[LEADS][MAIL] sendStatusUpdateMail failed:", e?.message || e);
+      }
+    })();
+  }
+
+  // 7) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
   const setKeys = Object.keys(patch).sort();
   const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
   const msg =
