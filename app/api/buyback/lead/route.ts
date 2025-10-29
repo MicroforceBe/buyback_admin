@@ -174,67 +174,64 @@ export async function POST(req: Request) {
 
   if (error) return j({ error: error.message }, 500);
 
-  // === MAIL: stuur professionele bevestigingsmail ===
-  // Niet-blockerend voor de response; errors worden gelogd.
-  (async () => {
-      try {
-        const to = (data?.email ?? email ?? null) as string | null;
-      
-        console.info("[ADMIN][LEAD][MAIL] will send", {
-          to,
-          order_code,
-          wants_voucher,
-          delivery_method,
-        });
-      
-        const mailRes = await sendStatusMail({
-          to,                        // <-- BELANGRIJK: veldnaam is 'to'
-          first_name,
-          last_name,
-          order_code,
-      
-          // toestel & prijs
-          model,
-          capacity_gb,
-          base_price_cents,
-          final_price_cents: wants_voucher
-            ? final_price_with_voucher_cents
-            : final_price_cents,
-          wants_voucher,
-      
-          // antwoorden/conditie uit de widget
-          answers,
-      
-          // uitbetaling
-          iban: wants_voucher ? null : (iban ?? null),
-          delivery_method,
-      
-          // winkel (dropoff)
-          shop_location: resolved_shop_location ?? shop_location ?? null,
-          shop_address1,
-          shop_zip,
-          shop_city,
-          opening_hours,
-      
-          // klantadres (ship)
-          street,
-          house_number,
-          postal_code,
-          city,
-          country,
-        });
-      
-        console.info("[ADMIN][LEAD][MAIL] send ok", {
-          id: (mailRes as any)?.id,
-          to,
-          order_code,
-        });
-      } catch (mailErr) {
-        console.error("[ADMIN][LEAD][MAIL] send failed", {
-          err: (mailErr as any)?.message || mailErr,
-          order_code,
-        });
-      }
-  })();
+  // === MAIL: stuur professionele bevestigingsmail (BLOCKING) ===
+  try {
+    const to = (data?.email ?? email ?? null) as string | null;
+
+    console.info('[ADMIN][LEAD][MAIL] will send', {
+      to,
+      order_code,
+      wants_voucher,
+      delivery_method,
+    });
+
+    const mailRes = await sendStatusMail({
+      to,                       // ontvanger
+      first_name,
+      last_name,
+      order_code,
+
+      // toestel & prijs
+      model,
+      capacity_gb,
+      base_price_cents,
+      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+      wants_voucher,
+
+      // antwoorden/conditie uit de widget (optioneel meenemen)
+      answers,
+
+      // uitbetaling
+      iban: wants_voucher ? null : (iban ?? null),
+      delivery_method,
+
+      // winkel (dropoff)
+      shop_location: resolved_shop_location ?? shop_location ?? null,
+      shop_address1,
+      shop_zip,
+      shop_city,
+      opening_hours,
+
+      // klantadres (ship)
+      street,
+      house_number,
+      postal_code,
+      city,
+      country,
+    });
+
+    console.info('[ADMIN][LEAD][MAIL] sent ok', {
+      id: (mailRes as any)?.id,
+      to,
+      order_code,
+    });
+  } catch (mailErr: any) {
+    console.error('[ADMIN][LEAD][MAIL] send failed', {
+      err: mailErr?.message || String(mailErr),
+      order_code,
+    });
+  }
+
+  // Response pas NA de mail
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
