@@ -1,6 +1,8 @@
+// app/api/buyback/email/sendStatusMail.ts
 import { Resend } from "resend";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+/** Inkomende payload vanuit routes */
 export type Input = {
   to: string | null;
   first_name?: string | null;
@@ -12,10 +14,10 @@ export type Input = {
   model?: string | null;
   capacity_gb?: number | null;
   base_price_cents?: number | null;
-  final_price_cents?: number | null; // => kan al "met voucher" doorgestuurd worden
+  final_price_cents?: number | null; // mag reeds "met voucher" doorgestuurd worden
   wants_voucher?: boolean | null;
 
-  // conditie/antwoorden (keys uit widget)
+  // conditie/antwoorden
   answers?: Record<string, string> | null;
 
   // uitbetaling / levermethode
@@ -37,158 +39,60 @@ export type Input = {
   country?: string | null;
 };
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM = process.env.MAIL_FROM!;         // bv. "Microforce Buyback <klantenservice@microforce.be>"
-const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
-
-// Supabase admin client (server-side)
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
-// ===== Settings cache (5 min) =====
-type Settings = {
-  brand_name: string | null;
-  brand_color: string | null;
-  logo_url: string | null;
-  email_disclaimer: string | null;
-};
-let _cache: { at: number; data: Settings | null } = { at: 0, data: null };
-
-async function getSettings(): Promise<Settings> {
-  const now = Date.now();
-  if (_cache.data && now - _cache.at < 5 * 60 * 1000) return _cache.data;
-
-  const { data, error } = await supabase
-    .from("buyback_settings")
-    .select("brand_name, brand_color, logo_url, email_disclaimer")
-    .eq("id", 1)
-    .maybeSingle();
-
-  if (error) {
-    console.warn("[MAIL][settings] fetch failed; using env fallbacks:", error.message);
-  }
-
-  const fallbacks: Settings = {
-    brand_name: process.env.MAIL_BRAND_NAME || "Microforce Buyback",
-    brand_color: process.env.MAIL_BRAND_COLOR || "#0ea5e9",
-    logo_url: process.env.MAIL_BRAND_LOGO || null,
-    email_disclaimer: process.env.MAIL_FOOTER_ADDRESS || null,
-  };
-
-  const merged: Settings = {
-    brand_name: data?.brand_name ?? fallbacks.brand_name,
-    brand_color: data?.brand_color ?? fallbacks.brand_color,
-    logo_url: data?.logo_url ?? fallbacks.logo_url,
-    email_disclaimer: data?.email_disclaimer ?? fallbacks.email_disclaimer,
-  };
-
-  _cache = { at: now, data: merged };
-  return merged;
-}
+// ---------- Helpers
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 
-/** ====== Antwoord-normalisatie ====== */
-const ORDERED_KEYS = ["functional", "icloud", "eu", "eu_model", "battery", "screen", "housing", "status"] as const;
-
+// Labels + humanize
 const LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
-  icloud: "iCloud/Google-vergrendeling",
-  eu: "EU-model",
   eu_model: "EU-model",
+  icloud: "iCloud/Google vergrendeling",
   battery: "Batterijconditie",
+  status: "Algemene staat",
   screen: "Scherm",
   housing: "Behuizing",
-  status: "Algemene staat",
 };
-
 const YESNO: Record<string, string> = {
-  yes: "Ja",
-  true: "Ja",
-  ja: "Ja",
-  no: "Nee",
-  false: "Nee",
-  nee: "Nee",
+  yes: "Ja", true: "Ja", ja: "Ja",
+  no: "Nee", false: "Nee", nee: "Nee",
 };
 
-function humanizeValue(key: string, value: string) {
-  const raw = (value ?? "").toString().trim();
-  const lower = raw.toLowerCase();
+function humanizeValue(key: string, val: string) {
+  const v = (val ?? "").toString().trim();
+  const lower = v.toLowerCase();
 
-  if (lower in YESNO) return YESNO[lower];
+  if (YESNO[lower] !== undefined) return YESNO[lower];
 
   if (key === "battery") {
-    const le = lower.match(/^l?e?(\d{2,3})$/);
-    if (le) return `≤ ${le[1]}%`;
-    const le2 = lower.match(/^≤\s*(\d{2,3})%?$/);
-    if (le2) return `≤ ${le2[1]}%`;
-    const n = Number(raw.replace("%", ""));
+    // "100" -> "100%"
+    const n = Number(v);
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
-
-  const mapLook = (s: string) =>
-    s
-      .replace(/_/g, " ")
-      .replace(/\bgeen\b/gi, "Geen schade")
-      .replace(/\bklein\b/gi, "Kleine schade")
-      .replace(/\bgroot\b/gi, "Grote schade")
-      .replace(/\bminimaal\b/gi, "Zo goed als nieuw")
-      .replace(/\bsporen\b/gi, "Normale gebruikssporen")
-      .replace(/\bzwaar\b/gi, "Zware gebruikssporen");
-
-  if (key === "screen" || key === "housing" || key === "status") {
-    return mapLook(raw);
-  }
-
-  return raw.replace(/_/g, " ").replace(/\bja\b/gi, "Ja").replace(/\bnee\b/gi, "Nee");
-}
-
-function normalizeAnswers(answers?: Record<string, string> | null) {
-  if (!answers || typeof answers !== "object") return [] as { label: string; value: string }[];
-
-  const norm: Record<string, string> = { ...answers };
-  if (norm.eu === undefined && norm.eu_model !== undefined) norm.eu = norm.eu_model;
-
-  const ordered: { label: string; value: string }[] = [];
-  for (const k of ORDERED_KEYS) {
-    const val = norm[k as string];
-    if (val === undefined) continue;
-    const label = LABELS[k as string] ?? k;
-    ordered.push({ label, value: humanizeValue(k as string, String(val)) });
-  }
-
-  for (const [k, v] of Object.entries(norm)) {
-    if (!ORDERED_KEYS.includes(k as any)) {
-      ordered.push({ label: LABELS[k] ?? k, value: humanizeValue(k, String(v)) });
-    }
-  }
-
-  return ordered;
+  return v
+    .replace(/_/g, " ")
+    .replace(/\bja\b/gi, "Ja")
+    .replace(/\bnee\b/gi, "Nee");
 }
 
 function renderAnswersTable(answers?: Record<string, string> | null) {
-  const rows = normalizeAnswers(answers);
-  if (!rows.length) return "";
-
-  const tr = rows
-    .map(
-      (r) => `
+  if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
+  const rows = Object.entries(answers).map(([k, v]) => {
+    const label = LABELS[k] ?? k;
+    const hv = humanizeValue(k, String(v));
+    return `
       <tr>
-        <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc">${r.label}</td>
-        <td style="padding:8px;border:1px solid #e5e7eb">${r.value || "—"}</td>
-      </tr>`
-    )
-    .join("");
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
+      </tr>`;
+  }).join("");
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
-      <tbody>${tr}</tbody>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
+      <tbody>${rows}</tbody>
     </table>
   `;
 }
@@ -198,28 +102,88 @@ function customerFullName(first?: string | null, last?: string | null) {
   return s || "klant";
 }
 
+// ---------- Branding-config
+
+type BrandingCfg = {
+  brand_name: string;
+  primary_color: string;     // hex
+  email_from: string;        // "Naam <adres@domein.tld>" of enkel "adres@domein.tld"
+  email_reply_to?: string | null;
+  email_disclaimer?: string | null;
+  logo_url?: string | null;
+};
+
+async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_settings")
+      .select("value")
+      .eq("key", "branding")
+      .single();
+
+    if (error) {
+      if (error.code !== "PGRST116") {
+        console.warn("[MAIL][branding] load error:", error);
+      }
+      return {};
+    }
+    const v = (data?.value ?? {}) as any;
+    return {
+      brand_name: v.brand_name,
+      primary_color: v.primary_color,
+      email_from: v.email_from,
+      email_reply_to: v.email_reply_to,
+      email_disclaimer: v.email_disclaimer,
+      logo_url: v.logo_url,
+    };
+  } catch (e) {
+    console.warn("[MAIL][branding] exception during load:", e);
+    return {};
+  }
+}
+
+function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
+  // Fallbacks op env bij ontbreken in DB
+  const brand_name = partial.brand_name || process.env.MAIL_BRAND_NAME || "Microforce Buyback";
+  const primary_color = partial.primary_color || "#0ea5e9";
+  const email_from = partial.email_from || process.env.MAIL_FROM || "";
+  const email_reply_to = (partial.email_reply_to ?? undefined) || process.env.MAIL_REPLY_TO || undefined;
+  const email_disclaimer = (partial.email_disclaimer ?? undefined) || "";
+  const logo_url = (partial.logo_url ?? undefined) || "";
+
+  return {
+    brand_name,
+    primary_color,
+    email_from,
+    email_reply_to,
+    email_disclaimer,
+    logo_url,
+  };
+}
+
+// ---------- Main
+
 export async function sendStatusMail(input: Input) {
+  // Basic guards
   if (!input?.to) {
     console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", { order_code: input?.order_code });
     return { skipped: true, reason: "missing-to" } as const;
   }
-  if (!FROM) throw new Error("MAIL_FROM ontbreekt in env");
+  if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt in env");
 
-  const settings = await getSettings();
-  const BRAND = settings.brand_name || "Microforce Buyback";
-  const BRAND_COLOR = settings.brand_color || "#0ea5e9";
-  const BRAND_LOGO = settings.logo_url || null;
-  const FOOTER_DISCLAIMER = settings.email_disclaimer || null;
+  // Branding ophalen (DB -> fallback ENV)
+  const dbBranding = await loadBrandingFromDB();
+  const cfg = mergeBrandingWithEnv(dbBranding);
 
-  console.info("[MAIL][sendStatusMail] env check", {
-    hasKey: Boolean(process.env.RESEND_API_KEY),
-    from: FROM,
-    replyTo: REPLY_TO || null,
-    node: process.version,
-  });
+  if (!cfg.email_from) {
+    throw new Error("MAIL_FROM ontbreekt (in settings of env)");
+  }
 
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
+  // Subject, header, content
   const name = customerFullName(input.first_name, input.last_name);
-  const subject = `Bevestiging buyback-aanvraag ${input.order_code}`;
+  const subject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
 
   const devLine = input.capacity_gb
     ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
@@ -229,6 +193,7 @@ export async function sendStatusMail(input: Input) {
     ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
     : "—";
 
+  // Leveringsblok
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
@@ -281,23 +246,9 @@ export async function sendStatusMail(input: Input) {
     ? `<p style="margin:0"><strong>Uitbetaling:</strong> voucher (in de winkel te gebruiken), +5% bonus reeds verrekend.</p>`
     : `<p style="margin:0"><strong>Uitbetaling:</strong> overschrijving op IBAN ${input.iban ? `<code>${input.iban}</code>` : "—"}.</p>`;
 
-  const answersRows = normalizeAnswers(input.answers);
-  const answersTable = answersRows.length
-    ? `
-      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
-        <tbody>
-          ${answersRows.map(r => `
-            <tr>
-              <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc">${r.label}</td>
-              <td style="padding:8px;border:1px solid #e5e7eb">${r.value || "—"}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `
-    : `<p style="margin:0">—</p>`;
+  const answersTable = renderAnswersTable(input.answers);
 
-  // TEXT fallback
+  // Tekst fallback
   const textParts: string[] = [];
   textParts.push(`Beste ${name},`);
   textParts.push("");
@@ -306,8 +257,11 @@ export async function sendStatusMail(input: Input) {
   textParts.push(`Indicatieve prijs: ${priceLine}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
-  if (answersRows.length) {
-    for (const r of answersRows) textParts.push(`- ${r.label}: ${r.value || "—"}`);
+  if (input.answers && Object.keys(input.answers).length) {
+    for (const [k, v] of Object.entries(input.answers)) {
+      const label = LABELS[k] ?? k;
+      textParts.push(`- ${label}: ${humanizeValue(k, String(v))}`);
+    }
   } else {
     textParts.push("- —");
   }
@@ -331,29 +285,28 @@ export async function sendStatusMail(input: Input) {
     ? "Uitbetaling: voucher (in de winkel te gebruiken), +5% bonus reeds verrekend."
     : `Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
   textParts.push("");
-  textParts.push(`Met vriendelijke groeten,\n${BRAND}`);
-  if (FOOTER_DISCLAIMER) {
+  textParts.push(`Met vriendelijke groeten,\n${cfg.brand_name}`);
+  if (cfg.email_disclaimer) {
     textParts.push("");
-    textParts.push(FOOTER_DISCLAIMER);
+    textParts.push(`--\n${cfg.email_disclaimer}`);
   }
   const text = textParts.join("\n");
 
-  // HTML
-  const headerLogo = BRAND_LOGO
-    ? `<img src="${BRAND_LOGO}" alt="${BRAND}" style="height:36px;display:block" />`
-    : `<div style="font-weight:700;color:#0f172a;font-size:18px">${BRAND}</div>`;
+  // HTML header (met logo indien gezet)
+  const header = cfg.logo_url
+    ? `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <img src="${cfg.logo_url}" alt="${cfg.brand_name}" height="40" style="height:40px;width:auto;display:block" />
+        <h2 style="margin:0;font-size:18px">${cfg.brand_name}</h2>
+      </div>
+    `
+    : `<h2 style="margin:0 0 4px;font-size:18px">${cfg.brand_name}</h2>`;
 
+  // HTML body
   const html = `
-  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6;color:#0f172a">
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:12px">
-      <tr>
-        <td style="padding:16px 0;border-bottom:3px solid ${BRAND_COLOR}">
-          <div style="display:flex;align-items:center;gap:12px">${headerLogo}
-            <span style="font-size:14px;color:#475569">${BRAND}</span>
-          </div>
-        </td>
-      </tr>
-    </table>
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
+    ${header}
+    <p style="margin:0 0 16px;color:#475569">Bevestiging van je buyback-aanvraag</p>
 
     <p style="margin:0 0 12px">Beste ${name},</p>
     <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
@@ -361,22 +314,22 @@ export async function sendStatusMail(input: Input) {
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
       <tbody>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Referentie</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Referentie</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
         </tr>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Toestel</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb">${devLine}</td>
         </tr>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Indicatieve prijs</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Indicatieve prijs</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb">${priceLine}</td>
         </tr>
       </tbody>
     </table>
 
-    <h3 style="margin:18px 0 6px;font-size:14px">Conditie & antwoorden</h3>
-    ${answersTable}
+    <h3 style="margin:18px 0 6px;font-size:14px">Conditie en antwoorden</h3>
+    ${answersTable || `<p style="margin:0">—</p>`}
 
     ${deliveryBlock}
 
@@ -391,39 +344,64 @@ export async function sendStatusMail(input: Input) {
     </ol>
 
     <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
-    <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${BRAND}</p>
+    <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${cfg.brand_name}</p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
     ${
-      FOOTER_DISCLAIMER
-        ? `<p style="margin:0;color:#64748b;font-size:12px">${FOOTER_DISCLAIMER}</p>`
-        : `<p style="margin:0;color:#94a3b8;font-size:12px">Dit is een automatische bevestigingsmail. Vermeld je referentie <strong>${input.order_code}</strong> bij contact.</p>`
+      cfg.email_disclaimer
+        ? `<p style="margin:0;color:#64748b;font-size:12px;white-space:pre-wrap">${escapeHtml(cfg.email_disclaimer)}</p>`
+        : `<p style="margin:0;color:#64748b;font-size:12px">Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.</p>`
     }
   </div>
   `;
 
-  console.info("[MAIL][sendStatusMail] send start", { to: input.to, from: FROM, order_code: input.order_code });
+  // Logging + verzenden
+  console.info("[MAIL][sendStatusMail] env check", {
+    hasKey: !!process.env.RESEND_API_KEY,
+    from: cfg.email_from,
+    replyTo: cfg.email_reply_to || null,
+    node: process?.versions?.node || "n/a",
+  });
+
+  console.info("[MAIL][sendStatusMail] send start", {
+    to: input.to,
+    from: cfg.email_from,
+    order_code: input.order_code,
+  });
 
   let res: any;
   try {
     res = await resend.emails.send({
-      from: FROM,
+      from: cfg.email_from,
       to: input.to!,
-      replyTo: REPLY_TO,
+      replyTo: cfg.email_reply_to || undefined,
       subject,
       html,
       text,
     });
+
+    // Debug: toon ruwe Resend response tijdelijk (laat eventueel staan)
+    console.info("[MAIL][sendStatusMail] raw response:", res);
 
     if (res?.error) {
       console.error("[MAIL][sendStatusMail] send error:", res.error);
       throw new Error(res.error?.message || "Resend send failed");
     }
 
-    console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to: input.to });
+    console.info("[MAIL][sendStatusMail] send ok:", { id: (res as any)?.id, to: input.to });
     return res;
-  } catch (err) {
+  } catch (err: any) {
     console.error("[MAIL][sendStatusMail] exception:", err);
     throw err;
   }
+}
+
+// Kleine helper om disclaimer veilig weer te geven
+function escapeHtml(s: string) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
