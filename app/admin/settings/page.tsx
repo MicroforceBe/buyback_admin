@@ -1,9 +1,19 @@
+// app/admin/settings/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { actionSaveBranding } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+type BrandingRow = {
+  brand_name: string | null;
+  brand_logo_url: string | null;
+  mail_brand_name: string | null;
+  mail_from: string | null;
+  mail_reply_to: string | null;
+  email_disclaimer_html: string | null;
+};
 
 async function loadBranding() {
   const { data, error } = await supabaseAdmin
@@ -25,13 +35,15 @@ async function loadBranding() {
     console.warn("[SETTINGS][branding] load warning:", error.message);
   }
 
+  const row = (data as Partial<BrandingRow> | null) ?? {};
+
   return {
-    brand_name: data?.brand_name ?? "",
-    brand_logo_url: data?.brand_logo_url ?? "",
-    mail_brand_name: data?.mail_brand_name ?? "",
-    mail_from: data?.mail_from ?? "",
-    mail_reply_to: data?.mail_reply_to ?? "",
-    email_disclaimer_html: data?.email_disclaimer_html ?? "",
+    brand_name: row.brand_name ?? "",
+    brand_logo_url: row.brand_logo_url ?? "",
+    mail_brand_name: row.mail_brand_name ?? "",
+    mail_from: row.mail_from ?? "",
+    mail_reply_to: row.mail_reply_to ?? "",
+    email_disclaimer_html: row.email_disclaimer_html ?? "",
   };
 }
 
@@ -75,8 +87,7 @@ export default async function SettingsPage() {
       <div className={card}>
         <h2 className="text-lg font-semibold mb-1">Branding & E-mail</h2>
         <p className="text-sm text-gray-600 mb-4">
-          Deze waarden worden gebruikt in je bevestigingsmails (Resend) en komen
-          bovenaan (merknaam + logo) en onderaan (disclaimer).
+          Deze waarden worden gebruikt in je bevestigingsmails (Resend): merknaam + logo bovenaan, disclaimer onderaan.
         </p>
 
         <form action={actionSaveBranding} className="space-y-4">
@@ -106,7 +117,7 @@ export default async function SettingsPage() {
                   className={inputCls}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Afzenderadres (domein moet bij Resend geverifieerd zijn).
+                  Afzender (domein moet in Resend geverifieerd zijn).
                 </p>
               </div>
               <div>
