@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 type BrandingRow = {
   brand_name: string | null;
-  brand_logo_url: string | null;
+  logo_url: string | null;
   mail_brand_name: string | null;
   mail_from: string | null;
   mail_reply_to: string | null;
@@ -21,7 +21,7 @@ async function loadBranding() {
     .select(
       [
         "brand_name",
-        "brand_logo_url",
+        "logo_url",
         "mail_brand_name",
         "mail_from",
         "mail_reply_to",
@@ -39,7 +39,7 @@ async function loadBranding() {
 
   return {
     brand_name: row.brand_name ?? "",
-    brand_logo_url: row.brand_logo_url ?? "",
+    logo_url: row.logo_url ?? "",
     mail_brand_name: row.mail_brand_name ?? "",
     mail_from: row.mail_from ?? "",
     mail_reply_to: row.mail_reply_to ?? "",
@@ -149,8 +149,8 @@ export default async function SettingsPage() {
             <div>
               <label className="block text-sm font-medium mb-1">Logo-URL</label>
               <input
-                name="brand_logo_url"
-                defaultValue={defaults.brand_logo_url}
+                name="logo_url"
+                defaultValue={defaults.logo_url}
                 placeholder="https://…/logo.png"
                 className={inputCls}
               />
@@ -181,11 +181,11 @@ export default async function SettingsPage() {
         </form>
       </div>
 
-      {defaults.brand_logo_url ? (
+      {defaults.logo_url ? (
         <div className={card}>
           <h3 className="text-sm font-medium mb-2">Logo-preview</h3>
           <img
-            src={defaults.brand_logo_url}
+            src={defaults.logo_url}
             alt="Logo preview"
             className="h-12 w-auto object-contain"
           />
