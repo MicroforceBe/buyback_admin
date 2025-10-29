@@ -46,11 +46,11 @@ function eur(cents?: number | null) {
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 
-// Labels + humanize
-const LABELS: Record<string, string> = {
+// Fallback labels (indien DB-labels niet beschikbaar zijn)
+const FALLBACK_LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
-  icloud: "iCloud/Google vergrendeling",
+  icloud: "iCloud/Google-vergrendeling",
   battery: "Batterijconditie",
   status: "Algemene staat",
   screen: "Scherm",
@@ -68,7 +68,6 @@ function humanizeValue(key: string, val: string) {
   if (YESNO[lower] !== undefined) return YESNO[lower];
 
   if (key === "battery") {
-    // "100" -> "100%"
     const n = Number(v);
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
@@ -76,25 +75,6 @@ function humanizeValue(key: string, val: string) {
     .replace(/_/g, " ")
     .replace(/\bja\b/gi, "Ja")
     .replace(/\bnee\b/gi, "Nee");
-}
-
-function renderAnswersTable(answers?: Record<string, string> | null) {
-  if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
-  const rows = Object.entries(answers).map(([k, v]) => {
-    const label = LABELS[k] ?? k;
-    const hv = humanizeValue(k, String(v));
-    return `
-      <tr>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
-      </tr>`;
-  }).join("");
-
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
-      <tbody>${rows}</tbody>
-    </table>
-  `;
 }
 
 function customerFullName(first?: string | null, last?: string | null) {
@@ -138,8 +118,28 @@ async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   }
 }
 
+/** Probeer labels uit DB te laden (verwacht tabel/view: buyback_answer_labels met kolommen: key, label) */
+async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_answer_labels")
+      .select("key, label");
+
+    if (error) {
+      // Geen lawaai maken in logs als de tabel niet bestaat; stil terugvallen
+      return null;
+    }
+    const map: Record<string, string> = {};
+    for (const row of data || []) {
+      if (row?.key && row?.label) map[row.key] = row.label;
+    }
+    return Object.keys(map).length ? map : null;
+  } catch {
+    return null;
+  }
+}
+
 function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
-  // Fallbacks op env bij ontbreken in DB
   const brand_name = partial.brand_name || process.env.MAIL_BRAND_NAME || "Microforce Buyback";
   const brand_color = partial.brand_color || "#0ea5e9";
   const email_from = process.env.MAIL_FROM || ""; // verplicht via ENV
@@ -157,6 +157,27 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   };
 }
 
+// Render condities-tabel met labels
+function renderAnswersTable(answers: Record<string, string> | null | undefined, labels: Record<string, string>) {
+  if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
+
+  const rows = Object.entries(answers).map(([k, v]) => {
+    const label = labels[k] ?? FALLBACK_LABELS[k] ?? k;
+    const hv = humanizeValue(k, String(v));
+    return `
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 // ---------- Main
 
 export async function sendStatusMail(input: Input) {
@@ -167,9 +188,10 @@ export async function sendStatusMail(input: Input) {
   }
   if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt in env");
 
-  // Branding ophalen (DB -> fallback ENV)
-  const dbBranding = await loadBrandingFromDB();
+  // Branding + labels ophalen
+  const [dbBranding, dbLabels] = await Promise.all([loadBrandingFromDB(), loadAnswerLabelsFromDB()]);
   const cfg = mergeBrandingWithEnv(dbBranding);
+  const LABELS = dbLabels || FALLBACK_LABELS;
 
   if (!cfg.email_from) {
     throw new Error("MAIL_FROM ontbreekt (in env)");
@@ -238,19 +260,18 @@ export async function sendStatusMail(input: Input) {
         <p style="margin:0">Nog niet gekozen of onbekend.</p>
       `;
 
+  // Uitbetalingsblok (voucher-copy aangepast)
   const payoutBlock = input.wants_voucher
-    ? `<p style="margin:0"><strong>Uitbetaling:</strong> voucher (in de winkel te gebruiken), +5% bonus reeds verrekend.</p>`
+    ? `<p style="margin:0"><strong>Uitbetaling:</strong> Fantastisch dat je voor een voucher koos! Eénmaal jouw toestel is gecontroleerd en aanvaard, ontvang je een voucher code ter waarde van <strong>${eur(input.final_price_cents ?? 0)}</strong> waarmee je online of in één van onze winkels een aankoop kan doen.</p>`
     : `<p style="margin:0"><strong>Uitbetaling:</strong> overschrijving op IBAN ${input.iban ? `<code>${input.iban}</code>` : "—"}.</p>`;
-
-  const answersTable = renderAnswersTable(input.answers);
 
   // Tekst fallback
   const textParts: string[] = [];
   textParts.push(`Beste ${name},`);
   textParts.push("");
-  textParts.push(`Bedankt voor je buyback-aanvraag. Je referentie: ${input.order_code}.`);
+  textParts.push(`Referentie: ${input.order_code}`);
   textParts.push(`Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`);
-  textParts.push(`Indicatieve prijs: ${priceLine}`);
+  textParts.push(`Berekende prijs: ${priceLine}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
   if (input.answers && Object.keys(input.answers).length) {
@@ -277,9 +298,13 @@ export async function sendStatusMail(input: Input) {
     if (addr) textParts.push(`Afzenderadres: ${addr}`);
   }
   textParts.push("");
-  textParts.push(input.wants_voucher
-    ? "Uitbetaling: voucher (in de winkel te gebruiken), +5% bonus reeds verrekend."
-    : `Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
+  if (input.wants_voucher) {
+    textParts.push(`Uitbetaling: voucher t.w.v. ${eur(input.final_price_cents ?? 0)} (code volgt na controle).`);
+  } else {
+    textParts.push(`Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
+  }
+  textParts.push("");
+  textParts.push("Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop. Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.");
   textParts.push("");
   textParts.push(`Met vriendelijke groeten,\n${cfg.brand_name}`);
   if (cfg.email_disclaimer) {
@@ -288,25 +313,17 @@ export async function sendStatusMail(input: Input) {
   }
   const text = textParts.join("\n");
 
-  // HTML header (met logo indien gezet)
+  // Header: als er logo is, géén merknaam tonen eronder
   const header = cfg.logo_url
     ? `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
         <img src="${cfg.logo_url}" alt="${cfg.brand_name}" height="40" style="height:40px;width:auto;display:block" />
-        <h2 style="margin:0;font-size:18px">${cfg.brand_name}</h2>
       </div>
     `
-    : `<h2 style="margin:0 0 4px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
+    : `<h2 style="margin:0 0 8px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
 
-  // HTML body
-  const html = `
-  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
-    ${header}
-    <p style="margin:0 0 16px;color:#475569">Bevestiging van je buyback-aanvraag</p>
-
-    <p style="margin:0 0 12px">Beste ${name},</p>
-    <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
-
+  // 2-koloms layout: linker kolom referentie/toestel/prijs — rechter kolom condities
+  const referenceTable = `
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
       <tbody>
         <tr>
@@ -318,14 +335,40 @@ export async function sendStatusMail(input: Input) {
           <td style="padding:8px;border:1px solid #e5e7eb">${devLine}</td>
         </tr>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Indicatieve prijs</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Berekende prijs</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb">${priceLine}</td>
         </tr>
       </tbody>
     </table>
+  `;
 
-    <h3 style="margin:18px 0 6px;font-size:14px">Conditie en antwoorden</h3>
-    ${answersTable || `<p style="margin:0">—</p>`}
+  const answersTableHtml = ((): string => {
+    const t = renderAnswersTable(input.answers, LABELS);
+    if (!t) return `<p style="margin:0">—</p>`;
+    return t;
+  })();
+
+  const twoColumnBlock = `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:12px 0 6px">
+      <tr>
+        <td style="width:50%;vertical-align:top;padding-right:8px">${referenceTable}</td>
+        <td style="width:50%;vertical-align:top;padding-left:8px">
+          <h3 style="margin:0 0 6px;font-size:14px">Conditie en antwoorden</h3>
+          ${answersTableHtml}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  // HTML body (zonder “Bevestiging van je buyback-aanvraag”)
+  const html = `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
+    ${header}
+
+    <p style="margin:0 0 12px">Beste ${name},</p>
+    <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
+
+    ${twoColumnBlock}
 
     ${deliveryBlock}
 
@@ -333,11 +376,10 @@ export async function sendStatusMail(input: Input) {
     ${payoutBlock}
 
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
-    <ol style="margin:0 0 12px 20px;padding:0">
-      <li>Je toestel wordt gecontroleerd volgens de opgegeven conditie.</li>
-      <li>Bij een afwijking nemen we contact op met een aangepast voorstel.</li>
-      <li>Na akkoord volgt de uitbetaling (of ontvang je de voucher).</li>
-    </ol>
+    <p style="margin:0 0 12px">
+      Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.
+    </p>
 
     <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
     <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${cfg.brand_name}</p>
@@ -376,7 +418,6 @@ export async function sendStatusMail(input: Input) {
       text,
     });
 
-    // Debug: toon ruwe Resend response tijdelijk (laat eventueel staan)
     console.info("[MAIL][sendStatusMail] raw response:", res);
 
     if (res?.error) {
