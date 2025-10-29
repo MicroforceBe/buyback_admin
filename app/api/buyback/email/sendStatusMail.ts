@@ -37,7 +37,7 @@ export type Input = {
 };
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM = process.env.MAIL_FROM!;          // bv. "Microforce Buyback <klantenservice@microforce.be>" of enkel adres
+const FROM = process.env.MAIL_FROM!;          // bv. "Microforce Buyback <klantenservice@microforce.be>"
 const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
 const BRAND = process.env.MAIL_BRAND_NAME || "Microforce Buyback";
 
@@ -46,7 +46,6 @@ function eur(cents?: number | null) {
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 
-// --- kleine helpers ---
 function cleanEmail(v?: string | null) {
   if (!v) return null;
   const s = String(v).trim();
@@ -57,7 +56,7 @@ function cleanEmail(v?: string | null) {
 const LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
-  eu: "EU-model", // <-- toegevoegd: je widget stuurt soms 'eu'
+  eu: "EU-model",
   icloud: "iCloud/Google vergrendeling",
   battery: "Batterijconditie",
   status: "Algemene staat",
@@ -76,12 +75,10 @@ function humanizeValue(key: string, val: string) {
   if (YESNO[lower] !== undefined) return YESNO[lower];
 
   if (key === "battery") {
-    // "100" -> "100%"
     const n = Number(v);
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
 
-  // wat cosmetische vervangingen
   return v
     .replace(/_/g, " ")
     .replace(/\bja\b/gi, "Ja")
@@ -132,7 +129,6 @@ export async function sendStatusMail(input: Input) {
     ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
     : "—";
 
-  // Verzend- of dropoff-blok
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
@@ -187,7 +183,6 @@ export async function sendStatusMail(input: Input) {
 
   const answersTable = renderAnswersTable(input.answers);
 
-  // TEXT fallback
   const textParts: string[] = [];
   textParts.push(`Beste ${name},`);
   textParts.push("");
@@ -205,21 +200,6 @@ export async function sendStatusMail(input: Input) {
     textParts.push("- —");
   }
   textParts.push("");
-  if (input.delivery_method === "dropoff") {
-    textParts.push("Binnenbrengen in winkel:");
-    textParts.push(`- Winkel: ${input.shop_location ?? "—"}`);
-    const addr = [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-    if (addr) textParts.push(`- Adres: ${addr}`);
-  } else if (input.delivery_method === "ship") {
-    textParts.push("Verzenden per post — instructies via e-mail.");
-    const addr = [
-      [input.street, input.house_number].filter(Boolean).join(" "),
-      [input.postal_code, input.city].filter(Boolean).join(" "),
-      input.country
-    ].filter(Boolean).join(", ");
-    if (addr) textParts.push(`Afzenderadres: ${addr}`);
-  }
-  textParts.push("");
   textParts.push(input.wants_voucher
     ? "Uitbetaling: voucher (in de winkel te gebruiken), +5% bonus reeds verrekend."
     : `Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
@@ -227,7 +207,6 @@ export async function sendStatusMail(input: Input) {
   textParts.push(`Met vriendelijke groeten,\n${BRAND}`);
   const text = textParts.join("\n");
 
-  // HTML
   const html = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
     <h2 style="margin:0 0 4px;font-size:18px">${BRAND}</h2>
@@ -278,21 +257,24 @@ export async function sendStatusMail(input: Input) {
   </div>
   `;
 
-  // 1) START-log, net vóór de call
+  console.info("[MAIL][sendStatusMail] env check", {
+    hasKey: Boolean(process.env.RESEND_API_KEY),
+    from: FROM,
+    replyTo: REPLY_TO || null,
+  });
   console.info("[MAIL][sendStatusMail] send start", { to, from: FROM, order_code: input.order_code });
 
   let res: any;
   try {
     res = await resend.emails.send({
       from: FROM,
-      to,                // <- ontvanger (gevalideerd)
-      replyTo: REPLY_TO, // <- optioneel
+      to,
+      replyTo: REPLY_TO,
       subject,
       html,
       text,
     });
 
-    // 2) RAW RESPONSE-log, direct na de call (tijdelijk aanlaten om te debuggen)
     console.info("[MAIL][sendStatusMail] raw response:", res);
 
     if (res?.error) {
@@ -300,12 +282,10 @@ export async function sendStatusMail(input: Input) {
       throw new Error(res.error?.message || "Resend send failed");
     }
 
-    // 3) OK-log, wanneer Resend de mail geaccepteerd heeft
     console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to });
     return res;
 
   } catch (err) {
-    // 4) EXCEPTION-log (bv. netwerkfout)
     console.error("[MAIL][sendStatusMail] exception:", err);
     throw err;
   }
