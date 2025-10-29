@@ -224,12 +224,34 @@ function normalizeOpenHoursValue(v?: string | null) {
   return raw;
 }
 
-/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) */
+/** Converteer allerlei sleutelvarianten naar een canonieke Engelstalige dagnaam */
+function canonicalDayKey(k: string): "monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday"|null {
+  const s = k.toLowerCase().trim().replace(/\./g, "");
+  const map: Record<string, "monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday"> = {
+    // Maandag
+    monday: "monday", mon: "monday", ma: "monday", maan: "monday", maandag: "monday",
+    // Dinsdag
+    tuesday: "tuesday", tue: "tuesday", di: "tuesday", dins: "tuesday", dinsdag: "tuesday",
+    // Woensdag
+    wednesday: "wednesday", wed: "wednesday", wo: "wednesday", woens: "wednesday", woensdag: "wednesday",
+    // Donderdag
+    thursday: "thursday", thu: "thursday", do: "thursday", donder: "thursday", donderdag: "thursday",
+    // Vrijdag
+    friday: "friday", fri: "friday", vr: "friday", vrij: "friday", vrijdag: "friday",
+    // Zaterdag
+    saturday: "saturday", sat: "saturday", za: "saturday", zat: "saturday", zaterdag: "saturday",
+    // Zondag
+    sunday: "sunday", sun: "sunday", zo: "sunday", zon: "sunday", zondag: "sunday",
+  };
+  return map[s] ?? null;
+}
+
+/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) — ondersteunt NL/EN/afkortingen als keys */
 function renderOpeningHours(hours: Record<string, string>) {
   const DAY_ORDER = [
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-  ];
-  const DAY_LABELS: Record<string, string> = {
+  ] as const;
+  const DAY_LABELS: Record<(typeof DAY_ORDER)[number], string> = {
     monday: "Maandag",
     tuesday: "Dinsdag",
     wednesday: "Woensdag",
@@ -239,8 +261,17 @@ function renderOpeningHours(hours: Record<string, string>) {
     sunday: "Zondag",
   };
 
+  // Normaliseer inkomende keys naar canonieke keys
+  const normalized: Partial<Record<(typeof DAY_ORDER)[number], string>> = {};
+  for (const [k, v] of Object.entries(hours || {})) {
+    const canon = canonicalDayKey(k);
+    if (!canon) continue;
+    // Eerste niet-lege waarde wint
+    if (!normalized[canon]) normalized[canon] = (v ?? "").toString();
+  }
+
   const rows = DAY_ORDER.map(key => {
-    const val = normalizeOpenHoursValue(hours[key]);
+    const val = normalizeOpenHoursValue(normalized[key] ?? "");
     return `
       <tr>
         <td style="padding:1px 8px 1px 0;color:#6b7280">${DAY_LABELS[key]}</td>
