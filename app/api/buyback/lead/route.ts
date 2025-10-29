@@ -177,45 +177,64 @@ export async function POST(req: Request) {
   // === MAIL: stuur professionele bevestigingsmail ===
   // Niet-blockerend voor de response; errors worden gelogd.
   (async () => {
-    try {
-      const mailRes = await sendStatusMail({
-        to: data?.email ?? email ?? null,
-        first_name,
-        last_name,
-        order_code,
-        // toestel & prijs
-        model,
-        capacity_gb,
-        base_price_cents,
-        final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
-        wants_voucher,
+      try {
+        const to = (data?.email ?? email ?? null) as string | null;
       
-        // conditie/antwoorden
-        answers,
+        console.info("[ADMIN][LEAD][MAIL] will send", {
+          to,
+          order_code,
+          wants_voucher,
+          delivery_method,
+        });
       
-        // uitbetaling / levermethode
-        iban: wants_voucher ? null : (iban ?? null),
-        delivery_method,
+        const mailRes = await sendStatusMail({
+          to,                        // <-- BELANGRIJK: veldnaam is 'to'
+          first_name,
+          last_name,
+          order_code,
       
-        // winkel (dropoff)
-        shop_location: resolved_shop_location ?? shop_location ?? null,
-        shop_address1,
-        shop_zip,
-        shop_city,
-        opening_hours,
+          // toestel & prijs
+          model,
+          capacity_gb,
+          base_price_cents,
+          final_price_cents: wants_voucher
+            ? final_price_with_voucher_cents
+            : final_price_cents,
+          wants_voucher,
       
-        // klantadres (ship)
-        street,
-        house_number,
-        postal_code,
-        city,
-        country,
-      });
-      console.log('[ADMIN][LEAD][MAIL] result:', mailRes);
-    } catch (mailErr) {
-      console.error('[ADMIN][LEAD][MAIL] sendStatusMail failed:', mailErr);
-    }
+          // antwoorden/conditie uit de widget
+          answers,
+      
+          // uitbetaling
+          iban: wants_voucher ? null : (iban ?? null),
+          delivery_method,
+      
+          // winkel (dropoff)
+          shop_location: resolved_shop_location ?? shop_location ?? null,
+          shop_address1,
+          shop_zip,
+          shop_city,
+          opening_hours,
+      
+          // klantadres (ship)
+          street,
+          house_number,
+          postal_code,
+          city,
+          country,
+        });
+      
+        console.info("[ADMIN][LEAD][MAIL] send ok", {
+          id: (mailRes as any)?.id,
+          to,
+          order_code,
+        });
+      } catch (mailErr) {
+        console.error("[ADMIN][LEAD][MAIL] send failed", {
+          err: (mailErr as any)?.message || mailErr,
+          order_code,
+        });
+      }
   })();
-
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
