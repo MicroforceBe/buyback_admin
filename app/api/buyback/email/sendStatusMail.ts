@@ -37,82 +37,146 @@ export type Input = {
 };
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM = process.env.MAIL_FROM!;          // bv. "Microforce Buyback <klantenservice@microforce.be>"
+const FROM = process.env.MAIL_FROM!;         // bv. "Microforce Buyback <klantenservice@microforce.be>"
 const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
+
+// Branding (optioneel via env)
 const BRAND = process.env.MAIL_BRAND_NAME || "Microforce Buyback";
+const BRAND_COLOR = process.env.MAIL_BRAND_COLOR || "#0ea5e9"; // Tailwind sky-500
+const BRAND_LOGO = process.env.MAIL_BRAND_LOGO || "";          // absolute URL naar logo (PNG/SVG)
+const FOOTER_ADDRESS = process.env.MAIL_FOOTER_ADDRESS || "";  // komt in kleine lettertjes onderaan
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
-function cleanEmail(v?: string | null) {
-  if (!v) return null;
-  const s = String(v).trim();
-  return s || null;
-}
 
-// Vertalingen en helpers voor answers
+/** ====== Antwoord-normalisatie (labels + waarden) ====== */
+const ORDERED_KEYS = ["functional", "icloud", "eu", "eu_model", "battery", "screen", "housing", "status"] as const;
+
 const LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
-  eu_model: "EU-model",
+  icloud: "iCloud/Google-vergrendeling",
   eu: "EU-model",
-  icloud: "iCloud/Google vergrendeling",
+  eu_model: "EU-model",
   battery: "Batterijconditie",
-  status: "Algemene staat",
   screen: "Scherm",
   housing: "Behuizing",
+  status: "Algemene staat",
 };
+
 const YESNO: Record<string, string> = {
-  yes: "Ja", true: "Ja", ja: "Ja",
-  no: "Nee", false: "Nee", nee: "Nee",
+  yes: "Ja",
+  true: "Ja",
+  ja: "Ja",
+  no: "Nee",
+  false: "Nee",
+  nee: "Nee",
 };
-function humanizeValue(key: string, val: string) {
-  const v = (val ?? "").toString().trim();
-  const lower = v.toLowerCase();
-  if (YESNO[lower] !== undefined) return YESNO[lower];
+
+function humanizeValue(key: string, value: string) {
+  const raw = (value ?? "").toString().trim();
+  const lower = raw.toLowerCase();
+
+  // ja/nee varianten
+  if (lower in YESNO) return YESNO[lower];
+
+  // batterij: "100" => "100%", "85" => "85%", "le85" / "≤85" => "≤ 85%"
   if (key === "battery") {
-    const n = Number(v);
+    // ≤ patterns
+    const le = lower.match(/^l?e?(\d{2,3})$/); // "le85" of "e85"
+    if (le) return `≤ ${le[1]}%`;
+    const le2 = lower.match(/^≤\s*(\d{2,3})%?$/);
+    if (le2) return `≤ ${le2[1]}%`;
+    const n = Number(raw.replace("%", ""));
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
-  return v.replace(/_/g, " ").replace(/\bja\b/gi, "Ja").replace(/\bnee\b/gi, "Nee");
+
+  // scherm/behuzing: waarden zoals "geen/klein/groot/minimaal/sporen/zwaar"
+  const mapLook = (s: string) =>
+    s
+      .replace(/_/g, " ")
+      .replace(/\bgeen\b/gi, "Geen schade")
+      .replace(/\bklein\b/gi, "Kleine schade")
+      .replace(/\bgroot\b/gi, "Grote schade")
+      .replace(/\bminimaal\b/gi, "Zo goed als nieuw")
+      .replace(/\bsporen\b/gi, "Normale gebruikssporen")
+      .replace(/\bzwaar\b/gi, "Zware gebruikssporen");
+
+  if (key === "screen" || key === "housing" || key === "status") {
+    return mapLook(raw);
+  }
+
+  // fallback: wat cosmetiek
+  return raw.replace(/_/g, " ").replace(/\bja\b/gi, "Ja").replace(/\bnee\b/gi, "Nee");
 }
+
+function normalizeAnswers(answers?: Record<string, string> | null) {
+  if (!answers || typeof answers !== "object") return [] as { label: string; value: string }[];
+
+  // sleutel-synoniemen samenbrengen (eu ↔ eu_model)
+  const norm: Record<string, string> = { ...answers };
+  if (norm.eu === undefined && norm.eu_model !== undefined) norm.eu = norm.eu_model;
+
+  // alleen bekende keys + volgorde afdwingen
+  const ordered: { label: string; value: string }[] = [];
+  for (const k of ORDERED_KEYS) {
+    const val = norm[k as string];
+    if (val === undefined) continue;
+    const label = LABELS[k as string] ?? k;
+    ordered.push({ label, value: humanizeValue(k as string, String(val)) });
+  }
+
+  // voeg eventueel onbekende keys achteraan (netjes gelabeld)
+  for (const [k, v] of Object.entries(norm)) {
+    if (!ORDERED_KEYS.includes(k as any)) {
+      ordered.push({ label: LABELS[k] ?? k, value: humanizeValue(k, String(v)) });
+    }
+  }
+
+  return ordered;
+}
+
 function renderAnswersTable(answers?: Record<string, string> | null) {
-  if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
-  const rows = Object.entries(answers).map(([k, v]) => {
-    const label = LABELS[k] ?? k;
-    const hv = humanizeValue(k, v);
-    return `
+  const rows = normalizeAnswers(answers);
+  if (!rows.length) return "";
+
+  const tr = rows
+    .map(
+      (r) => `
       <tr>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
-      </tr>`;
-  }).join("");
+        <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc">${r.label}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb">${r.value || "—"}</td>
+      </tr>`
+    )
+    .join("");
+
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
-      <tbody>${rows}</tbody>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
+      <tbody>${tr}</tbody>
     </table>
   `;
 }
+
 function customerFullName(first?: string | null, last?: string | null) {
   const s = [first, last].filter(Boolean).join(" ").trim();
   return s || "klant";
 }
 
-// timeout helper
-function withTimeout<T>(p: Promise<T>, ms: number) {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-  });
-}
-
 export async function sendStatusMail(input: Input) {
-  const to = cleanEmail(input?.to);
-  if (!to) {
+  if (!input?.to) {
     console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", { order_code: input?.order_code });
     return { skipped: true, reason: "missing-to" } as const;
   }
   if (!FROM) throw new Error("MAIL_FROM ontbreekt in env");
+
+  // Sanity log
+  console.info("[MAIL][sendStatusMail] env check", {
+    hasKey: Boolean(process.env.RESEND_API_KEY),
+    from: FROM,
+    replyTo: REPLY_TO || null,
+    node: process.version,
+  });
 
   const name = customerFullName(input.first_name, input.last_name);
   const subject = `Bevestiging buyback-aanvraag ${input.order_code}`;
@@ -125,42 +189,49 @@ export async function sendStatusMail(input: Input) {
     ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
     : "—";
 
+  // Verzend- of dropoff-blok
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
         <h3 style="margin:18px 0 6px;font-size:14px">Binnenbrengen in winkel</h3>
         <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
           <tr><td style="padding:2px 0"><strong>Winkel</strong></td><td style="padding:2px 0">: ${input.shop_location ?? "—"}</td></tr>
-          ${input.shop_address1 || input.shop_zip || input.shop_city
-            ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
-                [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
-              }</td></tr>`
-            : ""}
+          ${
+            input.shop_address1 || input.shop_zip || input.shop_city
+              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
+                  [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
+                }</td></tr>`
+              : ""
+          }
         </table>
-        ${input.opening_hours
-          ? `<div style="margin-top:6px">
-               <strong>Openingsuren</strong>
-               <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
-                 ${Object.entries(input.opening_hours).map(([k,v]) =>
-                   `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${k}</td><td style="padding:1px 0">${v || "—"}</td></tr>`
-                 ).join("")}
-               </table>
-             </div>`
-          : ""}
+        ${
+          input.opening_hours
+            ? `<div style="margin-top:6px">
+                 <strong>Openingsuren</strong>
+                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
+                   ${Object.entries(input.opening_hours).map(([k,v]) =>
+                     `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${k}</td><td style="padding:1px 0">${v || "—"}</td></tr>`
+                   ).join("")}
+                 </table>
+               </div>`
+            : ""
+        }
       `
       : input.delivery_method === "ship"
       ? `
         <h3 style="margin:18px 0 6px;font-size:14px">Verzenden per post</h3>
         <p style="margin:0">Je ontvangt (of ontving) de verzendinstructies via e-mail.</p>
-        ${input.street || input.house_number || input.postal_code || input.city || input.country
-          ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
-              ${[
-                [input.street, input.house_number].filter(Boolean).join(" "),
-                [input.postal_code, input.city].filter(Boolean).join(" "),
-                input.country
-              ].filter(Boolean).join("<br/>")}
-             </p>`
-          : ""}
+        ${
+          input.street || input.house_number || input.postal_code || input.city || input.country
+            ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
+                ${[
+                  [input.street, input.house_number].filter(Boolean).join(" "),
+                  [input.postal_code, input.city].filter(Boolean).join(" "),
+                  input.country
+                ].filter(Boolean).join("<br/>")}
+               </p>`
+            : ""
+        }
       `
       : `
         <h3 style="margin:18px 0 6px;font-size:14px">Leveringskeuze</h3>
@@ -173,6 +244,7 @@ export async function sendStatusMail(input: Input) {
 
   const answersTable = renderAnswersTable(input.answers);
 
+  // TEXT fallback
   const textParts: string[] = [];
   textParts.push(`Beste ${name},`);
   textParts.push("");
@@ -181,13 +253,26 @@ export async function sendStatusMail(input: Input) {
   textParts.push(`Indicatieve prijs: ${priceLine}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
-  if (input.answers && Object.keys(input.answers).length) {
-    for (const [k, v] of Object.entries(input.answers)) {
-      const label = LABELS[k] ?? k;
-      textParts.push(`- ${label}: ${humanizeValue(k, v)}`);
-    }
+  const rows = normalizeAnswers(input.answers);
+  if (rows.length) {
+    for (const r of rows) textParts.push(`- ${r.label}: ${r.value || "—"}`);
   } else {
     textParts.push("- —");
+  }
+  textParts.push("");
+  if (input.delivery_method === "dropoff") {
+    textParts.push("Binnenbrengen in winkel:");
+    textParts.push(`- Winkel: ${input.shop_location ?? "—"}`);
+    const addr = [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    if (addr) textParts.push(`- Adres: ${addr}`);
+  } else if (input.delivery_method === "ship") {
+    textParts.push("Verzenden per post — instructies via e-mail.");
+    const addr = [
+      [input.street, input.house_number].filter(Boolean).join(" "),
+      [input.postal_code, input.city].filter(Boolean).join(" "),
+      input.country
+    ].filter(Boolean).join(", ");
+    if (addr) textParts.push(`Afzenderadres: ${addr}`);
   }
   textParts.push("");
   textParts.push(input.wants_voucher
@@ -195,12 +280,28 @@ export async function sendStatusMail(input: Input) {
     : `Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
   textParts.push("");
   textParts.push(`Met vriendelijke groeten,\n${BRAND}`);
+  if (FOOTER_ADDRESS) {
+    textParts.push("");
+    textParts.push(FOOTER_ADDRESS);
+  }
   const text = textParts.join("\n");
 
+  // HTML
+  const headerLogo = BRAND_LOGO
+    ? `<img src="${BRAND_LOGO}" alt="${BRAND}" style="height:36px;display:block" />`
+    : `<div style="font-weight:700;color:#0f172a;font-size:18px">${BRAND}</div>`;
+
   const html = `
-  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
-    <h2 style="margin:0 0 4px;font-size:18px">${BRAND}</h2>
-    <p style="margin:0 0 16px;color:#475569">Bevestiging van je buyback-aanvraag</p>
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.6;color:#0f172a">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <tr>
+        <td style="padding:16px 0;border-bottom:3px solid ${BRAND_COLOR}">
+          <div style="display:flex;align-items:center;gap:12px">${headerLogo}
+            <span style="font-size:14px;color:#475569">${BRAND}</span>
+          </div>
+        </td>
+      </tr>
+    </table>
 
     <p style="margin:0 0 12px">Beste ${name},</p>
     <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
@@ -208,21 +309,21 @@ export async function sendStatusMail(input: Input) {
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
       <tbody>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Referentie</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Referentie</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
         </tr>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Toestel</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb">${devLine}</td>
         </tr>
         <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Indicatieve prijs</strong></td>
+          <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc"><strong>Indicatieve prijs</strong></td>
           <td style="padding:8px;border:1px solid #e5e7eb">${priceLine}</td>
         </tr>
       </tbody>
     </table>
 
-    <h3 style="margin:18px 0 6px;font-size:14px">Conditie en antwoorden</h3>
+    <h3 style="margin:18px 0 6px;font-size:14px">Conditie & antwoorden</h3>
     ${answersTable || `<p style="margin:0">—</p>`}
 
     ${deliveryBlock}
@@ -242,88 +343,35 @@ export async function sendStatusMail(input: Input) {
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
     <p style="margin:0;color:#64748b;font-size:12px">
-      Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.
+      Dit is een automatische bevestigingsmail. Vermeld je referentie <strong>${input.order_code}</strong> bij contact.
     </p>
+    ${FOOTER_ADDRESS ? `<p style="margin:4px 0 0;color:#94a3b8;font-size:12px">${FOOTER_ADDRESS}</p>` : ""}
   </div>
   `;
 
-  console.info("[MAIL][sendStatusMail] env check", {
-    hasKey: Boolean(process.env.RESEND_API_KEY),
-    from: FROM,
-    replyTo: REPLY_TO || null,
-    node: process.version,
-  });
-  console.info("[MAIL][sendStatusMail] send start", { to, from: FROM, order_code: input.order_code });
+  // Verzenden (blocking)
+  console.info("[MAIL][sendStatusMail] send start", { to: input.to, from: FROM, order_code: input.order_code });
 
-  // 1) Probeer eerst de SDK, met timeout
+  let res: any;
   try {
-    const sdkPromise = resend.emails.send({
+    res = await resend.emails.send({
       from: FROM,
-      to,
+      to: input.to!,
       replyTo: REPLY_TO,
       subject,
       html,
       text,
     });
-    const sdkRes: any = await withTimeout(sdkPromise, 10000); // 10s timeout
 
-    console.info("[MAIL][sendStatusMail] sdk response:", sdkRes);
-
-    if (sdkRes?.error) {
-      console.error("[MAIL][sendStatusMail] sdk error:", sdkRes.error);
-      // ga door naar fallback
-      throw new Error(sdkRes.error?.message || "Resend SDK error");
+    if (res?.error) {
+      console.error("[MAIL][sendStatusMail] send error:", res.error);
+      throw new Error(res.error?.message || "Resend send failed");
     }
 
-    console.info("[MAIL][sendStatusMail] sdk ok:", { id: sdkRes.id, to });
-    return sdkRes;
-
-  } catch (sdkErr: any) {
-    console.error("[MAIL][sendStatusMail] sdk exception/timeout:", String(sdkErr?.message || sdkErr));
-  }
-
-  // 2) Fallback: direct REST-API call (met eigen timeout)
-  try {
-    console.info("[MAIL][sendStatusMail] fallback → REST API");
-
-    const controller = new AbortController();
-    const toAbort = setTimeout(() => controller.abort(), 10000);
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: FROM,
-        to,
-        reply_to: REPLY_TO ?? undefined, // REST field heet reply_to (snake_case)
-        subject,
-        html,
-        text,
-      }),
-      signal: controller.signal,
-    }).catch((e) => {
-      clearTimeout(toAbort);
-      throw e;
-    });
-
-    clearTimeout(toAbort);
-
-    const json = await res.json().catch(() => ({}));
-    console.info("[MAIL][sendStatusMail] rest status/json:", res.status, json);
-
-    if (!res.ok || (json as any)?.error) {
-      console.error("[MAIL][sendStatusMail] rest error:", json?.error || json);
-      throw new Error((json as any)?.error?.message || `REST not ok (${res.status})`);
-    }
-
-    console.info("[MAIL][sendStatusMail] rest ok:", { id: (json as any).id, to });
-    return json;
-
-  } catch (restErr: any) {
-    console.error("[MAIL][sendStatusMail] rest exception:", String(restErr?.message || restErr));
-    throw restErr;
+    console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to: input.to });
+    return res;
+  } catch (err) {
+    console.error("[MAIL][sendStatusMail] exception:", err);
+    throw err;
   }
 }
