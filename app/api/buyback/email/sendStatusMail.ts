@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { createClient } from "@supabase/supabase-js";
 
 export type Input = {
   to: string | null;
@@ -40,28 +41,70 @@ const resend = new Resend(process.env.RESEND_API_KEY!);
 const FROM = process.env.MAIL_FROM!;         // bv. "Microforce Buyback <klantenservice@microforce.be>"
 const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
 
-// Branding (optioneel via env)
-const BRAND = process.env.MAIL_BRAND_NAME || "Microforce Buyback";
-const BRAND_COLOR = process.env.MAIL_BRAND_COLOR || "#0ea5e9"; // Tailwind sky-500
-const BRAND_LOGO = process.env.MAIL_BRAND_LOGO || "";          // absolute URL naar logo (PNG/SVG)
-const FOOTER_ADDRESS = process.env.MAIL_FOOTER_ADDRESS || "";  // komt in kleine lettertjes onderaan
+// Supabase admin client (server-side)
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
+
+// ===== Settings cache (5 min) =====
+type Settings = {
+  brand_name: string | null;
+  brand_color: string | null;
+  logo_url: string | null;
+  email_disclaimer: string | null;
+};
+let _cache: { at: number; data: Settings | null } = { at: 0, data: null };
+
+async function getSettings(): Promise<Settings> {
+  const now = Date.now();
+  if (_cache.data && now - _cache.at < 5 * 60 * 1000) return _cache.data;
+
+  const { data, error } = await supabase
+    .from("buyback_settings")
+    .select("brand_name, brand_color, logo_url, email_disclaimer")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[MAIL][settings] fetch failed; using env fallbacks:", error.message);
+  }
+
+  const fallbacks: Settings = {
+    brand_name: process.env.MAIL_BRAND_NAME || "Microforce Buyback",
+    brand_color: process.env.MAIL_BRAND_COLOR || "#0ea5e9",
+    logo_url: process.env.MAIL_BRAND_LOGO || null,
+    email_disclaimer: process.env.MAIL_FOOTER_ADDRESS || null,
+  };
+
+  const merged: Settings = {
+    brand_name: data?.brand_name ?? fallbacks.brand_name,
+    brand_color: data?.brand_color ?? fallbacks.brand_color,
+    logo_url: data?.logo_url ?? fallbacks.logo_url,
+    email_disclaimer: data?.email_disclaimer ?? fallbacks.email_disclaimer,
+  };
+
+  _cache = { at: now, data: merged };
+  return merged;
+}
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 
-/** ====== Antwoord-normalisatie (labels + waarden) ====== */
+/** ====== Antwoord-normalisatie ====== */
 const ORDERED_KEYS = ["functional", "icloud", "eu", "eu_model", "battery", "screen", "housing", "status"] as const;
 
 const LABELS: Record<string, string> = {
-  functional: "Werken alle functies op jouw toestel?",
-  icloud: "iCloud/Google-vergrendeling is verwijderd?",
-  eu: "Is het een EU-model?",
-  eu_model: "Is het een EU-model?",
+  functional: "Werkt het toestel?",
+  icloud: "iCloud/Google-vergrendeling",
+  eu: "EU-model",
+  eu_model: "EU-model",
   battery: "Batterijconditie",
-  screen: "Staat van het scherm",
-  housing: "Staat van de behuizing",
+  screen: "Scherm",
+  housing: "Behuizing",
   status: "Algemene staat",
 };
 
@@ -78,13 +121,10 @@ function humanizeValue(key: string, value: string) {
   const raw = (value ?? "").toString().trim();
   const lower = raw.toLowerCase();
 
-  // ja/nee varianten
   if (lower in YESNO) return YESNO[lower];
 
-  // batterij: "100" => "100%", "85" => "85%", "le85" / "≤85" => "≤ 85%"
   if (key === "battery") {
-    // ≤ patterns
-    const le = lower.match(/^l?e?(\d{2,3})$/); // "le85" of "e85"
+    const le = lower.match(/^l?e?(\d{2,3})$/);
     if (le) return `≤ ${le[1]}%`;
     const le2 = lower.match(/^≤\s*(\d{2,3})%?$/);
     if (le2) return `≤ ${le2[1]}%`;
@@ -92,7 +132,6 @@ function humanizeValue(key: string, value: string) {
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
 
-  // scherm/behuzing: waarden zoals "geen/klein/groot/minimaal/sporen/zwaar"
   const mapLook = (s: string) =>
     s
       .replace(/_/g, " ")
@@ -107,18 +146,15 @@ function humanizeValue(key: string, value: string) {
     return mapLook(raw);
   }
 
-  // fallback: wat cosmetiek
   return raw.replace(/_/g, " ").replace(/\bja\b/gi, "Ja").replace(/\bnee\b/gi, "Nee");
 }
 
 function normalizeAnswers(answers?: Record<string, string> | null) {
   if (!answers || typeof answers !== "object") return [] as { label: string; value: string }[];
 
-  // sleutel-synoniemen samenbrengen (eu ↔ eu_model)
   const norm: Record<string, string> = { ...answers };
   if (norm.eu === undefined && norm.eu_model !== undefined) norm.eu = norm.eu_model;
 
-  // alleen bekende keys + volgorde afdwingen
   const ordered: { label: string; value: string }[] = [];
   for (const k of ORDERED_KEYS) {
     const val = norm[k as string];
@@ -127,7 +163,6 @@ function normalizeAnswers(answers?: Record<string, string> | null) {
     ordered.push({ label, value: humanizeValue(k as string, String(val)) });
   }
 
-  // voeg eventueel onbekende keys achteraan (netjes gelabeld)
   for (const [k, v] of Object.entries(norm)) {
     if (!ORDERED_KEYS.includes(k as any)) {
       ordered.push({ label: LABELS[k] ?? k, value: humanizeValue(k, String(v)) });
@@ -170,7 +205,12 @@ export async function sendStatusMail(input: Input) {
   }
   if (!FROM) throw new Error("MAIL_FROM ontbreekt in env");
 
-  // Sanity log
+  const settings = await getSettings();
+  const BRAND = settings.brand_name || "Microforce Buyback";
+  const BRAND_COLOR = settings.brand_color || "#0ea5e9";
+  const BRAND_LOGO = settings.logo_url || null;
+  const FOOTER_DISCLAIMER = settings.email_disclaimer || null;
+
   console.info("[MAIL][sendStatusMail] env check", {
     hasKey: Boolean(process.env.RESEND_API_KEY),
     from: FROM,
@@ -189,7 +229,6 @@ export async function sendStatusMail(input: Input) {
     ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
     : "—";
 
-  // Verzend- of dropoff-blok
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
@@ -242,7 +281,21 @@ export async function sendStatusMail(input: Input) {
     ? `<p style="margin:0"><strong>Uitbetaling:</strong> voucher (in de winkel te gebruiken), +5% bonus reeds verrekend.</p>`
     : `<p style="margin:0"><strong>Uitbetaling:</strong> overschrijving op IBAN ${input.iban ? `<code>${input.iban}</code>` : "—"}.</p>`;
 
-  const answersTable = renderAnswersTable(input.answers);
+  const answersRows = normalizeAnswers(input.answers);
+  const answersTable = answersRows.length
+    ? `
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
+        <tbody>
+          ${answersRows.map(r => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;background:#f8fafc">${r.label}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">${r.value || "—"}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `
+    : `<p style="margin:0">—</p>`;
 
   // TEXT fallback
   const textParts: string[] = [];
@@ -253,9 +306,8 @@ export async function sendStatusMail(input: Input) {
   textParts.push(`Indicatieve prijs: ${priceLine}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
-  const rows = normalizeAnswers(input.answers);
-  if (rows.length) {
-    for (const r of rows) textParts.push(`- ${r.label}: ${r.value || "—"}`);
+  if (answersRows.length) {
+    for (const r of answersRows) textParts.push(`- ${r.label}: ${r.value || "—"}`);
   } else {
     textParts.push("- —");
   }
@@ -280,9 +332,9 @@ export async function sendStatusMail(input: Input) {
     : `Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
   textParts.push("");
   textParts.push(`Met vriendelijke groeten,\n${BRAND}`);
-  if (FOOTER_ADDRESS) {
+  if (FOOTER_DISCLAIMER) {
     textParts.push("");
-    textParts.push(FOOTER_ADDRESS);
+    textParts.push(FOOTER_DISCLAIMER);
   }
   const text = textParts.join("\n");
 
@@ -324,7 +376,7 @@ export async function sendStatusMail(input: Input) {
     </table>
 
     <h3 style="margin:18px 0 6px;font-size:14px">Conditie & antwoorden</h3>
-    ${answersTable || `<p style="margin:0">—</p>`}
+    ${answersTable}
 
     ${deliveryBlock}
 
@@ -342,14 +394,14 @@ export async function sendStatusMail(input: Input) {
     <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${BRAND}</p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
-    <p style="margin:0;color:#64748b;font-size:12px">
-      Dit is een automatische bevestigingsmail. Vermeld je referentie <strong>${input.order_code}</strong> bij contact.
-    </p>
-    ${FOOTER_ADDRESS ? `<p style="margin:4px 0 0;color:#94a3b8;font-size:12px">${FOOTER_ADDRESS}</p>` : ""}
+    ${
+      FOOTER_DISCLAIMER
+        ? `<p style="margin:0;color:#64748b;font-size:12px">${FOOTER_DISCLAIMER}</p>`
+        : `<p style="margin:0;color:#94a3b8;font-size:12px">Dit is een automatische bevestigingsmail. Vermeld je referentie <strong>${input.order_code}</strong> bij contact.</p>`
+    }
   </div>
   `;
 
-  // Verzenden (blocking)
   console.info("[MAIL][sendStatusMail] send start", { to: input.to, from: FROM, order_code: input.order_code });
 
   let res: any;
