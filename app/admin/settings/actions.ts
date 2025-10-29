@@ -2,25 +2,39 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-/**
- * Server Action om branding & e-mail instellingen te bewaren.
- * Pas veldnamen/tabel aan je schema aan (hier: 'buyback_settings' met id='branding').
- */
+type BrandingPayload = {
+  brand_name: string | null;
+  email_disclaimer: string | null;
+  logo_url: string | null;
+};
+
 export async function actionSaveBranding(formData: FormData) {
-  const brand_name = (formData.get("brand_name") as string | null) ?? null;
-  const email_disclaimer = (formData.get("email_disclaimer") as string | null) ?? null;
-  const logo_url = (formData.get("logo_url") as string | null) ?? null;
+  const payload: BrandingPayload = {
+    brand_name: (formData.get("brand_name") as string | null) ?? null,
+    email_disclaimer: (formData.get("email_disclaimer") as string | null) ?? null,
+    logo_url: (formData.get("logo_url") as string | null) ?? null,
+  };
 
-  // Bewaar centraal in 1 rij (id = 'branding'); wijzig naar je eigen schema indien nodig.
-  const { error } = await supabaseAdmin
-    .from("buyback_settings")
-    .upsert(
-      [{ id: "branding", brand_name, email_disclaimer, logo_url }],
-      { onConflict: "id" }
-    );
+  try {
+    // Gebruik altijd id=1 (INTEGER) om één enkele settings-rij te beheren
+    const { error } = await supabaseAdmin
+      .from("buyback_settings")
+      .upsert([{ id: 1, ...payload }], { onConflict: "id" });
 
-  if (error) {
-    console.error("[SETTINGS][branding] upsert error:", error);
-    throw new Error(error.message);
+    if (error) {
+      console.error("[SETTINGS][branding] upsert error:", {
+        code: (error as any)?.code,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint,
+        message: error.message,
+      });
+      throw new Error(error.message);
+    }
+
+    console.info("[SETTINGS][branding] saved:", payload);
+    return { ok: true as const };
+  } catch (e: any) {
+    console.error("[SETTINGS][branding] action error:", e?.message || e);
+    return { ok: false as const, error: String(e?.message || e) };
   }
 }
