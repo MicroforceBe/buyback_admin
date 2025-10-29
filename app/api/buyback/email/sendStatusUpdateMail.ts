@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /** Statussen waarvoor we mails sturen (moet matchen met actions.ts) */
 export type Status =
+  | "new"                // toegevoegd om typing in actions.ts te dekken (meestal niet verzonden)
   | "received_store"
   | "label_created"
   | "shipment_received"
@@ -127,7 +128,6 @@ function normalizeOpeningHours(input?: Record<string, string> | null): Record<st
     const pretty = DAY_ALIASES[keyNorm] || keyNorm;
     out[pretty] = (v ?? "").toString().trim() || "Gesloten";
   }
-  // Zorg dat alle dagen aanwezig zijn
   for (const d of DAY_ORDER) if (!(d in out)) out[d] = "Gesloten";
   return out;
 }
@@ -160,6 +160,7 @@ function subjectFor(status: Status, brand: string, order: string) {
     case "check_passed":       return `${base} Controle geslaagd — ${order}`;
     case "check_failed":       return `${base} Afwijking vastgesteld — ${order}`;
     case "done":               return `${base} Afgewerkt — ${order}`;
+    case "new":                return `${base} Status update — ${order}`; // fallback; normaal niet verstuurd
   }
 }
 
@@ -177,11 +178,12 @@ function leadInFor(status: Status, name: string) {
       return `Beste ${name},<br/>tijdens de controle merkten we een afwijking t.o.v. je opgave. We bezorgen je een aangepast voorstel.`;
     case "done":
       return `Beste ${name},<br/>je buyback-dossier is afgewerkt. Dankjewel!`;
+    case "new":
+      return `Beste ${name},<br/>je dossier is aangemaakt. Je ontvangt updates naarmate het vordert.`;
   }
 }
 
 function actionBlockFor(status: Status, input: Input) {
-  // informatieve tweede alinea per status
   switch (status) {
     case "received_store":
       return `<p style="margin:0 0 12px">We houden je op de hoogte zodra de controle is gebeurd.</p>`;
@@ -199,6 +201,8 @@ function actionBlockFor(status: Status, input: Input) {
       return `<p style="margin:0 0 12px">Je ontvangt per mail een nieuw voorstel. Ga je akkoord, dan verwerken we de uitbetaling (of bezorgen we je voucher).</p>`;
     case "done":
       return `<p style="margin:0 0 12px">Het dossier is afgerond. Indien van toepassing is je betaling of voucher verwerkt.</p>`;
+    case "new":
+      return `<p style="margin:0 0 12px">We brengen je op de hoogte zodra er nieuws is.</p>`;
   }
 }
 
