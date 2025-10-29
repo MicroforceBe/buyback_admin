@@ -37,7 +37,7 @@ export type Input = {
 };
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
-const FROM = process.env.MAIL_FROM!;          // b.v. "Microforce Buyback <klantenservice@microforce.be>"
+const FROM = process.env.MAIL_FROM!;          // bv. "Microforce Buyback <klantenservice@microforce.be>" of enkel adres
 const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
 const BRAND = process.env.MAIL_BRAND_NAME || "Microforce Buyback";
 
@@ -46,10 +46,18 @@ function eur(cents?: number | null) {
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
 
+// --- kleine helpers ---
+function cleanEmail(v?: string | null) {
+  if (!v) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
 // Vertalingen voor keys/values uit widget-answers
 const LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
+  eu: "EU-model", // <-- toegevoegd: je widget stuurt soms 'eu'
   icloud: "iCloud/Google vergrendeling",
   battery: "Batterijconditie",
   status: "Algemene staat",
@@ -106,7 +114,8 @@ function customerFullName(first?: string | null, last?: string | null) {
 }
 
 export async function sendStatusMail(input: Input) {
-  if (!input?.to) {
+  const to = cleanEmail(input?.to);
+  if (!to) {
     console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", { order_code: input?.order_code });
     return { skipped: true, reason: "missing-to" } as const;
   }
@@ -269,35 +278,35 @@ export async function sendStatusMail(input: Input) {
   </div>
   `;
 
-    // 1) START-log, net vóór de call
-    console.info("[MAIL][sendStatusMail] send start", { to: input.to, from: FROM, order_code: input.order_code });
-    
-    let res: any;
-    try {
-      res = await resend.emails.send({
-        from: FROM,
-        to: input.to!,        // <- ontvanger
-        replyTo: REPLY_TO,    // <- optioneel
-        subject,
-        html,
-        text,
-      });
-    
-      // 2) RAW RESPONSE-log, direct na de call (tijdelijk aanlaten om te debuggen)
-      console.info("[MAIL][sendStatusMail] raw response:", res);
-    
-      if (res?.error) {
-        console.error("[MAIL][sendStatusMail] send error:", res.error);
-        throw new Error(res.error?.message || "Resend send failed");
-      }
-    
-      // 3) OK-log, wanneer Resend de mail geaccepteerd heeft
-      console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to: input.to });
-      return res;
-    
-    } catch (err) {
-      // 4) EXCEPTION-log (bv. netwerkfout)
-      console.error("[MAIL][sendStatusMail] exception:", err);
-      throw err;
+  // 1) START-log, net vóór de call
+  console.info("[MAIL][sendStatusMail] send start", { to, from: FROM, order_code: input.order_code });
+
+  let res: any;
+  try {
+    res = await resend.emails.send({
+      from: FROM,
+      to,                // <- ontvanger (gevalideerd)
+      replyTo: REPLY_TO, // <- optioneel
+      subject,
+      html,
+      text,
+    });
+
+    // 2) RAW RESPONSE-log, direct na de call (tijdelijk aanlaten om te debuggen)
+    console.info("[MAIL][sendStatusMail] raw response:", res);
+
+    if (res?.error) {
+      console.error("[MAIL][sendStatusMail] send error:", res.error);
+      throw new Error(res.error?.message || "Resend send failed");
     }
+
+    // 3) OK-log, wanneer Resend de mail geaccepteerd heeft
+    console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to });
+    return res;
+
+  } catch (err) {
+    // 4) EXCEPTION-log (bv. netwerkfout)
+    console.error("[MAIL][sendStatusMail] exception:", err);
+    throw err;
+  }
 }
