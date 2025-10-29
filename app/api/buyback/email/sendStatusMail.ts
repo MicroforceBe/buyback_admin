@@ -215,6 +215,48 @@ function renderDetailsRows(
   return rows.join("");
 }
 
+/** Normaliseer openingsuren-waarden en toon standaard 'Gesloten' */
+function normalizeOpenHoursValue(v?: string | null) {
+  const raw = (v ?? "").toString().trim();
+  if (!raw) return "Gesloten";
+  const low = raw.toLowerCase();
+  if (["-", "closed", "gesloten", "sluiten", "nvt", "n/a", "n.v.t."].includes(low)) return "Gesloten";
+  return raw;
+}
+
+/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) */
+function renderOpeningHours(hours: Record<string, string>) {
+  const DAY_ORDER = [
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+  ];
+  const DAY_LABELS: Record<string, string> = {
+    monday: "Maandag",
+    tuesday: "Dinsdag",
+    wednesday: "Woensdag",
+    thursday: "Donderdag",
+    friday: "Vrijdag",
+    saturday: "Zaterdag",
+    sunday: "Zondag",
+  };
+
+  const rows = DAY_ORDER.map(key => {
+    const val = normalizeOpenHoursValue(hours[key]);
+    return `
+      <tr>
+        <td style="padding:1px 8px 1px 0;color:#6b7280">${DAY_LABELS[key]}</td>
+        <td style="padding:1px 0">${val}</td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <div style="margin-top:6px">
+      <strong>Openingsuren</strong>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
+        ${rows}
+      </table>
+    </div>`;
+}
+
 // ---------- Main
 
 export async function sendStatusMail(input: Input) {
@@ -240,7 +282,7 @@ export async function sendStatusMail(input: Input) {
   const name = customerFullName(input.first_name, input.last_name);
   const subject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
 
-  // Leveringsblok
+  // Leveringsblok (met correcte openingsuren lay-out Ma → Zo, dagen voluit NL)
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
@@ -255,18 +297,7 @@ export async function sendStatusMail(input: Input) {
               : ""
           }
         </table>
-        ${
-          input.opening_hours
-            ? `<div style="margin-top:6px">
-                 <strong>Openingsuren</strong>
-                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
-                   ${Object.entries(input.opening_hours).map(([k,v]) =>
-                     `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${k}</td><td style="padding:1px 0">${v || "—"}</td></tr>`
-                   ).join("")}
-                 </table>
-               </div>`
-            : ""
-        }
+        ${input.opening_hours ? renderOpeningHours(input.opening_hours) : ""}
       `
       : input.delivery_method === "ship"
       ? `
