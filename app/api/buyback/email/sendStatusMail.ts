@@ -1,112 +1,119 @@
 import { Resend } from "resend";
 
-// Keep this type aligned with your caller
 export type Input = {
   to: string | null;
   first_name?: string | null;
   last_name?: string | null;
   order_code: string;
-  model: string;
-  capacity_gb: number | null;
-  final_price_cents: number;
-  wants_voucher: boolean;
-  iban: string | null;
-  delivery_method: "ship" | "dropoff" | null;
-  shop_location: string | null;
+  model?: string | null;
+  capacity_gb?: number | null;
+  final_price_cents?: number | null;
+  wants_voucher?: boolean | null;
+  iban?: string | null;
+  delivery_method?: "ship" | "dropoff" | null;
+  shop_location?: string | null;
   shop_address1?: string | null;
   shop_zip?: string | null;
   shop_city?: string | null;
   opening_hours?: Record<string, string> | null;
 };
 
-const resendApiKey = process.env.RESEND_API_KEY;
-const FROM = process.env.MAIL_FROM;          // e.g. "Microforce Buyback <klantenservice@microforce.be>"
+const resend = new Resend(process.env.RESEND_API_KEY!);
+
+const FROM = process.env.MAIL_FROM!;           // bv. "Microforce Buyback <klantenservice@microforce.be>"
 const REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
 
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+function eur(cents?: number | null) {
+  const v = typeof cents === "number" ? cents : 0;
+  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
+}
 
 export async function sendStatusMail(input: Input) {
-  // Basic validation + *explicit* logging so we see what's missing
-  if (!resendApiKey) {
-    console.error("[MAIL][sendStatusMail] Missing RESEND_API_KEY env");
-    return { ok: false, reason: "missing_api_key" };
+  if (!input?.to) {
+    console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", { order_code: input?.order_code });
+    return { skipped: true, reason: "missing-to" } as const;
   }
   if (!FROM) {
-    console.error("[MAIL][sendStatusMail] Missing MAIL_FROM env");
-    return { ok: false, reason: "missing_from" };
-  }
-  if (!input?.to) {
-    console.error("[MAIL][sendStatusMail] Missing recipient 'to' in input", input);
-    return { ok: false, reason: "missing_to" };
+    throw new Error("MAIL_FROM ontbreekt in env");
   }
 
-  // Subject + HTML (keep it simple for now)
-  const fullName =
-    [input.first_name, input.last_name].filter(Boolean).join(" ") || "Beste klant";
-  const gb = input.capacity_gb != null ? `${input.capacity_gb} GB` : "";
-  const price = (input.final_price_cents / 100).toFixed(2).replace(".", ",");
-  const method =
-    input.delivery_method === "dropoff"
-      ? `Binnenbrengen • ${input.shop_location ?? "—"}`
-      : input.delivery_method === "ship"
-      ? "Verzenden"
-      : "—";
-
+  const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ").trim() || "klant";
   const subject = `Bevestiging buyback-aanvraag ${input.order_code}`;
+
+  const lines: string[] = [];
+  lines.push(`Beste ${fullName},`);
+  lines.push("");
+  lines.push(`Bedankt voor je buyback-aanvraag. Je referentie: ${input.order_code}.`);
+  if (input.model) {
+    const modelBits = [input.model, input.capacity_gb ? `${input.capacity_gb} GB` : null].filter(Boolean).join(" • ");
+    lines.push(`Toestel: ${modelBits}`);
+  }
+  if (typeof input.final_price_cents === "number") {
+    lines.push(`Indicatieve prijs: ${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucher)" : ""}`);
+  }
+  if (input.delivery_method === "dropoff") {
+    lines.push("");
+    lines.push("Binnenbrengen in winkel:");
+    lines.push(`- Winkel: ${input.shop_location ?? "—"}`);
+    const addr = [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    if (addr) lines.push(`- Adres: ${addr}`);
+    if (input.opening_hours && typeof input.opening_hours === "object") {
+      lines.push("- Openingsuren:");
+      for (const [k, v] of Object.entries(input.opening_hours)) {
+        lines.push(`  • ${k}: ${v || "—"}`);
+      }
+    }
+  } else if (input.delivery_method === "ship") {
+    lines.push("");
+    lines.push("Verzendmethode: verzenden per post. Je ontvangt per mail verzendinstructies.");
+    if (input.iban) lines.push(`Uitbetaling op IBAN: ${input.iban}`);
+  }
+  lines.push("");
+  lines.push("Met vriendelijke groeten,");
+  lines.push("Microforce Buyback");
+
+  const text = lines.join("\n");
   const html = `
-    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;color:#111">
-      <h2 style="margin:0 0 12px">Bedankt, ${fullName}</h2>
-      <p style="margin:0 0 12px">We hebben je buyback-aanvraag ontvangen.</p>
-
-      <table style="border-collapse:collapse;width:100%;max-width:640px;margin:12px 0">
-        <tbody>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid #eee;width:180px">Referentie</td>
-            <td style="padding:6px 8px;border:1px solid #eee"><strong>${input.order_code}</strong></td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid #eee">Toestel</td>
-            <td style="padding:6px 8px;border:1px solid #eee">${input.model} ${gb}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid #eee">Geschatte waarde</td>
-            <td style="padding:6px 8px;border:1px solid #eee"><strong>€ ${price}</strong>${input.wants_voucher ? " (incl. +5% voucher)" : ""}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid #eee">Uitbetaling</td>
-            <td style="padding:6px 8px;border:1px solid #eee">
-              ${input.wants_voucher ? "Voucher (aankooptegoed)" : (input.iban ? `Bankoverschrijving — IBAN: ${input.iban}` : "Bankoverschrijving")}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid #eee">Aanlevering</td>
-            <td style="padding:6px 8px;border:1px solid #eee">${method}</td>
-          </tr>
-        </tbody>
-      </table>
-
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#111">
+      <p>Beste ${fullName},</p>
+      <p>Bedankt voor je buyback-aanvraag.</p>
+      <p><strong>Referentie:</strong> ${input.order_code}</p>
+      ${input.model ? `<p><strong>Toestel:</strong> ${input.model}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}</p>` : ""}
+      ${typeof input.final_price_cents === "number" ? `<p><strong>Indicatieve prijs:</strong> ${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucher)" : ""}</p>` : ""}
       ${
         input.delivery_method === "dropoff"
           ? `
-        <div style="margin:10px 0;padding:10px;border:1px solid #eee;background:#fafafa">
-          <div style="font-weight:600;margin-bottom:6px">Gekozen winkel</div>
-          <div>${input.shop_location ?? "—"}</div>
-          <div>${[input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</div>
-          ${
-            input.opening_hours
-              ? `<table style="border-collapse:collapse;margin-top:8px">
-                  ${Object.entries(input.opening_hours).map(([k,v]) =>
-                    `<tr><td style="padding:2px 8px;color:#666">${k.toUpperCase()}</td><td style="padding:2px 8px">${v || "—"}</td></tr>`
-                  ).join("")}
-                </table>`
-              : ""
-          }
-        </div>`
+        <h3 style="margin:1em 0 .25em;font-size:14px">Binnenbrengen in winkel</h3>
+        <p><strong>Winkel:</strong> ${input.shop_location ?? "—"}</p>
+        ${
+          input.shop_address1 || input.shop_zip || input.shop_city
+            ? `<p><strong>Adres:</strong> ${[
+                input.shop_address1,
+                [input.shop_zip, input.shop_city].filter(Boolean).join(" "),
+              ]
+                .filter(Boolean)
+                .join(", ")}</p>`
+            : ""
+        }
+        ${
+          input.opening_hours
+            ? `<div><strong>Openingsuren:</strong><ul style="margin:.25em 0;padding-left:1.2em">${Object.entries(
+                input.opening_hours
+              )
+                .map(([k, v]) => `<li>${k}: ${v || "—"}</li>`)
+                .join("")}</ul></div>`
+            : ""
+        }
+      `
+          : input.delivery_method === "ship"
+          ? `
+        <h3 style="margin:1em 0 .25em;font-size:14px">Verzenden per post</h3>
+        <p>Je ontvangt per mail de verzendinstructies.</p>
+        ${input.iban ? `<p><strong>Uitbetaling op IBAN:</strong> ${input.iban}</p>` : ""}
+      `
           : ""
       }
-
-      <p style="margin:14px 0 0">Vragen? Reageer op deze e-mail of bel ons.</p>
-      <p style="margin:6px 0 0;color:#666;font-size:12px">Ref: ${input.order_code}</p>
+      <p style="margin-top:1em">Met vriendelijke groeten,<br/>Microforce Buyback</p>
     </div>
   `;
 
@@ -116,31 +123,21 @@ export async function sendStatusMail(input: Input) {
     order_code: input.order_code,
   });
 
-  try {
-    const res = await resend!.emails.send({
-      from: FROM,
-      to: input.to,
-      replyTo: REPLY_TO,
-      subject,
-      html,
-      headers: { "X-Entity-Ref-ID": input.order_code },
-    });
+  const res = await resend.emails.send({
+    from: FROM,
+    to: input.to,
+    replyTo: REPLY_TO,
+    subject,
+    html,
+    text,
+  });
 
-    // Resend returns { id?: string, error?: { name, message, ... } }
-    if ((res as any)?.error) {
-      console.error("[MAIL][sendStatusMail] Resend error:", (res as any).error);
-      return { ok: false, reason: "resend_error", detail: (res as any).error };
-    }
-
-    console.info("[MAIL][sendStatusMail] send ok:", res);
-    return { ok: true, detail: res };
-  } catch (err: any) {
-    // Log rich error (Resend often returns .response.data)
-    const detail =
-      err?.response?.data ??
-      err?.message ??
-      err;
-    console.error("[MAIL][sendStatusMail] send exception:", detail);
-    return { ok: false, reason: "exception", detail };
+  // Resend geeft { id?: string; error?: { name, message } }
+  if ((res as any)?.error) {
+    console.error("[MAIL][sendStatusMail] send error:", (res as any).error);
+    throw new Error((res as any).error?.message || "Resend send failed");
   }
+
+  console.info("[MAIL][sendStatusMail] send ok:", { id: (res as any).id, to: input.to });
+  return res;
 }
