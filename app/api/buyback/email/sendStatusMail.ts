@@ -102,39 +102,35 @@ function customerFullName(first?: string | null, last?: string | null) {
   return s || "klant";
 }
 
-// ---------- Branding-config
+// ---------- Branding-config (aangesloten op bestaand schema)
 
 type BrandingCfg = {
   brand_name: string;
-  primary_color: string;     // hex
-  email_from: string;        // "Naam <adres@domein.tld>" of enkel "adres@domein.tld"
-  email_reply_to?: string | null;
-  email_disclaimer?: string | null;
-  logo_url?: string | null;
+  brand_color: string;         // hex uit DB
+  email_from: string;          // uit ENV
+  email_reply_to?: string | null; // uit ENV
+  email_disclaimer?: string | null; // uit DB
+  logo_url?: string | null;    // uit DB
 };
 
+/** Haal branding rechtstreeks uit buyback_settings (id=1) */
 async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_settings")
-      .select("value")
-      .eq("key", "branding")
+      .select("brand_name, brand_color, logo_url, email_disclaimer")
+      .eq("id", 1)
       .single();
 
     if (error) {
-      if (error.code !== "PGRST116") {
-        console.warn("[MAIL][branding] load error:", error);
-      }
+      console.warn("[MAIL][branding] load error:", error);
       return {};
     }
-    const v = (data?.value ?? {}) as any;
     return {
-      brand_name: v.brand_name,
-      primary_color: v.primary_color,
-      email_from: v.email_from,
-      email_reply_to: v.email_reply_to,
-      email_disclaimer: v.email_disclaimer,
-      logo_url: v.logo_url,
+      brand_name: data?.brand_name ?? undefined,
+      brand_color: data?.brand_color ?? undefined,
+      logo_url: data?.logo_url ?? undefined,
+      email_disclaimer: data?.email_disclaimer ?? undefined,
     };
   } catch (e) {
     console.warn("[MAIL][branding] exception during load:", e);
@@ -145,15 +141,15 @@ async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
 function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   // Fallbacks op env bij ontbreken in DB
   const brand_name = partial.brand_name || process.env.MAIL_BRAND_NAME || "Microforce Buyback";
-  const primary_color = partial.primary_color || "#0ea5e9";
-  const email_from = partial.email_from || process.env.MAIL_FROM || "";
-  const email_reply_to = (partial.email_reply_to ?? undefined) || process.env.MAIL_REPLY_TO || undefined;
+  const brand_color = partial.brand_color || "#0ea5e9";
+  const email_from = process.env.MAIL_FROM || ""; // verplicht via ENV
+  const email_reply_to = process.env.MAIL_REPLY_TO || undefined;
   const email_disclaimer = (partial.email_disclaimer ?? undefined) || "";
   const logo_url = (partial.logo_url ?? undefined) || "";
 
   return {
     brand_name,
-    primary_color,
+    brand_color,
     email_from,
     email_reply_to,
     email_disclaimer,
@@ -176,7 +172,7 @@ export async function sendStatusMail(input: Input) {
   const cfg = mergeBrandingWithEnv(dbBranding);
 
   if (!cfg.email_from) {
-    throw new Error("MAIL_FROM ontbreekt (in settings of env)");
+    throw new Error("MAIL_FROM ontbreekt (in env)");
   }
 
   const resend = new Resend(process.env.RESEND_API_KEY);
@@ -300,7 +296,7 @@ export async function sendStatusMail(input: Input) {
         <h2 style="margin:0;font-size:18px">${cfg.brand_name}</h2>
       </div>
     `
-    : `<h2 style="margin:0 0 4px;font-size:18px">${cfg.brand_name}</h2>`;
+    : `<h2 style="margin:0 0 4px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
 
   // HTML body
   const html = `
