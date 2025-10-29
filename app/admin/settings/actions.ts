@@ -7,7 +7,7 @@ export async function actionSaveBranding(formData: FormData) {
     const payload = {
       key: "branding",
       brand_name: (formData.get("brand_name") as string)?.trim() || null,
-      brand_logo_url: (formData.get("brand_logo_url") as string)?.trim() || null,
+      logo_url: (formData.get("logo_url") as string)?.trim() || null,
       mail_brand_name: (formData.get("mail_brand_name") as string)?.trim() || null,
       mail_from: (formData.get("mail_from") as string)?.trim() || null,
       mail_reply_to: (formData.get("mail_reply_to") as string)?.trim() || null,
