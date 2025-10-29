@@ -1,196 +1,203 @@
 // app/admin/settings/page.tsx
-import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { actionSaveBranding } from "./actions";
+import { revalidatePath } from "next/cache";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type BrandingRow = {
+type SettingsRow = {
+  id: number;
   brand_name: string | null;
+  brand_color: string | null;
   logo_url: string | null;
-  mail_brand_name: string | null;
-  mail_from: string | null;
-  mail_reply_to: string | null;
-  email_disclaimer_html: string | null;
+  email_disclaimer: string | null;
+  updated_at?: string | null;
 };
 
-async function loadBranding() {
+async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
-    .select(
-      [
-        "brand_name",
-        "logo_url",
-        "mail_brand_name",
-        "mail_from",
-        "mail_reply_to",
-        "email_disclaimer_html",
-      ].join(",")
-    )
-    .eq("key", "branding")
+    .select("id, brand_name, brand_color, logo_url, email_disclaimer, updated_at")
+    .eq("id", 1)
     .single();
 
   if (error) {
-    console.warn("[SETTINGS][branding] load warning:", error.message);
+    // Als er nog geen rij is, geven we lege defaults terug
+    return {
+      id: 1,
+      brand_name: "",
+      brand_color: "",
+      logo_url: "",
+      email_disclaimer: "",
+      updated_at: null,
+    };
   }
 
-  const row = (data as Partial<BrandingRow> | null) ?? {};
-
   return {
-    brand_name: row.brand_name ?? "",
-    logo_url: row.logo_url ?? "",
-    mail_brand_name: row.mail_brand_name ?? "",
-    mail_from: row.mail_from ?? "",
-    mail_reply_to: row.mail_reply_to ?? "",
-    email_disclaimer_html: row.email_disclaimer_html ?? "",
+    id: data?.id ?? 1,
+    brand_name: data?.brand_name ?? "",
+    brand_color: data?.brand_color ?? "",
+    logo_url: data?.logo_url ?? "",
+    email_disclaimer: data?.email_disclaimer ?? "",
+    updated_at: data?.updated_at ?? null,
   };
 }
 
 export default async function SettingsPage() {
-  const defaults = await loadBranding();
+  const row = await loadSettings();
 
-  const inputCls =
-    "bb-input h-9 text-sm px-3 py-2 w-full border rounded-md border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-200";
-  const taCls =
-    "bb-input text-sm px-3 py-2 w-full min-h-[140px] border rounded-md border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-200";
-  const btnPrimary =
-    "bb-btn primary inline-flex items-center gap-2 px-4 h-10 rounded-md bg-blue-600 text-white hover:bg-blue-700";
-  const card =
-    "bg-white border border-gray-200 rounded-lg p-4 shadow-sm";
+  // ---- Server Action (inline, geen extra export!) ----
+  async function actionSaveBranding(formData: FormData) {
+    "use server";
+
+    const brand_name = (formData.get("brand_name") as string | null) ?? "";
+    const brand_color = (formData.get("brand_color") as string | null) ?? "";
+    const logo_url = (formData.get("logo_url") as string | null) ?? "";
+    const email_disclaimer =
+      (formData.get("email_disclaimer") as string | null) ?? "";
+
+    // Upsert naar id=1
+    const { error } = await supabaseAdmin
+      .from("buyback_settings")
+      .upsert(
+        {
+          id: 1,
+          brand_name,
+          brand_color,
+          logo_url,
+          email_disclaimer,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id", ignoreDuplicates: false }
+      );
+
+    if (error) {
+      console.error("[SETTINGS][branding] upsert error:", error);
+      // Laat fout zien via querystring
+      return { ok: false as const, message: error.message };
+    }
+
+    // Revalidate settings en terugkoppeling
+    revalidatePath("/admin/settings");
+    return { ok: true as const, message: "Instellingen bewaard." };
+  }
 
   return (
-    <div className="w-full p-4 space-y-4">
+    <div className="w-full p-4 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Instellingen</h1>
-        <Link href="/admin" className="bb-btn h-9 text-xs px-3">← Terug</Link>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-2">
-        <Link
-          href="/admin/settings"
-          aria-current="page"
-          className="px-3 py-2 text-sm rounded-md border border-gray-300 bg-white font-medium"
-        >
-          Branding
-        </Link>
-        <Link
-          href="/admin/settings/shops"
-          className="px-3 py-2 text-sm rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
-        >
-          Shops
+        <Link href="/admin" className="bb-btn h-9 text-xs px-3">
+          ← Terug
         </Link>
       </div>
 
-      {/* Branding */}
-      <div className={card}>
-        <h2 className="text-lg font-semibold mb-1">Branding & E-mail</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Deze waarden worden gebruikt in je bevestigingsmails (Resend): merknaam + logo bovenaan, disclaimer onderaan.
-        </p>
+      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <header className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-medium">Branding</h2>
+            <p className="text-sm text-gray-500">
+              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails & UI.
+            </p>
+          </div>
+          <Link href="/admin/uploads" className="text-sm underline">
+            ➜ Uploads (logo uploaden)
+          </Link>
+        </header>
 
         <form action={actionSaveBranding} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Merknaam (in e-mails)
-              </label>
-              <input
-                name="mail_brand_name"
-                defaultValue={defaults.mail_brand_name}
-                placeholder="bv. Microforce Buyback"
-                className={inputCls}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Verschijnt in onderwerp en groet.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">MAIL_FROM</label>
-                <input
-                  name="mail_from"
-                  defaultValue={defaults.mail_from}
-                  placeholder="bv. klantenservice@microforce.be"
-                  className={inputCls}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Afzender (domein moet in Resend geverifieerd zijn).
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  MAIL_REPLY_TO (optioneel)
-                </label>
-                <input
-                  name="mail_reply_to"
-                  defaultValue={defaults.mail_reply_to}
-                  placeholder="bv. support@microforce.be"
-                  className={inputCls}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Brand name (UI)</label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Merknaam</span>
               <input
                 name="brand_name"
-                defaultValue={defaults.brand_name}
-                placeholder="bv. Microforce"
-                className={inputCls}
+                defaultValue={row.brand_name ?? ""}
+                placeholder="bv. Microforce Buyback"
+                className="bb-input h-9 text-sm px-2"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Optioneel, voor intern gebruik of UI.
-              </p>
-            </div>
+            </label>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Logo-URL</label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Merk-kleur (hex)</span>
+              <div className="flex items-center gap-2">
+                <input
+                  name="brand_color"
+                  defaultValue={row.brand_color ?? ""}
+                  placeholder="#00AEEF"
+                  className="bb-input h-9 text-sm px-2 flex-1"
+                />
+                <span
+                  title="Preview"
+                  className="inline-block w-8 h-8 rounded border"
+                  style={{ backgroundColor: row.brand_color || "#ffffff" }}
+                />
+              </div>
+              <span className="text-xs text-gray-500">
+                Gebruik een geldige hex-kleur (bv. #0EA5E9).
+              </span>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm md:col-span-2">
+              <span className="font-medium">Logo URL</span>
               <input
                 name="logo_url"
-                defaultValue={defaults.logo_url}
-                placeholder="https://…/logo.png"
-                className={inputCls}
+                defaultValue={row.logo_url ?? ""}
+                placeholder="https://.../uploads/logo.png"
+                className="bb-input h-9 text-sm px-2"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Transparante PNG, ~600px breed aangeraden.
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              E-mail disclaimer (HTML toegestaan)
+              <span className="text-xs text-gray-500">
+                Kies een bestand via <Link href="/admin/uploads" className="underline">Uploads</Link> en plak hier de URL.
+              </span>
             </label>
-            <textarea
-              name="email_disclaimer_html"
-              defaultValue={defaults.email_disclaimer_html}
-              placeholder="bv. Dit is een automatische bevestiging…"
-              className={taCls}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Wordt onderaan elke bevestigingsmail toegevoegd.
-            </p>
+
+            {row.logo_url ? (
+              <div className="md:col-span-2">
+                <span className="block text-sm text-gray-500 mb-1">Logo voorbeeld</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={row.logo_url}
+                  alt="Logo preview"
+                  className="h-12 object-contain bg-white border rounded p-2"
+                />
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex items-center justify-end">
-            <button type="submit" className={btnPrimary}>💾 Bewaren</button>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">E-mail disclaimer</span>
+            <textarea
+              name="email_disclaimer"
+              defaultValue={row.email_disclaimer ?? ""}
+              placeholder="Tekst die onderaan in bevestigingsmails verschijnt."
+              rows={6}
+              className="bb-input text-sm px-2 py-2"
+            />
+            <span className="text-xs text-gray-500">
+              Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet nodig.
+            </span>
+          </label>
+
+          <div className="pt-2">
+            <button type="submit" className="bb-btn primary h-9 text-sm px-4">
+              Bewaren
+            </button>
           </div>
         </form>
-      </div>
 
-      {defaults.logo_url ? (
-        <div className={card}>
-          <h3 className="text-sm font-medium mb-2">Logo-preview</h3>
-          <img
-            src={defaults.logo_url}
-            alt="Logo preview"
-            className="h-12 w-auto object-contain"
-          />
-        </div>
-      ) : null}
+        <footer className="pt-2">
+          <p className="text-xs text-gray-400">
+            Laatst bijgewerkt: {row.updated_at ? new Date(row.updated_at).toLocaleString("nl-BE") : "—"}
+          </p>
+        </footer>
+      </section>
+
+      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
+        <h3 className="text-sm font-medium">Tip</h3>
+        <p className="text-sm text-gray-600">
+          Deze instellingen worden gebruikt in je bevestigingsmails (via Resend) en kunnen later
+          eenvoudig uitgebreid worden (bijv. extra huisstijl-varianten per shop).
+        </p>
+      </section>
     </div>
   );
 }
