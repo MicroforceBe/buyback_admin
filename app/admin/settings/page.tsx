@@ -1,13 +1,11 @@
-// app/admin/settings/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { actionSaveBranding } from "./actions";
 
-// === Server Action: bewaren ===
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function loadBranding() {
-  // Haal de rij met key='branding' op; kolommen mogen null zijn als (nog) niet ingesteld
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
     .select(
@@ -24,7 +22,6 @@ async function loadBranding() {
     .single();
 
   if (error) {
-    // Niet blokkeren: toon gewoon lege defaults
     console.warn("[SETTINGS][branding] load warning:", error.message);
   }
 
@@ -36,35 +33,6 @@ async function loadBranding() {
     mail_reply_to: data?.mail_reply_to ?? "",
     email_disclaimer_html: data?.email_disclaimer_html ?? "",
   };
-}
-
-// Zet hier je bestaande server action exact zoals je ze al had
-export async function actionSaveBranding(formData: FormData) {
-  "use server";
-  try {
-    const payload = {
-      key: "branding",
-      brand_name: (formData.get("brand_name") as string)?.trim() || null,
-      brand_logo_url: (formData.get("brand_logo_url") as string)?.trim() || null,
-      mail_brand_name: (formData.get("mail_brand_name") as string)?.trim() || null,
-      mail_from: (formData.get("mail_from") as string)?.trim() || null,
-      mail_reply_to: (formData.get("mail_reply_to") as string)?.trim() || null,
-      email_disclaimer_html:
-        (formData.get("email_disclaimer_html") as string)?.trim() || null,
-    };
-
-    const { error } = await supabaseAdmin
-      .from("buyback_settings")
-      .upsert(payload, { onConflict: "key" });
-
-    if (error) {
-      console.error("[SETTINGS][branding] upsert error:", error);
-      throw new Error(error.message);
-    }
-  } catch (e: any) {
-    console.error("[SETTINGS][branding] save error:", e?.message || e);
-    throw e;
-  }
 }
 
 export default async function SettingsPage() {
@@ -81,14 +49,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="w-full p-4 space-y-4">
-      {/* Header + Tabs */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Instellingen</h1>
-        <Link href="/admin" className="bb-btn h-9 text-xs px-3">
-          ← Terug
-        </Link>
+        <Link href="/admin" className="bb-btn h-9 text-xs px-3">← Terug</Link>
       </div>
 
+      {/* Tabs */}
       <div className="flex items-center gap-2">
         <Link
           href="/admin/settings"
@@ -105,17 +71,16 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
-      {/* Branding Card */}
+      {/* Branding */}
       <div className={card}>
         <h2 className="text-lg font-semibold mb-1">Branding & E-mail</h2>
         <p className="text-sm text-gray-600 mb-4">
           Deze waarden worden gebruikt in je bevestigingsmails (Resend) en komen
-          bovenaan in de mail (merknaam + logo) en onderaan als disclaimer.
+          bovenaan (merknaam + logo) en onderaan (disclaimer).
         </p>
 
         <form action={actionSaveBranding} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Merknaam / Mail-brand */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Merknaam (in e-mails)
@@ -127,12 +92,10 @@ export default async function SettingsPage() {
                 className={inputCls}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Verschijnt in onderwerp en groet (bv. “Met vriendelijke groeten,
-                Microforce Buyback”).
+                Verschijnt in onderwerp en groet.
               </p>
             </div>
 
-            {/* From / Reply-to */}
             <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">MAIL_FROM</label>
@@ -143,8 +106,7 @@ export default async function SettingsPage() {
                   className={inputCls}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Afzenderadres voor Resend (domein moet bij Resend
-                  geverifieerd zijn).
+                  Afzenderadres (domein moet bij Resend geverifieerd zijn).
                 </p>
               </div>
               <div>
@@ -160,7 +122,6 @@ export default async function SettingsPage() {
               </div>
             </div>
 
-            {/* Brand name (UI) */}
             <div>
               <label className="block text-sm font-medium mb-1">Brand name (UI)</label>
               <input
@@ -170,11 +131,10 @@ export default async function SettingsPage() {
                 className={inputCls}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Optioneel: voor intern gebruik of toekomstige UI-verwijzingen.
+                Optioneel, voor intern gebruik of UI.
               </p>
             </div>
 
-            {/* Logo URL */}
             <div>
               <label className="block text-sm font-medium mb-1">Logo-URL</label>
               <input
@@ -184,13 +144,11 @@ export default async function SettingsPage() {
                 className={inputCls}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Afbeelding die bovenaan in e-mails wordt getoond (aanbevolen:
-                transparante PNG, max. ~600px breed).
+                Transparante PNG, ~600px breed aangeraden.
               </p>
             </div>
           </div>
 
-          {/* Disclaimer */}
           <div>
             <label className="block text-sm font-medium mb-1">
               E-mail disclaimer (HTML toegestaan)
@@ -202,20 +160,16 @@ export default async function SettingsPage() {
               className={taCls}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Wordt onderaan elke bevestigingsmail toegevoegd. Je mag basis-HTML
-              gebruiken (p, br, strong, a).
+              Wordt onderaan elke bevestigingsmail toegevoegd.
             </p>
           </div>
 
           <div className="flex items-center justify-end">
-            <button type="submit" className={btnPrimary}>
-              💾 Bewaren
-            </button>
+            <button type="submit" className={btnPrimary}>💾 Bewaren</button>
           </div>
         </form>
       </div>
 
-      {/* Preview (optioneel) */}
       {defaults.brand_logo_url ? (
         <div className={card}>
           <h3 className="text-sm font-medium mb-2">Logo-preview</h3>
