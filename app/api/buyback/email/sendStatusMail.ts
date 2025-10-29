@@ -126,7 +126,7 @@ async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> 
       .select("key, label");
 
     if (error) {
-      // Geen lawaai maken in logs als de tabel niet bestaat; stil terugvallen
+      // Stil terugvallen als tabel niet bestaat
       return null;
     }
     const map: Record<string, string> = {};
@@ -157,10 +157,12 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   };
 }
 
-// Render condities-tabel met labels
-function renderAnswersTable(answers: Record<string, string> | null | undefined, labels: Record<string, string>) {
+// Render condities-tabel met labels — nu mét vaste kolombreedte via <colgroup>
+function renderAnswersTable(
+  answers: Record<string, string> | null | undefined,
+  labels: Record<string, string>
+) {
   if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
-
   const rows = Object.entries(answers).map(([k, v]) => {
     const label = labels[k] ?? FALLBACK_LABELS[k] ?? k;
     const hv = humanizeValue(k, String(v));
@@ -172,7 +174,9 @@ function renderAnswersTable(answers: Record<string, string> | null | undefined, 
   }).join("");
 
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
+    <table role="presentation" cellpadding="0" cellspacing="0"
+           style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
+      <colgroup><col style="width:35%"><col style="width:65%"></colgroup>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -322,9 +326,11 @@ export async function sendStatusMail(input: Input) {
     `
     : `<h2 style="margin:0 0 8px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
 
-  // 2-koloms layout: linker kolom referentie/toestel/prijs — rechter kolom condities
+  // Referentieblok met vaste kolombreedte
   const referenceTable = `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
+    <table role="presentation" cellpadding="0" cellspacing="0"
+           style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
+      <colgroup><col style="width:35%"><col style="width:65%"></colgroup>
       <tbody>
         <tr>
           <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Referentie</strong></td>
@@ -348,19 +354,7 @@ export async function sendStatusMail(input: Input) {
     return t;
   })();
 
-  const twoColumnBlock = `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;table-layout:fixed;border-collapse:collapse;margin:12px 0 6px">
-      <tr>
-        <td style="width:50%;vertical-align:top;padding-right:8px">${referenceTable}</td>
-        <td style="width:50%;vertical-align:top;padding-left:8px">
-          <h3 style="margin:0 0 6px;font-size:14px">Conditie en antwoorden</h3>
-          ${answersTableHtml}
-        </td>
-      </tr>
-    </table>
-  `;
-
-  // HTML body (zonder “Bevestiging van je buyback-aanvraag”)
+  // HTML body — blokken ONDER ELKAAR + gelijke eerste kolombreedte
   const html = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
     ${header}
@@ -368,7 +362,10 @@ export async function sendStatusMail(input: Input) {
     <p style="margin:0 0 12px">Beste ${name},</p>
     <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
 
-    ${twoColumnBlock}
+    ${referenceTable}
+
+    <h3 style="margin:18px 0 6px;font-size:14px">Conditie en antwoorden</h3>
+    ${answersTableHtml}
 
     ${deliveryBlock}
 
