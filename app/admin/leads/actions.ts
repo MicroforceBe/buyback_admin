@@ -186,13 +186,22 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  // 6) Fire-and-forget: stuur status-update mail wanneer status net 'received_store' wordt
-  const newStatus = (patch.status as Status | undefined) ?? (after as any)?.status;
-  const becameReceivedStore =
-    newStatus === "received_store" && (before as any)?.status !== "received_store";
+  // 6) Status change → status update e-mail (fire-and-forget)
+  const prevStatus = (before as any)?.status as Status | undefined;
+  const newStatus = ((patch.status as Status | undefined) ?? (after as any)?.status) as Status | undefined;
 
-  if (becameReceivedStore && after?.email) {
-    // Niet blokkeren: run async zonder await
+  const NOTIFY_STATUSES: Status[] = [
+    "received_store",
+    "label_created",
+    "shipment_received",
+    "check_passed",
+    "check_failed",
+    "done",
+  ];
+
+  const statusChanged = newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus);
+
+  if (statusChanged && after?.email) {
     (async () => {
       try {
         // Shopdetails ophalen indien beschikbaar
@@ -217,13 +226,21 @@ export async function updateLeadInlineAction(formData: FormData) {
         }
 
         await sendStatusUpdateMail({
+          // ontvanger + basis
           to: (after as any).email,
           first_name: (after as any).first_name,
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
+
+          // context
+          status: newStatus, // <-- laat de mailtemplate kiezen op basis van status
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
           final_price_cents: (after as any).final_price_cents,
+          wants_voucher: (after as any).wants_voucher ?? null,
+          iban: (after as any).iban ?? null,
+
+          // levering + shop
           delivery_method: (after as any).delivery_method,
           shop_location: (after as any).shop_location,
           shop_address1,
