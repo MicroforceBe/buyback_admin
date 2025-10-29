@@ -157,29 +157,62 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   };
 }
 
-// Render condities-tabel met labels — nu mét vaste kolombreedte via <colgroup>
-function renderAnswersTable(
-  answers: Record<string, string> | null | undefined,
+/** Genereer ALLE rijtjes voor de “Toestel-details” tabel (zonder <table> wrapper). */
+function renderDetailsRows(
+  input: Input,
   labels: Record<string, string>
 ) {
-  if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
-  const rows = Object.entries(answers).map(([k, v]) => {
-    const label = labels[k] ?? FALLBACK_LABELS[k] ?? k;
-    const hv = humanizeValue(k, String(v));
-    return `
-      <tr>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
-      </tr>`;
-  }).join("");
+  const rows: string[] = [];
 
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0"
-           style="width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #e5e7eb">
-      <colgroup><col style="width:35%"><col style="width:65%"></colgroup>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+  // Referentie
+  rows.push(`
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Referentie</strong></td>
+      <td style="padding:8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
+    </tr>`);
+
+  // Toestel
+  const devLine = input.capacity_gb
+    ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
+    : (input.model ?? "—");
+  rows.push(`
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
+      <td style="padding:8px;border:1px solid #e5e7eb">${devLine}</td>
+    </tr>`);
+
+  // Berekende prijs
+  const priceLine = typeof input.final_price_cents === "number"
+    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
+    : "—";
+  rows.push(`
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Berekende prijs</strong></td>
+      <td style="padding:8px;border:1px solid #e5e7eb">${priceLine}</td>
+    </tr>`);
+
+  // Separator “Conditie en antwoorden” (kopje over 2 kolommen)
+  const hasAnswers = !!(input.answers && Object.keys(input.answers).length);
+  if (hasAnswers) {
+    rows.push(`
+      <tr>
+        <td colspan="2" style="padding:10px;border:1px solid #e5e7eb;background:#f8fafc;font-weight:600">
+          Conditie en antwoorden
+        </td>
+      </tr>`);
+    // Antwoord-rijen
+    for (const [k, v] of Object.entries(input.answers!)) {
+      const label = labels[k] ?? FALLBACK_LABELS[k] ?? k;
+      const hv = humanizeValue(k, String(v));
+      rows.push(`
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa">${label}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
+        </tr>`);
+    }
+  }
+
+  return rows.join("");
 }
 
 // ---------- Main
@@ -203,17 +236,9 @@ export async function sendStatusMail(input: Input) {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
 
-  // Subject, header, content
+  // Subject, header
   const name = customerFullName(input.first_name, input.last_name);
   const subject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
-
-  const devLine = input.capacity_gb
-    ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
-    : (input.model ?? "—");
-
-  const priceLine = typeof input.final_price_cents === "number"
-    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
-    : "—";
 
   // Leveringsblok
   const deliveryBlock =
@@ -275,7 +300,10 @@ export async function sendStatusMail(input: Input) {
   textParts.push("");
   textParts.push(`Referentie: ${input.order_code}`);
   textParts.push(`Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`);
-  textParts.push(`Berekende prijs: ${priceLine}`);
+  const priceLineText = typeof input.final_price_cents === "number"
+    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
+    : "—";
+  textParts.push(`Berekende prijs: ${priceLineText}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
   if (input.answers && Object.keys(input.answers).length) {
@@ -326,35 +354,18 @@ export async function sendStatusMail(input: Input) {
     `
     : `<h2 style="margin:0 0 8px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
 
-  // Referentieblok met vaste kolombreedte
-  const referenceTable = `
+  // ÉÉN TABEL met alle toestelinfo (gelijke kolombreedte via <colgroup>)
+  const detailsTable = `
     <table role="presentation" cellpadding="0" cellspacing="0"
-           style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb">
+           style="width:100%;border-collapse:collapse;margin:0 0 12px;border:1px solid #e5e7eb">
       <colgroup><col style="width:35%"><col style="width:65%"></colgroup>
       <tbody>
-        <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Referentie</strong></td>
-          <td style="padding:8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
-        </tr>
-        <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
-          <td style="padding:8px;border:1px solid #e5e7eb">${devLine}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Berekende prijs</strong></td>
-          <td style="padding:8px;border:1px solid #e5e7eb">${priceLine}</td>
-        </tr>
+        ${renderDetailsRows(input, LABELS)}
       </tbody>
     </table>
   `;
 
-  const answersTableHtml = ((): string => {
-    const t = renderAnswersTable(input.answers, LABELS);
-    if (!t) return `<p style="margin:0">—</p>`;
-    return t;
-  })();
-
-  // HTML body — blokken ONDER ELKAAR + gelijke eerste kolombreedte
+  // HTML body — één blok voor toestel-details (2 kolommen) + overige secties
   const html = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
     ${header}
@@ -362,10 +373,7 @@ export async function sendStatusMail(input: Input) {
     <p style="margin:0 0 12px">Beste ${name},</p>
     <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
 
-    ${referenceTable}
-
-    <h3 style="margin:18px 0 6px;font-size:14px">Conditie en antwoorden</h3>
-    ${answersTableHtml}
+    ${detailsTable}
 
     ${deliveryBlock}
 
