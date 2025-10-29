@@ -45,14 +45,13 @@ function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
   return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
 }
-
 function cleanEmail(v?: string | null) {
   if (!v) return null;
   const s = String(v).trim();
   return s || null;
 }
 
-// Vertalingen voor keys/values uit widget-answers
+// Vertalingen en helpers voor answers
 const LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
@@ -67,27 +66,18 @@ const YESNO: Record<string, string> = {
   yes: "Ja", true: "Ja", ja: "Ja",
   no: "Nee", false: "Nee", nee: "Nee",
 };
-
 function humanizeValue(key: string, val: string) {
   const v = (val ?? "").toString().trim();
   const lower = v.toLowerCase();
-
   if (YESNO[lower] !== undefined) return YESNO[lower];
-
   if (key === "battery") {
     const n = Number(v);
     if (!Number.isNaN(n) && n >= 0 && n <= 100) return `${n}%`;
   }
-
-  return v
-    .replace(/_/g, " ")
-    .replace(/\bja\b/gi, "Ja")
-    .replace(/\bnee\b/gi, "Nee");
+  return v.replace(/_/g, " ").replace(/\bja\b/gi, "Ja").replace(/\bnee\b/gi, "Nee");
 }
-
 function renderAnswersTable(answers?: Record<string, string> | null) {
   if (!answers || typeof answers !== "object" || !Object.keys(answers).length) return "";
-
   const rows = Object.entries(answers).map(([k, v]) => {
     const label = LABELS[k] ?? k;
     const hv = humanizeValue(k, v);
@@ -97,17 +87,23 @@ function renderAnswersTable(answers?: Record<string, string> | null) {
         <td style="padding:6px 8px;border:1px solid #e5e7eb">${hv || "—"}</td>
       </tr>`;
   }).join("");
-
   return `
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6px">
       <tbody>${rows}</tbody>
     </table>
   `;
 }
-
 function customerFullName(first?: string | null, last?: string | null) {
   const s = [first, last].filter(Boolean).join(" ").trim();
   return s || "klant";
+}
+
+// timeout helper
+function withTimeout<T>(p: Promise<T>, ms: number) {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
 }
 
 export async function sendStatusMail(input: Input) {
@@ -135,42 +131,36 @@ export async function sendStatusMail(input: Input) {
         <h3 style="margin:18px 0 6px;font-size:14px">Binnenbrengen in winkel</h3>
         <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
           <tr><td style="padding:2px 0"><strong>Winkel</strong></td><td style="padding:2px 0">: ${input.shop_location ?? "—"}</td></tr>
-          ${
-            input.shop_address1 || input.shop_zip || input.shop_city
-              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
-                  [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
-                }</td></tr>`
-              : ""
-          }
+          ${input.shop_address1 || input.shop_zip || input.shop_city
+            ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
+                [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
+              }</td></tr>`
+            : ""}
         </table>
-        ${
-          input.opening_hours
-            ? `<div style="margin-top:6px">
-                 <strong>Openingsuren</strong>
-                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
-                   ${Object.entries(input.opening_hours).map(([k,v]) =>
-                     `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${k}</td><td style="padding:1px 0">${v || "—"}</td></tr>`
-                   ).join("")}
-                 </table>
-               </div>`
-            : ""
-        }
+        ${input.opening_hours
+          ? `<div style="margin-top:6px">
+               <strong>Openingsuren</strong>
+               <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:4px;border-collapse:collapse">
+                 ${Object.entries(input.opening_hours).map(([k,v]) =>
+                   `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${k}</td><td style="padding:1px 0">${v || "—"}</td></tr>`
+                 ).join("")}
+               </table>
+             </div>`
+          : ""}
       `
       : input.delivery_method === "ship"
       ? `
         <h3 style="margin:18px 0 6px;font-size:14px">Verzenden per post</h3>
         <p style="margin:0">Je ontvangt (of ontving) de verzendinstructies via e-mail.</p>
-        ${
-          input.street || input.house_number || input.postal_code || input.city || input.country
-            ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
-                ${[
-                  [input.street, input.house_number].filter(Boolean).join(" "),
-                  [input.postal_code, input.city].filter(Boolean).join(" "),
-                  input.country
-                ].filter(Boolean).join("<br/>")}
-               </p>`
-            : ""
-        }
+        ${input.street || input.house_number || input.postal_code || input.city || input.country
+          ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
+              ${[
+                [input.street, input.house_number].filter(Boolean).join(" "),
+                [input.postal_code, input.city].filter(Boolean).join(" "),
+                input.country
+              ].filter(Boolean).join("<br/>")}
+             </p>`
+          : ""}
       `
       : `
         <h3 style="margin:18px 0 6px;font-size:14px">Leveringskeuze</h3>
@@ -261,12 +251,13 @@ export async function sendStatusMail(input: Input) {
     hasKey: Boolean(process.env.RESEND_API_KEY),
     from: FROM,
     replyTo: REPLY_TO || null,
+    node: process.version,
   });
   console.info("[MAIL][sendStatusMail] send start", { to, from: FROM, order_code: input.order_code });
 
-  let res: any;
+  // 1) Probeer eerst de SDK, met timeout
   try {
-    res = await resend.emails.send({
+    const sdkPromise = resend.emails.send({
       from: FROM,
       to,
       replyTo: REPLY_TO,
@@ -274,19 +265,65 @@ export async function sendStatusMail(input: Input) {
       html,
       text,
     });
+    const sdkRes: any = await withTimeout(sdkPromise, 10000); // 10s timeout
 
-    console.info("[MAIL][sendStatusMail] raw response:", res);
+    console.info("[MAIL][sendStatusMail] sdk response:", sdkRes);
 
-    if (res?.error) {
-      console.error("[MAIL][sendStatusMail] send error:", res.error);
-      throw new Error(res.error?.message || "Resend send failed");
+    if (sdkRes?.error) {
+      console.error("[MAIL][sendStatusMail] sdk error:", sdkRes.error);
+      // ga door naar fallback
+      throw new Error(sdkRes.error?.message || "Resend SDK error");
     }
 
-    console.info("[MAIL][sendStatusMail] send ok:", { id: res.id, to });
-    return res;
+    console.info("[MAIL][sendStatusMail] sdk ok:", { id: sdkRes.id, to });
+    return sdkRes;
 
-  } catch (err) {
-    console.error("[MAIL][sendStatusMail] exception:", err);
-    throw err;
+  } catch (sdkErr: any) {
+    console.error("[MAIL][sendStatusMail] sdk exception/timeout:", String(sdkErr?.message || sdkErr));
+  }
+
+  // 2) Fallback: direct REST-API call (met eigen timeout)
+  try {
+    console.info("[MAIL][sendStatusMail] fallback → REST API");
+
+    const controller = new AbortController();
+    const toAbort = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: FROM,
+        to,
+        reply_to: REPLY_TO ?? undefined, // REST field heet reply_to (snake_case)
+        subject,
+        html,
+        text,
+      }),
+      signal: controller.signal,
+    }).catch((e) => {
+      clearTimeout(toAbort);
+      throw e;
+    });
+
+    clearTimeout(toAbort);
+
+    const json = await res.json().catch(() => ({}));
+    console.info("[MAIL][sendStatusMail] rest status/json:", res.status, json);
+
+    if (!res.ok || (json as any)?.error) {
+      console.error("[MAIL][sendStatusMail] rest error:", json?.error || json);
+      throw new Error((json as any)?.error?.message || `REST not ok (${res.status})`);
+    }
+
+    console.info("[MAIL][sendStatusMail] rest ok:", { id: (json as any).id, to });
+    return json;
+
+  } catch (restErr: any) {
+    console.error("[MAIL][sendStatusMail] rest exception:", String(restErr?.message || restErr));
+    throw restErr;
   }
 }
