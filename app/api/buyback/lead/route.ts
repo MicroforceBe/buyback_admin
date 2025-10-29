@@ -179,21 +179,37 @@ export async function POST(req: Request) {
   (async () => {
     try {
       const mailRes = await sendStatusMail({
-        to: data?.email ?? email ?? null, // <-- FIX: 'to' i.p.v. 'email'
+        to: data?.email ?? email ?? null,
         first_name,
         last_name,
         order_code,
+        // toestel & prijs
         model,
         capacity_gb,
+        base_price_cents,
         final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
         wants_voucher,
+      
+        // conditie/antwoorden
+        answers,
+      
+        // uitbetaling / levermethode
         iban: wants_voucher ? null : (iban ?? null),
         delivery_method,
+      
+        // winkel (dropoff)
         shop_location: resolved_shop_location ?? shop_location ?? null,
         shop_address1,
         shop_zip,
         shop_city,
         opening_hours,
+      
+        // klantadres (ship)
+        street,
+        house_number,
+        postal_code,
+        city,
+        country,
       });
       console.log('[ADMIN][LEAD][MAIL] result:', mailRes);
     } catch (mailErr) {
