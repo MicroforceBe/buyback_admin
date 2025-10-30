@@ -34,6 +34,101 @@ function toBoolOrNull(v: unknown): boolean | null {
   return null;
 }
 
+/** Kleine helpers voor Sendcloud */
+function scAuthHeader() {
+  const pub = process.env.SENDCLOUD_PUBLIC_KEY || "";
+  const sec = process.env.SENDCLOUD_SECRET_KEY || "";
+  const token = Buffer.from(`${pub}:${sec}`).toString("base64");
+  return `Basic ${token}`;
+}
+
+type CreateLabelResult = {
+  tracking_code?: string | null;
+  tracking_url?: string | null;
+  label_pdf_url?: string | null;
+};
+
+/**
+ * Maakt via Sendcloud een zending + label aan voor deze lead.
+ * Verwacht dat 'after' alle nodige adresvelden bevat.
+ * Faalt nooit hard: geeft { ...undefined } terug bij problemen en logt de fout.
+ */
+async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
+  try {
+    if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
+      console.warn("[SENDCLOUD] ontbrekende API keys; skip label creation");
+      return {};
+    }
+
+    // Basis zending opbouw — pas aan indien je specifieke carrier/method wilt forceren
+    // Zie Sendcloud API v2: POST /api/v2/parcels
+    const payload: any = {
+      parcel: {
+        name: [after.first_name, after.last_name].filter(Boolean).join(" ") || "Klant",
+        company_name: null,
+        email: after.email || undefined,
+        telephone: after.phone || undefined,
+        address: [after.street, after.house_number].filter(Boolean).join(" "),
+        house_number: after.house_number || undefined, // sommige carriers verwachten dit apart
+        city: after.city,
+        postal_code: after.postal_code,
+        country: after.country || "BE",
+        // gewicht verplicht bij sommige carriers — stel veilig minimum in gram
+        weight: 250,
+        order_number: after.order_code || after.id,
+        // Optioneel: servicepoint id, carrier, etc.
+      }
+    };
+
+    const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
+      method: "POST",
+      headers: {
+        "Authorization": scAuthHeader(),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload),
+      // node fetch in Next server actions is ok
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      console.error("[SENDCLOUD] create parcel failed", resp.status, txt);
+      return {};
+    }
+
+    const data = await resp.json().catch(() => ({} as any));
+    const parcel = (data && (data.parcel || data.data?.parcel)) || data;
+
+    // Probeer robuust velden eruit te halen
+    const trackingNumber: string | null =
+      parcel?.tracking_number || parcel?.tracking_number_public || parcel?.tracking_number_scs || null;
+
+    // Standaard tracking-URL bij Sendcloud
+    const trackingUrl: string | null = parcel?.tracking_url || (trackingNumber
+      ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(trackingNumber)}`
+      : null);
+
+    // Label link: Sendcloud retourneert verschillende varianten; kies PDF
+    const labelPdf: string | null =
+      parcel?.label?.normal_printer_pdf ||
+      parcel?.label?.label_printer_pdf ||
+      parcel?.label?.pdf ||
+      parcel?.label_normal_printer ||
+      parcel?.label_printer ||
+      null;
+
+    return {
+      tracking_code: trackingNumber || null,
+      tracking_url: trackingUrl || null,
+      label_pdf_url: labelPdf || null,
+    };
+  } catch (e: any) {
+    console.error("[SENDCLOUD] exception", e?.message || e);
+    return {};
+  }
+}
+
 /**
 * Eén action die ALLES kan updaten.
 * Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
@@ -133,7 +228,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (patch.status && ending.has(patch.status)) {
     const need = (key: "customer_number" | "sku" | "imei_sn") =>
       Object.prototype.hasOwnProperty.call(before, key)
-        ? (patch[key] ?? (before as any)[key] ?? "").toString().trim()
+        ? (patch[key] ?? (before as any)[key] ??"").toString().trim()
         : ""; // kolom bestaat niet → behandel als ontbrekend
     if (!need("customer_number") || !need("sku") || !need("imei_sn")) {
       redirect(`/admin/leads?msg=${encodeURIComponent("status_requires_customer_sku_imei")}`);
@@ -146,7 +241,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   // 5) Update uitvoeren
-  // Uitgebreider returning-pakket zodat we meteen alle mail-data hebben
+  // Uitgebreider returning-pakket zodat we meteen alle mail- en label-data hebben
   const returningCols =
     [
       "id",
@@ -173,6 +268,10 @@ export async function updateLeadInlineAction(formData: FormData) {
       "shop_id",
       "shop_location",
       "updated_at",
+      // trackingvelden
+      "tracking_code",
+      "tracking_url",
+      "label_pdf_url",
     ].join(", ");
 
   const { data: after, error: updErr } = await sb
@@ -186,7 +285,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  // 6) Status change → status update e-mail (fire-and-forget)
+  // 6) Status change → extra logica + status update e-mail (fire-and-forget)
   const prevStatus = (before as any)?.status as Status | undefined;
   const newStatus = ((patch.status as Status | undefined) ?? (after as any)?.status) as Status | undefined;
 
@@ -204,7 +303,34 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (statusChanged && after?.email) {
     (async () => {
       try {
-        // Shopdetails ophalen indien beschikbaar
+        // 6.a Bij 'label_created' → maak verzendlabel + tracking via Sendcloud (alleen bij verzending)
+        let tracking_code: string | null | undefined = (after as any).tracking_code ?? null;
+        let tracking_url: string | null | undefined = (after as any).tracking_url ?? null;
+        let label_pdf_url: string | null | undefined = (after as any).label_pdf_url ?? null;
+
+        if (newStatus === "label_created" && (after as any).delivery_method === "ship") {
+          const made = await createSendcloudLabel(after);
+          // alleen als Sendcloud iets effectief opleverde, schrijven we terug
+          if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
+            tracking_code = made.tracking_code ?? tracking_code ?? null;
+            tracking_url = made.tracking_url ?? tracking_url ?? null;
+            label_pdf_url = made.label_pdf_url ?? label_pdf_url ?? null;
+
+            const { error: trackErr } = await sb
+              .from("buyback_leads")
+              .update({
+                tracking_code,
+                tracking_url,
+                label_pdf_url,
+              })
+              .eq("id", id);
+            if (trackErr) {
+              console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
+            }
+          }
+        }
+
+        // 6.b Shopdetails ophalen indien beschikbaar
         let shop_address1: string | null = null;
         let shop_zip: string | null = null;
         let shop_city: string | null = null;
@@ -225,6 +351,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
 
+        // 6.c E-mail versturen met context (incl. tracking/label indien aanwezig)
         await sendStatusUpdateMail({
           // ontvanger + basis
           to: (after as any).email,
@@ -247,7 +374,12 @@ export async function updateLeadInlineAction(formData: FormData) {
           shop_zip,
           shop_city,
           opening_hours,
-        });
+
+          // tracking/label
+          tracking_code: tracking_code ?? undefined,
+          tracking_url: tracking_url ?? undefined,
+          label_pdf_url: label_pdf_url ?? undefined,
+        } as any);
       } catch (e: any) {
         console.error("[LEADS][MAIL] sendStatusUpdateMail failed:", e?.message || e);
       }
