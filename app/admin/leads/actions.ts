@@ -486,7 +486,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
   const msg =
     `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}` +
-    (setKeys.length ? ` • set:${setKeys.join(",")}`) +
+    (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
     tagIgnored;
 
   redirect(`/admin/leads?msg=${encodeURIComponent(msg)}`);
