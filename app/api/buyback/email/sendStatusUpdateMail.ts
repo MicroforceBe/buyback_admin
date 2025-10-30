@@ -300,12 +300,12 @@ export async function sendStatusUpdateMail(input: Input) {
   const leadIn = leadInFor(input.status, name);
   const actionBlock = actionBlockFor(input.status, input);
 
-  // “volgende stappen” vaste tekst (zelfde als in confirm)
+  // “volgende stappen” vaste tekst (zelfde als in confirm) — met correcte spatie
   const nextSteps = `
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
     <p style="margin:0 0 12px">
       Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
-      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.
     </p>
   `;
 
