@@ -64,6 +64,33 @@ function normalizeCountryIso2(input?: string | null): string | null {
   return map[raw] || map[ascii] || (raw.length === 2 ? raw.toUpperCase() : null);
 }
 
+/** Kies shipment of shipping_method voor BE (bpost) o.b.v. env */
+function resolveSendcloudService(countryIso: string): {
+  shipment?: { id: number };
+  shipping_method?: number;
+  info: string;
+} {
+  // Voorkeur: shipment preset (wanneer je in Sendcloud een zending-preset hebt aangemaakt)
+  if (countryIso === "BE") {
+    const shipmentIdRaw = process.env.SENDCLOUD_SHIPMENT_ID_BE;
+    const methodIdRaw = process.env.SENDCLOUD_METHOD_BE_BPOST;
+
+    const shipmentId = shipmentIdRaw ? parseInt(String(shipmentIdRaw), 10) : NaN;
+    const methodId = methodIdRaw ? parseInt(String(methodIdRaw), 10) : NaN;
+
+    if (Number.isFinite(shipmentId) && shipmentId > 0) {
+      return { shipment: { id: shipmentId }, info: `Using shipment ${shipmentId} (BE preset)` };
+    }
+    if (Number.isFinite(methodId) && methodId > 0) {
+      return { shipping_method: methodId, info: `Using method ${methodId} (BE bpost)` };
+    }
+    return { info: "No BE shipment/method env set" };
+  }
+
+  // Voor andere landen kan je gelijkaardige env’s voorzien later.
+  return { info: `No resolver for country ${countryIso}` };
+}
+
 /**
 * Maakt via Sendcloud een zending + label aan voor deze lead.
 * Verwacht dat 'after' alle nodige adresvelden bevat.
@@ -90,17 +117,14 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // Optioneel: expliciete shipment/service instellen (verplicht bij sommige accounts)
-    const shipmentId = Number(process.env.SENDCLOUD_DEFAULT_SHIPMENT_ID || "");
-    const shipment =
-      Number.isFinite(shipmentId) && shipmentId > 0 ? { id: shipmentId } : undefined;
+    const resolver = resolveSendcloudService(countryIso);
 
     console.info("[SENDCLOUD] create parcel start", {
       order: after.order_code || after.id,
       to: [after.first_name, after.last_name].filter(Boolean).join(" ") || after.email,
       country: countryIso,
       hasKeys: !!process.env.SENDCLOUD_PUBLIC_KEY && !!process.env.SENDCLOUD_SECRET_KEY,
-      shipmentId: shipment?.id ?? null,
+      resolver: resolver.info,
     });
 
     // Zie Sendcloud API v2: POST /api/v2/parcels
@@ -117,10 +141,18 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         country: countryIso, // <-- ISO-2
         weight: 0.5, // kg
         order_number: after.order_code || after.id,
-        ...(shipment ? { shipment } : {}),
-        request_label: true, // <-- vraag meteen label aan i.p.v. 'incoming order'
       }
     };
+
+    // Voeg shipment of shipping_method toe (vereist door Sendcloud)
+    if (resolver.shipment?.id) {
+      payload.parcel.shipment = { id: resolver.shipment.id };
+    } else if (resolver.shipping_method) {
+      payload.parcel.shipping_method = resolver.shipping_method;
+    } else {
+      console.error("[SENDCLOUD] Missing shipping selection (shipment/shipping_method). Check env for BE.");
+      return {};
+    }
 
     const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
       method: "POST",
@@ -132,15 +164,13 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       body: JSON.stringify(payload),
     });
 
-    const rawTxt = await resp.text().catch(() => "");
-    let data: any = {};
-    try { data = rawTxt ? JSON.parse(rawTxt) : {}; } catch { data = {}; }
-
     if (!resp.ok) {
-      console.error("[SENDCLOUD] create parcel failed", resp.status, rawTxt);
+      const txt = await resp.text().catch(() => "");
+      console.error("[SENDCLOUD] create parcel failed", resp.status, txt);
       return {};
     }
 
+    const data = await resp.json().catch(() => ({} as any));
     const parcel = (data && (data.parcel || data.data?.parcel)) || data;
 
     const trackingNumber: string | null =
@@ -159,10 +189,8 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       null;
 
     console.info("[SENDCLOUD] create parcel ok", {
-      state: parcel?.status || parcel?.state || null,
       trackingNumber,
       hasLabelPdf: !!labelPdf,
-      errors: parcel?.errors || null,
     });
 
     return {
@@ -414,7 +442,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           order_code: (after as any).order_code,
 
           // context
-          status: newStatus, // <-- template beslist tekst
+          status: newStatus!, // template beslist tekst
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
           final_price_cents: (after as any).final_price_cents,
