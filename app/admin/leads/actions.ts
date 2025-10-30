@@ -154,6 +154,12 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
+    const methodBE = Number(process.env.SENDCLOUD_METHOD_BE_BPOST || "");
+      if (countryIso === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
+        payload.parcel.shipping_method = methodBE;
+        payload.parcel.request_label = true; // zorg dat label meteen wordt gegenereerd
+      }
+
     const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
       method: "POST",
       headers: {
