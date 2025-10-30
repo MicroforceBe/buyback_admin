@@ -48,11 +48,27 @@ type CreateLabelResult = {
   label_pdf_url?: string | null;
 };
 
+/** Normaliseer land naar ISO-2 (BE/NL/…) en verwijder diacritics */
+function normalizeCountryIso2(input?: string | null): string | null {
+  if (!input) return null;
+  const raw = input.trim().toLowerCase();
+  const ascii = raw.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const map: Record<string, string> = {
+    be: "BE", belgium: "BE", belgie: "BE", "belgië": "BE", belgique: "BE",
+    nl: "NL", nederland: "NL", netherlands: "NL",
+    fr: "FR", france: "FR", frankrijk: "FR",
+    de: "DE", germany: "DE", duitsland: "DE", deutschland: "DE",
+    lu: "LU", luxembourg: "LU", luxemburg: "LU",
+    gb: "GB", uk: "GB", "united kingdom": "GB", "verenigd koninkrijk": "GB",
+  };
+  return map[raw] || map[ascii] || (raw.length === 2 ? raw.toUpperCase() : null);
+}
+
 /**
- * Maakt via Sendcloud een zending + label aan voor deze lead.
- * Verwacht dat 'after' alle nodige adresvelden bevat.
- * Faalt nooit hard: geeft { ...undefined } terug bij problemen en logt de fout.
- */
+* Maakt via Sendcloud een zending + label aan voor deze lead.
+* Verwacht dat 'after' alle nodige adresvelden bevat.
+* Faalt nooit hard: geeft { ...undefined } terug bij problemen en logt de fout.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -60,11 +76,14 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
+    // Landcode normaliseren (België/Belgie/BE → BE)
+    const countryIso = normalizeCountryIso2(after.country) || "BE";
+
     // Basis zending opbouw — pas aan indien je specifieke carrier/method wilt forceren
     // Zie Sendcloud API v2: POST /api/v2/parcels
     const payload: any = {
       parcel: {
-        name: [after.first_name, after.last_name].filter(Boolean).join(" ") || "Klant",
+        name: [after.first_name, after.last_name].filter(Boolean).join(" ") || after.email || "Klant",
         company_name: null,
         email: after.email || undefined,
         telephone: after.phone || undefined,
@@ -72,9 +91,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         house_number: after.house_number || undefined, // sommige carriers verwachten dit apart
         city: after.city,
         postal_code: after.postal_code,
-        country: after.country || "BE",
-        // gewicht verplicht bij sommige carriers — stel veilig minimum in gram
-        weight: 250,
+        country: countryIso, // <-- ISO-2 verplicht
+        // gewicht: Sendcloud accepteert kg of g afhankelijk van carrier; 0.5 kg is veilig
+        weight: 0.5,
         order_number: after.order_code || after.id,
         // Optioneel: servicepoint id, carrier, etc.
       }
