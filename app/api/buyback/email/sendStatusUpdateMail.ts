@@ -39,6 +39,11 @@ export type Input = {
   shop_zip?: string | null;
   shop_city?: string | null;
   opening_hours?: Record<string, string> | null;
+
+  // tracking / label (voor label_created)
+  tracking_code?: string | null;
+  tracking_url?: string | null;
+  label_pdf_url?: string | null;
 };
 
 // ---------- helpers gedeeld ----------
@@ -187,8 +192,19 @@ function actionBlockFor(status: Status, input: Input) {
   switch (status) {
     case "received_store":
       return `<p style="margin:0 0 12px">We houden je op de hoogte zodra de controle is gebeurd.</p>`;
-    case "label_created":
-      return `<p style="margin:0 0 12px">Print het label en verstuur je toestel goed beschermd binnen 5 werkdagen.</p>`;
+    case "label_created": {
+      const trackingPart = input.tracking_url
+        ? `<p style="margin:8px 0 0">Volg je zending via: <a href="${input.tracking_url}" target="_blank" rel="noopener">tracking</a>${input.tracking_code ? ` (<code>${escapeHtml(input.tracking_code)}</code>)` : ""}.</p>`
+        : (input.tracking_code ? `<p style="margin:8px 0 0">Trackingcode: <code>${escapeHtml(input.tracking_code)}</code></p>` : "");
+      const labelPart = input.label_pdf_url
+        ? `<p style="margin:8px 0 0">Download je label: <a href="${input.label_pdf_url}" target="_blank" rel="noopener">label (PDF)</a>.</p>`
+        : "";
+      return `
+        <p style="margin:0 0 12px">Print het label en verstuur je toestel goed beschermd binnen 5 werkdagen.</p>
+        ${labelPart}
+        ${trackingPart}
+      `;
+    }
     case "shipment_received":
       return `<p style="margin:0 0 12px">De technische controle volgt zo snel mogelijk.</p>`;
     case "check_passed": {
@@ -284,7 +300,7 @@ export async function sendStatusUpdateMail(input: Input) {
   const leadIn = leadInFor(input.status, name);
   const actionBlock = actionBlockFor(input.status, input);
 
-  // “volgende stappen” vaste tekst (zelfde als in confirm)
+  // “volgende stappen” vaste tekst
   const nextSteps = `
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
     <p style="margin:0 0 12px">
@@ -313,25 +329,38 @@ export async function sendStatusUpdateMail(input: Input) {
     </div>
   `;
 
-  // text fallback
-  const text = [
-    leadIn.replace(/<[^>]+>/g, ""),
-    "",
-    `Referentie: ${input.order_code}`,
-    `Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`,
-    `Berekende prijs: ${typeof input.final_price_cents === "number" ? eur(input.final_price_cents) : "—"}`,
-    "",
-    input.delivery_method === "dropoff"
-      ? `Winkel: ${input.shop_location ?? "—"}`
-      : input.delivery_method === "ship"
-      ? `Verzending per post`
-      : "",
-    "",
-    `Met vriendelijke groeten,`,
-    branding.brand_name,
-    "",
-    branding.email_disclaimer ? `--\n${branding.email_disclaimer}` : "",
-  ].filter(Boolean).join("\n");
+  // text fallback (incl. tracking/label waar mogelijk)
+  const textParts: string[] = [];
+  textParts.push(leadIn.replace(/<[^>]+>/g, ""));
+  textParts.push("");
+  textParts.push(`Referentie: ${input.order_code}`);
+  textParts.push(`Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`);
+  textParts.push(`Berekende prijs: ${typeof input.final_price_cents === "number" ? eur(input.final_price_cents) : "—"}`);
+  if (input.status === "label_created") {
+    if (input.label_pdf_url) textParts.push(`Label (PDF): ${input.label_pdf_url}`);
+    if (input.tracking_url) textParts.push(`Tracking: ${input.tracking_url}${input.tracking_code ? ` (${input.tracking_code})` : ""}`);
+    else if (input.tracking_code) textParts.push(`Trackingcode: ${input.tracking_code}`);
+  }
+  textParts.push("");
+  if (input.delivery_method === "dropoff") {
+    textParts.push(`Winkel: ${input.shop_location ?? "—"}`);
+    const addr = [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    if (addr) textParts.push(`Adres: ${addr}`);
+  } else if (input.delivery_method === "ship") {
+    textParts.push("Verzending per post");
+  }
+  textParts.push("");
+  textParts.push("Bij ontvangst word je op de hoogte gesteld van het verdere verloop van jouw verkoop.");
+  textParts.push("Indien alles conform jouw opgave is, verwerken we je aanvraag en uitbetaling binnen 1 tot 3 werkdagen.");
+  textParts.push("");
+  textParts.push("Met vriendelijke groeten,");
+  textParts.push(branding.brand_name);
+  if (branding.email_disclaimer) {
+    textParts.push("");
+    textParts.push(`--`);
+    textParts.push(branding.email_disclaimer);
+  }
+  const text = textParts.join("\n");
 
   // verzenden
   const res = await resend.emails.send({
