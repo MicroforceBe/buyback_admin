@@ -73,6 +73,11 @@ type Lead = {
   admin_note: string | null;
   updated_at: string | null;
 
+  // verzendlabel & tracking (nieuw)
+  tracking_code?: string | null;
+  tracking_url?: string | null;
+  label_pdf_url?: string | null;
+
   // NB: answers zit wél in de tabel, maar we selecteren het niet om lijstweergave licht te houden.
 };
 
@@ -251,6 +256,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         "admin_note",
         "updated_at",
         "wants_voucher",
+        // nieuw voor tracking/label
+        "tracking_code",
+        "tracking_url",
+        "label_pdf_url",
       ].join(","),
       { count: "exact" }
     );
@@ -450,6 +459,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     status: null, method: null, price_min: null, price_max: null,
     city: null, shop: null, voucher: null, page: "1"
   });
+
+  // helper: genereer fallback tracking-URL op basis van code
+  const fallbackTrackingUrl = (code?: string | null) =>
+    code ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(code)}` : null;
 
   return (
     <div className="w-full p-4 space-y-3">
@@ -663,65 +676,101 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   </form>
                 </td>
 
-                {/* Status (inline editable) */}
-              <td className="px-3 py-2 align-top">
-                {(() => {
-                  const curr = (lead.status ?? 'new') as Status;
-              
-                  // finale statussen: geen dropdown
-                  if (curr === 'done' || curr === 'cancelled') {
-                    return <div className="text-sm font-medium text-gray-700">{statusLabel(curr)}</div>;
-                  }
-              
-                  const trans = allowedTransitions(curr, {
-                    customer_number: lead.customer_number,
-                    sku: lead.sku,
-                    imei_sn: lead.imei_sn,
-                  }).filter(t => t.ok);
-              
-                  const hasChoices = trans.length > 0;
-              
-                  return (
-                    <form action={updateLeadInlineAction} className="inline-flex items-center gap-2">
-                      <input type="hidden" name="id" value={lead.id} />
-              
-                      {/* Belangrijk:
-                          - defaultValue={curr}  (géén placeholder)
-                          - eerste <option> is de huidige status met value={curr} EN niet disabled
-                          => na submit/render blijft de juiste status zichtbaar, geen fallback naar 1e optie (bv. Cancel)
-                      */}
-                      <select
-                        name="status"
-                        defaultValue={curr}
-                        className="bb-select-sm inline-block pr-8"
-                        title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
-                        disabled={!hasChoices}
-                      >
-                        {/* huidige status als eerste, geselecteerde optie */}
-                        <option value={curr}>{statusLabel(curr)}</option>
-              
-                        {/* toegestane volgende statussen */}
-                        {trans.map(t => (
-                          <option key={t.value} value={t.value}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
-              
-                      <button
-                        className="bb-btn subtle h-8 text-xs px-2"
-                        type="submit"
-                        disabled={!hasChoices}
-                        title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
-                        aria-label="Opslaan"
-                      >
-                        💾
-                      </button>
-                    </form>
-                  );
-                })()}
-              </td>
+                {/* Status (inline editable) + uitklap 'Controleer tracking' */}
+                <td className="px-3 py-2 align-top">
+                  {(() => {
+                    const curr = (lead.status ?? 'new') as Status;
+                
+                    // finale statussen: geen dropdown
+                    const isFinal = (curr === 'done' || curr === 'cancelled');
+                    const trans = isFinal ? [] : allowedTransitions(curr, {
+                      customer_number: lead.customer_number,
+                      sku: lead.sku,
+                      imei_sn: lead.imei_sn,
+                    }).filter(t => t.ok);
+                    const hasChoices = trans.length > 0;
 
+                    const trackingHref = lead.tracking_url || fallbackTrackingUrl(lead.tracking_code);
+                    const hasTracking = Boolean(trackingHref);
+                    const labelHref = lead.label_pdf_url || null;
+
+                    return (
+                      <div className="space-y-1">
+                        {isFinal ? (
+                          <div className="text-sm font-medium text-gray-700">{statusLabel(curr)}</div>
+                        ) : (
+                          <form action={updateLeadInlineAction} className="inline-flex items-center gap-2">
+                            <input type="hidden" name="id" value={lead.id} />
+                            <select
+                              name="status"
+                              defaultValue={curr}
+                              className="bb-select-sm inline-block pr-8"
+                              title={hasChoices ? 'Status wijzigen' : 'Geen vervolgstatus mogelijk'}
+                              disabled={!hasChoices}
+                            >
+                              <option value={curr}>{statusLabel(curr)}</option>
+                              {trans.map(t => (
+                                <option key={t.value} value={t.value}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="bb-btn subtle h-8 text-xs px-2"
+                              type="submit"
+                              disabled={!hasChoices}
+                              title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
+                              aria-label="Opslaan"
+                            >
+                              💾
+                            </button>
+                          </form>
+                        )}
+
+                        {/* Uitklap: trackinglink + label PDF (indien beschikbaar) */}
+                        <details className="mt-1">
+                          <summary className="cursor-pointer select-none text-xs text-gray-600 hover:text-gray-900 flex items-center gap-2">
+                            <span className="inline-block">▸</span>
+                            <span>Meer acties</span>
+                          </summary>
+                          <div className="pl-4 mt-1 space-y-1 text-xs">
+                            {hasTracking ? (
+                              <div>
+                                <span className="text-gray-500">Controleer tracking: </span>
+                                <a
+                                  href={trackingHref!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline text-blue-700 hover:text-blue-900"
+                                >
+                                  Open tracking
+                                </a>
+                                {lead.tracking_code ? (
+                                  <span className="ml-2 text-gray-500">({lead.tracking_code})</span>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div className="text-gray-500 italic">Nog geen tracking beschikbaar</div>
+                            )}
+                            {labelHref ? (
+                              <div>
+                                <span className="text-gray-500">Verzendlabel (PDF): </span>
+                                <a
+                                  href={labelHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline text-blue-700 hover:text-blue-900"
+                                >
+                                  Download label
+                                </a>
+                              </div>
+                            ) : null}
+                          </div>
+                        </details>
+                      </div>
+                    );
+                  })()}
+                </td>
 
               </tr>
             ))}
