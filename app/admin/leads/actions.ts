@@ -90,11 +90,17 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
+    // Optioneel: expliciete shipment/service instellen (verplicht bij sommige accounts)
+    const shipmentId = Number(process.env.SENDCLOUD_DEFAULT_SHIPMENT_ID || "");
+    const shipment =
+      Number.isFinite(shipmentId) && shipmentId > 0 ? { id: shipmentId } : undefined;
+
     console.info("[SENDCLOUD] create parcel start", {
       order: after.order_code || after.id,
       to: [after.first_name, after.last_name].filter(Boolean).join(" ") || after.email,
       country: countryIso,
       hasKeys: !!process.env.SENDCLOUD_PUBLIC_KEY && !!process.env.SENDCLOUD_SECRET_KEY,
+      shipmentId: shipment?.id ?? null,
     });
 
     // Zie Sendcloud API v2: POST /api/v2/parcels
@@ -111,6 +117,8 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         country: countryIso, // <-- ISO-2
         weight: 0.5, // kg
         order_number: after.order_code || after.id,
+        ...(shipment ? { shipment } : {}),
+        request_label: true, // <-- vraag meteen label aan i.p.v. 'incoming order'
       }
     };
 
@@ -124,13 +132,15 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       body: JSON.stringify(payload),
     });
 
+    const rawTxt = await resp.text().catch(() => "");
+    let data: any = {};
+    try { data = rawTxt ? JSON.parse(rawTxt) : {}; } catch { data = {}; }
+
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      console.error("[SENDCLOUD] create parcel failed", resp.status, txt);
+      console.error("[SENDCLOUD] create parcel failed", resp.status, rawTxt);
       return {};
     }
 
-    const data = await resp.json().catch(() => ({} as any));
     const parcel = (data && (data.parcel || data.data?.parcel)) || data;
 
     const trackingNumber: string | null =
@@ -149,8 +159,10 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       null;
 
     console.info("[SENDCLOUD] create parcel ok", {
+      state: parcel?.status || parcel?.state || null,
       trackingNumber,
       hasLabelPdf: !!labelPdf,
+      errors: parcel?.errors || null,
     });
 
     return {
