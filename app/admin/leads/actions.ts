@@ -94,6 +94,7 @@ function resolveSendcloudService(countryIso: string): {
 /**
 * Maakt via Sendcloud een zending + label aan voor deze lead.
 * Verwacht dat 'after' alle nodige adresvelden bevat.
+* Retourlabel: klant -> ons. Gebruik is_return = true, zodat klant als afzender staat.
 * Faalt nooit hard: geeft { ...undefined } terug bij problemen en logt de fout.
 */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
@@ -130,6 +131,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     // Zie Sendcloud API v2: POST /api/v2/parcels
     const payload: any = {
       parcel: {
+        // KLANT = afzender op het label (retour)
         name: [after.first_name, after.last_name].filter(Boolean).join(" ") || after.email || "Klant",
         company_name: null,
         email: after.email || undefined,
@@ -141,6 +143,10 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         country: countryIso, // <-- ISO-2
         weight: 0.5, // kg
         order_number: after.order_code || after.id,
+
+        // Retourlabel + meteen PDF genereren
+        is_return: true,
+        request_label: true,
       }
     };
 
@@ -154,11 +160,12 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
+    // Extra safeguard voor BE/bpost via method-id env
     const methodBE = Number(process.env.SENDCLOUD_METHOD_BE_BPOST || "");
-      if (countryIso === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
-        payload.parcel.shipping_method = methodBE;
-        payload.parcel.request_label = true; // zorg dat label meteen wordt gegenereerd
-      }
+    if (countryIso === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
+      payload.parcel.shipping_method = methodBE;
+      payload.parcel.request_label = true;
+    }
 
     const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
       method: "POST",
@@ -479,7 +486,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
   const msg =
     `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}` +
-    (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
+    (setKeys.length ? ` • set:${setKeys.join(",")}`) +
     tagIgnored;
 
   redirect(`/admin/leads?msg=${encodeURIComponent(msg)}`);
