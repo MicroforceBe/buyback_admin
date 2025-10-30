@@ -337,11 +337,13 @@ export async function sendStatusMail(input: Input) {
         ${
           input.street || input.house_number || input.postal_code || input.city || input.country
             ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
-                ${[
-                  [input.street, input.house_number].filter(Boolean).join(" "),
-                  [input.postal_code, input.city].filter(Boolean).join(" "),
-                  input.country
-                ].filter(Boolean).join("<br/>")}
+                ${
+                  [
+                    [input.street, input.house_number].filter(Boolean).join(" "),
+                    [input.postal_code, input.city].filter(Boolean).join(" "),
+                    input.country
+                  ].filter(Boolean).join("<br/>")
+                }
                </p>`
             : ""
         }
