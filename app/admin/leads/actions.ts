@@ -345,34 +345,30 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (statusChanged && after?.email) {
     (async () => {
       try {
-        // 6.a Bij 'label_created' → maak verzendlabel + tracking via Sendcloud (alleen bij verzending)
+        // 6.a Bij 'label_created' → maak verzendlabel + tracking via Sendcloud
         let tracking_code: string | null | undefined = (after as any).tracking_code ?? null;
         let tracking_url: string | null | undefined = (after as any).tracking_url ?? null;
         let label_pdf_url: string | null | undefined = (after as any).label_pdf_url ?? null;
 
         if (newStatus === "label_created") {
-          if ((after as any).delivery_method === "ship") {
-            console.info("[LEADS] attempting Sendcloud label (label_created)");
-            const made = await createSendcloudLabel(after);
-            if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
-              tracking_code = made.tracking_code ?? tracking_code ?? null;
-              tracking_url = made.tracking_url ?? tracking_url ?? null;
-              label_pdf_url = made.label_pdf_url ?? label_pdf_url ?? null;
+          console.info("[LEADS] attempting Sendcloud label (label_created)");
+          const made = await createSendcloudLabel(after);
+          if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
+            tracking_code = made.tracking_code ?? tracking_code ?? null;
+            tracking_url = made.tracking_url ?? tracking_url ?? null;
+            label_pdf_url = made.label_pdf_url ?? label_pdf_url ?? null;
 
-              const { error: trackErr } = await sb
-                .from("buyback_leads")
-                .update({ tracking_code, tracking_url, label_pdf_url })
-                .eq("id", id);
-              if (trackErr) {
-                console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
-              } else {
-                console.info("[LEADS][SENDCLOUD] tracking stored OK");
-              }
+            const { error: trackErr } = await sb
+              .from("buyback_leads")
+              .update({ tracking_code, tracking_url, label_pdf_url })
+              .eq("id", id);
+            if (trackErr) {
+              console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
             } else {
-              console.warn("[LEADS][SENDCLOUD] label not created (no tracking/label returned)");
+              console.info("[LEADS][SENDCLOUD] tracking stored OK");
             }
           } else {
-            console.warn("[LEADS] label_created but delivery_method != ship; skipping Sendcloud");
+            console.warn("[LEADS][SENDCLOUD] label not created (no tracking/label returned)");
           }
         }
 
@@ -389,7 +385,7 @@ export async function updateLeadInlineAction(formData: FormData) {
             .eq("id", (after as any).shop_id)
             .single();
 
-        if (!shopErr && shop) {
+          if (!shopErr && shop) {
             shop_address1 = shop.address1 ?? null;
             shop_zip = shop.zip ?? null;
             shop_city = shop.city ?? null;
