@@ -126,168 +126,48 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // Landcode klant (FROM) normaliseren
-    const countryIso = normalizeCountryIso2(after.country) || "BE";
+    // Normaliseer landcode klant (afzender bij retour)
+    const countryIso = (normalizeCountryIso2(after.country) || "BE").toUpperCase();
 
-    // FROM (klant) – waarden cleanen
-    const from_name = clean([after.first_name, after.last_name].filter(Boolean).join(" ")) || clean(after.email) || "Klant";
-    const from_company_name = from_name; // fallback zodat nooit null
-    const from_address = clean([after.street, after.house_number].filter(Boolean).join(" "));
-    const from_house_number = clean(after.house_number);
-    const from_city = clean(after.city);
-    const from_postal_code = clean(after.postal_code);
-    const from_country = countryIso?.toUpperCase();
+    // Kies methode/preset (nu enkel BE bpost)
+    const resolver = resolveSendcloudService(countryIso);
 
-    // TO (jullie) adres uit env
-    const { to, missing } = getMerchantToAddress();
+    // Retourlabels vereisen expliciet from_* (KLANT) en to_* (JULLIE) velden
+    const from_name =
+      [after.first_name, after.last_name].filter(Boolean).join(" ").trim()
+      || after.email
+      || "Klant";
+
+    // ---- JULLIE (ontvanger) uit env (moet ingevuld zijn) ----
+    const TO_COMPANY  = process.env.RET_TO_COMPANY  || process.env.MAIL_BRAND_NAME || "Microforce";
+    const TO_ADDRESS1 = process.env.RET_TO_ADDRESS1 || "";
+    const TO_HOUSENO  = process.env.RET_TO_HOUSENUMBER || "";
+    const TO_POSTAL   = process.env.RET_TO_POSTAL   || "";
+    const TO_CITY     = process.env.RET_TO_CITY     || "";
+    const TO_COUNTRY  = (process.env.RET_TO_COUNTRY || "BE").toUpperCase();
+    const TO_EMAIL    = process.env.RET_TO_EMAIL    || undefined;
+    const TO_PHONE    = process.env.RET_TO_PHONE    || undefined;
+
+    // ---- Validatie minimale velden (klant + jullie) ----
+    const missing: string[] = [];
+    if (!after.street)         missing.push("from_address_1(street)");
+    if (!after.house_number)   missing.push("from_house_number");
+    if (!after.postal_code)    missing.push("from_postal_code");
+    if (!after.city)           missing.push("from_city");
+    if (!countryIso)           missing.push("from_country");
+
+    if (!TO_COMPANY)           missing.push("to_company_name");
+    if (!TO_ADDRESS1)          missing.push("to_address_1");
+    if (!TO_HOUSENO)           missing.push("to_house_number");
+    if (!TO_POSTAL)            missing.push("to_postal_code");
+    if (!TO_CITY)              missing.push("to_city");
+    if (!TO_COUNTRY)           missing.push("to_country");
+
     if (missing.length) {
-      console.error("[SENDCLOUD] ontbrekende TO omgevingvariabelen:", missing.join(", "));
+      console.error("[SENDCLOUD][return] ontbrekende adressen:", missing.join(", "));
       return {};
     }
 
-    // Preflight validatie: FROM & TO moeten verplichte velden hebben
-    const fromMissing: string[] = [];
-    if (!from_address) fromMissing.push("from_address");
-    if (!from_city) fromMissing.push("from_city");
-    if (!from_postal_code) fromMissing.push("from_postal_code");
-    if (!from_country) fromMissing.push("from_country");
-
-    const toMissing: string[] = [];
-    if (!to.address) toMissing.push("address");
-    if (!to.city) toMissing.push("city");
-    if (!to.postal_code) toMissing.push("postal_code");
-    if (!to.country) toMissing.push("country");
-
-    // Debug snapshot (met lengtes) om "Missing address information" te verklaren
-    console.info("[SENDCLOUD] create parcel start", {
-      order: after.order_code || after.id,
-      to: to.company_name || to.name,
-      country: from_country,
-      hasKeys: !!process.env.SENDCLOUD_PUBLIC_KEY && !!process.env.SENDCLOUD_SECRET_KEY,
-      resolver: resolveSendcloudService(from_country || "BE").info,
-      useReturn: true,
-      from_snapshot: {
-        address_len: (from_address || "").length,
-        city_len: (from_city || "").length,
-        postal_len: (from_postal_code || "").length,
-        country: from_country,
-        missing: fromMissing,
-      },
-      to_snapshot: {
-        address_len: (to.address || "").length,
-        city_len: (to.city || "").length,
-        postal_len: (to.postal_code || "").length,
-        country: to.country,
-        missing: toMissing,
-      },
-    });
-
-    if (fromMissing.length || toMissing.length) {
-      console.error("[SENDCLOUD] ontbrekende adresvelden:", { fromMissing, toMissing });
-      return {};
-    }
-
-    const resolver = resolveSendcloudService(from_country || "BE");
-
-    // Basis-payload
-    const payload: any = {
-      parcel: {
-        // Ontvanger = JULLIE (TO)
-        name: to.name,
-        company_name: to.company_name,
-        email: to.email,
-        telephone: to.telephone,
-        address: [to.address, to.house_number].filter(Boolean).join(" "),
-        house_number: to.house_number,
-        city: to.city,
-        postal_code: to.postal_code,
-        country: to.country,
-
-        // Retourlabel: afzender = KLANT (FROM)
-        is_return: true,
-        from_name,
-        from_company_name,
-        from_email: clean(after.email),
-        from_telephone: clean(after.phone),
-        from_address,
-        from_house_number,
-        from_city,
-        from_postal_code,
-        from_country,
-
-        // Overig
-        weight: 0.5, // kg
-        order_number: after.order_code || after.id,
-        request_label: true, // meteen label genereren
-      }
-    };
-
-    // Shipment/method toevoegen
-    if (resolver.shipment?.id) {
-      payload.parcel.shipment = { id: resolver.shipment.id };
-    } else if (resolver.shipping_method) {
-      payload.parcel.shipping_method = resolver.shipping_method;
-    } else {
-      console.error("[SENDCLOUD] Missing shipping selection (shipment/shipping_method). Check env for BE.");
-      return {};
-    }
-
-    // BE bpost expliciet afdwingen indien ingesteld
-    const methodBE = Number(process.env.SENDCLOUD_METHOD_BE_BPOST || "");
-    if (from_country === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
-      payload.parcel.shipping_method = methodBE;
-      payload.parcel.request_label = true;
-    }
-
-    const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
-      method: "POST",
-      headers: {
-        "Authorization": scAuthHeader(),
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      console.error("[SENDCLOUD] create parcel failed", resp.status, txt);
-      return {};
-    }
-
-    const data = await resp.json().catch(() => ({} as any));
-    const parcel = (data && (data.parcel || data.data?.parcel)) || data;
-
-    const trackingNumber: string | null =
-      parcel?.tracking_number || parcel?.tracking_number_public || parcel?.tracking_number_scs || null;
-
-    const trackingUrl: string | null = parcel?.tracking_url || (trackingNumber
-      ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(trackingNumber)}`
-      : null);
-
-    const labelPdf: string | null =
-      parcel?.label?.normal_printer_pdf ||
-      parcel?.label?.label_printer_pdf ||
-      parcel?.label?.pdf ||
-      parcel?.label_normal_printer ||
-      parcel?.label_printer ||
-      null;
-
-    console.info("[SENDCLOUD] create parcel ok", {
-      trackingNumber,
-      hasLabelPdf: !!labelPdf,
-    });
-
-    return {
-      tracking_code: trackingNumber || null,
-      tracking_url: trackingUrl || null,
-      label_pdf_url: labelPdf || null,
-    };
-  } catch (e: any) {
-    console.error("[SENDCLOUD] exception", e?.message || e);
-    return {};
-  }
-}
 
 /**
 * Eén action die ALLES kan updaten.
