@@ -88,28 +88,30 @@ function resolveSendcloudService(countryIso: string): {
   return { info: `No resolver for country ${countryIso}` };
 }
 
-/** Hulpfuncties voor namen/adressen */
-function fullName(first?: string | null, last?: string | null, fallback?: string | null) {
-  const s = [first, last].filter(Boolean).join(" ").trim();
-  return s || (fallback || "").trim() || "Klant";
-}
-
-function nonEmpty(s?: string | null, fallback = "") {
-  const v = (s ?? "").toString().trim();
-  return v || fallback;
+/** Haal jullie (ontvanger) adres uit env; vereist voor retourlabels */
+function getMerchantToAddress() {
+  const to = {
+    name: process.env.SENDCLOUD_TO_NAME || process.env.MAIL_BRAND_NAME || "Microforce Buyback",
+    company_name: process.env.SENDCLOUD_TO_COMPANY || process.env.MAIL_BRAND_NAME || "Microforce Buyback",
+    email: process.env.SENDCLOUD_TO_EMAIL || undefined,
+    telephone: process.env.SENDCLOUD_TO_PHONE || undefined,
+    address: process.env.SENDCLOUD_TO_ADDRESS || "",
+    house_number: process.env.SENDCLOUD_TO_HOUSE_NUMBER || undefined,
+    postal_code: process.env.SENDCLOUD_TO_POSTAL_CODE || "",
+    city: process.env.SENDCLOUD_TO_CITY || "",
+    country: (process.env.SENDCLOUD_TO_COUNTRY || "BE").toUpperCase(),
+  };
+  const missing: string[] = [];
+  if (!to.address) missing.push("SENDCLOUD_TO_ADDRESS");
+  if (!to.postal_code) missing.push("SENDCLOUD_TO_POSTAL_CODE");
+  if (!to.city) missing.push("SENDCLOUD_TO_CITY");
+  if (!to.country) missing.push("SENDCLOUD_TO_COUNTRY");
+  return { to, missing };
 }
 
 /**
  * Maakt via Sendcloud een zending + label aan voor deze lead.
- * Standaard: retourlabel (klant → jullie) met is_return = true
- * - Vereist: from_* velden (klant) ingevuld
- * - Bestemmingsadres = jullie (Sendcloud account default), optioneel overschrijfbaar via env
- *
- * Env die je kunt zetten:
- * - USE_RETURN_LABEL=true|false (default true; voor dit project true houden)
- * - SENDCLOUD_METHOD_BE_BPOST=54 (bpost @home 0-10kg)
- * - (optioneel bestemmingsoverschrijvers; meestal NIET nodig bij retour)
- *   DEST_NAME, DEST_COMPANY, DEST_ADDRESS, DEST_HOUSE_NUMBER, DEST_POSTAL_CODE, DEST_CITY, DEST_COUNTRY
+ * Retourlabel (klant -> jullie) met correcte FROM/TO.
  */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
@@ -118,102 +120,76 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // Landcode customer normaliseren (België/Belgie/BE → BE)
+    // Landcode klant (FROM) normaliseren
     const countryIso = normalizeCountryIso2(after.country) || "BE";
 
-    // Minimale adresvalidatie (klant)
+    // FROM (klant) basic validatie
     const addrErrors: string[] = [];
     if (!after.street) addrErrors.push("street");
     if (!after.postal_code) addrErrors.push("postal_code");
     if (!after.city) addrErrors.push("city");
     if (!countryIso) addrErrors.push("country");
     if (addrErrors.length) {
-      console.error("[SENDCLOUD] onvoldoende adresgegevens voor label:", addrErrors.join(", "));
+      console.error("[SENDCLOUD] onvoldoende adresgegevens voor label (customer):", addrErrors.join(", "));
+      return {};
+    }
+
+    // TO (jullie) adres uit env
+    const { to, missing } = getMerchantToAddress();
+    if (missing.length) {
+      console.error("[SENDCLOUD] ontbrekende TO omgevingvariabelen:", missing.join(", "));
       return {};
     }
 
     const resolver = resolveSendcloudService(countryIso);
 
-    // Default gedrag: return label (klant → jullie)
-    const useReturn = (process.env.USE_RETURN_LABEL ?? "true").toLowerCase() !== "false";
-
-    // Bestemmingsinfo (optioneel overschrijven via env; niet vereist voor retour)
-    const destName = nonEmpty(process.env.DEST_NAME, process.env.MAIL_BRAND_NAME || "Microforce Buyback");
-    const destCompany = nonEmpty(process.env.DEST_COMPANY, process.env.MAIL_BRAND_NAME || "Microforce Buyback");
-
-    // Klantgegevens (from_*)
-    const customerName = fullName(after.first_name, after.last_name, after.email);
-    const customerCompany = customerName; // vereiste veld bij returns: niet leeg
-    const customerAddress1 = [nonEmpty(after.street), nonEmpty(after.house_number)].filter(Boolean).join(" ");
-    const customerPostal = nonEmpty(after.postal_code);
-    const customerCity = nonEmpty(after.city);
-    const customerCountry = nonEmpty(countryIso, "BE");
-
     console.info("[SENDCLOUD] create parcel start", {
       order: after.order_code || after.id,
-      to: useReturn ? destName : customerName,
-      country: customerCountry,
+      to: to.company_name || to.name,
+      country: countryIso,
       hasKeys: !!process.env.SENDCLOUD_PUBLIC_KEY && !!process.env.SENDCLOUD_SECRET_KEY,
       resolver: resolver.info,
-      useReturn,
+      useReturn: true,
     });
 
-    // Zie Sendcloud API v2: POST /api/v2/parcels
+    // Naam/fallbacks
+    const customerName = [after.first_name, after.last_name].filter(Boolean).join(" ") || after.email || "Klant";
+    const customerCompany = customerName; // fallback zodat from_company_name nooit null is
+
+    // Basis-payload
     const payload: any = {
       parcel: {
-        // Ontvanger
-        name: useReturn ? destName : customerName,
-        company_name: useReturn ? destCompany : null,
+        // Ontvanger = JULLIE (TO)
+        name: to.name,
+        company_name: to.company_name,
+        email: to.email,
+        telephone: to.telephone,
+        address: [to.address, to.house_number].filter(Boolean).join(" "),
+        house_number: to.house_number,
+        city: to.city,
+        postal_code: to.postal_code,
+        country: to.country,
 
-        email: nonEmpty(after.email) || undefined,
-        telephone: nonEmpty(after.phone) || undefined,
+        // Retourlabel: afzender = KLANT (FROM)
+        is_return: true,
+        from_name: customerName,
+        from_company_name: customerCompany,
+        from_email: after.email || undefined,
+        from_telephone: after.phone || undefined,
+        from_address: [after.street, after.house_number].filter(Boolean).join(" "),
+        from_house_number: after.house_number || undefined,
+        from_city: after.city,
+        from_postal_code: after.postal_code,
+        from_country: countryIso,
 
-        // Adres van de ONTVANGER (bij return is dit jullie; we laten default bij Sendcloud staan,
-        // dus we vullen hier NIET verplicht de ‘to_’ velden in. Wanneer je wél wil forceren:
-        // address / house_number / city / postal_code / country invullen met jullie adres.)
-
-        // Gewicht & referentie
+        // Overig
         weight: 0.5, // kg
         order_number: after.order_code || after.id,
+        request_label: true, // meteen label genereren
       }
     };
 
-    // Retour of normale zending?
-    if (useReturn) {
-      // Retourlabel vereist alle from_* (klant = afzender)
-      payload.parcel.is_return = true;
-      payload.parcel.from_name = customerName;
-      payload.parcel.from_company_name = customerCompany; // verplicht niet-NULL bij return
-      payload.parcel.from_email = nonEmpty(after.email) || undefined;
-      payload.parcel.from_telephone = nonEmpty(after.phone) || undefined;
-      payload.parcel.from_address_1 = customerAddress1;
-      payload.parcel.from_city = customerCity;
-      payload.parcel.from_postal_code = customerPostal;
-      payload.parcel.from_country = customerCountry;
-
-      // Optioneel: als je expliciet het bestemmingsadres (jullie) wil zetten via env:
-      const toAddress1 = nonEmpty(process.env.DEST_ADDRESS);
-      const toHouseNo = nonEmpty(process.env.DEST_HOUSE_NUMBER);
-      const toCity = nonEmpty(process.env.DEST_CITY);
-      const toPostal = nonEmpty(process.env.DEST_POSTAL_CODE);
-      const toCountry = nonEmpty(process.env.DEST_COUNTRY);
-
-      if (toAddress1 && toCity && toPostal && toCountry) {
-        payload.parcel.address = [toAddress1, toHouseNo].filter(Boolean).join(" ");
-        payload.parcel.city = toCity;
-        payload.parcel.postal_code = toPostal;
-        payload.parcel.country = toCountry;
-      }
-    } else {
-      // Normale zending (van jullie → klant). Dan moet de ontvanger het KLANT-adres krijgen.
-      payload.parcel.address = customerAddress1;
-      payload.parcel.city = customerCity;
-      payload.parcel.postal_code = customerPostal;
-      payload.parcel.country = customerCountry;
-      // from_* hoeft niet: Sendcloud gebruikt jullie default afzender
-    }
-
-    // voeg shipment/shipping_method toe (vereist door Sendcloud)
+    // Shipment/method toevoegen
     if (resolver.shipment?.id) {
       payload.parcel.shipment = { id: resolver.shipment.id };
     } else if (resolver.shipping_method) {
@@ -223,7 +199,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // BE bpost: request_label = true zodat label meteen gegenereerd wordt
+    // BE bpost expliciet afdwingen indien ingesteld
     const methodBE = Number(process.env.SENDCLOUD_METHOD_BE_BPOST || "");
     if (countryIso === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
       payload.parcel.shipping_method = methodBE;
@@ -383,7 +359,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // 4.b Automatisch 'ship' zetten als label wordt aangemaakt en delivery_method leeg/anders is
+  // 4.b Automatisch 'ship' zetten als label wordt aangemaakt
   if (patch.status === "label_created") {
     const currentMethod = (before as any).delivery_method as string | null;
     if (Object.prototype.hasOwnProperty.call(before, "delivery_method")) {
