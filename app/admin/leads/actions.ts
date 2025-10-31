@@ -164,6 +164,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       to: to.company_name || to.name,
       country: from_country,
       hasKeys: !!process.env.SENDCLOUD_PUBLIC_KEY && !!process.env.SENDCLOUD_SECRET_KEY,
+      resolver: resolveSendcloudService(from_country || "BE").info,
       useReturn: true,
       from_snapshot: {
         address_len: (from_address || "").length,
@@ -186,7 +187,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // Basis-payload (RETURNS). GEEN shipping_method / shipment meesturen bij retour.
+    const resolver = resolveSendcloudService(from_country || "BE");
+
+    // Basis-payload
     const payload: any = {
       parcel: {
         // Ontvanger = JULLIE (TO)
@@ -218,6 +221,23 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         request_label: true, // meteen label genereren
       }
     };
+
+    // Shipment/method toevoegen
+    if (resolver.shipment?.id) {
+      payload.parcel.shipment = { id: resolver.shipment.id };
+    } else if (resolver.shipping_method) {
+      payload.parcel.shipping_method = resolver.shipping_method;
+    } else {
+      console.error("[SENDCLOUD] Missing shipping selection (shipment/shipping_method). Check env for BE.");
+      return {};
+    }
+
+    // BE bpost expliciet afdwingen indien ingesteld
+    const methodBE = Number(process.env.SENDCLOUD_METHOD_BE_BPOST || "");
+    if (from_country === "BE" && Number.isFinite(methodBE) && methodBE > 0) {
+      payload.parcel.shipping_method = methodBE;
+      payload.parcel.request_label = true;
+    }
 
     const resp = await fetch("https://panel.sendcloud.sc/api/v2/parcels", {
       method: "POST",
@@ -351,12 +371,12 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   // 3) Beperk patch tot bestaande kolommen
   const patch: Record<string, any> = {};
-  const ignored: string[] = [];
+  const ignoredEarly: string[] = [];
   for (const [k, v] of Object.entries(desired)) {
     if (Object.prototype.hasOwnProperty.call(before, k)) {
       patch[k] = v;
     } else if (typeof v !== "undefined") {
-      ignored.push(k);
+      ignoredEarly.push(k);
     }
   }
 
@@ -384,7 +404,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   if (Object.keys(patch).length === 0) {
-    const note = ignored.length ? ` (ignored:${ignored.join(",")})` : "";
+    const note = ignoredEarly.length ? ` (ignored:${ignoredEarly.join(",")})` : "";
     redirect(`/admin/leads?msg=${encodeURIComponent("nothing_to_update" + note)}`);
   }
 
@@ -535,8 +555,8 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   // 7) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
   const setKeys = Object.keys(patch).sort();
-  const ignored = Object.keys(desired).filter(k => !setKeys.includes(k));
-  const tagIgnored = ignored.length ? ` • ignored:${ignored.join(",")}` : "";
+  const ignoredFinal = Object.keys(desired).filter(k => !setKeys.includes(k));
+  const tagIgnored = ignoredFinal.length ? ` • ignored:${ignoredFinal.join(",")}` : "";
   const msg =
     `updated:${after?.status ?? "-"}•€${((after?.final_price_cents ?? 0) / 100).toFixed(2)}` +
     (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
