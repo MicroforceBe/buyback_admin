@@ -1,96 +1,93 @@
-// app/admin/catalog/page.tsx
-import Link from "next/link";
-import {
-  loadCategories,
-  loadModelsByCategory,
-  createCategoryAction,
-  type Category,
-} from "./actions";
+// Server Component
+import { listCategories, listModelsByCategory } from "./actions";
 import CatalogTable from "./table";
 
-type SearchParams = { category?: string; q?: string };
+type SearchParams = { category?: string | null; q?: string | null };
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const runtime = "nodejs";
+export default async function CatalogPage(props: { searchParams?: SearchParams }) {
+  const searchParams = props.searchParams || {};
+  const selectedCategory = (searchParams.category ?? "__ALL__") || "__ALL__";
+  const q = (searchParams.q ?? "").trim();
 
-export default async function CatalogPage({ searchParams }: { searchParams: SearchParams }) {
-  const { category: selectedId = "", q = "" } = searchParams ?? {};
-  const categories = await loadCategories();
-  const selected = selectedId || (categories[0]?.id ?? "");
-  const models = selected ? await loadModelsByCategory(selected) : [];
+  const [categories, rows] = await Promise.all([
+    listCategories(),
+    listModelsByCategory(selectedCategory),
+  ]);
+
+  // filter client-side op model (tekst)
+  const filtered = q
+    ? rows.filter(r =>
+        (r.model || "").toLowerCase().includes(q.toLowerCase())
+      )
+    : rows;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 space-y-6">
+      <header className="space-y-3">
         <h1 className="text-2xl font-semibold">Catalogus</h1>
-        <Link href="/admin/leads" className="px-3 py-2 rounded border bg-white hover:bg-gray-50">
-          ← Terug naar leads
-        </Link>
-      </div>
 
-      {/* Categorie tegels + toevoegen */}
-      <section className="rounded border bg-white p-4">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="font-medium">Categorieën</h2>
-          <form action={createCategoryAction} className="flex items-center gap-2">
+        {/* Tegels + 'Categorie toevoegen' */}
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/admin/catalog?category=__ALL__`}
+            className={`bb-tile px-4 py-2 ${selectedCategory==="__ALL__" ? "ring-2 ring-blue-500" : ""}`}
+          >
+            Alle categorieën
+          </a>
+          {categories.map((cat) => (
+            <a
+              key={cat}
+              href={`/admin/catalog?category=${encodeURIComponent(cat)}`}
+              className={`bb-tile px-4 py-2 ${selectedCategory===cat ? "ring-2 ring-blue-500" : ""}`}
+            >
+              {cat}
+            </a>
+          ))}
+          <form
+            action="/admin/catalog"
+            className="bb-tile px-3 py-2 flex items-center gap-2"
+            onSubmit={(e) => {
+              // no-op; Server Nav via GET met query param
+            }}
+          >
             <input
-              name="name"
+              name="__newcat"
               placeholder="Nieuwe categorie…"
-              className="border rounded px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
-              required
+              className="border rounded px-2 py-1"
             />
-            <button type="submit" className="px-3 py-2 rounded border bg-white hover:bg-gray-50">
-              Toevoegen
+            <button
+              formaction="/api/admin/catalog/new-category" // (optioneel) eigen route, of laat het in de Table gebeuren
+              className="bb-btn"
+              disabled
+              title="Gebruik 'Model toevoegen' hieronder om meteen met nieuwe categorie te starten."
+            >
+              + Voeg toe
             </button>
           </form>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {categories.map((c: Category) => {
-            const isActive = c.id === selected;
-            const href =
-              "/admin/catalog?" +
-              new URLSearchParams({ ...(c.id ? { category: c.id } : {}), ...(q ? { q } : {}) }).toString();
-            return (
-              <Link
-                key={c.id}
-                href={href}
-                className={
-                  "px-3 py-2 rounded border " +
-                  (isActive ? "bg-green-600 text-white border-green-700" : "bg-white hover:bg-gray-50")
-                }
-              >
-                {c.name}
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Zoek op model (GET) */}
-      <section className="flex items-center justify-between gap-3">
-        <form method="get" className="w-full max-w-md flex items-center gap-2">
-          {selected && <input type="hidden" name="category" value={selected} />}
+        {/* Zoekbalk op model */}
+        <form className="flex items-center gap-2">
           <input
+            type="text"
             name="q"
             defaultValue={q}
             placeholder="Zoek op model…"
-            className="w-full border rounded px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
+            className="w-full max-w-sm border rounded px-3 py-2"
           />
-          <button type="submit" className="px-3 py-2 rounded border bg-white hover:bg-gray-50">
-            Zoek
-          </button>
+          <input type="hidden" name="category" value={selectedCategory} />
+          <button className="bb-btn">Filter</button>
+          <a href={`/admin/catalog?category=${encodeURIComponent(selectedCategory)}`} className="text-sm underline">
+            Reset
+          </a>
         </form>
-      </section>
+      </header>
 
-      {/* Tabel */}
       <section>
-        {selected ? (
-          <CatalogTable rows={models} categoryId={selected} query={q} />
-        ) : (
-          <div className="text-sm text-gray-600">Geen categorie geselecteerd.</div>
-        )}
+        <CatalogTable
+          rows={filtered}
+          selectedCategory={selectedCategory === "__ALL__" ? null : selectedCategory}
+        />
       </section>
     </div>
   );
