@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
-import { headers } from "next/headers";
 import { randomUUID } from "crypto";
 
 // In sommige projecten exporteert lib/supabaseAdmin een klaar client object,
@@ -45,12 +44,22 @@ function nowIso() {
 }
 
 export async function listCategories() {
+  // Typing toevoegen zodat r niet 'any' is
   const { data, error } = await sb()
     .from(TABLE)
     .select("category")
-    .order("category", { ascending: true });
+    .order("category", { ascending: true }) as unknown as {
+      data: { category: string | null }[] | null;
+      error: { message: string } | null;
+    };
+
   if (error) throw new Error(error.message);
-  const cats = Array.from(new Set((data || []).map(r => r.category).filter(Boolean))) as string[];
+
+  const rows = (data ?? []) as { category: string | null }[];
+  const cats = Array.from(
+    new Set(rows.map((r) => r.category).filter(Boolean))
+  ) as string[];
+
   return cats;
 }
 
@@ -98,7 +107,8 @@ export async function createRow(payload: Partial<CatalogRow>) {
   // minimale vereisten
   if (!payload.brand || !payload.model || typeof payload.capacity_gb !== "number") {
     throw new Error("brand, model en capacity_gb zijn verplicht.");
-  }
+    }
+
   const row = {
     brand: String(payload.brand).trim(),
     category: payload.category ?? null,
@@ -136,10 +146,9 @@ export async function uploadModelImageAction(
   const safeModel = model.trim().replace(/[^\w\-]+/g, "_");
   const key = `${safeBrand}/${safeModel}/${randomUUID()}.${ext}`;
 
-  // upload naar Supabase storage
   const supa = sb();
   // @ts-ignore – supabase-js storage API is beschikbaar op de admin client
-  const { data: up, error: upErr } = await supa.storage
+  const { error: upErr } = await supa.storage
     .from(BUCKET_NAME)
     .upload(key, file, {
       cacheControl: "3600",
@@ -149,12 +158,10 @@ export async function uploadModelImageAction(
 
   if (upErr) throw new Error(upErr.message);
 
-  // publiek pad (pas aan naar je eigen getPublicUrl strategie)
   // @ts-ignore
   const { data: pub } = supa.storage.from(BUCKET_NAME).getPublicUrl(key);
   const publicUrl = pub?.publicUrl || null;
 
-  // bulk update image_url voor alle rijen met zelfde brand+model
   const { error: updErr } = await supa
     .from(TABLE)
     .update({ image_url: publicUrl, updated_at: nowIso() })
@@ -166,7 +173,6 @@ export async function uploadModelImageAction(
   return { url: publicUrl };
 }
 
-// ====== Bulk toggles of updates op alle rijen met zelfde brand+model (optioneel) ======
 export async function setModelActiveForAll(brand: string, model: string, next: boolean) {
   const { error } = await sb()
     .from(TABLE)
