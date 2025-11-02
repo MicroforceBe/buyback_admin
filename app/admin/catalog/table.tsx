@@ -90,6 +90,7 @@ export default function Table({ category, rows, allCategories }: Props) {
   async function handleAdd() {
     try {
       setCreating(true);
+      // minimale default-waarden
       const base: Partial<CatalogRow> = {
         brand: "",
         category: category ?? null,
@@ -100,8 +101,35 @@ export default function Table({ category, rows, allCategories }: Props) {
         image_url: null,
         active: true,
       };
+
       const created = await createCatalogRow(base);
-      setLocalRows((prev) => [created, ...prev]);
+
+      // Zorg ALTIJD voor een volledig CatalogRow object
+      let newRow: CatalogRow;
+      if (
+        created &&
+        typeof created === "object" &&
+        "id" in created &&
+        !("brand" in created) // server gaf enkel { id, ok } terug
+      ) {
+        const id = Number((created as any).id);
+        newRow = {
+          id,
+          brand: base.brand ?? "",
+          category: base.category ?? null,
+          model: base.model ?? "",
+          variant: base.variant ?? null,
+          capacity_gb: base.capacity_gb ?? 0,
+          base_price_cents: base.base_price_cents ?? 0,
+          image_url: base.image_url ?? null,
+          active: base.active ?? true,
+        };
+      } else {
+        newRow = created as CatalogRow;
+      }
+
+      // ✅ Hier géén union meer in state stoppen
+      setLocalRows((prev) => [newRow, ...prev]);
     } catch (e: any) {
       alert(e?.message || "Aanmaken mislukt");
     } finally {
@@ -120,7 +148,7 @@ export default function Table({ category, rows, allCategories }: Props) {
     try {
       setPending(row.id);
 
-      // === Belangrijk: upload via FormData (enkel 1 argument naar server action)
+      // Upload via FormData (server action ontvangt 1 argument)
       const fd = new FormData();
       fd.append("rowId", String(row.id));
       fd.append("file", file);
@@ -137,8 +165,7 @@ export default function Table({ category, rows, allCategories }: Props) {
       alert(e?.message || "Upload mislukt");
     } finally {
       setPending(null);
-      // reset input zodat dezelfde file opnieuw gekozen kan worden
-      e.currentTarget.value = "";
+      e.currentTarget.value = ""; // opnieuw dezelfde file kunnen kiezen
     }
   }
 
@@ -225,7 +252,7 @@ export default function Table({ category, rows, allCategories }: Props) {
                     </div>
                   </td>
 
-                  {/* Categorie (select) */}
+                  {/* Categorie */}
                   <td className="px-3 py-2">
                     <select
                       className="w-full border rounded px-2 py-1 bg-white"
@@ -245,9 +272,11 @@ export default function Table({ category, rows, allCategories }: Props) {
                     <input
                       className="w-full border rounded px-2 py-1"
                       value={row.brand}
-                      onChange={(e) => setLocalRows((prev) =>
-                        prev.map((r) => (r.id === row.id ? { ...r, brand: e.target.value } : r))
-                      )}
+                      onChange={(e) =>
+                        setLocalRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, brand: e.target.value } : r))
+                        )
+                      }
                       onBlur={(e) => handleSave(row, "brand", e.target.value)}
                       disabled={isRowPending}
                     />
@@ -258,9 +287,11 @@ export default function Table({ category, rows, allCategories }: Props) {
                     <input
                       className="w-full border rounded px-2 py-1"
                       value={row.model}
-                      onChange={(e) => setLocalRows((prev) =>
-                        prev.map((r) => (r.id === row.id ? { ...r, model: e.target.value } : r))
-                      )}
+                      onChange={(e) =>
+                        setLocalRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, model: e.target.value } : r))
+                        )
+                      }
                       onBlur={(e) => handleSave(row, "model", e.target.value)}
                       disabled={isRowPending}
                     />
@@ -271,9 +302,11 @@ export default function Table({ category, rows, allCategories }: Props) {
                     <input
                       className="w-full border rounded px-2 py-1"
                       value={row.variant ?? ""}
-                      onChange={(e) => setLocalRows((prev) =>
-                        prev.map((r) => (r.id === row.id ? { ...r, variant: e.target.value || null } : r))
-                      )}
+                      onChange={(e) =>
+                        setLocalRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, variant: e.target.value || null } : r))
+                        )
+                      }
                       onBlur={(e) => handleSave(row, "variant", (e.target.value || null) as any)}
                       disabled={isRowPending}
                     />
@@ -301,7 +334,7 @@ export default function Table({ category, rows, allCategories }: Props) {
                     />
                   </td>
 
-                  {/* Basisprijs (euro naar cents) */}
+                  {/* Basisprijs (euro -> cents) */}
                   <td className="px-3 py-2 text-right">
                     <input
                       className="w-full border rounded px-2 py-1 text-right"
@@ -311,7 +344,12 @@ export default function Table({ category, rows, allCategories }: Props) {
                         const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
                         setLocalRows((prev) =>
                           prev.map((r) =>
-                            r.id === row.id ? { ...r, base_price_cents: Math.round((parseFloat(v || "0") || 0) * 100) } : r
+                            r.id === row.id
+                              ? {
+                                  ...r,
+                                  base_price_cents: Math.round((parseFloat(v || "0") || 0) * 100),
+                                }
+                              : r
                           )
                         );
                       }}
@@ -324,7 +362,7 @@ export default function Table({ category, rows, allCategories }: Props) {
                     />
                   </td>
 
-                  {/* Actief (toggle slider) */}
+                  {/* Actief toggle */}
                   <td className="px-3 py-2">
                     <label className="inline-flex items-center cursor-pointer select-none">
                       <input
