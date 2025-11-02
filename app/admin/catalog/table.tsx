@@ -1,264 +1,294 @@
-"use client";
+// app/admin/catalog/table.tsx
+'use client';
 
-import { useOptimistic, useRef, useState } from "react";
-import { updateModelFieldAction, uploadModelImageAction, toggleCapacityActiveAction } from "./actions";
+import React, { useMemo, useRef, useState } from 'react';
 
-type Capacity = {
-  id: string;
-  model_id: string;
-  variant: string | null;
-  capacity_gb: number | null;
-  price_cents: number | null;
-  active: boolean;
-};
-
-type ModelRow = {
-  id: string;
-  brand: string | null;
+export type CatalogRow = {
+  id: string;                       // unieke rij (model-variant) id
+  category_id: string;
   model: string;
-  image_url: string | null;
-  active: boolean;
-  category_id: string | null;
-  buyback_capacities?: Capacity[];
+  brand?: string | null;
+  variant?: string | null;
+  capacity_gb?: number | null;
+  price_cents?: number | null;
+  active: boolean;                  // toggle beschikbaar in widget
+  image_url?: string | null;        // 1 afbeelding per model (geldt voor alle GB's)
 };
 
-export default function CatalogTable({
-  categoryId,
-  models,
-  search,
-}: {
-  categoryId: string | null;
-  models: ModelRow[];
-  search: string;
-}) {
-  const [q, setQ] = useState(search || "");
-  const [openVariants, setOpenVariants] = useState<Record<string, boolean>>({});
+type Props = {
+  rows: CatalogRow[];
+  /** Wordt aangeroepen wanneer een rij bewaard wordt */
+  onSaveRow: (row: CatalogRow) => void | Promise<void>;
+  /** Upload één foto voor het model (alle varianten delen die) */
+  onUploadImage: (modelId: string, file: File) => void | Promise<void>;
+  /** Optioneel: huidig filter uit de zoekbalk */
+  query?: string;
+};
+
+export default function CatalogTable({ rows, onSaveRow, onUploadImage, query = '' }: Props) {
+  const [editing, setEditing] = useState<Record<string, CatalogRow>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+
+  // file inputs per rij-id
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const [optModels, setOptModels] = useOptimistic(models, (state, patch: Partial<ModelRow> & { id: string }) =>
-    state.map(m => (m.id === patch.id ? { ...m, ...patch } : m))
-  );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      r.model.toLowerCase().includes(q) ||
+      (r.brand ?? '').toLowerCase().includes(q) ||
+      (r.variant ?? '').toLowerCase().includes(q)
+    );
+  }, [rows, query]);
 
-  const onSubmitModelField = async (id: string, patch: Record<string, any>) => {
-    const fd = new FormData();
-    fd.set("id", id);
-    for (const [k, v] of Object.entries(patch)) fd.set(k, String(v));
-    setOptModels({ id, ...patch } as any);
-    const res = await updateModelFieldAction(fd);
-    if (!res?.ok) alert(res?.error || "Opslaan mislukt");
-  };
+  function startEdit(row: CatalogRow) {
+    setEditing((prev) => ({ ...prev, [row.id]: { ...row } }));
+    setErrors((prev) => ({ ...prev, [row.id]: null }));
+  }
 
-  const onUploadImage = async (id: string, file: File) => {
-    const fd = new FormData();
-    fd.set("id", id);
-    fd.set("file", file);
-    const res = await uploadModelImageAction(fd);
-    if (!res?.ok) {
-      alert(res?.error || "Upload mislukt");
-    } else {
-      setOptModels({ id, image_url: res.image_url } as any);
+  function cancelEdit(rowId: string) {
+    setEditing((prev) => {
+      const cp = { ...prev };
+      delete cp[rowId];
+      return cp;
+    });
+    setErrors((prev) => {
+      const cp = { ...prev };
+      delete cp[rowId];
+      return cp;
+    });
+  }
+
+  async function saveRow(rowId: string) {
+    const draft = editing[rowId];
+    if (!draft) return;
+    try {
+      setSaving((s) => ({ ...s, [rowId]: true }));
+      await onSaveRow(draft);
+      // na succes: edit state opruimen
+      cancelEdit(rowId);
+    } catch (e: any) {
+      setErrors((prev) => ({ ...prev, [rowId]: e?.message || 'Bewaren mislukt' }));
+    } finally {
+      setSaving((s) => ({ ...s, [rowId]: false }));
     }
-  };
+  }
 
-  const filtered = q.trim()
-    ? optModels.filter(m => m.model.toLowerCase().includes(q.trim().toLowerCase()))
-    : optModels;
+  function setField<K extends keyof CatalogRow>(rowId: string, key: K, value: CatalogRow[K]) {
+    setEditing((prev) => ({ ...prev, [rowId]: { ...(prev[rowId] ?? {} as CatalogRow), [key]: value } }));
+  }
+
+  async function pickImage(modelRow: CatalogRow) {
+    const input = fileInputs.current[modelRow.id];
+    if (!input) return;
+    input.value = ''; // reset zodat dezelfde file opnieuw gekozen kan worden
+    input.click();
+  }
+
+  async function onFilePicked(row: CatalogRow, file: File | null) {
+    if (!file) return;
+    try {
+      setSaving((s) => ({ ...s, [row.id]: true }));
+      await onUploadImage(row.id, file);
+      // geen lokale fout tonen
+    } catch (e: any) {
+      setErrors((prev) => ({ ...prev, [row.id]: e?.message || 'Upload mislukt' }));
+    } finally {
+      setSaving((s) => ({ ...s, [row.id]: false }));
+    }
+  }
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium">Modellen</h2>
-        <form action="/admin/catalog" method="get" className="flex items-center gap-2">
-          {categoryId && <input type="hidden" name="category" value={categoryId} />}
-          <input
-            name="q"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Zoek op modelnaam…"
-            className="border rounded px-3 py-1.5 text-sm w-64"
-          />
-          <button className="px-3 py-1.5 text-sm rounded border bg-white hover:bg-gray-50">
-            Filter
-          </button>
-        </form>
-      </div>
+    <div className="bb-card p-0 overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
+          <tr>
+            <th className="px-3 py-2 text-left">Model</th>
+            <th className="px-3 py-2 text-left">Brand</th>
+            <th className="px-3 py-2 text-left">Variant</th>
+            <th className="px-3 py-2 text-left">GB</th>
+            <th className="px-3 py-2 text-left">Prijs (€)</th>
+            <th className="px-3 py-2 text-left">Afbeelding</th>
+            <th className="px-3 py-2 text-left">Actief</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {filtered.map((m) => {
+            const isEditing = !!editing[m.id];
+            const row = isEditing ? editing[m.id] : m;
+            const isSaving = !!saving[m.id];
+            const err = errors[m.id] ?? null;
 
-      {/* Tabel */}
-      <div className="overflow-auto rounded border bg-white">
-        <table className="min-w-[900px] w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left">
-              <th className="px-3 py-2 w-[72px]">Actief</th>
-              <th className="px-3 py-2 w-[84px]">Foto</th>
-              <th className="px-3 py-2">Merk</th>
-              <th className="px-3 py-2">Model</th>
-              <th className="px-3 py-2 w-[120px]">Varianten</th>
-              <th className="px-3 py-2 w-[140px]">Opslaan</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((m) => (
-              <tr key={m.id} className="border-t align-top">
-                {/* Actief slider */}
+            return (
+              <tr key={m.id} className="hover:bg-gray-50/60">
                 <td className="px-3 py-2">
-                  <button
-                    type="button"
-                    aria-pressed={m.active}
-                    onClick={() => onSubmitModelField(m.id, { active: !m.active })}
-                    className={`inline-flex items-center h-6 w-11 rounded-full transition
-                      ${m.active ? "bg-green-600" : "bg-gray-300"}`}
-                    title={m.active ? "Actief" : "Inactief"}
-                  >
-                    <span
-                      className={`h-5 w-5 bg-white rounded-full shadow transform transition
-                        ${m.active ? "translate-x-5" : "translate-x-1"}`}
+                  {isEditing ? (
+                    <input
+                      className="w-44 bb-input"
+                      value={row.model}
+                      onChange={(e) => setField(m.id, 'model', e.target.value)}
                     />
-                  </button>
+                  ) : (
+                    <div className="font-medium">{row.model}</div>
+                  )}
                 </td>
-
-                {/* Foto upload */}
                 <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-10 w-10 rounded border bg-gray-50 overflow-hidden">
-                      {m.image_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={m.image_url} alt="" className="h-full w-full object-cover" />
+                  {isEditing ? (
+                    <input
+                      className="w-36 bb-input"
+                      value={row.brand ?? ''}
+                      onChange={(e) => setField(m.id, 'brand', e.target.value)}
+                    />
+                  ) : (
+                    <span className="text-gray-600">{row.brand || '—'}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {isEditing ? (
+                    <input
+                      className="w-36 bb-input"
+                      value={row.variant ?? ''}
+                      onChange={(e) => setField(m.id, 'variant', e.target.value)}
+                    />
+                  ) : (
+                    <span className="text-gray-700">{row.variant || '—'}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      className="w-24 bb-input"
+                      value={row.capacity_gb ?? ''}
+                      onChange={(e) => setField(m.id, 'capacity_gb', e.target.value === '' ? null : Number(e.target.value))}
+                    />
+                  ) : (
+                    <span>{row.capacity_gb ?? '—'}</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      className="w-28 bb-input"
+                      value={row.price_cents != null ? (row.price_cents / 100).toFixed(2) : ''}
+                      onChange={(e) => {
+                        const v = e.target.value.trim();
+                        const euros = v === '' ? null : Math.round(Number(v.replace(',', '.')) * 100);
+                        setField(m.id, 'price_cents', euros as any);
+                      }}
+                    />
+                  ) : (
+                    <span>
+                      {row.price_cents != null ? (row.price_cents / 100).toFixed(2) : '—'}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-9 border bg-white rounded overflow-hidden flex items-center justify-center">
+                      {row.image_url ? (
+                        <img src={row.image_url} alt={row.model} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="h-full w-full grid place-items-center text-[10px] text-gray-400">geen</div>
+                        <span className="text-[10px] text-gray-400">geen</span>
                       )}
                     </div>
+
+                    {/* Hidden file input per rij */}
                     <div>
-                    <input
-                      ref={(el) => { fileInputs.current[id] = el; }}  // <-- niets returnen
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                    />
+                      <input
+                        ref={(el) => { fileInputs.current[m.id] = el; }} // <-- gebruik de bestaande rij-id
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => onFilePicked(m, e.target.files?.[0] ?? null)}
+                      />
                       <button
                         type="button"
-                        className="px-2 py-1 rounded border hover:bg-gray-50"
-                        onClick={() => fileInputs.current[m.id]?.click()}
+                        className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
+                        onClick={() => pickImage(m)}
+                        disabled={isSaving}
                       >
-                        Upload…
+                        {row.image_url ? 'Wijzig' : 'Upload'}
                       </button>
                     </div>
                   </div>
                 </td>
-
-                {/* Merk */}
                 <td className="px-3 py-2">
-                  <input
-                    defaultValue={m.brand || ""}
-                    onBlur={(e) => {
-                      const v = e.currentTarget.value;
-                      if ((m.brand || "") !== v) onSubmitModelField(m.id, { brand: v });
-                    }}
-                    className="w-full border rounded px-2 py-1.5"
-                    placeholder="Merk"
-                  />
+                  {isEditing ? (
+                    <label className="inline-flex items-center cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={!!row.active}
+                        onChange={(e) => setField(m.id, 'active', e.target.checked)}
+                      />
+                      {/* Toggle slider */}
+                      <span className="w-10 h-5 bg-gray-300 peer-checked:bg-green-600 rounded-full relative transition-colors">
+                        <span className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
+                      </span>
+                      <span className="ml-2 text-xs text-gray-600">{row.active ? 'Actief' : 'Inactief'}</span>
+                    </label>
+                  ) : (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${row.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {row.active ? 'Actief' : 'Inactief'}
+                    </span>
+                  )}
                 </td>
-
-                {/* Model */}
-                <td className="px-3 py-2">
-                  <input
-                    defaultValue={m.model || ""}
-                    onBlur={(e) => {
-                      const v = e.currentTarget.value;
-                      if ((m.model || "") !== v) onSubmitModelField(m.id, { model: v });
-                    }}
-                    className="w-full border rounded px-2 py-1.5"
-                    placeholder="Modelnaam"
-                  />
-                </td>
-
-                {/* Variants toggle open/closed */}
-                <td className="px-3 py-2">
-                  <button
-                    type="button"
-                    className="px-2 py-1 rounded border hover:bg-gray-50"
-                    onClick={() => setOpenVariants((s) => ({ ...s, [m.id]: !s[m.id] }))}
-                  >
-                    {openVariants[m.id] ? "Verberg" : "Toon"} ({m.buyback_capacities?.length || 0})
-                  </button>
-                </td>
-
-                {/* Opslaan expliciet is niet nodig (we saven onBlur / onToggle), maar laten knop voor UX */}
-                <td className="px-3 py-2">
-                  <span className="text-gray-400 select-none">Auto-save</span>
+                <td className="px-3 py-2 text-right">
+                  {err && <div className="text-xs text-red-600 mb-1">{err}</div>}
+                  {isEditing ? (
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-sm rounded border hover:bg-gray-50"
+                        onClick={() => cancelEdit(m.id)}
+                        disabled={isSaving}
+                      >
+                        Annuleren
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-sm rounded border border-green-600 text-white"
+                        style={{ background: 'var(--bb-accent, #16a34a)' }}
+                        onClick={() => saveRow(m.id)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? 'Bewaren…' : 'Bewaren'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-sm rounded border hover:bg-gray-50"
+                      onClick={() => startEdit(m)}
+                    >
+                      Bewerken
+                    </button>
+                  )}
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            );
+          })}
 
-        {/* Varianten blokken onder de tabel */}
-        {filtered.map((m) =>
-          openVariants[m.id] ? (
-            <div key={`${m.id}-variants`} className="border-t bg-gray-50/60">
-              <div className="px-3 py-2 text-xs text-gray-600">Varianten voor <strong>{m.model}</strong></div>
-              <div className="overflow-auto">
-                <table className="min-w-[680px] w-full text-sm">
-                  <thead className="bg-gray-100">
-                    <tr className="text-left">
-                      <th className="px-3 py-2 w-[72px]">Actief</th>
-                      <th className="px-3 py-2 w-[160px]">Variant</th>
-                      <th className="px-3 py-2 w-[120px]">Capaciteit</th>
-                      <th className="px-3 py-2 w-[120px]">Prijs</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(m.buyback_capacities || []).map((c) => (
-                      <tr key={c.id} className="border-t">
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            aria-pressed={c.active}
-                            onClick={async () => {
-                              const fd = new FormData();
-                              fd.set("id", c.id);
-                              fd.set("active", (!c.active).toString());
-                              // optimistic: pas lokale state aan
-                              setOptModels({
-                                id: m.id,
-                                buyback_capacities: (m.buyback_capacities || []).map(cc =>
-                                  cc.id === c.id ? { ...cc, active: !c.active } : cc
-                                ),
-                              } as any);
-                              const res = await toggleCapacityActiveAction(fd);
-                              if (!res?.ok) alert(res?.error || "Opslaan mislukt");
-                            }}
-                            className={`inline-flex items-center h-6 w-11 rounded-full transition
-                              ${c.active ? "bg-green-600" : "bg-gray-300"}`}
-                            title={c.active ? "Actief" : "Inactief"}
-                          >
-                            <span
-                              className={`h-5 w-5 bg-white rounded-full shadow transform transition
-                                ${c.active ? "translate-x-5" : "translate-x-1"}`}
-                            />
-                          </button>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="inline-block px-2 py-1 rounded bg-white border">{c.variant || "—"}</span>
-                        </td>
-                        <td className="px-3 py-2">{c.capacity_gb ?? "—"} GB</td>
-                        <td className="px-3 py-2">€ {(Math.max(0, c.price_cents || 0) / 100).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                    {!(m.buyback_capacities || []).length && (
-                      <tr>
-                        <td colSpan={4} className="px-3 py-4 text-center text-gray-500 text-sm">
-                          Geen varianten gevonden.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null
-        )}
-      </div>
-    </section>
+          {filtered.length === 0 && (
+            <tr>
+              <td colSpan={8} className="px-3 py-6 text-center text-sm text-gray-500">
+                Geen resultaten.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <style jsx global>{`
+        .bb-input {
+          @apply border rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600;
+        }
+      `}</style>
+    </div>
   );
 }
-
