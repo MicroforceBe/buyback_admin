@@ -1,141 +1,182 @@
 // app/admin/catalog/actions.ts
-'use server';
+"use server";
 
-import { revalidatePath } from 'next/cache';
-import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
+import { revalidatePath } from "next/cache";
+import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
 
 function sb() {
   const anySb: any = supabaseAdminExport as any;
-  return typeof anySb === 'function' ? anySb() : anySb;
+  return typeof anySb === "function" ? anySb() : anySb;
 }
 
-/* ====== Types ====== */
+/** ===== Types ===== */
 export type Category = {
   id: string;
   name: string;
+  created_at?: string | null;
 };
 
 export type ModelRow = {
   id: string;
   category_id: string;
-  model: string;
   brand: string | null;
-  variant: string | null;
-  capacity_gb: number | null;
-  price_cents: number | null;
-  active: boolean;
+  model: string;
+  base_price_cents: number | null;
+  active: boolean | null;
   image_url: string | null;
+  image_path: string | null; // opslagpad in bucket (voor delete/replace)
+  updated_at?: string | null;
 };
 
-/* ====== Loaders ====== */
+/** ===== Loads ===== */
 export async function loadCategories(): Promise<Category[]> {
-  const s = sb();
-  const { data, error } = await s.from('buyback_categories').select('id, name').order('name', { ascending: true });
+  const { data, error } = await sb()
+    .from("buyback_categories")
+    .select("id,name,created_at")
+    .order("name", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data || []) as Category[];
+  return data ?? [];
 }
 
 export async function loadModelsByCategory(categoryId: string): Promise<ModelRow[]> {
-  const s = sb();
-  const { data, error } = await s
-    .from('buyback_models')
-    .select('id, category_id, model, brand, variant, capacity_gb, price_cents, active, image_url')
-    .eq('category_id', categoryId)
-    .order('model', { ascending: true })
-    .order('variant', { ascending: true })
-    .order('capacity_gb', { ascending: true });
+  if (!categoryId) return [];
+  const { data, error } = await sb()
+    .from("buyback_models")
+    .select("id,category_id,brand,model,base_price_cents,active,image_url,image_path,updated_at")
+    .eq("category_id", categoryId)
+    .order("brand", { ascending: true })
+    .order("model", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data || []) as ModelRow[];
+  return data ?? [];
 }
 
-/* ====== Mutaties ====== */
-
-// Categorie toevoegen
+/** ===== Category CRUD ===== */
 export async function createCategoryAction(formData: FormData) {
-  const name = String(formData.get('name') || '').trim();
-  if (!name) throw new Error('Naam is verplicht');
-  const s = sb();
-  const { error } = await s.from('buyback_categories').insert({ name });
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Naam is verplicht");
+  const { error } = await sb().from("buyback_categories").insert({ name });
   if (error) throw new Error(error.message);
-  revalidatePath('/admin/catalog');
+  revalidatePath("/admin/catalog");
 }
 
-// Rij bewaren (model/variant/capacity/price/active)
-export async function updateModelRowAction(formData: FormData) {
-  const id = String(formData.get('id') || '').trim();
-  if (!id) throw new Error('missing id');
+/** ===== Model CRUD/updates ===== */
+export async function createModelAction(formData: FormData) {
+  const category_id = String(formData.get("category_id") || "").trim();
+  const brand = String(formData.get("brand") || "").trim() || null;
+  const model = String(formData.get("model") || "").trim();
+  const base_price_eur = String(formData.get("base_price_eur") || "").trim();
 
-  // optionele velden
-  const model = (formData.get('model') ?? '').toString().trim() || null;
-  const brand = (formData.get('brand') ?? '').toString().trim() || null;
-  const variant = (formData.get('variant') ?? '').toString().trim() || null;
+  if (!category_id || !model) throw new Error("Categorie en model zijn verplicht");
 
-  const capRaw = (formData.get('capacity_gb') ?? '').toString().trim();
-  const capacity_gb = capRaw === '' ? null : Number(capRaw);
+  let base_price_cents: number | null = null;
+  if (base_price_eur) {
+    const eur = Number(base_price_eur.replace(",", "."));
+    if (!Number.isFinite(eur) || eur < 0) throw new Error("Ongeldige prijs");
+    base_price_cents = Math.round(eur * 100);
+  }
 
-  const priceRaw = (formData.get('price_eur') ?? '').toString().replace(',', '.').trim();
-  const price_cents = priceRaw === '' ? null : Math.round(Number(priceRaw) * 100);
-
-  const active = (formData.get('active') ?? 'false').toString() === 'true';
-
-  const patch: Record<string, any> = {
-    model,
+  const { error } = await sb().from("buyback_models").insert({
+    category_id,
     brand,
-    variant,
-    capacity_gb,
-    price_cents,
-    active
-  };
-
-  const s = sb();
-  const { error } = await s.from('buyback_models').update(patch).eq('id', id);
+    model,
+    base_price_cents,
+    active: true,
+  });
   if (error) throw new Error(error.message);
-
-  revalidatePath('/admin/catalog');
+  revalidatePath("/admin/catalog");
 }
 
-// Image upload op *modelniveau*: update alle rijen met zelfde category_id + model
+export async function updateModelFieldAction(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  const field = String(formData.get("field") || "");
+  let value: any = formData.get("value");
+
+  if (!id || !field) throw new Error("Missing id/field");
+
+  // Veldspecifieke casting
+  if (field === "base_price_cents") {
+    const eur = Number(String(value || "").replace(",", "."));
+    if (!Number.isFinite(eur) || eur < 0) throw new Error("Ongeldige prijs");
+    value = Math.round(eur * 100);
+  } else if (field === "active") {
+    value = String(value) === "true";
+  } else if (typeof value === "string") {
+    value = value.trim();
+  }
+
+  const patch: Record<string, any> = {};
+  patch[field] = value;
+
+  const { error } = await sb().from("buyback_models").update(patch).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/catalog");
+}
+
+export async function toggleModelActiveAction(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  const next = String(formData.get("next") || "") === "true";
+  if (!id) throw new Error("Missing id");
+  const { error } = await sb().from("buyback_models").update({ active: next }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/catalog");
+}
+
+export async function deleteModelAction(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  const image_path = String(formData.get("image_path") || "");
+  if (!id) throw new Error("Missing id");
+
+  // verwijder eerst image uit storage (indien aanwezig)
+  if (image_path) {
+    await sb().storage.from("buyback-model-images").remove([image_path]).catch(() => {});
+  }
+
+  const { error } = await sb().from("buyback_models").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/catalog");
+}
+
+/** ===== Upload/update image ===== */
 export async function uploadModelImageAction(formData: FormData) {
-  const rowId = String(formData.get('row_id') || '').trim();
-  const file = formData.get('file') as File | null;
-  if (!rowId) throw new Error('missing row_id');
-  if (!file || file.size === 0) throw new Error('Ontbrekend bestand');
+  const id = String(formData.get("id") || "");
+  const file = formData.get("file") as File | null;
+  if (!id || !file) throw new Error("Missing id/file");
 
-  const s = sb();
+  const bucket = "buyback-model-images";
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `${id}/${Date.now()}.${ext}`;
 
-  // 1) Haal de rij op om category_id + model te kennen
-  const { data: row, error: rowErr } = await s
-    .from('buyback_models')
-    .select('id, category_id, model')
-    .eq('id', rowId)
-    .maybeSingle();
-
-  if (rowErr) throw new Error(rowErr.message);
-  if (!row) throw new Error('Model-rij niet gevonden');
-
-  // 2) Upload naar storage
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const objectKey = `models/${row.category_id}/${encodeURIComponent(row.model)}-${Date.now()}.${ext}`;
-
-  const { error: upErr } = await s.storage.from('buyback-models').upload(objectKey, file, {
-    cacheControl: '3600',
+  // Upload
+  const { error: upErr } = await sb().storage.from(bucket).upload(path, file, {
     upsert: true,
-    contentType: file.type || 'image/*',
+    cacheControl: "3600",
+    contentType: file.type || "image/jpeg",
   });
   if (upErr) throw new Error(upErr.message);
 
-  const { data: publicUrlRes } = s.storage.from('buyback-models').getPublicUrl(objectKey);
-  const publicUrl = publicUrlRes?.publicUrl || null;
-  if (!publicUrl) throw new Error('Kon public URL niet bepalen');
+  // Publieke URL
+  const { data: pub } = sb().storage.from(bucket).getPublicUrl(path);
+  const image_url = pub?.publicUrl || null;
 
-  // 3) Update ALLE rijen met dezelfde category + model
-  const { error: updErr } = await s
-    .from('buyback_models')
-    .update({ image_url: publicUrl })
-    .eq('category_id', row.category_id)
-    .eq('model', row.model);
+  // Oude image_path eventueel opruimen
+  const { data: row } = await sb()
+    .from("buyback_models")
+    .select("image_path")
+    .eq("id", id)
+    .single()
+    .catch(() => ({ data: null as any }));
 
+  const old = row?.image_path as string | null;
+  if (old && old !== path) {
+    await sb().storage.from(bucket).remove([old]).catch(() => {});
+  }
+
+  // Opslaan in DB
+  const { error: updErr } = await sb()
+    .from("buyback_models")
+    .update({ image_url, image_path: path })
+    .eq("id", id);
   if (updErr) throw new Error(updErr.message);
 
-  revalidatePath('/admin/catalog');
+  revalidatePath("/admin/catalog");
 }
