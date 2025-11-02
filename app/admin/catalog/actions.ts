@@ -1,8 +1,5 @@
 'use server';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
 
@@ -39,7 +36,6 @@ export type CatalogRow = {
 
 export async function getCategories(): Promise<string[]> {
   const sb = sbClient();
-  // DISTINCT categorieën (nulls wegfilteren)
   const { data, error } = await sb
     .from('buyback_catalog')
     .select('category')
@@ -67,12 +63,15 @@ export async function getCatalogRows(opts?: { category?: string | null; q?: stri
   }
 
   if (q && q.trim()) {
-    // tekstfilter op model + brand
     const like = `%${q.trim()}%`;
     query = query.or(`model.ilike.${like},brand.ilike.${like}`);
   }
 
-  const { data, error } = await query.order('brand', { ascending: true }).order('model', { ascending: true }).order('capacity_gb', { ascending: true });
+  const { data, error } = await query
+    .order('brand', { ascending: true })
+    .order('model', { ascending: true })
+    .order('capacity_gb', { ascending: true });
+
   if (error) throw new Error(error.message);
   return (data || []) as CatalogRow[];
 }
@@ -95,12 +94,12 @@ const ALLOWED_UPDATE_FIELDS = new Set([
 ]);
 
 export async function saveCatalogRowField(id: number, key: string, value: unknown) {
+  'use server';
   if (!ALLOWED_UPDATE_FIELDS.has(key)) {
     throw new Error(`Veld '${key}' mag niet geüpdatet worden.`);
   }
   const sb = sbClient();
 
-  // Normalisaties
   const patch: Record<string, any> = {};
   if (key === 'year' || key === 'capacity_gb' || key === 'base_price_cents') {
     const n = value === null || value === '' ? null : Number(value);
@@ -126,6 +125,7 @@ export async function saveCatalogRowField(id: number, key: string, value: unknow
 }
 
 export async function createCatalogRow(payload: Partial<CatalogRow>) {
+  'use server';
   const required = ['brand', 'model', 'capacity_gb', 'base_price_cents'] as const;
   for (const k of required) {
     if (payload[k] === undefined || payload[k] === null || payload[k] === '') {
@@ -155,6 +155,7 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
 }
 
 export async function deleteCatalogRow(id: number) {
+  'use server';
   const sb = sbClient();
   const { error } = await sb.from('buyback_catalog').delete().eq('id', id);
   if (error) throw new Error(error.message);
@@ -163,13 +164,16 @@ export async function deleteCatalogRow(id: number) {
 }
 
 /* =========================================================
- *  IMAGE UPLOAD (naar Supabase Storage)
- *  Verwacht een FormData met:
+ *  IMAGE UPLOAD (Supabase Storage)
+ *  FormData verwacht:
  *   - 'file' (File)
- *   - 'rowId' (string/number)  => om pad netjes te maken
+ *   - 'rowId' (string/number)
+ *  Let op: we uploaden direct de File/Blob (Edge-safe; geen Buffer nodig).
  * =======================================================*/
 
 export async function uploadCatalogRowImage(form: FormData) {
+  'use server';
+
   const file = form.get('file') as File | null;
   const rowIdRaw = form.get('rowId');
 
@@ -182,38 +186,25 @@ export async function uploadCatalogRowImage(form: FormData) {
   const bucket = process.env.NEXT_PUBLIC_SUPABASE_CATALOG_BUCKET || 'buyback-catalog';
   const sb = sbClient();
 
-  // Lees bestand in Node buffer (=> runtime nodejs bovenaan is cruciaal)
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  // Bepaal extensie op basis van mimetype (simpel)
   const mime = file.type || 'application/octet-stream';
-  const ext = mime.split('/')[1] || 'bin';
-
-  // Netjes pad: per row een vaste bestandsnaam
+  const ext = (mime.split('/')[1] || 'bin').toLowerCase();
   const path = `models/${rowId}/main.${ext}`;
 
-  // Upload (upsert=true zodat vervangen ook kan)
   const { error: upErr } = await sb.storage
     .from(bucket)
-    .upload(path, buffer, {
+    .upload(path, file, {
       contentType: mime,
       upsert: true,
     });
 
   if (upErr) {
-    // Stuur maximale context terug naar de UI zodat je het ziet in de toast
     const anyErr = upErr as any;
-    throw new Error(
-      `Upload mislukt: ${anyErr?.message || 'unknown'} (bucket=${bucket}, path=${path})`
-    );
+    throw new Error(`Upload mislukt: ${anyErr?.message || 'unknown'} (bucket=${bucket}, path=${path})`);
   }
 
-  // Publieke URL ophalen
   const { data: pub } = sb.storage.from(bucket).getPublicUrl(path);
   const publicUrl = pub?.publicUrl || null;
 
-  // URL ook in de DB zetten
   const { error: updErr } = await sb
     .from('buyback_catalog')
     .update({ image_url: publicUrl })
