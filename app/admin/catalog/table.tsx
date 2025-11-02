@@ -1,5 +1,4 @@
-// app/admin/catalog/table.tsx
-"use client";
+'use client';
 
 import { useMemo, useRef, useState } from "react";
 import {
@@ -8,324 +7,360 @@ import {
   deleteCatalogRow,
   createCatalogRow,
 } from "./actions";
-import type { CatalogRow } from "./actions";
+
+export type CatalogRow = {
+  id: number;
+  brand: string;
+  category: string | null;
+  model: string;
+  variant: string | null;
+  capacity_gb: number;
+  base_price_cents: number;
+  image_url: string | null;
+  active: boolean;
+  updated_at?: string;
+};
 
 type Props = {
-  /** Geselecteerde categorie of null voor "Alle" */
   category: string | null;
-  /** Reeds geprefetchte rijen uit buyback_catalog */
   rows: CatalogRow[];
-  /** Alle categorie-namen t.b.v. toevoegen/wijzigen */
   allCategories: string[];
 };
 
 export default function Table({ category, rows, allCategories }: Props) {
-  const [q, setQ] = useState("");
-  const [pending, setPending] = useState<string | number | null>(null);
   const [localRows, setLocalRows] = useState<CatalogRow[]>(rows);
+  const [pending, setPending] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [filter, setFilter] = useState("");
 
-  // Zorg dat de lokaal weergegeven rijen mee evolueren als props wijzigen (bij wisselen categorie)
-  // (Eenvoudige sync – geen deep merge nodig hier)
-  if (localRows !== rows && JSON.stringify(localRows) !== JSON.stringify(rows)) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    setLocalRows(rows);
-  }
+  const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
 
-  const filtered = useMemo(() => {
-    const list = localRows || [];
-    const byCat = category ? list.filter((r) => (r.category || "") === category) : list;
-    const qv = q.trim().toLowerCase();
-    if (!qv) return byCat;
-    return byCat.filter(
-      (r) =>
-        (r.brand || "").toLowerCase().includes(qv) ||
-        (r.model || "").toLowerCase().includes(qv) ||
-        (r.variant || "").toLowerCase().includes(qv)
-    );
-  }, [localRows, category, q]);
+  const visibleRows = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return localRows;
+    return localRows.filter((r) => {
+      return (
+        (r.brand || "").toLowerCase().includes(q) ||
+        (r.model || "").toLowerCase().includes(q) ||
+        (r.variant || "").toLowerCase().includes(q) ||
+        String(r.capacity_gb || "").toLowerCase().includes(q)
+      );
+    });
+  }, [localRows, filter]);
 
-  // File inputs per rij
-  const fileInputs = useRef<Record<string | number, HTMLInputElement | null>>({});
-
-  async function persist<K extends keyof CatalogRow>(
+  async function handleSave<K extends keyof CatalogRow>(
     row: CatalogRow,
-    key: K,
+    field: K,
     value: CatalogRow[K]
   ) {
     try {
       setPending(row.id);
-      // Optimistic UI
-      setLocalRows((prev) =>
-        prev.map((r) => (r.id === row.id ? { ...r, [key]: value } : r))
-      );
-      await saveCatalogRowField(row.id, key as string, value as any);
-    } catch (e) {
-      console.error(e);
-      // Hard refresh van rij bij fout? Voor nu: geen rollback, admin ziet fout in console.
-    } finally {
-      setPending(null);
-    }
-  }
-
-  async function handleUpload(row: CatalogRow, file: File | null) {
-    if (!file) return;
-    try {
-      setPending(row.id);
-      const newUrl = await uploadCatalogRowImage(row.id, file);
-      if (newUrl) {
+      const ok = await saveCatalogRowField(row.id, field as string, value as any);
+      if (ok) {
         setLocalRows((prev) =>
-          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r))
+          prev.map((r) => (r.id === row.id ? { ...r, [field]: value } : r))
         );
+      } else {
+        alert("Bewaren mislukt");
       }
-    } catch (e) {
-      console.error(e);
-      alert("Upload mislukt.");
+    } catch (e: any) {
+      alert(e?.message || "Bewaren mislukt");
     } finally {
       setPending(null);
     }
   }
 
   async function handleDelete(row: CatalogRow) {
-    if (!confirm(`Model verwijderen: ${row.brand ?? ""} ${row.model ?? ""}?`)) return;
+    if (!confirm(`Verwijder ${row.brand} ${row.model} (${row.capacity_gb} GB)?`)) return;
     try {
       setPending(row.id);
-      await deleteCatalogRow(row.id);
-      setLocalRows((prev) => prev.filter((r) => r.id !== row.id));
-    } catch (e) {
-      console.error(e);
-      alert("Verwijderen mislukt.");
+      const ok = await deleteCatalogRow(row.id);
+      if (ok) {
+        setLocalRows((prev) => prev.filter((r) => r.id !== row.id));
+      } else {
+        alert("Verwijderen mislukt");
+      }
+    } catch (e: any) {
+      alert(e?.message || "Verwijderen mislukt");
     } finally {
       setPending(null);
     }
   }
 
   async function handleAdd() {
-    const brand = prompt("Merk (bv. Apple, Samsung):")?.trim();
-    if (!brand) return;
-    const model = prompt("Model (bv. iPhone 11):")?.trim();
-    if (!model) return;
-
-    // capacity & price minimaal vragen (widget rekent hiermee verder)
-    const capacityStr = prompt("Capaciteit (GB, geheel getal):", "64")?.trim();
-    const capacity = capacityStr ? parseInt(capacityStr, 10) : NaN;
-    if (!Number.isFinite(capacity)) return;
-
-    const priceStr = prompt("Basisprijs in eurocent (bv. 15000):", "15000")?.trim();
-    const base_price_cents = priceStr ? parseInt(priceStr, 10) : NaN;
-    if (!Number.isFinite(base_price_cents)) return;
-
     try {
-      setPending("new");
-      const cat =
-        category && category !== "__ALL__"
-          ? category
-          : prompt(
-              "Categorie (bv. iPhone, iPad, Android):",
-              allCategories[0] || "iPhone"
-            )?.trim() || null;
-
-      const row = await createCatalogRow({
-        brand,
-        category: cat,
-        model,
+      setCreating(true);
+      const base: Partial<CatalogRow> = {
+        brand: "",
+        category: category ?? null,
+        model: "",
         variant: null,
-        capacity_gb: capacity,
-        base_price_cents,
-        active: true,
+        capacity_gb: 64,
+        base_price_cents: 0,
         image_url: null,
-      });
+        active: true,
+      };
+      const created = await createCatalogRow(base);
+      setLocalRows((prev) => [created, ...prev]);
+    } catch (e: any) {
+      alert(e?.message || "Aanmaken mislukt");
+    } finally {
+      setCreating(false);
+    }
+  }
 
-      setLocalRows((prev) => [row, ...prev]);
-    } catch (e) {
-      console.error(e);
-      alert("Aanmaken mislukt.");
+  async function onPickImage(row: CatalogRow) {
+    const el = fileInputs.current[row.id];
+    if (el) el.click();
+  }
+
+  async function onChangeFile(row: CatalogRow, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      setPending(row.id);
+
+      // === Belangrijk: upload via FormData (enkel 1 argument naar server action)
+      const fd = new FormData();
+      fd.append("rowId", String(row.id));
+      fd.append("file", file);
+
+      const newUrl = await uploadCatalogRowImage(fd);
+      if (newUrl) {
+        setLocalRows((prev) =>
+          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r))
+        );
+      } else {
+        alert("Upload mislukt");
+      }
+    } catch (e: any) {
+      alert(e?.message || "Upload mislukt");
     } finally {
       setPending(null);
+      // reset input zodat dezelfde file opnieuw gekozen kan worden
+      e.currentTarget.value = "";
     }
   }
 
   return (
     <div className="space-y-3">
-      {/* Zoek en actiebar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Zoek op merk/model/variant…"
-          className="w-full sm:w-80 border rounded px-3 py-2"
-        />
-        <div className="flex-1" />
-        <button onClick={handleAdd} className="bb-btn">Model toevoegen</button>
+      {/* Topbar: filter en toevoegen */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="text-sm text-gray-600">
+          {category ? (
+            <>Geselecteerde categorie: <span className="font-medium">{category}</span></>
+          ) : (
+            <>Alle categorieën</>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter in deze lijst…"
+            className="border rounded px-3 py-2 text-sm"
+          />
+          <button className="bb-btn" onClick={handleAdd} disabled={creating}>
+            {creating ? "Toevoegen…" : "Model toevoegen"}
+          </button>
+        </div>
       </div>
 
       {/* Tabel */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-y-2">
-          <thead>
-            <tr className="text-left text-sm text-gray-500">
-              <th className="px-2">Foto</th>
-              <th className="px-2">Merk</th>
-              <th className="px-2">Model</th>
-              <th className="px-2">Variant</th>
-              <th className="px-2">Cap. (GB)</th>
-              <th className="px-2">Basisprijs (cents)</th>
-              <th className="px-2">Categorie</th>
-              <th className="px-2">Actief</th>
-              <th className="px-2 text-right">Acties</th>
+      <div className="overflow-x-auto rounded border">
+        <table className="min-w-[1000px] w-full text-sm">
+          <thead className="bg-gray-50 text-gray-700">
+            <tr>
+              <th className="px-3 py-2 text-left w-[84px]">Foto</th>
+              <th className="px-3 py-2 text-left w-[140px]">Categorie</th>
+              <th className="px-3 py-2 text-left w-[140px]">Merk</th>
+              <th className="px-3 py-2 text-left w-[220px]">Model</th>
+              <th className="px-3 py-2 text-left w-[160px]">Variant</th>
+              <th className="px-3 py-2 text-right w-[110px]">Cap. (GB)</th>
+              <th className="px-3 py-2 text-right w-[140px]">Basisprijs (€)</th>
+              <th className="px-3 py-2 text-center w-[120px]">Actief</th>
+              <th className="px-3 py-2 text-right w-[80px]">Acties</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => {
-              const busy = pending === r.id;
+            {visibleRows.map((row) => {
+              const isRowPending = pending === row.id;
               return (
-                <tr key={r.id} className="bg-white shadow-sm rounded">
+                <tr key={row.id} className="border-t">
                   {/* Foto */}
-                  <td className="px-2 py-2 align-middle">
+                  <td className="px-3 py-2 align-middle">
                     <div className="flex items-center gap-2">
-                      <div className="w-14 h-14 bg-gray-50 border rounded flex items-center justify-center overflow-hidden">
-                        {r.image_url ? (
+                      <div className="w-14 h-10 bg-gray-100 border rounded overflow-hidden flex items-center justify-center">
+                        {row.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={r.image_url}
-                            alt={r.model || ""}
+                            src={row.image_url}
+                            alt={`${row.brand} ${row.model}`}
                             className="w-full h-full object-contain"
                           />
                         ) : (
-                          <span className="text-[10px] text-gray-400">geen</span>
+                          <span className="text-[11px] text-gray-400">geen</span>
                         )}
                       </div>
-                      <div className="relative">
+                      <div>
+                        <button
+                          type="button"
+                          className="bb-btn"
+                          onClick={() => onPickImage(row)}
+                          disabled={isRowPending}
+                        >
+                          Upload
+                        </button>
+                        {/* verborgen file input */}
                         <input
                           ref={(el) => {
-                            fileInputs.current[r.id] = el;
+                            fileInputs.current[row.id] = el ?? null;
                           }}
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) =>
-                            handleUpload(r, e.currentTarget.files?.[0] || null)
-                          }
+                          onChange={(e) => onChangeFile(row, e)}
                         />
-                        <button
-                          type="button"
-                          className="text-xs underline"
-                          onClick={() => fileInputs.current[r.id]?.click()}
-                          disabled={busy}
-                        >
-                          Upload
-                        </button>
                       </div>
                     </div>
                   </td>
 
-                  {/* Merk */}
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      defaultValue={r.brand || ""}
-                      className="w-36 border rounded px-2 py-1"
-                      onBlur={(e) => persist(r, "brand", e.currentTarget.value)}
-                      disabled={busy}
-                    />
-                  </td>
-
-                  {/* Model */}
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      defaultValue={r.model || ""}
-                      className="w-44 border rounded px-2 py-1"
-                      onBlur={(e) => persist(r, "model", e.currentTarget.value)}
-                      disabled={busy}
-                    />
-                  </td>
-
-                  {/* Variant */}
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      defaultValue={r.variant || ""}
-                      className="w-36 border rounded px-2 py-1"
-                      onBlur={(e) =>
-                        persist(r, "variant", e.currentTarget.value || null)
-                      }
-                      disabled={busy}
-                    />
-                  </td>
-
-                  {/* Cap GB */}
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      defaultValue={r.capacity_gb ?? 0}
-                      className="w-24 border rounded px-2 py-1 text-right"
-                      onBlur={(e) =>
-                        persist(r, "capacity_gb", parseInt(e.currentTarget.value, 10) || 0)
-                      }
-                      disabled={busy}
-                    />
-                  </td>
-
-                  {/* Basisprijs (cents) */}
-                  <td className="px-2 py-2 align-middle">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      defaultValue={r.base_price_cents ?? 0}
-                      className="w-28 border rounded px-2 py-1 text-right"
-                      onBlur={(e) =>
-                        persist(
-                          r,
-                          "base_price_cents",
-                          parseInt(e.currentTarget.value, 10) || 0
-                        )
-                      }
-                      disabled={busy}
-                    />
-                  </td>
-
-                  {/* Categorie (dropdown) */}
-                  <td className="px-2 py-2 align-middle">
+                  {/* Categorie (select) */}
+                  <td className="px-3 py-2">
                     <select
-                      defaultValue={r.category ?? ""}
-                      className="w-40 border rounded px-2 py-1 bg-white"
-                      onBlur={(e) =>
-                        persist(r, "category", e.currentTarget.value || null)
-                      }
-                      disabled={busy}
+                      className="w-full border rounded px-2 py-1 bg-white"
+                      value={row.category ?? ""}
+                      onChange={(e) => handleSave(row, "category", e.target.value || null)}
+                      disabled={isRowPending}
                     >
                       <option value="">—</option>
                       {allCategories.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
+                        <option key={c} value={c}>{c}</option>
                       ))}
                     </select>
                   </td>
 
+                  {/* Merk */}
+                  <td className="px-3 py-2">
+                    <input
+                      className="w-full border rounded px-2 py-1"
+                      value={row.brand}
+                      onChange={(e) => setLocalRows((prev) =>
+                        prev.map((r) => (r.id === row.id ? { ...r, brand: e.target.value } : r))
+                      )}
+                      onBlur={(e) => handleSave(row, "brand", e.target.value)}
+                      disabled={isRowPending}
+                    />
+                  </td>
+
+                  {/* Model */}
+                  <td className="px-3 py-2">
+                    <input
+                      className="w-full border rounded px-2 py-1"
+                      value={row.model}
+                      onChange={(e) => setLocalRows((prev) =>
+                        prev.map((r) => (r.id === row.id ? { ...r, model: e.target.value } : r))
+                      )}
+                      onBlur={(e) => handleSave(row, "model", e.target.value)}
+                      disabled={isRowPending}
+                    />
+                  </td>
+
+                  {/* Variant */}
+                  <td className="px-3 py-2">
+                    <input
+                      className="w-full border rounded px-2 py-1"
+                      value={row.variant ?? ""}
+                      onChange={(e) => setLocalRows((prev) =>
+                        prev.map((r) => (r.id === row.id ? { ...r, variant: e.target.value || null } : r))
+                      )}
+                      onBlur={(e) => handleSave(row, "variant", (e.target.value || null) as any)}
+                      disabled={isRowPending}
+                    />
+                  </td>
+
+                  {/* Capaciteit */}
+                  <td className="px-3 py-2 text-right">
+                    <input
+                      className="w-full border rounded px-2 py-1 text-right"
+                      inputMode="numeric"
+                      pattern="\d*"
+                      value={row.capacity_gb}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^\d]/g, "");
+                        const n = v ? parseInt(v, 10) : 0;
+                        setLocalRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, capacity_gb: n } : r))
+                        );
+                      }}
+                      onBlur={(e) => {
+                        const n = parseInt(e.target.value || "0", 10);
+                        handleSave(row, "capacity_gb", Number.isFinite(n) ? n : 0);
+                      }}
+                      disabled={isRowPending}
+                    />
+                  </td>
+
+                  {/* Basisprijs (euro naar cents) */}
+                  <td className="px-3 py-2 text-right">
+                    <input
+                      className="w-full border rounded px-2 py-1 text-right"
+                      inputMode="decimal"
+                      value={(row.base_price_cents / 100).toFixed(2)}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+                        setLocalRows((prev) =>
+                          prev.map((r) =>
+                            r.id === row.id ? { ...r, base_price_cents: Math.round((parseFloat(v || "0") || 0) * 100) } : r
+                          )
+                        );
+                      }}
+                      onBlur={(e) => {
+                        const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+                        const cents = Math.round((parseFloat(v || "0") || 0) * 100);
+                        handleSave(row, "base_price_cents", cents);
+                      }}
+                      disabled={isRowPending}
+                    />
+                  </td>
+
                   {/* Actief (toggle slider) */}
-                  <td className="px-2 py-2 align-middle">
+                  <td className="px-3 py-2">
                     <label className="inline-flex items-center cursor-pointer select-none">
                       <input
                         type="checkbox"
-                        className="sr-only peer"
-                        defaultChecked={!!r.active}
-                        onChange={(e) => persist(r, "active", !!e.currentTarget.checked)}
-                        disabled={busy}
+                        className="sr-only"
+                        checked={!!row.active}
+                        onChange={(e) => {
+                          const next = !!e.target.checked;
+                          setLocalRows((prev) =>
+                            prev.map((r) => (r.id === row.id ? { ...r, active: next } : r))
+                          );
+                          handleSave(row, "active", next);
+                        }}
+                        disabled={isRowPending}
                       />
-                      <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-emerald-500 transition-colors relative">
-                        <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
-                      </div>
+                      <span
+                        className={`relative inline-block w-10 h-6 rounded-full transition ${
+                          row.active ? "bg-emerald-600" : "bg-gray-300"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                            row.active ? "translate-x-4" : ""
+                          }`}
+                        />
+                      </span>
                     </label>
                   </td>
 
                   {/* Acties */}
-                  <td className="px-2 py-2 align-middle text-right">
+                  <td className="px-3 py-2 text-right">
                     <button
-                      className="px-2 py-1 text-red-600 hover:text-red-700"
+                      className="text-red-600 hover:underline"
+                      onClick={() => handleDelete(row)}
+                      disabled={isRowPending}
                       title="Verwijderen"
-                      onClick={() => handleDelete(r)}
-                      disabled={busy}
                     >
                       🗑️
                     </button>
@@ -334,9 +369,9 @@ export default function Table({ category, rows, allCategories }: Props) {
               );
             })}
 
-            {filtered.length === 0 && (
+            {visibleRows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-2 py-6 text-center text-sm text-gray-500">
+                <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
                   Geen resultaten.
                 </td>
               </tr>
@@ -345,9 +380,8 @@ export default function Table({ category, rows, allCategories }: Props) {
         </table>
       </div>
 
-      {/* Kleine hint */}
-      <p className="text-xs text-gray-500">
-        Tip: cellen worden automatisch bewaard wanneer je het veld verlaat.
+      <p className="text-[11px] text-gray-500">
+        Tip: De widget leest live uit <code>buyback_catalog</code>. Met de “Actief”-toggle maak je varianten (tijdelijk) zichtbaar/onzichtbaar.
       </p>
     </div>
   );
