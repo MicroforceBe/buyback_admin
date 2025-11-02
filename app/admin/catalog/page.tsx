@@ -1,97 +1,91 @@
 // app/admin/catalog/page.tsx
-// Server Component
 
+import Link from "next/link";
 import { getCategories, getCatalogRows } from "./actions";
 import Table from "./table";
 
-type PageProps = {
+type Props = {
   searchParams?: {
     category?: string;
     q?: string;
   };
 };
 
-function hrefWith(params: Record<string, string | undefined>) {
-  const url = new URL("/admin/catalog", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost");
-  Object.entries(params).forEach(([k, v]) => {
-    if (v && v.length) url.searchParams.set(k, v);
+export const revalidate = 0; // altijd vers (admin)
+
+export default async function CatalogPage({ searchParams }: Props) {
+  // Query params
+  const selected = searchParams?.category ?? "__ALL__";
+  const q = (searchParams?.q ?? "").trim();
+
+  // 1) Categorieën voor de tegels
+  const categories = await getCategories();
+
+  // 2) Rijen ophalen met correcte argumentvorm
+  const rows = await getCatalogRows({
+    category: selected === "__ALL__" ? null : selected,
+    q: q || null,
   });
-  return `${url.pathname}?${url.searchParams.toString()}`;
-}
-
-export default async function CatalogPage({ searchParams }: PageProps) {
-  const selected = (searchParams?.category ?? "__ALL__").trim();
-  const q = (searchParams?.q ?? "").trim().toLowerCase();
-
-  // 1) Categorieën ophalen
-  const categories = await getCategories(); // string[]
-
-  // 2) Rijen ophalen (optioneel per categorie) + server-side free text filter
-  const rowsRaw = await getCatalogRows(selected === "__ALL__" ? null : selected);
-  const rows = !q
-    ? rowsRaw
-    : rowsRaw.filter((r) => {
-        const hay =
-          `${r.brand ?? ""} ${r.model ?? ""} ${r.submodel ?? ""} ${r.variant ?? ""}`.toLowerCase();
-        return hay.includes(q);
-      });
 
   return (
     <div className="p-4 space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Catalogus</h1>
+        {/* (optioneel) naar overzicht of andere admin secties */}
+        <Link href="/admin" className="bb-btn">← Terug naar admin</Link>
       </header>
 
-      {/* Categorie-tegels */}
-      <section className="space-y-2">
-        <div className="text-sm text-gray-500">Categorieën</div>
-        <div className="flex flex-wrap gap-2">
-          {/* 'Alle' tegel */}
-          <a
-            href={hrefWith({ category: "__ALL__", q: q || undefined })}
-            className={`bb-tile px-3 py-2 ${selected === "__ALL__" ? "ring-2 ring-emerald-500" : ""}`}
-            aria-current={selected === "__ALL__" ? "page" : undefined}
-          >
-            Alle
-          </a>
+      {/* Categorie tegels + "Alle" + "Nieuwe categorie" */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Categorieën</h2>
 
-          {categories.map((cat) => {
-            const isActive = selected === cat;
+          {/* Snelle zoekbalk (server side via ?q=) */}
+          <form className="flex items-center gap-2" action="/admin/catalog" method="get">
+            {/* behoud category in de query wanneer we zoeken */}
+            <input type="hidden" name="category" value={selected} />
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="Zoek op merk/model…"
+              className="border rounded px-3 py-2 text-sm"
+            />
+            <button className="bb-btn" type="submit">Zoek</button>
+          </form>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {/* "Alle" tegel */}
+          <CategoryTile
+            label="Alle"
+            isActive={selected === "__ALL__"}
+            href={`/admin/catalog?category=__ALL__${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+          />
+          {/* bestaande categorieën */}
+          {categories.map((c) => {
+            const isActive = selected === c;
+            const url = new URL("/admin/catalog", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost");
+            url.searchParams.set("category", c);
+            if (q) url.searchParams.set("q", q);
             return (
-              <a
-                key={cat}
-                href={hrefWith({ category: cat, q: q || undefined })}
-                className={`bb-tile px-3 py-2 ${isActive ? "ring-2 ring-emerald-500" : ""}`}
-                aria-current={isActive ? "page" : undefined}
-                title={cat}
-              >
-                {cat}
-              </a>
+              <CategoryTile
+                key={c}
+                label={c}
+                isActive={isActive}
+                href={url.pathname + "?" + url.searchParams.toString()}
+              />
             );
           })}
-        </div>
-      </section>
 
-      {/* Zoeken (server-side) */}
-      <section>
-        <form method="get" action="/admin/catalog" className="flex flex-wrap items-center gap-2">
-          <input type="hidden" name="category" value={selected} />
-          <input
-            name="q"
-            defaultValue={q}
-            placeholder="Zoek op model, merk of variant…"
-            className="w-full md:w-80 border rounded px-3 py-2"
-          />
-          <button type="submit" className="bb-btn">Zoek</button>
-          {q && (
-            <a
-              href={hrefWith({ category: selected })}
-              className="text-sm text-gray-500 underline"
-            >
-              wissen
-            </a>
-          )}
-        </form>
+          {/* (optioneel) knop om via de tabel meteen een nieuw model met nieuwe categorie te maken */}
+          <button
+            className="bb-btn opacity-60 cursor-not-allowed"
+            title="Gebruik 'Model toevoegen' onderaan de tabel om meteen een nieuwe categorie aan te maken."
+            disabled
+          >
+            + Nieuwe categorie
+          </button>
+        </div>
       </section>
 
       {/* Tabel */}
@@ -103,5 +97,17 @@ export default async function CatalogPage({ searchParams }: PageProps) {
         />
       </section>
     </div>
+  );
+}
+
+function CategoryTile(props: { label: string; isActive: boolean; href: string }) {
+  const { label, isActive, href } = props;
+  return (
+    <Link
+      href={href}
+      className={`bb-tile px-3 py-2 ${isActive ? "ring-2 ring-emerald-600" : ""}`}
+    >
+      {label}
+    </Link>
   );
 }
