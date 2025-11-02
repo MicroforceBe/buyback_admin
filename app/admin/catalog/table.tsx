@@ -27,6 +27,23 @@ type Props = {
   allCategories: string[];
 };
 
+/** Type guard: controleer of een onbekend object een volledige CatalogRow is */
+function isFullCatalogRow(v: unknown): v is CatalogRow {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === "number" &&
+    typeof o.brand === "string" &&
+    ("category" in o) &&
+    typeof o.model === "string" &&
+    ("variant" in o) &&
+    typeof o.capacity_gb === "number" &&
+    typeof o.base_price_cents === "number" &&
+    ("image_url" in o) &&
+    typeof o.active === "boolean"
+  );
+}
+
 export default function Table({ category, rows, allCategories }: Props) {
   const [localRows, setLocalRows] = useState<CatalogRow[]>(rows);
   const [pending, setPending] = useState<number | null>(null);
@@ -90,8 +107,8 @@ export default function Table({ category, rows, allCategories }: Props) {
   async function handleAdd() {
     try {
       setCreating(true);
-      // minimale default-waarden
-      const base: Partial<CatalogRow> = {
+      // Minimale defaults voor nieuwe rij
+      const baseDefaults: Omit<CatalogRow, "id"> = {
         brand: "",
         category: category ?? null,
         model: "",
@@ -102,33 +119,24 @@ export default function Table({ category, rows, allCategories }: Props) {
         active: true,
       };
 
-      const created = await createCatalogRow(base);
+      const created: unknown = await createCatalogRow(baseDefaults);
 
-      // Zorg ALTIJD voor een volledig CatalogRow object
+      // Bouween volledige CatalogRow, ongeacht server-respons
       let newRow: CatalogRow;
-      if (
+      if (isFullCatalogRow(created)) {
+        newRow = created;
+      } else if (
         created &&
         typeof created === "object" &&
-        "id" in created &&
-        !("brand" in created) // server gaf enkel { id, ok } terug
+        "id" in (created as any) &&
+        typeof (created as any).id !== "undefined"
       ) {
-        const id = Number((created as any).id);
-        newRow = {
-          id,
-          brand: base.brand ?? "",
-          category: base.category ?? null,
-          model: base.model ?? "",
-          variant: base.variant ?? null,
-          capacity_gb: base.capacity_gb ?? 0,
-          base_price_cents: base.base_price_cents ?? 0,
-          image_url: base.image_url ?? null,
-          active: base.active ?? true,
-        };
+        const idNum = Number((created as any).id);
+        newRow = { id: idNum, ...baseDefaults };
       } else {
-        newRow = created as CatalogRow;
+        throw new Error("Ongeldig antwoord van server bij aanmaken (geen id).");
       }
 
-      // ✅ Hier géén union meer in state stoppen
       setLocalRows((prev) => [newRow, ...prev]);
     } catch (e: any) {
       alert(e?.message || "Aanmaken mislukt");
@@ -137,7 +145,7 @@ export default function Table({ category, rows, allCategories }: Props) {
     }
   }
 
-  async function onPickImage(row: CatalogRow) {
+  function onPickImage(row: CatalogRow) {
     const el = fileInputs.current[row.id];
     if (el) el.click();
   }
@@ -148,13 +156,13 @@ export default function Table({ category, rows, allCategories }: Props) {
     try {
       setPending(row.id);
 
-      // Upload via FormData (server action ontvangt 1 argument)
+      // Upload via FormData (server action verwacht FormData)
       const fd = new FormData();
       fd.append("rowId", String(row.id));
       fd.append("file", file);
 
       const newUrl = await uploadCatalogRowImage(fd);
-      if (newUrl) {
+      if (typeof newUrl === "string" && newUrl.length > 0) {
         setLocalRows((prev) =>
           prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r))
         );
