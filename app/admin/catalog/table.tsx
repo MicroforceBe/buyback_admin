@@ -121,7 +121,7 @@ export default function Table({ category, rows, allCategories }: Props) {
 
       const created: unknown = await createCatalogRow(baseDefaults);
 
-      // Bouween volledige CatalogRow, ongeacht server-respons
+      // Bouw een volledige CatalogRow, ongeacht server-respons
       let newRow: CatalogRow;
       if (isFullCatalogRow(created)) {
         newRow = created;
@@ -161,7 +161,9 @@ export default function Table({ category, rows, allCategories }: Props) {
       fd.append("rowId", String(row.id));
       fd.append("file", file);
 
-      const newUrl = await uploadCatalogRowImage(fd);
+      // >>> Fix: type-assert i.p.v. impliciet 'never'
+      const newUrl = (await uploadCatalogRowImage(fd)) as string | null;
+
       if (typeof newUrl === "string" && newUrl.length > 0) {
         setLocalRows((prev) =>
           prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r))
