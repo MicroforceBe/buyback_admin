@@ -3,170 +3,246 @@
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
 
-function sb() {
+// Sommige projecten exporteren een client, andere een factory.
+function sbClient() {
   const anySb: any = supabaseAdminExport as any;
   return typeof anySb === 'function' ? anySb() : anySb;
 }
 
+/* ==== Types die we in de UI nodig hebben ==== */
 export type CatalogRow = {
   id: number;
   brand: string;
   category: string | null;
   model: string;
+  submodel: string | null;
   variant: string | null;
+  year: number | null;
   capacity_gb: number;
+  connectivity: string | null;
+  cpu: string | null;
+  ram_gb: number | null;
+  ssd_gb: number | null;
   base_price_cents: number;
   image_url: string | null;
   active: boolean;
-  created_at?: string;
-  updated_at?: string;
+  created_at: string;
+  updated_at: string;
 };
 
+/* === Mapping om automatisch het merk te bepalen uit de category-tab === */
 const BRAND_BY_CATEGORY: Record<string, string> = {
   iPad: 'Apple',
   iPhone: 'Apple',
   Samsung: 'Samsung',
 };
 
-/** Haal alle verschillende categorie-labels op (afgeleid uit buyback_catalog). */
+/* =========================================================
+ *  CATEGORIES + ROWS
+ * =======================================================*/
+
 export async function getCategories(): Promise<string[]> {
-  const { data, error } = await sb()
+  const sb = sbClient();
+  const { data, error } = await sb
     .from('buyback_catalog')
     .select('category')
+    .not('category', 'is', null)
     .order('category', { ascending: true });
 
   if (error) throw new Error(error.message);
-  const cats = Array.from(new Set((data || []).map((r: any) => r.category).filter(Boolean))) as string[];
-  return cats;
+  const cats = Array.from(new Set((data || []).map((r: any) => r.category).filter(Boolean)));
+  return cats as string[];
 }
 
-/** Rijen ophalen. Als opts.category is gezet, server-side filteren. */
-export async function getCatalogRows(
-  opts?: { category?: string | null; q?: string | null }
-): Promise<CatalogRow[]> {
-  const s = sb().from('buyback_catalog').select(
-    'id,brand,category,model,variant,capacity_gb,base_price_cents,image_url,active,created_at,updated_at'
-  ).order('brand', { ascending: true }).order('model', { ascending: true }).order('capacity_gb', { ascending: true });
+export async function getCatalogRows(opts?: { category?: string | null; q?: string | null }): Promise<CatalogRow[]> {
+  const sb = sbClient();
+  const { category, q } = opts || {};
+  let query = sb.from('buyback_catalog').select(
+    `
+      id, brand, category, model, submodel, variant,
+      year, capacity_gb, connectivity, cpu, ram_gb, ssd_gb,
+      base_price_cents, image_url, active, created_at, updated_at
+    `
+  );
 
-  if (opts?.category && opts.category !== '__ALL__') {
-    s.eq('category', opts.category);
+  if (category && category !== '__ALL__') {
+    query = query.eq('category', category);
   }
-  const { data, error } = await s;
+
+  if (q && q.trim()) {
+    const like = `%${q.trim()}%`;
+    // server-side or-filter op merk/model; rest kan client-side indien nodig
+    query = query.or(`model.ilike.${like},brand.ilike.${like}`);
+  }
+
+  const { data, error } = await query
+    .order('brand', { ascending: true })
+    .order('model', { ascending: true })
+    .order('capacity_gb', { ascending: true });
+
   if (error) throw new Error(error.message);
-
-  let rows = (data || []) as CatalogRow[];
-
-  // optionele free-text filter op server-resultaat
-  const q = (opts?.q || '').trim().toLowerCase();
-  if (q) {
-    rows = rows.filter((r) =>
-      [r.brand, r.category || '', r.model, r.variant || ''].some((v) =>
-        String(v).toLowerCase().includes(q)
-      )
-    );
-  }
-
-  return rows;
+  return (data || []) as CatalogRow[];
 }
 
-/** Eén veld opslaan (inline edit). */
-export async function saveCatalogRowField(id: number, field: keyof CatalogRow, value: any) {
-  const allowed: (keyof CatalogRow)[] = [
-    'brand', 'category', 'model', 'variant', 'capacity_gb', 'base_price_cents', 'image_url', 'active'
-  ];
-  if (!allowed.includes(field)) throw new Error(`Veld '${String(field)}' is niet bewerkbaar.`);
+/* =========================================================
+ *  CRUD ACTIES
+ * =======================================================*/
 
-  const patch: any = { [field]: value, updated_at: new Date().toISOString() };
-  const { error } = await sb().from('buyback_catalog').update(patch).eq('id', id);
+const ALLOWED_UPDATE_FIELDS = new Set([
+  'brand',
+  'category',
+  'model',
+  'submodel',
+  'variant',
+  'year',
+  'capacity_gb',
+  'base_price_cents',
+  'image_url',
+  'active',
+]);
+
+export async function saveCatalogRowField(id: number, key: string, value: unknown) {
+  'use server';
+  if (!ALLOWED_UPDATE_FIELDS.has(key)) {
+    throw new Error(`Veld '${key}' mag niet geüpdatet worden.`);
+  }
+  const sb = sbClient();
+
+  const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (key === 'year' || key === 'capacity_gb' || key === 'base_price_cents') {
+    const n = value === null || value === '' ? null : Number(value);
+    if (key !== 'base_price_cents' && n === null) {
+      patch[key] = null;
+    } else {
+      if (Number.isNaN(n)) throw new Error(`Ongeldige numerieke waarde voor '${key}'.`);
+      patch[key] = n;
+    }
+  } else if (key === 'active') {
+    patch[key] = Boolean(value);
+  } else if (key === 'image_url') {
+    patch[key] = (value ?? null) as string | null;
+  } else {
+    patch[key] = (value ?? null) as any;
+  }
+
+  const { error } = await sb.from('buyback_catalog').update(patch).eq('id', id);
   if (error) throw new Error(error.message);
 
   revalidatePath('/admin/catalog');
   return { ok: true };
 }
 
-/** Nieuwe rij aanmaken. Brand wordt automatisch ingevuld op basis van category-tab. */
-export async function createCatalogRow(base: Partial<CatalogRow>) {
-  const category = (base.category ?? null) as string | null;
-  let brand = (base.brand || '').trim();
+export async function createCatalogRow(payload: Partial<CatalogRow>) {
+  'use server';
 
+  // brand is NIET meer verplicht; we leiden het af uit category indien leeg.
+  const required = ['model', 'capacity_gb', 'base_price_cents'] as const;
+  for (const k of required) {
+    if (payload[k] === undefined || payload[k] === null || payload[k] === '') {
+      throw new Error(`Veld '${k}' is verplicht.`);
+    }
+  }
+
+  // Merk afleiden uit category als niet gezet
+  let brand = (payload.brand ?? '').toString().trim();
+  const category = (payload.category ?? null) as string | null;
   if (!brand && category && BRAND_BY_CATEGORY[category]) {
     brand = BRAND_BY_CATEGORY[category];
   }
   if (!brand) {
-    throw new Error("Veld 'brand' is verplicht.");
+    // laatste fallback (kan je aanpassen naar bv. 'Onbekend')
+    brand = 'Apple';
   }
 
-  const row: Omit<CatalogRow, 'id'> = {
+  const now = new Date().toISOString();
+
+  const row: Partial<CatalogRow> = {
     brand,
-    category: category ?? null,
-    model: (base.model || 'Nieuw model').trim() || 'Nieuw model',
-    variant: (base.variant || null) as string | null,
-    capacity_gb: Number.isFinite(base.capacity_gb) ? Number(base.capacity_gb) : 64,
-    base_price_cents: Number.isFinite(base.base_price_cents) ? Number(base.base_price_cents) : 10000,
-    image_url: (base.image_url || null) as string | null,
-    active: typeof base.active === 'boolean' ? base.active : true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    model: String(payload.model),
+    capacity_gb: Number(payload.capacity_gb),
+    base_price_cents: Number(payload.base_price_cents),
+    category,
+    submodel: payload.submodel ?? null,
+    variant: payload.variant ?? null,
+    year: payload.year ?? null,
+    connectivity: payload.connectivity ?? null,
+    cpu: payload.cpu ?? null,
+    ram_gb: payload.ram_gb ?? null,
+    ssd_gb: payload.ssd_gb ?? null,
+    image_url: payload.image_url ?? null,
+    active: payload.active ?? true,
+    created_at: now,
+    updated_at: now,
   };
 
-  const { data, error } = await sb()
-    .from('buyback_catalog')
-    .insert(row)
-    .select('id')
-    .single();
-
+  const sb = sbClient();
+  const { data, error } = await sb.from('buyback_catalog').insert(row).select('id').single();
   if (error) throw new Error(error.message);
 
   revalidatePath('/admin/catalog');
   return { ok: true, id: data?.id as number };
 }
 
-/** Rij verwijderen. */
 export async function deleteCatalogRow(id: number) {
-  const { error } = await sb().from('buyback_catalog').delete().eq('id', id);
+  'use server';
+  const sb = sbClient();
+  const { error } = await sb.from('buyback_catalog').delete().eq('id', id);
   if (error) throw new Error(error.message);
   revalidatePath('/admin/catalog');
   return { ok: true };
 }
 
-/**
- * Afbeelding uploaden via Supabase Storage (bucket: buyback-catalog),
- * daarna image_url in de rij bijwerken.
- */
-export async function uploadCatalogRowImage(formData: FormData): Promise<string | null> {
-  const file = formData.get('file') as File | null;
-  const idStr = formData.get('id') as string | null;
-  if (!file || !idStr) throw new Error('Ontbrekende file of id');
+/* =========================================================
+ *  IMAGE UPLOAD (Supabase Storage)
+ *  FormData verwacht:
+ *   - 'file' (File)
+ *   - 'rowId' (string/number)
+ *  Let op: we uploaden direct de File/Blob (Edge-safe; geen Buffer nodig).
+ * =======================================================*/
 
-  const id = Number(idStr);
-  if (!Number.isFinite(id)) throw new Error('Ongeldige id');
+export async function uploadCatalogRowImage(form: FormData) {
+  'use server';
 
-  const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const objectPath = `models/${id}/${Date.now()}.${fileExt}`;
+  const file = form.get('file') as File | null;
+  const rowIdRaw = form.get('rowId');
 
-  // 1) upload
-  const sbc = sb();
-  const { error: upErr } = await (sbc.storage as any)
-    .from('buyback-catalog')
-    .upload(objectPath, file, {
-      cacheControl: '3600',
+  if (!file) throw new Error('Geen bestand ontvangen.');
+  if (!rowIdRaw) throw new Error('rowId ontbreekt.');
+
+  const rowId = Number(rowIdRaw);
+  if (!Number.isFinite(rowId)) throw new Error('Ongeldige rowId.');
+
+  const bucket = process.env.NEXT_PUBLIC_SUPABASE_CATALOG_BUCKET || 'buyback-catalog';
+  const sb = sbClient();
+
+  const mime = file.type || 'application/octet-stream';
+  const ext = (mime.split('/')[1] || 'bin').toLowerCase();
+  const path = `models/${rowId}/main.${ext}`;
+
+  const { error: upErr } = await sb.storage
+    .from(bucket)
+    .upload(path, file, {
+      contentType: mime,
       upsert: true,
     });
-  if (upErr) throw new Error(upErr.message);
 
-  // 2) publiek URL (of signed URL)
-  const { data: pub } = (sbc.storage as any).from('buyback-catalog').getPublicUrl(objectPath);
-  const publicUrl: string | null = pub?.publicUrl || null;
+  if (upErr) {
+    const anyErr = upErr as any;
+    throw new Error(`Upload mislukt: ${anyErr?.message || 'unknown'} (bucket=${bucket}, path=${path})`);
+  }
 
-  // 3) updaten in DB
-  if (publicUrl) {
-    const { error: upDbErr } = await sbc
-      .from('buyback_catalog')
-      .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (upDbErr) throw new Error(upDbErr.message);
+  const { data: pub } = sb.storage.from(bucket).getPublicUrl(path);
+  const publicUrl = pub?.publicUrl || null;
+
+  const { error: updErr } = await sb
+    .from('buyback_catalog')
+    .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
+    .eq('id', rowId);
+
+  if (updErr) {
+    throw new Error(`Upload OK, maar DB-update faalde: ${updErr.message}`);
   }
 
   revalidatePath('/admin/catalog');
-  return publicUrl;
+  return { ok: true, url: publicUrl, path };
 }
