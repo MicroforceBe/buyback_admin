@@ -1,19 +1,18 @@
+// app/admin/catalog/actions.ts
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
-import { randomUUID } from "crypto";
 
-// In sommige projecten exporteert lib/supabaseAdmin een klaar client object,
-// in andere een factory-functie. Deze helper vangt beide af.
-function sb() {
+// In sommige projecten exporteert lib/supabaseAdmin een kant-en-klare client,
+// in andere een factory-functie. Deze helper vangt beide gevallen af.
+function sbClient() {
   const anySb: any = supabaseAdminExport as any;
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-// ====== Types die rechtstreeks matchen met je buyback_catalog ======
+/** Huidige kolommen van buyback_catalog (op basis van jouw introspectie) */
 export type CatalogRow = {
-  id: number;
+  id: number; // bigint
   brand: string;
   category: string | null;
   model: string;
@@ -28,161 +27,171 @@ export type CatalogRow = {
   base_price_cents: number;
   image_url: string | null;
   active: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at: string; // timestamptz
+  updated_at: string; // timestamptz
 };
 
-const TABLE = "buyback_catalog";
-const BUCKET_NAME = "buyback-catalog"; // <— maak deze bucket in Supabase Storage indien nog niet bestaat
-
-function ensureNumber(n: any, def = 0) {
-  const x = Number(n);
-  return Number.isFinite(x) ? x : def;
-}
-function nowIso() {
-  return new Date().toISOString();
-}
-
-export async function listCategories() {
-  // Typing toevoegen zodat r niet 'any' is
-  const { data, error } = (await sb()
-    .from(TABLE)
+/** 1) Alle categorie-namen (distinct) */
+export async function getCategories(): Promise<string[]> {
+  const sb = sbClient();
+  // We halen alles op en distillen categorieën (werkt op elk plan zonder RPC)
+  const { data, error } = await sb
+    .from("buyback_catalog")
     .select("category")
-    .order("category", { ascending: true })) as {
-    data: { category: string | null }[] | null;
-    error: { message: string } | null;
-  };
+    .order("category", { ascending: true });
 
   if (error) throw new Error(error.message);
 
-  const rows = (data ?? []) as { category: string | null }[];
   const cats = Array.from(
-    new Set(rows.map((r) => r.category).filter(Boolean))
+    new Set(((data || []) as { category: string | null }[])
+      .map((r) => r.category)
+      .filter(Boolean))
   ) as string[];
 
   return cats;
 }
 
-export async function listModelsByCategory(category: string | null) {
-  const q = sb()
-    .from(TABLE)
-    .select("*")
-    .order("brand", { ascending: true })
-    .order("model", { ascending: true })
-    .order("capacity_gb", { ascending: true });
+/** 2) Rijen opvragen, optioneel gefilterd op categorie */
+export async function getCatalogRows(category?: string | null): Promise<CatalogRow[]> {
+  const sb = sbClient();
+  let q = sb.from("buyback_catalog").select("*").order("brand", { ascending: true }).order("model", { ascending: true }).order("capacity_gb", { ascending: true });
 
-  if (category && category !== "__ALL__") q.eq("category", category);
-
-  // Geen generics op ongetypte call; cast NA het await
-  const { data, error } = (await q) as {
-    data: unknown;
-    error: { message: string } | null;
-  };
-  if (error) throw new Error(error.message);
-  return ((data as CatalogRow[]) ?? []) as CatalogRow[];
-}
-
-export async function toggleActive(id: number, next: boolean) {
-  const { error } = await sb()
-    .from(TABLE)
-    .update({ active: !!next, updated_at: nowIso() })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/admin/catalog");
-}
-
-export async function updatePriceCents(id: number, priceCents: number) {
-  const val = Math.max(0, Math.round(ensureNumber(priceCents)));
-  const { error } = await sb()
-    .from(TABLE)
-    .update({ base_price_cents: val, updated_at: nowIso() })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/admin/catalog");
-}
-
-export async function deleteRow(id: number) {
-  const { error } = await sb().from(TABLE).delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/admin/catalog");
-}
-
-export async function createRow(payload: Partial<CatalogRow>) {
-  // minimale vereisten
-  if (!payload.brand || !payload.model || typeof payload.capacity_gb !== "number") {
-    throw new Error("brand, model en capacity_gb zijn verplicht.");
+  if (category && category !== "__ALL__") {
+    q = q.eq("category", category);
   }
 
-  const row = {
-    brand: String(payload.brand).trim(),
-    category: payload.category ?? null,
-    model: String(payload.model).trim(),
-    submodel: payload.submodel ?? null,
-    variant: payload.variant ?? null,
-    year: payload.year ?? null,
-    capacity_gb: ensureNumber(payload.capacity_gb),
-    connectivity: payload.connectivity ?? null,
-    cpu: payload.cpu ?? null,
-    ram_gb: payload.ram_gb ?? null,
-    ssd_gb: payload.ssd_gb ?? null,
-    base_price_cents: Math.max(0, ensureNumber(payload.base_price_cents, 0)),
-    image_url: payload.image_url ?? null,
-    active: payload.active ?? true,
-    created_at: nowIso(),
-    updated_at: nowIso(),
-  };
-
-  const { error } = await sb().from(TABLE).insert(row);
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
-  revalidatePath("/admin/catalog");
+  return (data || []) as CatalogRow[];
 }
 
-// ====== Image upload (één foto voor heel het model) ======
-// We updaten image_url voor ALLE rijen met (brand, model).
-export async function uploadModelImageAction(
-  brand: string,
-  model: string,
-  file: File
-) {
-  if (!file || !file.size) throw new Error("Geen bestand ontvangen.");
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const safeBrand = brand.trim().replace(/[^\w\-]+/g, "_");
-  const safeModel = model.trim().replace(/[^\w\-]+/g, "_");
-  const key = `${safeBrand}/${safeModel}/${randomUUID()}.${ext}`;
+/** 3) Eén veld opslaan (inline edit) */
+export async function saveCatalogRowField(
+  rowId: number,
+  key: string,
+  value: unknown
+): Promise<void> {
+  const sb = sbClient();
 
-  const supa = sb();
-  // @ts-ignore – supabase-js storage API is beschikbaar op de admin client
-  const { error: upErr } = await supa.storage
-    .from(BUCKET_NAME)
-    .upload(key, file, {
+  // Veiligstellen van toegestane kolommen
+  const allowed: (keyof CatalogRow)[] = [
+    "brand",
+    "category",
+    "model",
+    "submodel",
+    "variant",
+    "year",
+    "capacity_gb",
+    "connectivity",
+    "cpu",
+    "ram_gb",
+    "ssd_gb",
+    "base_price_cents",
+    "image_url",
+    "active",
+  ];
+
+  if (!allowed.includes(key as keyof CatalogRow)) {
+    throw new Error(`Kolom '${key}' kan niet gewijzigd worden.`);
+  }
+
+  const patch: Record<string, unknown> = { [key]: value, updated_at: new Date().toISOString() };
+
+  const { error } = await sb
+    .from("buyback_catalog")
+    .update(patch)
+    .eq("id", rowId);
+
+  if (error) throw new Error(error.message);
+}
+
+/** 4) Afbeelding uploaden + image_url zetten */
+const BUCKET = "buyback-catalog"; // <-- PAS AAN NAAR JOUW BUCKETNAAM (public read)
+
+export async function uploadCatalogRowImage(
+  rowId: number,
+  file: File
+): Promise<string> {
+  const sb = sbClient();
+
+  // Bestandsnaam: bbcat/{id}/{timestamp}-{slug}
+  const ts = Date.now();
+  const safeName = (file.name || "image").replace(/[^\w.\-]+/g, "_");
+  const path = `bbcat/${rowId}/${ts}-${safeName}`;
+
+  // Upload naar Supabase Storage
+  const { data: up, error: upErr } = await sb.storage
+    .from(BUCKET)
+    .upload(path, file, {
       cacheControl: "3600",
-      upsert: false,
-      contentType: file.type || "image/jpeg",
+      upsert: true,
+      contentType: file.type || "application/octet-stream",
     });
 
   if (upErr) throw new Error(upErr.message);
 
-  // @ts-ignore
-  const { data: pub } = supa.storage.from(BUCKET_NAME).getPublicUrl(key);
-  const publicUrl = pub?.publicUrl || null;
+  // Publieke URL ophalen
+  const { data: pub } = sb.storage.from(BUCKET).getPublicUrl(up.path);
+  const publicUrl = pub?.publicUrl;
+  if (!publicUrl) throw new Error("Kon public URL niet bepalen na upload.");
 
-  const { error: updErr } = await supa
-    .from(TABLE)
-    .update({ image_url: publicUrl, updated_at: nowIso() })
-    .eq("brand", brand)
-    .eq("model", model);
+  // Wegschrijven in tabel
+  await saveCatalogRowField(rowId, "image_url", publicUrl);
 
-  if (updErr) throw new Error(updErr.message);
-  revalidatePath("/admin/catalog");
-  return { url: publicUrl };
+  return publicUrl;
 }
 
-export async function setModelActiveForAll(brand: string, model: string, next: boolean) {
-  const { error } = await sb()
-    .from(TABLE)
-    .update({ active: !!next, updated_at: nowIso() })
-    .eq("brand", brand)
-    .eq("model", model);
+/** 5) Rij verwijderen */
+export async function deleteCatalogRow(rowId: number): Promise<void> {
+  const sb = sbClient();
+  const { error } = await sb.from("buyback_catalog").delete().eq("id", rowId);
   if (error) throw new Error(error.message);
-  revalidatePath("/admin/catalog");
+}
+
+/** 6) Rij aanmaken (minimaal brand, model, capacity_gb, base_price_cents) */
+export async function createCatalogRow(init: {
+  brand: string;
+  category: string | null;
+  model: string;
+  variant: string | null;
+  capacity_gb: number;
+  base_price_cents: number;
+  active?: boolean;
+  image_url?: string | null;
+  submodel?: string | null;
+  year?: number | null;
+  connectivity?: string | null;
+  cpu?: string | null;
+  ram_gb?: number | null;
+  ssd_gb?: number | null;
+}): Promise<CatalogRow> {
+  const sb = sbClient();
+
+  const toInsert = {
+    brand: init.brand,
+    category: init.category,
+    model: init.model,
+    submodel: init.submodel ?? null,
+    variant: init.variant ?? null,
+    year: init.year ?? null,
+    capacity_gb: init.capacity_gb,
+    connectivity: init.connectivity ?? null,
+    cpu: init.cpu ?? null,
+    ram_gb: init.ram_gb ?? null,
+    ssd_gb: init.ssd_gb ?? null,
+    base_price_cents: init.base_price_cents,
+    image_url: init.image_url ?? null,
+    active: init.active ?? true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await sb
+    .from("buyback_catalog")
+    .insert(toInsert)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data as CatalogRow;
 }
