@@ -1,24 +1,19 @@
 'use client';
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from 'react';
+import type { CatalogRow } from './actions';
 import {
   saveCatalogRowField,
   uploadCatalogRowImage,
   deleteCatalogRow,
   createCatalogRow,
-} from "./actions";
+} from './actions';
 
-export type CatalogRow = {
-  id: number;
-  brand: string;
-  category: string | null;
-  model: string;
-  variant: string | null;
-  capacity_gb: number;
-  base_price_cents: number;
-  image_url: string | null;
-  active: boolean;
-  updated_at?: string;
+/* Zelfde mapping als in actions.ts */
+const BRAND_BY_CATEGORY: Record<string, string> = {
+  iPad: 'Apple',
+  iPhone: 'Apple',
+  Samsung: 'Samsung',
 };
 
 type Props = {
@@ -27,420 +22,461 @@ type Props = {
   allCategories: string[];
 };
 
-/** Type guard: controleer of een onbekend object een volledige CatalogRow is */
-function isFullCatalogRow(v: unknown): v is CatalogRow {
-  if (!v || typeof v !== "object") return false;
-  const o = v as Record<string, unknown>;
-  return (
-    typeof o.id === "number" &&
-    typeof o.brand === "string" &&
-    ("category" in o) &&
-    typeof o.model === "string" &&
-    ("variant" in o) &&
-    typeof o.capacity_gb === "number" &&
-    typeof o.base_price_cents === "number" &&
-    ("image_url" in o) &&
-    typeof o.active === "boolean"
-  );
+type Draft = {
+  brand: string;
+  category: string | null;
+  model: string;
+  variant: string | null;
+  capacity_gb: string; // als string in UI, naar number bij save
+  base_price_cents: string; // idem
+  active: boolean;
+};
+
+function inferBrand(category: string | null, currentBrand: string): string {
+  if (currentBrand?.trim()) return currentBrand.trim();
+  if (category && BRAND_BY_CATEGORY[category]) return BRAND_BY_CATEGORY[category];
+  return 'Apple'; // veilige default
 }
 
 export default function Table({ category, rows, allCategories }: Props) {
   const [localRows, setLocalRows] = useState<CatalogRow[]>(rows);
-  const [pending, setPending] = useState<number | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [filter, setFilter] = useState("");
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [savingNew, startSavingNew] = useTransition();
 
+  // Nieuw-model draft state
+  const [draft, setDraft] = useState<Draft>({
+    brand: inferBrand(category, ''),
+    category: category ?? null,
+    model: '',
+    variant: null,
+    capacity_gb: '',
+    base_price_cents: '',
+    active: true,
+  });
+
+  // Zorg dat we sync blijven als props.rows veranderen (navigatie/filters)
+  useMemo(() => {
+    setLocalRows(rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  // File inputs per rij (voor image upload)
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
 
-  const visibleRows = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return localRows;
-    return localRows.filter((r) => {
-      return (
-        (r.brand || "").toLowerCase().includes(q) ||
-        (r.model || "").toLowerCase().includes(q) ||
-        (r.variant || "").toLowerCase().includes(q) ||
-        String(r.capacity_gb || "").toLowerCase().includes(q)
+  async function onToggleActive(row: CatalogRow, next: boolean) {
+    try {
+      setPendingId(row.id);
+      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, active: next } : r)));
+      await saveCatalogRowField(row.id, 'active', next);
+    } catch (e: any) {
+      alert(e?.message || 'Opslaan mislukt');
+      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, active: row.active } : r)));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  async function onEditNumber(row: CatalogRow, key: 'capacity_gb' | 'base_price_cents', value: string) {
+    const n = value.trim() === '' ? null : Number(value);
+    if (value.trim() !== '' && Number.isNaN(n)) return;
+    try {
+      setPendingId(row.id);
+      setLocalRows(prev =>
+        prev.map(r =>
+          r.id === row.id ? { ...r, [key]: n == null ? (key === 'capacity_gb' ? r.capacity_gb : r.base_price_cents) : n } : r
+        )
       );
-    });
-  }, [localRows, filter]);
-
-  async function handleSave<K extends keyof CatalogRow>(
-    row: CatalogRow,
-    field: K,
-    value: CatalogRow[K]
-  ) {
-    try {
-      setPending(row.id);
-      const ok = await saveCatalogRowField(row.id, field as string, value as any);
-      if (ok) {
-        setLocalRows((prev) =>
-          prev.map((r) => (r.id === row.id ? { ...r, [field]: value } : r))
-        );
-      } else {
-        alert("Bewaren mislukt");
-      }
+      if (n != null) await saveCatalogRowField(row.id, key, n);
     } catch (e: any) {
-      alert(e?.message || "Bewaren mislukt");
+      alert(e?.message || 'Opslaan mislukt');
     } finally {
-      setPending(null);
+      setPendingId(null);
     }
   }
 
-  async function handleDelete(row: CatalogRow) {
-    if (!confirm(`Verwijder ${row.brand} ${row.model} (${row.capacity_gb} GB)?`)) return;
+  async function onEditText(row: CatalogRow, key: 'brand' | 'model' | 'variant', value: string) {
+    const v = value.trim();
     try {
-      setPending(row.id);
-      const ok = await deleteCatalogRow(row.id);
-      if (ok) {
-        setLocalRows((prev) => prev.filter((r) => r.id !== row.id));
-      } else {
-        alert("Verwijderen mislukt");
-      }
+      setPendingId(row.id);
+      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, [key]: v } : r)));
+      await saveCatalogRowField(row.id, key, v);
     } catch (e: any) {
-      alert(e?.message || "Verwijderen mislukt");
+      alert(e?.message || 'Opslaan mislukt');
     } finally {
-      setPending(null);
+      setPendingId(null);
     }
   }
 
-  async function handleAdd() {
+  async function onDelete(row: CatalogRow) {
+    if (!confirm(`Model "${row.model}" (${row.capacity_gb} GB) verwijderen?`)) return;
     try {
-      setCreating(true);
-      // Minimale defaults voor nieuwe rij
-      const baseDefaults: Omit<CatalogRow, "id"> = {
-        brand: "",
-        category: category ?? null,
-        model: "",
-        variant: null,
-        capacity_gb: 64,
-        base_price_cents: 0,
-        image_url: null,
-        active: true,
-      };
-
-      const created: unknown = await createCatalogRow(baseDefaults);
-
-      // Bouw een volledige CatalogRow, ongeacht server-respons
-      let newRow: CatalogRow;
-      if (isFullCatalogRow(created)) {
-        newRow = created;
-      } else if (
-        created &&
-        typeof created === "object" &&
-        "id" in (created as any) &&
-        typeof (created as any).id !== "undefined"
-      ) {
-        const idNum = Number((created as any).id);
-        newRow = { id: idNum, ...baseDefaults };
-      } else {
-        throw new Error("Ongeldig antwoord van server bij aanmaken (geen id).");
-      }
-
-      setLocalRows((prev) => [newRow, ...prev]);
+      setPendingId(row.id);
+      await deleteCatalogRow(row.id);
+      setLocalRows(prev => prev.filter(r => r.id !== row.id));
     } catch (e: any) {
-      alert(e?.message || "Aanmaken mislukt");
+      alert(e?.message || 'Verwijderen mislukt');
     } finally {
-      setCreating(false);
+      setPendingId(null);
     }
   }
 
-  function onPickImage(row: CatalogRow) {
-    const el = fileInputs.current[row.id];
-    if (el) el.click();
+  async function onPickImage(row: CatalogRow) {
+    const input = fileInputs.current[row.id];
+    if (!input) return;
+    input.value = '';
+    input.click();
   }
 
-  async function onChangeFile(row: CatalogRow, e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.currentTarget.files?.[0];
-    if (!file) return;
+  async function onFileChange(row: CatalogRow, file?: File | null) {
+    const f = file ?? fileInputs.current[row.id]?.files?.[0] ?? null;
+    if (!f) return;
     try {
-      setPending(row.id);
-
-      // Upload via FormData (server action verwacht FormData)
+      setPendingId(row.id);
       const fd = new FormData();
-      fd.append("rowId", String(row.id));
-      fd.append("file", file);
-
-      // --- Verwerk zowel string als object { ok, url, path } ---
-      const uploadRes = (await uploadCatalogRowImage(fd)) as
-        | string
-        | null
-        | { ok?: boolean; url?: string | null; path?: string | null };
-
-      let newUrl: string | null = null;
-      if (typeof uploadRes === "string") {
-        newUrl = uploadRes;
-      } else if (uploadRes && typeof uploadRes === "object") {
-        newUrl = uploadRes.url ?? uploadRes.path ?? null;
-      }
-
-      if (typeof newUrl === "string" && newUrl.length > 0) {
-        setLocalRows((prev) =>
-          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl! } : r))
-        );
-      } else {
-        alert("Upload mislukt");
+      fd.append('rowId', String(row.id));
+      fd.append('file', f);
+      const res = await uploadCatalogRowImage(fd);
+      const newUrl = (res && (res as any).url) as string | null;
+      if (typeof newUrl === 'string' && newUrl.length > 0) {
+        setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, image_url: newUrl } : r)));
       }
     } catch (e: any) {
-      alert(e?.message || "Upload mislukt");
+      alert(e?.message || 'Upload mislukt');
     } finally {
-      setPending(null);
-      e.currentTarget.value = ""; // opnieuw dezelfde file kunnen kiezen
+      setPendingId(null);
     }
+  }
+
+  // === Nieuw model toevoegen ===
+  function openAddRow() {
+    setDraft({
+      brand: inferBrand(category, ''),
+      category: category ?? null,
+      model: '',
+      variant: null,
+      capacity_gb: '',
+      base_price_cents: '',
+      active: true,
+    });
+    setIsAdding(true);
+  }
+
+  function cancelAddRow() {
+    setIsAdding(false);
+  }
+
+  const addValid = useMemo(() => {
+    const cap = draft.capacity_gb.trim() === '' ? NaN : Number(draft.capacity_gb);
+    const price = draft.base_price_cents.trim() === '' ? NaN : Number(draft.base_price_cents);
+    return (
+      draft.model.trim().length > 0 &&
+      Number.isFinite(cap) &&
+      Number.isFinite(price)
+    );
+  }, [draft]);
+
+  async function saveAddRow() {
+    if (!addValid) return;
+    startSavingNew(async () => {
+      try {
+        const payload = {
+          brand: inferBrand(draft.category, draft.brand),
+          category: draft.category,
+          model: draft.model.trim(),
+          variant: draft.variant?.trim() || null,
+          capacity_gb: Number(draft.capacity_gb),
+          base_price_cents: Number(draft.base_price_cents),
+          active: draft.active,
+        } as Partial<CatalogRow>;
+
+        const created = await createCatalogRow(payload);
+        const id = (created as any)?.id as number | undefined;
+
+        // Optimistisch: toon bovenaan
+        const nowIso = new Date().toISOString();
+        const newRow: CatalogRow = {
+          id: id ?? Math.floor(Math.random() * 1e9),
+          brand: payload.brand as string,
+          category: payload.category ?? null,
+          model: payload.model as string,
+          submodel: null,
+          variant: payload.variant ?? null,
+          year: null,
+          capacity_gb: payload.capacity_gb as number,
+          connectivity: null,
+          cpu: null,
+          ram_gb: null,
+          ssd_gb: null,
+          base_price_cents: payload.base_price_cents as number,
+          image_url: null,
+          active: payload.active ?? true,
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+
+        setLocalRows(prev => [newRow, ...prev]);
+        setIsAdding(false);
+      } catch (e: any) {
+        alert(e?.message || 'Aanmaken mislukt');
+      }
+    });
   }
 
   return (
-    <div className="space-y-3">
-      {/* Topbar: filter en toevoegen */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+    <div className="bb-card overflow-x-auto p-0">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between p-3">
         <div className="text-sm text-gray-600">
-          {category ? (
-            <>Geselecteerde categorie: <span className="font-medium">{category}</span></>
-          ) : (
-            <>Alle categorieën</>
-          )}
+          {category ? <>Categorie: <span className="font-medium">{category}</span></> : 'Alle categorieën'}
         </div>
         <div className="flex items-center gap-2">
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter in deze lijst…"
-            className="border rounded px-3 py-2 text-sm"
-          />
-          <button className="bb-btn" onClick={handleAdd} disabled={creating}>
-            {creating ? "Toevoegen…" : "Model toevoegen"}
+          <button type="button" className="bb-btn" onClick={openAddRow} disabled={isAdding}>
+            + Model toevoegen
           </button>
         </div>
       </div>
 
-      {/* Tabel */}
-      <div className="overflow-x-auto rounded border">
-        <table className="min-w-[1000px] w-full text-sm">
-          <thead className="bg-gray-50 text-gray-700">
-            <tr>
-              <th className="px-3 py-2 text-left w-[84px]">Foto</th>
-              <th className="px-3 py-2 text-left w-[140px]">Categorie</th>
-              <th className="px-3 py-2 text-left w-[140px]">Merk</th>
-              <th className="px-3 py-2 text-left w-[220px]">Model</th>
-              <th className="px-3 py-2 text-left w-[160px]">Variant</th>
-              <th className="px-3 py-2 text-right w-[110px]">Cap. (GB)</th>
-              <th className="px-3 py-2 text-right w-[140px]">Basisprijs (€)</th>
-              <th className="px-3 py-2 text-center w-[120px]">Actief</th>
-              <th className="px-3 py-2 text-right w-[80px]">Acties</th>
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 text-gray-700">
+          <tr>
+            <th className="px-3 py-2 text-left">Foto</th>
+            <th className="px-3 py-2 text-left">Brand</th>
+            <th className="px-3 py-2 text-left">Model</th>
+            <th className="px-3 py-2 text-left">Variant</th>
+            <th className="px-3 py-2 text-left">Cap. (GB)</th>
+            <th className="px-3 py-2 text-left">Basisprijs (€)</th>
+            <th className="px-3 py-2 text-left">Actief</th>
+            <th className="px-3 py-2 text-left">Acties</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {/* Invoegstrook voor nieuw model */}
+          {isAdding && (
+            <tr className="bg-amber-50 border-b border-amber-200/60">
+              <td className="px-3 py-2 text-gray-400 italic">—</td>
+              <td className="px-3 py-2">
+                <input
+                  className="bb-input"
+                  value={draft.brand}
+                  onChange={e => setDraft(d => ({ ...d, brand: e.target.value }))}
+                  placeholder="bv. Apple"
+                />
+              </td>
+              <td className="px-3 py-2">
+                <input
+                  className="bb-input"
+                  value={draft.model}
+                  onChange={e => setDraft(d => ({ ...d, model: e.target.value }))}
+                  placeholder="bv. iPad 10.2 (9th)"
+                />
+              </td>
+              <td className="px-3 py-2">
+                <input
+                  className="bb-input"
+                  value={draft.variant ?? ''}
+                  onChange={e => setDraft(d => ({ ...d, variant: e.target.value || null }))}
+                  placeholder="(optioneel)"
+                />
+              </td>
+              <td className="px-3 py-2">
+                <input
+                  className="bb-input"
+                  inputMode="numeric"
+                  value={draft.capacity_gb}
+                  onChange={e => setDraft(d => ({ ...d, capacity_gb: e.target.value }))}
+                  placeholder="64"
+                />
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-1">
+                  <input
+                    className="bb-input"
+                    inputMode="numeric"
+                    value={draft.base_price_cents}
+                    onChange={e => setDraft(d => ({ ...d, base_price_cents: e.target.value }))}
+                    placeholder="bv. 12000 (voor €120)"
+                    title="Prijs in centen"
+                  />
+                </div>
+              </td>
+              <td className="px-3 py-2">
+                {/* Toggle slider */}
+                <label className="inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={draft.active}
+                    onChange={e => setDraft(d => ({ ...d, active: e.target.checked }))}
+                  />
+                  <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-green-600 relative transition-colors">
+                    <span className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
+                  </div>
+                </label>
+              </td>
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    className={`bb-btn border is-active ${!addValid || savingNew ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    disabled={!addValid || savingNew}
+                    onClick={saveAddRow}
+                  >
+                    Opslaan
+                  </button>
+                  <button className="bb-btn" onClick={cancelAddRow} disabled={savingNew}>
+                    Annuleren
+                  </button>
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {visibleRows.map((row) => {
-              const isRowPending = pending === row.id;
-              return (
-                <tr key={row.id} className="border-t">
-                  {/* Foto */}
-                  <td className="px-3 py-2 align-middle">
-                    <div className="flex items-center gap-2">
-                      <div className="w-14 h-10 bg-gray-100 border rounded overflow-hidden flex items-center justify-center">
-                        {row.image_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={row.image_url}
-                            alt={`${row.brand} ${row.model}`}
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <span className="text-[11px] text-gray-400">geen</span>
-                        )}
-                      </div>
-                      <div>
-                        <button
-                          type="button"
-                          className="bb-btn"
-                          onClick={() => onPickImage(row)}
-                          disabled={isRowPending}
-                        >
-                          Upload
-                        </button>
-                        {/* verborgen file input */}
-                        <input
-                          ref={(el) => {
-                            fileInputs.current[row.id] = el ?? null;
-                          }}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => onChangeFile(row, e)}
-                        />
-                      </div>
+          )}
+
+          {/* Bestaande rijen */}
+          {localRows.map(row => {
+            const isPending = pendingId === row.id;
+            return (
+              <tr key={row.id} className="border-b last:border-0">
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-12 h-12 rounded border bg-white overflow-hidden flex items-center justify-center">
+                      {row.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={row.image_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-gray-400">geen foto</span>
+                      )}
                     </div>
-                  </td>
-
-                  {/* Categorie */}
-                  <td className="px-3 py-2">
-                    <select
-                      className="w-full border rounded px-2 py-1 bg-white"
-                      value={row.category ?? ""}
-                      onChange={(e) => handleSave(row, "category", e.target.value || null)}
-                      disabled={isRowPending}
-                    >
-                      <option value="">—</option>
-                      {allCategories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {/* Merk */}
-                  <td className="px-3 py-2">
-                    <input
-                      className="w-full border rounded px-2 py-1"
-                      value={row.brand}
-                      onChange={(e) =>
-                        setLocalRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, brand: e.target.value } : r))
-                        )
-                      }
-                      onBlur={(e) => handleSave(row, "brand", e.target.value)}
-                      disabled={isRowPending}
-                    />
-                  </td>
-
-                  {/* Model */}
-                  <td className="px-3 py-2">
-                    <input
-                      className="w-full border rounded px-2 py-1"
-                      value={row.model}
-                      onChange={(e) =>
-                        setLocalRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, model: e.target.value } : r))
-                        )
-                      }
-                      onBlur={(e) => handleSave(row, "model", e.target.value)}
-                      disabled={isRowPending}
-                    />
-                  </td>
-
-                  {/* Variant */}
-                  <td className="px-3 py-2">
-                    <input
-                      className="w-full border rounded px-2 py-1"
-                      value={row.variant ?? ""}
-                      onChange={(e) =>
-                        setLocalRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, variant: e.target.value || null } : r))
-                        )
-                      }
-                      onBlur={(e) => handleSave(row, "variant", (e.target.value || null) as any)}
-                      disabled={isRowPending}
-                    />
-                  </td>
-
-                  {/* Capaciteit */}
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      className="w-full border rounded px-2 py-1 text-right"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      value={row.capacity_gb}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/[^\d]/g, "");
-                        const n = v ? parseInt(v, 10) : 0;
-                        setLocalRows((prev) =>
-                          prev.map((r) => (r.id === row.id ? { ...r, capacity_gb: n } : r))
-                        );
-                      }}
-                      onBlur={(e) => {
-                        const n = parseInt(e.target.value || "0", 10);
-                        handleSave(row, "capacity_gb", Number.isFinite(n) ? n : 0);
-                      }}
-                      disabled={isRowPending}
-                    />
-                  </td>
-
-                  {/* Basisprijs (euro -> cents) */}
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      className="w-full border rounded px-2 py-1 text-right"
-                      inputMode="decimal"
-                      value={(row.base_price_cents / 100).toFixed(2)}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
-                        setLocalRows((prev) =>
-                          prev.map((r) =>
-                            r.id === row.id
-                              ? {
-                                  ...r,
-                                  base_price_cents: Math.round((parseFloat(v || "0") || 0) * 100),
-                                }
-                              : r
-                          )
-                        );
-                      }}
-                      onBlur={(e) => {
-                        const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
-                        const cents = Math.round((parseFloat(v || "0") || 0) * 100);
-                        handleSave(row, "base_price_cents", cents);
-                      }}
-                      disabled={isRowPending}
-                    />
-                  </td>
-
-                  {/* Actief toggle */}
-                  <td className="px-3 py-2">
-                    <label className="inline-flex items-center cursor-pointer select-none">
+                    <div className="flex items-center gap-2">
                       <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={!!row.active}
-                        onChange={(e) => {
-                          const next = !!e.target.checked;
-                          setLocalRows((prev) =>
-                            prev.map((r) => (r.id === row.id ? { ...r, active: next } : r))
-                          );
-                          handleSave(row, "active", next);
+                        ref={el => {
+                          fileInputs.current[row.id] = el;
+                          return undefined;
                         }}
-                        disabled={isRowPending}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={() => onFileChange(row)}
                       />
-                      <span
-                        className={`relative inline-block w-10 h-6 rounded-full transition ${
-                          row.active ? "bg-emerald-600" : "bg-gray-300"
-                        }`}
+                      <button
+                        type="button"
+                        className="bb-btn"
+                        onClick={() => onPickImage(row)}
+                        disabled={isPending}
+                        title="Foto uploaden"
                       >
-                        <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                            row.active ? "translate-x-4" : ""
-                          }`}
-                        />
-                      </span>
-                    </label>
-                  </td>
+                        Upload
+                      </button>
+                    </div>
+                  </div>
+                </td>
 
-                  {/* Acties */}
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      className="text-red-600 hover:underline"
-                      onClick={() => handleDelete(row)}
-                      disabled={isRowPending}
-                      title="Verwijderen"
-                    >
-                      🗑️
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-
-            {visibleRows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
-                  Geen resultaten.
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    defaultValue={row.brand}
+                    onBlur={e => onEditText(row, 'brand', e.target.value)}
+                    disabled={isPending}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    defaultValue={row.model}
+                    onBlur={e => onEditText(row, 'model', e.target.value)}
+                    disabled={isPending}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    defaultValue={row.variant ?? ''}
+                    onBlur={e => onEditText(row, 'variant', e.target.value)}
+                    disabled={isPending}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    inputMode="numeric"
+                    defaultValue={String(row.capacity_gb)}
+                    onBlur={e => onEditNumber(row, 'capacity_gb', e.target.value)}
+                    disabled={isPending}
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    inputMode="numeric"
+                    defaultValue={String(row.base_price_cents)}
+                    onBlur={e => onEditNumber(row, 'base_price_cents', e.target.value)}
+                    disabled={isPending}
+                    title="Prijs in centen"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <label className="inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={row.active}
+                      onChange={e => onToggleActive(row, e.target.checked)}
+                      disabled={isPending}
+                    />
+                    <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-green-600 relative transition-colors">
+                      <span className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
+                    </div>
+                  </label>
+                </td>
+                <td className="px-3 py-2">
+                  <button
+                    className="bb-btn"
+                    onClick={() => onDelete(row)}
+                    disabled={isPending}
+                    title="Verwijderen"
+                  >
+                    🗑️
+                  </button>
                 </td>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            );
+          })}
+        </tbody>
+      </table>
 
-      <p className="text-[11px] text-gray-500">
-        Tip: De widget leest live uit <code>buyback_catalog</code>. Met de “Actief”-toggle maak je varianten (tijdelijk) zichtbaar/onzichtbaar.
-      </p>
+      <style jsx>{`
+        .bb-input {
+          width: 100%;
+          padding: 6px 10px;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          background: #fff;
+          outline: none;
+        }
+        .bb-input:focus {
+          border-color: #10b981;
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+        .bb-btn {
+          border: 1px solid #e5e7eb;
+          padding: 6px 10px;
+          border-radius: 8px;
+          background: #fff;
+        }
+        .bb-btn:hover {
+          background: #f9fafb;
+        }
+        .bb-btn.is-active {
+          background: #10b981;
+          color: #fff;
+          border-color: #10b981;
+        }
+        .bb-card {
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          background: #fff;
+        }
+      `}</style>
     </div>
   );
 }
