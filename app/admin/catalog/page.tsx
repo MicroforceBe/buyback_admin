@@ -96,7 +96,11 @@ export default async function CatalogPage({ searchParams }: PageProps) {
 
       {/* Tabel */}
       <section>
-        <Table rows={rows} allCategories={categories} />
+        <Table
+          category={selected === "__ALL__" ? null : selected}
+          rows={rows}
+          allCategories={categories}
+        />
       </section>
     </div>
   );
