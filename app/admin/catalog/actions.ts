@@ -45,13 +45,13 @@ function nowIso() {
 
 export async function listCategories() {
   // Typing toevoegen zodat r niet 'any' is
-  const { data, error } = await sb()
+  const { data, error } = (await sb()
     .from(TABLE)
     .select("category")
-    .order("category", { ascending: true }) as unknown as {
-      data: { category: string | null }[] | null;
-      error: { message: string } | null;
-    };
+    .order("category", { ascending: true })) as {
+    data: { category: string | null }[] | null;
+    error: { message: string } | null;
+  };
 
   if (error) throw new Error(error.message);
 
@@ -73,9 +73,13 @@ export async function listModelsByCategory(category: string | null) {
 
   if (category && category !== "__ALL__") q.eq("category", category);
 
-  const { data, error } = await q.returns<CatalogRow[]>();
+  // Geen generics op ongetypte call; cast NA het await
+  const { data, error } = (await q) as {
+    data: unknown;
+    error: { message: string } | null;
+  };
   if (error) throw new Error(error.message);
-  return data || [];
+  return ((data as CatalogRow[]) ?? []) as CatalogRow[];
 }
 
 export async function toggleActive(id: number, next: boolean) {
@@ -107,7 +111,7 @@ export async function createRow(payload: Partial<CatalogRow>) {
   // minimale vereisten
   if (!payload.brand || !payload.model || typeof payload.capacity_gb !== "number") {
     throw new Error("brand, model en capacity_gb zijn verplicht.");
-    }
+  }
 
   const row = {
     brand: String(payload.brand).trim(),
