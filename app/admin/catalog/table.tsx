@@ -1,250 +1,264 @@
 // app/admin/catalog/table.tsx
-'use client';
+"use client";
 
-import React, { useMemo, useRef, useState } from 'react';
-import { updateModelRowAction, uploadModelImageAction, type ModelRow } from './actions';
+import { useMemo, useRef } from "react";
+import {
+  type ModelRow,
+  createModelAction,
+  updateModelFieldAction,
+  toggleModelActiveAction,
+  deleteModelAction,
+  uploadModelImageAction,
+} from "./actions";
 
-export default function CatalogTable({ rows, query = '' }: { rows: ModelRow[]; query?: string }) {
-  const [editing, setEditing] = useState<Record<string, ModelRow>>({});
-  const [saving, setSaving] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string | null>>({});
+export default function CatalogTable({
+  rows,
+  categoryId,
+  query,
+}: {
+  rows: ModelRow[];
+  categoryId: string;
+  query?: string;
+}) {
+  const q = (query || "").trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      !q
+        ? rows
+        : rows.filter((r) =>
+            [r.brand || "", r.model || ""].some((s) => s.toLowerCase().includes(q))
+          ),
+    [rows, q]
+  );
+
+  // file inputs per row
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      r.model.toLowerCase().includes(q) ||
-      (r.brand ?? '').toLowerCase().includes(q) ||
-      (r.variant ?? '').toLowerCase().includes(q)
-    );
-  }, [rows, query]);
-
-  function startEdit(row: ModelRow) {
-    setEditing((prev) => ({ ...prev, [row.id]: { ...row } }));
-    setErrors((prev) => ({ ...prev, [row.id]: null }));
-  }
-  function cancelEdit(id: string) {
-    setEditing((p) => {
-      const cp = { ...p };
-      delete cp[id];
-      return cp;
+  const eur = (cents: number | null | undefined) =>
+    (Math.round((cents ?? 0) / 5) * 5 / 100).toLocaleString("nl-BE", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: 2,
     });
-    setErrors((p) => {
-      const cp = { ...p };
-      delete cp[id];
-      return cp;
-    });
-  }
-  function setField<K extends keyof ModelRow>(rowId: string, key: K, value: ModelRow[K]) {
-    setEditing((prev) => ({ ...prev, [rowId]: { ...(prev[rowId] ?? {} as ModelRow), [key]: value } }));
-  }
-
-  async function onSaveRow(e: React.FormEvent<HTMLFormElement>, rowId: string) {
-    e.preventDefault();
-    setErrors((p) => ({ ...p, [rowId]: null }));
-    const draft = editing[rowId];
-    if (!draft) return;
-    try {
-      setSaving((s) => ({ ...s, [rowId]: true }));
-      const fd = new FormData();
-      fd.set('id', draft.id);
-      fd.set('model', draft.model || '');
-      fd.set('brand', draft.brand || '');
-      fd.set('variant', draft.variant || '');
-      fd.set('capacity_gb', draft.capacity_gb == null ? '' : String(draft.capacity_gb));
-      fd.set('price_eur', draft.price_cents == null ? '' : (draft.price_cents / 100).toFixed(2));
-      fd.set('active', draft.active ? 'true' : 'false');
-      await updateModelRowAction(fd);
-      cancelEdit(rowId);
-    } catch (err: any) {
-      setErrors((p) => ({ ...p, [rowId]: err?.message || 'Bewaren mislukt' }));
-    } finally {
-      setSaving((s) => ({ ...s, [rowId]: false }));
-    }
-  }
-
-  function pickImage(rowId: string) {
-    const input = fileInputs.current[rowId];
-    if (!input) return;
-    input.value = '';
-    input.click();
-  }
-
-  async function onFilePicked(row: ModelRow, file: File | null) {
-    if (!file) return;
-    const id = row.id;
-    try {
-      setSaving((s) => ({ ...s, [id]: true }));
-      const fd = new FormData();
-      fd.set('row_id', id);
-      fd.set('file', file);
-      await uploadModelImageAction(fd);
-      // geen error tonen
-    } catch (err: any) {
-      setErrors((p) => ({ ...p, [id]: err?.message || 'Upload mislukt' }));
-    } finally {
-      setSaving((s) => ({ ...s, [id]: false }));
-    }
-  }
 
   return (
-    <div className="bb-card p-0 overflow-x-auto">
+    <div className="rounded border bg-white overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
+        <thead className="bg-gray-50 text-gray-600">
           <tr>
+            <th className="px-3 py-2 text-left w-[90px]">Foto</th>
+            <th className="px-3 py-2 text-left">Merk</th>
             <th className="px-3 py-2 text-left">Model</th>
-            <th className="px-3 py-2 text-left">Brand</th>
-            <th className="px-3 py-2 text-left">Variant</th>
-            <th className="px-3 py-2 text-left">GB</th>
-            <th className="px-3 py-2 text-left">Prijs (€)</th>
-            <th className="px-3 py-2 text-left">Afbeelding</th>
+            <th className="px-3 py-2 text-left">Basisprijs (EUR)</th>
             <th className="px-3 py-2 text-left">Actief</th>
-            <th className="px-3 py-2"></th>
+            <th className="px-3 py-2 text-left w-[70px]">Acties</th>
           </tr>
         </thead>
-        <tbody className="divide-y">
-          {filtered.map((m: ModelRow) => {
-            const isEditing = !!editing[m.id];
-            const row = isEditing ? editing[m.id] : m;
-            const isSaving = !!saving[m.id];
-            const err = errors[m.id] ?? null;
-
+        <tbody>
+          {filtered.map((r) => {
             return (
-              <tr key={m.id} className="hover:bg-gray-50/70">
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <input className="w-44 bb-input" value={row.model} onChange={(e) => setField(m.id, 'model', e.target.value)} />
-                  ) : (
-                    <div className="font-medium">{row.model}</div>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <input className="w-36 bb-input" value={row.brand ?? ''} onChange={(e) => setField(m.id, 'brand', e.target.value)} />
-                  ) : <span className="text-gray-600">{row.brand || '—'}</span>}
-                </td>
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <input className="w-36 bb-input" value={row.variant ?? ''} onChange={(e) => setField(m.id, 'variant', e.target.value)} />
-                  ) : <span className="text-gray-700">{row.variant || '—'}</span>}
-                </td>
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <input type="number" className="w-24 bb-input"
-                      value={row.capacity_gb ?? ''}
-                      onChange={(e) => setField(m.id, 'capacity_gb', e.target.value === '' ? null : Number(e.target.value))} />
-                  ) : <span>{row.capacity_gb ?? '—'}</span>}
-                </td>
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <input type="number" className="w-28 bb-input"
-                      value={row.price_cents != null ? (row.price_cents / 100).toFixed(2) : ''}
-                      onChange={(e) => {
-                        const v = e.target.value.trim();
-                        const cents = v === '' ? null : Math.round(Number(v.replace(',', '.')) * 100);
-                        setField(m.id, 'price_cents', cents as any);
-                      }} />
-                  ) : <span>{row.price_cents != null ? (row.price_cents / 100).toFixed(2) : '—'}</span>}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-9 border bg-white rounded overflow-hidden flex items-center justify-center">
-                      {row.image_url ? (
-                        <img src={row.image_url} alt={row.model} className="w-full h-full object-cover" />
+              <tr key={r.id} className="border-t">
+                {/* Foto */}
+                <td className="px-3 py-2 align-top">
+                  <div className="flex items-center gap-2">
+                    <div className="w-14 h-14 bg-gray-100 border rounded overflow-hidden flex items-center justify-center">
+                      {r.image_url ? (
+                        <img src={r.image_url} alt={r.model} className="w-full h-full object-contain" />
                       ) : (
-                        <span className="text-[10px] text-gray-400">geen</span>
+                        <span className="text-[10px] text-gray-400 p-1 text-center">Geen<br/>foto</span>
                       )}
                     </div>
-
-                    {/* Hidden file input per rij */}
-                    <div>
+                    <form action={uploadModelImageAction}>
+                      <input type="hidden" name="id" value={r.id} />
                       <input
-                        ref={(el) => { fileInputs.current[m.id] = el; }}
+                        ref={(el) => {
+                          fileInputs.current[r.id] = el;
+                          return;
+                        }}
                         type="file"
+                        name="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(e) => onFilePicked(m, e.currentTarget.files?.[0] ?? null)}
+                        onChange={(e) => {
+                          // auto-submit bij file select
+                          if (e.currentTarget.form) e.currentTarget.form.requestSubmit();
+                        }}
                       />
                       <button
                         type="button"
-                        className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
-                        onClick={() => pickImage(m.id)}
-                        disabled={isSaving}
+                        className="px-2 py-1 rounded border bg-white hover:bg-gray-50"
+                        onClick={() => fileInputs.current[r.id]?.click()}
                       >
-                        {row.image_url ? 'Wijzig' : 'Upload'}
-                      </button>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-3 py-2">
-                  {isEditing ? (
-                    <label className="inline-flex items-center cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={!!row.active}
-                        onChange={(e) => setField(m.id, 'active', e.target.checked)}
-                      />
-                      <span className="w-10 h-5 bg-gray-300 peer-checked:bg-green-600 rounded-full relative transition-colors">
-                        <span className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
-                      </span>
-                      <span className="ml-2 text-xs text-gray-600">{row.active ? 'Actief' : 'Inactief'}</span>
-                    </label>
-                  ) : (
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${row.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                      {row.active ? 'Actief' : 'Inactief'}
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {err && <div className="text-xs text-red-600 mb-1">{err}</div>}
-                  {isEditing ? (
-                    <form onSubmit={(e) => onSaveRow(e, m.id)} className="inline-flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 text-sm rounded border hover:bg-gray-50"
-                        onClick={() => cancelEdit(m.id)}
-                        disabled={isSaving}
-                      >
-                        Annuleren
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-3 py-1.5 text-sm rounded border border-green-600 text-white"
-                        style={{ background: 'var(--bb-accent, #16a34a)' }}
-                        disabled={isSaving}
-                      >
-                        {isSaving ? 'Bewaren…' : 'Bewaren'}
+                        Wijzig foto
                       </button>
                     </form>
-                  ) : (
+                  </div>
+                </td>
+
+                {/* Merk */}
+                <td className="px-3 py-2 align-top">
+                  <InlineEdit
+                    initialValue={r.brand || ""}
+                    onCommit={(val) =>
+                      submitUpdate({ id: r.id, field: "brand", value: val })
+                    }
+                  />
+                </td>
+
+                {/* Model */}
+                <td className="px-3 py-2 align-top">
+                  <InlineEdit
+                    initialValue={r.model}
+                    onCommit={(val) =>
+                      submitUpdate({ id: r.id, field: "model", value: val })
+                    }
+                  />
+                </td>
+
+                {/* Basisprijs (EUR) */}
+                <td className="px-3 py-2 align-top">
+                  <InlineEdit
+                    initialValue={((r.base_price_cents ?? 0) / 100).toString().replace(".", ",")}
+                    inputMode="decimal"
+                    onCommit={(val) =>
+                      submitUpdate({ id: r.id, field: "base_price_cents", value: val })
+                    }
+                  />
+                  <div className="text-[11px] text-gray-500">{eur(r.base_price_cents)}</div>
+                </td>
+
+                {/* Actief toggle (slider) */}
+                <td className="px-3 py-2 align-top">
+                  <form action={toggleModelActiveAction}>
+                    <input type="hidden" name="id" value={r.id} />
+                    <input type="hidden" name="next" value={(!r.active)?.toString()} />
+                    <label className="inline-flex items-center cursor-pointer">
+                      <span className="sr-only">Actief</span>
+                      <span
+                        className={
+                          "relative inline-block w-11 h-6 rounded-full transition-colors " +
+                          (r.active ? "bg-green-600" : "bg-gray-300")
+                        }
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const form = (e.currentTarget as HTMLElement).closest("form") as HTMLFormElement | null;
+                          if (form) form.requestSubmit();
+                        }}
+                      >
+                        <span
+                          className={
+                            "absolute top-[2px] left-[2px] inline-block w-5 h-5 rounded-full bg-white shadow transform transition-transform " +
+                            (r.active ? "translate-x-5" : "translate-x-0")
+                          }
+                        />
+                      </span>
+                    </label>
+                  </form>
+                </td>
+
+                {/* Acties */}
+                <td className="px-3 py-2 align-top">
+                  <form
+                    action={deleteModelAction}
+                    onSubmit={(e) => {
+                      if (!confirm(`Model "${r.model}" verwijderen?`)) e.preventDefault();
+                    }}
+                  >
+                    <input type="hidden" name="id" value={r.id} />
+                    <input type="hidden" name="image_path" value={r.image_path ?? ""} />
                     <button
-                      type="button"
-                      className="px-3 py-1.5 text-sm rounded border hover:bg-gray-50"
-                      onClick={() => startEdit(m)}
+                      type="submit"
+                      className="p-2 rounded hover:bg-red-50"
+                      title="Verwijderen"
+                      aria-label="Verwijderen"
                     >
-                      Bewerken
+                      {/* vuilbak icoon */}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                      </svg>
                     </button>
-                  )}
+                  </form>
                 </td>
               </tr>
             );
           })}
-          {filtered.length === 0 && (
-            <tr>
-              <td colSpan={8} className="px-3 py-6 text-center text-sm text-gray-500">Geen resultaten.</td>
-            </tr>
-          )}
+
+          {/* Voeg nieuw model toe */}
+          <tr className="border-t bg-gray-50">
+            <td className="px-3 py-3 text-[12px] text-gray-500">Nieuwe foto uploaden kan na bewaren</td>
+            <td colSpan={4} className="px-3 py-2">
+              <AddModelRow categoryId={categoryId} />
+            </td>
+            <td />
+          </tr>
         </tbody>
       </table>
-
-      <style jsx global>{`
-        .bb-input {
-          @apply border rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600;
-        }
-        .bb-card { @apply rounded border bg-white; }
-      `}</style>
     </div>
+  );
+}
+
+/** ===== Helpers ===== */
+
+function submitUpdate(payload: { id: string; field: string; value: string }) {
+  const fd = new FormData();
+  fd.set("id", payload.id);
+  fd.set("field", payload.field);
+  fd.set("value", payload.value);
+  // Server Action via fetch (formless)
+  // @ts-ignore – server action callable as function with FormData
+  return updateModelFieldAction(fd);
+}
+
+function InlineEdit({
+  initialValue,
+  inputMode,
+  onCommit,
+}: {
+  initialValue: string;
+  inputMode?: "decimal" | "text";
+  onCommit: (value: string) => void | Promise<void>;
+}) {
+  return (
+    <input
+      defaultValue={initialValue}
+      inputMode={inputMode || "text"}
+      className="w-full px-2 py-1 rounded border bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
+      onBlur={(e) => {
+        const v = e.currentTarget.value.trim();
+        if (v !== initialValue) onCommit(v);
+      }}
+    />
+  );
+}
+
+function AddModelRow({ categoryId }: { categoryId: string }) {
+  return (
+    <form action={createModelAction} className="grid grid-cols-1 md:grid-cols-[140px_1fr_160px_auto] gap-2">
+      <input type="hidden" name="category_id" value={categoryId} />
+      <input
+        name="brand"
+        placeholder="Merk"
+        className="px-2 py-2 rounded border bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
+      />
+      <input
+        name="model"
+        placeholder="Model (bv. iPhone 11)"
+        required
+        className="px-2 py-2 rounded border bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
+      />
+      <input
+        name="base_price_eur"
+        placeholder="Basisprijs €"
+        inputMode="decimal"
+        className="px-2 py-2 rounded border bg-white outline-none focus:ring-2 focus:ring-green-200 focus:border-green-600"
+      />
+      <button
+        type="submit"
+        className="px-3 py-2 rounded border bg-white hover:bg-gray-50 md:justify-self-start"
+      >
+        + Toevoegen
+      </button>
+    </form>
   );
 }
