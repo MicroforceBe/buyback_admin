@@ -161,12 +161,22 @@ export default function Table({ category, rows, allCategories }: Props) {
       fd.append("rowId", String(row.id));
       fd.append("file", file);
 
-      // >>> Fix: type-assert i.p.v. impliciet 'never'
-      const newUrl = (await uploadCatalogRowImage(fd)) as string | null;
+      // --- Verwerk zowel string als object { ok, url, path } ---
+      const uploadRes = (await uploadCatalogRowImage(fd)) as
+        | string
+        | null
+        | { ok?: boolean; url?: string | null; path?: string | null };
+
+      let newUrl: string | null = null;
+      if (typeof uploadRes === "string") {
+        newUrl = uploadRes;
+      } else if (uploadRes && typeof uploadRes === "object") {
+        newUrl = uploadRes.url ?? uploadRes.path ?? null;
+      }
 
       if (typeof newUrl === "string" && newUrl.length > 0) {
         setLocalRows((prev) =>
-          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r))
+          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl! } : r))
         );
       } else {
         alert("Upload mislukt");
