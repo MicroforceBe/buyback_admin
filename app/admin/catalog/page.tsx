@@ -1,74 +1,102 @@
-
 // app/admin/catalog/page.tsx
+// Server Component
 
-import { listCategories, listModelsByCategory } from "./actions";
+import { getCategories, getCatalogRows } from "./actions";
 import Table from "./table";
 
-type Props = {
-  searchParams?: { [key: string]: string | string[] | undefined };
+type PageProps = {
+  searchParams?: {
+    category?: string;
+    q?: string;
+  };
 };
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+function hrefWith(params: Record<string, string | undefined>) {
+  const url = new URL("/admin/catalog", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost");
+  Object.entries(params).forEach(([k, v]) => {
+    if (v && v.length) url.searchParams.set(k, v);
+  });
+  return `${url.pathname}?${url.searchParams.toString()}`;
+}
 
-export default async function CatalogPage({ searchParams }: Props) {
-  const selected =
-    (typeof searchParams?.category === "string" && searchParams?.category) || "__ALL__";
+export default async function CatalogPage({ searchParams }: PageProps) {
+  const selected = (searchParams?.category ?? "__ALL__").trim();
+  const q = (searchParams?.q ?? "").trim().toLowerCase();
 
-  const [categories, rows] = await Promise.all([
-    listCategories(),
-    listModelsByCategory(selected === "__ALL__" ? null : selected),
-  ]);
+  // 1) Categorieën ophalen
+  const categories = await getCategories(); // string[]
+
+  // 2) Rijen ophalen (optioneel per categorie) + server-side free text filter
+  const rowsRaw = await getCatalogRows(selected === "__ALL__" ? null : selected);
+  const rows = !q
+    ? rowsRaw
+    : rowsRaw.filter((r) => {
+        const hay =
+          `${r.brand ?? ""} ${r.model ?? ""} ${r.submodel ?? ""} ${r.variant ?? ""}`.toLowerCase();
+        return hay.includes(q);
+      });
 
   return (
     <div className="p-4 space-y-6">
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Catalogus</h1>
-
-        {/* (optioneel) placeholder-knop voor categorie toevoegen; disabled tot eigen route aanwezig is */}
-        <button
-          formAction="/api/admin/catalog/new-category" // <-- React gebruikt 'formAction' (camelCase)
-          className="bb-btn"
-          disabled
-          title="Gebruik 'Model toevoegen' hieronder om meteen met nieuwe categorie te starten."
-        >
-          Categorie toevoegen
-        </button>
       </header>
 
       {/* Categorie-tegels */}
-      <section className="space-y-3">
+      <section className="space-y-2">
         <div className="text-sm text-gray-500">Categorieën</div>
         <div className="flex flex-wrap gap-2">
-          {[
-            { key: "__ALL__", label: "Alle" },
-            ...categories.map((c) => ({ key: c, label: c })),
-          ].map((c) => {
-            const isActive = c.key === selected;
-            const url = new URL("/admin/catalog", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost");
-            url.searchParams.set("category", c.key);
+          {/* 'Alle' tegel */}
+          <a
+            href={hrefWith({ category: "__ALL__", q: q || undefined })}
+            className={`bb-tile px-3 py-2 ${selected === "__ALL__" ? "ring-2 ring-emerald-500" : ""}`}
+            aria-current={selected === "__ALL__" ? "page" : undefined}
+          >
+            Alle
+          </a>
+
+          {categories.map((cat) => {
+            const isActive = selected === cat;
             return (
               <a
-                key={c.key}
-                href={url.pathname + "?" + url.searchParams.toString()}
-                className={`bb-tile px-3 py-2 ${
-                  isActive ? "ring-2 ring-emerald-500" : ""
-                }`}
+                key={cat}
+                href={hrefWith({ category: cat, q: q || undefined })}
+                className={`bb-tile px-3 py-2 ${isActive ? "ring-2 ring-emerald-500" : ""}`}
+                aria-current={isActive ? "page" : undefined}
+                title={cat}
               >
-                {c.label}
+                {cat}
               </a>
             );
           })}
         </div>
       </section>
 
-      {/* Tabel met modellen (excel-achtig) */}
+      {/* Zoeken (server-side) */}
       <section>
-        <Table
-          category={selected === "__ALL__" ? null : selected}
-          rows={rows}
-          allCategories={categories}
-        />
+        <form method="get" action="/admin/catalog" className="flex flex-wrap items-center gap-2">
+          <input type="hidden" name="category" value={selected} />
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="Zoek op model, merk of variant…"
+            className="w-full md:w-80 border rounded px-3 py-2"
+          />
+          <button type="submit" className="bb-btn">Zoek</button>
+          {q && (
+            <a
+              href={hrefWith({ category: selected })}
+              className="text-sm text-gray-500 underline"
+            >
+              wissen
+            </a>
+          )}
+        </form>
+      </section>
+
+      {/* Tabel */}
+      <section>
+        <Table rows={rows} allCategories={categories} />
       </section>
     </div>
   );
