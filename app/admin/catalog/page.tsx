@@ -1,20 +1,23 @@
 // app/admin/catalog/page.tsx
-import Link from 'next/link';
-import { loadCategories, loadModelsByCategory, createCategoryAction, type Category } from './actions';
-import CatalogTable from './table';
+import Link from "next/link";
+import {
+  loadCategories,
+  loadModelsByCategory,
+  createCategoryAction,
+  type Category,
+} from "./actions";
+import CatalogTable from "./table";
 
 type SearchParams = { category?: string; q?: string };
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
 export default async function CatalogPage({ searchParams }: { searchParams: SearchParams }) {
-  const { category: selectedId = '', q = '' } = searchParams ?? {};
+  const { category: selectedId = "", q = "" } = searchParams ?? {};
   const categories = await loadCategories();
-
-  // Kies default categorie (eerste) indien niet opgegeven
-  const selected = selectedId || (categories[0]?.id ?? '');
+  const selected = selectedId || (categories[0]?.id ?? "");
   const models = selected ? await loadModelsByCategory(selected) : [];
 
   return (
@@ -26,7 +29,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
         </Link>
       </div>
 
-      {/* Categorieën + toevoegen */}
+      {/* Categorie tegels + toevoegen */}
       <section className="rounded border bg-white p-4">
         <div className="flex items-center justify-between gap-4">
           <h2 className="font-medium">Categorieën</h2>
@@ -47,18 +50,15 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
           {categories.map((c: Category) => {
             const isActive = c.id === selected;
             const href =
-              '/admin/catalog?' +
-              new URLSearchParams({
-                ...(c.id ? { category: c.id } : {}),
-                ...(q ? { q } : {}),
-              }).toString();
+              "/admin/catalog?" +
+              new URLSearchParams({ ...(c.id ? { category: c.id } : {}), ...(q ? { q } : {}) }).toString();
             return (
               <Link
                 key={c.id}
                 href={href}
                 className={
-                  'px-3 py-2 rounded border ' +
-                  (isActive ? 'bg-green-600 text-white border-green-700' : 'bg-white hover:bg-gray-50')
+                  "px-3 py-2 rounded border " +
+                  (isActive ? "bg-green-600 text-white border-green-700" : "bg-white hover:bg-gray-50")
                 }
               >
                 {c.name}
@@ -68,7 +68,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
         </div>
       </section>
 
-      {/* Zoeken op model (server-side GET submit, geen client JS nodig) */}
+      {/* Zoek op model (GET) */}
       <section className="flex items-center justify-between gap-3">
         <form method="get" className="w-full max-w-md flex items-center gap-2">
           {selected && <input type="hidden" name="category" value={selected} />}
@@ -84,10 +84,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
         </form>
       </section>
 
-      {/* Tabel met bewerkbare rijen */}
+      {/* Tabel */}
       <section>
         {selected ? (
-          <CatalogTable rows={models} query={q} />
+          <CatalogTable rows={models} categoryId={selected} query={q} />
         ) : (
           <div className="text-sm text-gray-600">Geen categorie geselecteerd.</div>
         )}
