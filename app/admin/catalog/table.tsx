@@ -128,18 +128,12 @@ export default function CatalogTable({
                       )}
                     </div>
                     <div>
-                      <input
-                        ref={(el) => (fileInputs.current[m.id] = el)}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.currentTarget.files?.[0];
-                          if (f) onUploadImage(m.id, f);
-                          // reset zodat dezelfde file opnieuw kan gekozen worden
-                          e.currentTarget.value = "";
-                        }}
-                      />
+                    <input
+                      ref={(el) => { fileInputs.current[id] = el; }}  // <-- niets returnen
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                    />
                       <button
                         type="button"
                         className="px-2 py-1 rounded border hover:bg-gray-50"
