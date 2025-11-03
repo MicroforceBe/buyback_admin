@@ -1,47 +1,18 @@
-import { supabaseServer } from '@/lib/supabaseServer'; import MultipliersTable from './table'; import ModelPicker from './ModelPicker'; import { Card, CardHeader, CardBody } from '@/components/ui/Card';
+// app/admin/multipliers/page.tsx
+import AdminMultipliersClient from './AdminMultipliersClient';
 
-export const metadata = { title: 'Multipliers — Buyback Admin' };
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-export default async function Page({ searchParams }: { searchParams: { model?: string } }) {
-  const supabase = supabaseServer();
-
-  const { data: modelsData, error: modelsError } = await supabase
-    .from('buyback_multipliers_norm')
-    .select('model')
-    .neq('model', '')
-    .order('model');
-
-  if (modelsError) return <pre className="text-red-600">{modelsError.message}</pre>;
-
-  const models = Array.from(new Set((modelsData ?? []).map((m: any) => m.model))).sort();
-  const selected = searchParams.model || models[0] || '';
-
-  let rows: any[] = [];
-  if (selected) {
-    const { data, error } = await supabase
-      .from('buyback_multipliers_norm')
-      .select('*')
-      .eq('model', selected)
-      .order('question_key')
-      .order('priority')
-      .order('option_key');
-    if (error) return <pre className="text-red-600">{error.message}</pre>;
-    rows = data ?? [];
-  }
-
+export default async function Page() {
+  // Client component haalt data op via API; server hier mag licht blijven.
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader
-          title="Multipliers"
-          actions={<ModelPicker models={models} selected={selected} />}
-        />
-        <CardBody>
-          {selected
-            ? <MultipliersTable rows={rows as any[]} model={selected} />
-            : <p className="text-gray-600">Geen model geselecteerd.</p>}
-        </CardBody>
-      </Card>
+    <div className="p-5 space-y-4">
+      <h1 className="text-2xl font-semibold">Multipliers beheer</h1>
+      <p className="text-sm text-gray-600">
+        Beheer per-categorie multiplier-sets. Zet per-model een custom set op of gebruik de categorie-set.
+      </p>
+      <AdminMultipliersClient />
     </div>
   );
 }
