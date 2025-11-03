@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { FieldError } from 'react-hook-form';
 
 type QType = 'percent' | 'fixed';
 
@@ -62,43 +63,42 @@ function validateQuestions(qs: Questions): ValidationErrors {
   // 2) Binnen elke vraag: velden + unieke option keys
   for (const qk of questionKeys) {
     const block = qs[qk];
-    const optErrs: QuestionErrors['options'] = [];
-
+    const optErrs: Array<{
+        key?: FieldError;
+        label?: FieldError;
+        type?: FieldError;
+        value?: FieldError;
+    }> = [];
     const options = block?.options ?? [];
     const seenOpt = new Set<string>();
-    options.forEach((o, idx) => {
-      const rowErr: NonNullable<QuestionErrors['options']>[number] = {};
-      const k = normalizeKey(o.key);
-
-      if (!k) rowErr.key = { msg: 'Key is vereist.' };
-      else if (seenOpt.has(k)) rowErr.key = { msg: 'Key is niet uniek binnen deze vraag.' };
-      seenOpt.add(k);
-
-      const typeOk = o.type === 'percent' || o.type === 'fixed';
-      if (!typeOk) rowErr.type = { msg: 'Type moet percent of fixed zijn.' };
-
-      if (typeof o.value !== 'number' || Number.isNaN(o.value)) {
-        rowErr.value = { msg: 'Waarde moet een nummer zijn.' };
-      } else if (o.type === 'percent') {
-        // Heuristiek: percent-waarden logisch houden
-        if (o.value < 0 || o.value > 2) {
-          rowErr.value = { msg: 'Percent buiten bereik (0 – 2 aanbevolen).' };
-        }
-      } else if (o.type === 'fixed') {
-        if (o.value < -100000 || o.value > 100000) {
-          rowErr.value = { msg: 'Fixed lijkt onrealistisch (>|100.000|).' };
-        }
+    
+    options.forEach((opt, idx) => {
+      const rowErr: {
+        key?: FieldError;
+        label?: FieldError;
+        type?: FieldError;
+        value?: FieldError;
+      } = {};
+    
+      if (!opt.key?.trim()) {
+        rowErr.key = { type: 'validate', message: 'verplicht' } as FieldError;
       }
-
-      optErrs[idx] = Object.keys(rowErr).length ? rowErr : undefined;
+      if (!opt.label?.trim()) {
+        rowErr.label = { type: 'validate', message: 'verplicht' } as FieldError;
+      }
+      if (opt.type !== 'percent' && opt.type !== 'fixed') {
+        rowErr.type = { type: 'validate', message: 'percent/fixed' } as FieldError;
+      }
+      if (typeof opt.value !== 'number' || Number.isNaN(opt.value)) {
+        rowErr.value = { type: 'validate', message: 'getal' } as FieldError;
+      }
+      // ⬅️ Belangrijk: nooit 'undefined' toewijzen; gebruik een leeg object
+      optErrs[idx] = Object.keys(rowErr).length ? rowErr : {};
     });
-
-    const anyOptErr = optErrs.some(Boolean);
-    if (anyOptErr) {
-      errors[qk] = { ...(errors[qk] || {}), options: optErrs };
-    }
+    
+    // Check of er ergens fouten zijn ({} telt niet als fout)
+    const anyOptErr = optErrs.some(e => e && Object.keys(e).length > 0);
   }
-
   return errors;
 }
 
