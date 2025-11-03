@@ -1,37 +1,37 @@
 // app/api/admin/multipliers/categories/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
+import { createClient } from '@supabase/supabase-js';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function sb() {
-  const any: any = supabaseAdminExport as any;
-  return typeof any === 'function' ? any() : any;
-}
+// anon key volstaat (RPC/VIEW kan SECURITY DEFINER gebruiken)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function GET() {
-  const s = sb();
-
-  // Haal alle categorieën uit catalog (distinct)
-  const { data, error } = await s
+  // Haal alle categorieën op (enkel actieve rijen)
+  const { data, error } = await supabase
     .from('buyback_catalog')
     .select('category')
     .eq('active', true);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
-  const cats = Array.from(
-    new Set((data ?? []).map((r: any) => (r.category ?? '').trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b));
+  // Normaliseer naar string[], trimmen + lege entries weg
+  const raw: string[] = (data ?? [])
+    .map((r: any) => (r?.category ?? ''))
+    .map((s: string) => s.trim())
+    .filter(Boolean) as string[];
 
-  // Optioneel: toon of er al category JSON bestaat
-  const { data: pc } = await s
-    .from('buyback_multipliers_per_category_json')
-    .select('category');
+  // ✔️ Dedupe + sort met expliciete generics om TS tevreden te houden
+  const categories: string[] = Array.from(new Set<string>(raw)).sort((a, b) =>
+    a.localeCompare(b)
+  );
 
-  const hasJson = new Set((pc ?? []).map((r: any) => r.category));
-
-  return NextResponse.json({
-    categories: cats.map(c => ({ name: c, has_json: hasJson.has(c) }))
-  });
+  return NextResponse.json({ categories });
 }
