@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { FieldError } from 'react-hook-form';
+type FieldError = { type?: string; message?: string };
 
 type QType = 'percent' | 'fixed';
 
