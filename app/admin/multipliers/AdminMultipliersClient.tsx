@@ -53,9 +53,9 @@ function validateQuestions(qs: Questions): ValidationErrors {
   for (const qk of questionKeys) {
     const nk = normalizeKey(qk);
     if (!nk) {
-      errors[qk] = { ...(errors[qk] || {}), _questionKey: { msg: 'Vraag-sleutel mag niet leeg zijn.' } };
+      errors[qk] = { ...(errors[qk] || {}), _questionKey: { message: 'Vraag-sleutel mag niet leeg zijn.' } };
     } else if (seenQ.has(nk)) {
-      errors[qk] = { ...(errors[qk] || {}), _questionKey: { msg: 'Vraag-sleutel is niet uniek.' } };
+      errors[qk] = { ...(errors[qk] || {}), _questionKey: { message: 'Vraag-sleutel is niet uniek.' } };
     }
     seenQ.add(nk);
   }
@@ -476,7 +476,7 @@ export default function AdminMultipliersClient() {
                       className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
                       defaultValue={qk}
                       readOnly
-                      title={qErr?._questionKey?.msg}
+                      title={qErr?._questionKey?.message}
                     />
                     <button className="bb-btn" onClick={() => renameBaseQuestion(qk)}>Hernoem sleutel</button>
 
@@ -485,7 +485,7 @@ export default function AdminMultipliersClient() {
                       value={block?.title ?? ''}
                       onChange={(e) => updateBaseQuestionTitle(qk, e.target.value)}
                       placeholder={`Titel voor ${qk}`}
-                      title={qErr?.title?.msg}
+                      title={qErr?.title?.message}
                     />
                     <button className="bb-btn" onClick={() => removeBaseQuestion(qk)}>Verwijder vraag</button>
                   </div>
@@ -500,20 +500,20 @@ export default function AdminMultipliersClient() {
                             value={o.label ?? ''}
                             onChange={(e) => updateBaseOption(qk, idx, { label: e.target.value })}
                             placeholder="Label"
-                            title={oe?.label?.msg}
+                            title={oe?.label?.message}
                           />
                           <input
                             className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
                             value={o.key}
                             onChange={(e) => updateBaseOption(qk, idx, { key: e.target.value })}
                             placeholder="Key"
-                            title={oe?.key?.msg}
+                            title={oe?.key?.message}
                           />
                           <select
                             className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
                             value={o.type}
                             onChange={(e) => updateBaseOption(qk, idx, { type: e.target.value as QType })}
-                            title={oe?.type?.msg}
+                            title={oe?.type?.message}
                           >
                             <option value="percent">percent</option>
                             <option value="fixed">fixed</option>
@@ -525,7 +525,7 @@ export default function AdminMultipliersClient() {
                             value={o.value}
                             onChange={(e) => updateBaseOption(qk, idx, { value: Number(e.target.value) })}
                             placeholder={o.type === 'percent' ? '1.00' : '100'}
-                            title={oe?.value?.msg}
+                            title={oe?.value?.message}
                           />
                           <input
                             className="border rounded px-2 py-1 col-span-2"
@@ -654,7 +654,7 @@ export default function AdminMultipliersClient() {
                       className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
                       defaultValue={qk}
                       readOnly
-                      title={qErr?._questionKey?.msg}
+                      title={qErr?._questionKey?.message}
                     />
                     <button className="bb-btn" onClick={() => renameEditQuestion(qk)}>
                       Hernoem sleutel
@@ -665,7 +665,7 @@ export default function AdminMultipliersClient() {
                       value={block?.title ?? ''}
                       onChange={(e) => updateEditQuestionTitle(qk, e.target.value)}
                       placeholder={`Titel voor ${qk}`}
-                      title={qErr?.title?.msg}
+                      title={qErr?.title?.message}
                     />
                     <button className="bb-btn" onClick={() => removeEditQuestion(qk)}>
                       Verwijder vraag
@@ -682,20 +682,20 @@ export default function AdminMultipliersClient() {
                             value={o.label ?? ''}
                             onChange={(e) => updateEditOption(qk, idx, { label: e.target.value })}
                             placeholder="Label"
-                            title={oe?.label?.msg}
+                            title={oe?.label?.message}
                           />
                           <input
                             className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
                             value={o.key}
                             onChange={(e) => updateEditOption(qk, idx, { key: e.target.value })}
                             placeholder="Key"
-                            title={oe?.key?.msg}
+                            title={oe?.key?.message}
                           />
                           <select
                             className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
                             value={o.type}
                             onChange={(e) => updateEditOption(qk, idx, { type: e.target.value as QType })}
-                            title={oe?.type?.msg}
+                            title={oe?.type?.message}
                           >
                             <option value="percent">percent</option>
                             <option value="fixed">fixed</option>
@@ -707,7 +707,7 @@ export default function AdminMultipliersClient() {
                             value={o.value}
                             onChange={(e) => updateEditOption(qk, idx, { value: Number(e.target.value) })}
                             placeholder={o.type === 'percent' ? '1.00' : '100'}
-                            title={oe?.value?.msg}
+                            title={oe?.value?.message}
                           />
                           <input
                             className="border rounded px-2 py-1 col-span-2"
