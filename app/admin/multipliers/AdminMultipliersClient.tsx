@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-type FieldError = { type?: string; message?: string };
+type AdminFieldError = { type?: string; message?: string };
 
 type QType = 'percent' | 'fixed';
 
@@ -21,19 +21,19 @@ type Questions = Record<string, { title?: string | null; options: QOption[] }>;
 type CategoryInfo = { name: string; has_json: boolean };
 type ModelRow = { model: string; uses_category: boolean; has_custom: boolean };
 
-type FieldError = { msg: string };
+
 type QuestionErrors = {
-  title?: FieldError;
+  title?: AdminFieldError;
   options?: Array<{
-    key?: FieldError;
-    label?: FieldError;
-    type?: FieldError;
-    value?: FieldError;
+    key?: AdminFieldError;
+    label?: AdminFieldError;
+    type?: AdminFieldError;
+    value?: AdminFieldError;
   }>;
 };
 type ValidationErrors = {
   // questionKey -> errors
-  [qk: string]: QuestionErrors & { _questionKey?: FieldError };
+  [qk: string]: QuestionErrors & { _questionKey?: AdminFieldError };
 };
 
 function deepClone<T>(v: T): T {
@@ -64,33 +64,33 @@ function validateQuestions(qs: Questions): ValidationErrors {
   for (const qk of questionKeys) {
     const block = qs[qk];
     const optErrs: Array<{
-        key?: FieldError;
-        label?: FieldError;
-        type?: FieldError;
-        value?: FieldError;
+        key?: AdminFieldError;
+        label?: AdminFieldError;
+        type?: AdminFieldError;
+        value?: AdminFieldError;
     }> = [];
     const options = block?.options ?? [];
     const seenOpt = new Set<string>();
     
     options.forEach((opt, idx) => {
       const rowErr: {
-        key?: FieldError;
-        label?: FieldError;
-        type?: FieldError;
-        value?: FieldError;
+        key?: AdminFieldError;
+        label?: AdminFieldError;
+        type?: AdminFieldError;
+        value?: AdminFieldError;
       } = {};
     
       if (!opt.key?.trim()) {
-        rowErr.key = { type: 'validate', message: 'verplicht' } as FieldError;
+        rowErr.key = { type: 'validate', message: 'verplicht' } as AdminFieldError;
       }
       if (!opt.label?.trim()) {
-        rowErr.label = { type: 'validate', message: 'verplicht' } as FieldError;
+        rowErr.label = { type: 'validate', message: 'verplicht' } as AdminFieldError;
       }
       if (opt.type !== 'percent' && opt.type !== 'fixed') {
-        rowErr.type = { type: 'validate', message: 'percent/fixed' } as FieldError;
+        rowErr.type = { type: 'validate', message: 'percent/fixed' } as AdminFieldError;
       }
       if (typeof opt.value !== 'number' || Number.isNaN(opt.value)) {
-        rowErr.value = { type: 'validate', message: 'getal' } as FieldError;
+        rowErr.value = { type: 'validate', message: 'getal' } as AdminFieldError;
       }
       // ⬅️ Belangrijk: nooit 'undefined' toewijzen; gebruik een leeg object
       optErrs[idx] = Object.keys(rowErr).length ? rowErr : {};
