@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+
 type AdminFieldError = { type?: string; message?: string };
 
 type QType = 'percent' | 'fixed';
@@ -21,7 +22,6 @@ type Questions = Record<string, { title?: string | null; options: QOption[] }>;
 type CategoryInfo = { name: string; has_json: boolean };
 type ModelRow = { model: string; uses_category: boolean; has_custom: boolean };
 
-
 type QuestionErrors = {
   title?: AdminFieldError;
   options?: Array<{
@@ -32,23 +32,22 @@ type QuestionErrors = {
   }>;
 };
 type ValidationErrors = {
-  // questionKey -> errors
   [qk: string]: QuestionErrors & { _questionKey?: AdminFieldError };
 };
 
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
-
 function normalizeKey(v: string) {
   return v.trim();
 }
 
+/** Strikte validatie voor de editor */
 function validateQuestions(qs: Questions): ValidationErrors {
   const errors: ValidationErrors = {};
   const questionKeys = Object.keys(qs);
 
-  // 1) Unieke question keys
+  // 1) Unieke question keys (case/space-insensitive? -> momenteel enkel trim)
   const seenQ = new Set<string>();
   for (const qk of questionKeys) {
     const nk = normalizeKey(qk);
@@ -56,49 +55,60 @@ function validateQuestions(qs: Questions): ValidationErrors {
       errors[qk] = { ...(errors[qk] || {}), _questionKey: { message: 'Vraag-sleutel mag niet leeg zijn.' } };
     } else if (seenQ.has(nk)) {
       errors[qk] = { ...(errors[qk] || {}), _questionKey: { message: 'Vraag-sleutel is niet uniek.' } };
+    } else {
+      seenQ.add(nk);
     }
-    seenQ.add(nk);
+
+    // Optioneel: je kan titel verplicht maken
+    // if (!qs[qk]?.title?.trim()) {
+    //   errors[qk] = { ...(errors[qk] || {}), title: { message: 'Titel is verplicht.' } };
+    // }
   }
 
-  // 2) Binnen elke vraag: velden + unieke option keys
+  // 2) Per vraag: unieke option keys + veldvalidaties
   for (const qk of questionKeys) {
     const block = qs[qk];
-    const optErrs: Array<{
-        key?: AdminFieldError;
-        label?: AdminFieldError;
-        type?: AdminFieldError;
-        value?: AdminFieldError;
-    }> = [];
     const options = block?.options ?? [];
+    const optErrs: QuestionErrors['options'] = [];
     const seenOpt = new Set<string>();
-    
+
     options.forEach((opt, idx) => {
-      const rowErr: {
-        key?: AdminFieldError;
-        label?: AdminFieldError;
-        type?: AdminFieldError;
-        value?: AdminFieldError;
-      } = {};
-    
-      if (!opt.key?.trim()) {
-        rowErr.key = { type: 'validate', message: 'verplicht' } as AdminFieldError;
+      const rowErr: NonNullable<QuestionErrors['options']>[number] = {};
+      const key = opt.key?.trim() ?? '';
+      const label = opt.label?.toString().trim() ?? '';
+      const type = opt.type;
+      const value = opt.value;
+
+      if (!key) {
+        rowErr.key = { type: 'validate', message: 'verplicht' };
+      } else if (seenOpt.has(key)) {
+        rowErr.key = { type: 'validate', message: 'niet uniek' };
+      } else {
+        seenOpt.add(key);
       }
-      if (!opt.label?.trim()) {
-        rowErr.label = { type: 'validate', message: 'verplicht' } as AdminFieldError;
+
+      if (!label) {
+        rowErr.label = { type: 'validate', message: 'verplicht' };
       }
-      if (opt.type !== 'percent' && opt.type !== 'fixed') {
-        rowErr.type = { type: 'validate', message: 'percent/fixed' } as AdminFieldError;
+
+      if (type !== 'percent' && type !== 'fixed') {
+        rowErr.type = { type: 'validate', message: 'percent/fixed' };
       }
-      if (typeof opt.value !== 'number' || Number.isNaN(opt.value)) {
-        rowErr.value = { type: 'validate', message: 'getal' } as AdminFieldError;
+
+      if (typeof value !== 'number' || Number.isNaN(value)) {
+        rowErr.value = { type: 'validate', message: 'getal' };
       }
-      // ⬅️ Belangrijk: nooit 'undefined' toewijzen; gebruik een leeg object
-      optErrs[idx] = Object.keys(rowErr).length ? rowErr : {};
+
+      // Belangrijk: schrijf alleen iets wanneer er écht fouten zijn; anders undefined
+      optErrs[idx] = Object.keys(rowErr).length ? rowErr : undefined;
     });
-    
-    // Check of er ergens fouten zijn ({} telt niet als fout)
-    const anyOptErr = optErrs.some(e => e && Object.keys(e).length > 0);
+
+    // Alleen toewijzen wanneer er effectief fouten zijn in minstens één rij
+    if (optErrs.some(e => e && Object.keys(e).length > 0)) {
+      errors[qk] = { ...(errors[qk] || {}), options: optErrs };
+    }
   }
+
   return errors;
 }
 
@@ -106,7 +116,9 @@ function hasErrors(errs: ValidationErrors) {
   return Object.keys(errs).some((k) => {
     const v = errs[k];
     if (v._questionKey || v.title) return true;
-    if (v.options?.some(Boolean)) return true;
+    if (Array.isArray(v.options)) {
+      return v.options.some((e) => !!(e && Object.keys(e).length > 0));
+    }
     return false;
   });
 }
@@ -126,7 +138,7 @@ export default function AdminMultipliersClient() {
   const [editTips, setEditTips] = useState<Record<string, string>>({});
   const [editDirty, setEditDirty] = useState(false);
 
-  // Validatie-status (recompute bij wijziging)
+  // Validatie-status
   const baseErrors = useMemo(() => validateQuestions(baseQs), [baseQs]);
   const baseHasErrors = useMemo(() => hasErrors(baseErrors), [baseErrors]);
 
@@ -139,8 +151,8 @@ export default function AdminMultipliersClient() {
       const r = await fetch('/api/admin/multipliers/categories', { cache: 'no-store' });
       const j = await r.json();
       setCats(j.categories ?? []);
-      if ((j.categories ?? []).length && !activeCat) {
-        setActiveCat(j.categories[0].name);
+      if ((j.categories ?? []).length) {
+        setActiveCat((prev) => prev ?? j.categories[0].name);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -301,7 +313,7 @@ export default function AdminMultipliersClient() {
     }
     setEditModel(m.model);
 
-    // Initieer editor met kopie van category-set als er nog geen custom was
+    // Init editor met kopie van category-set als er nog geen custom was
     const baseQsClone = deepClone(baseQs || {});
     const baseTipsClone = deepClone(baseTips || {});
     setEditQs(baseQsClone);
