@@ -5,33 +5,31 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// anon key volstaat (RPC/VIEW kan SECURITY DEFINER gebruiken)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // SECURITY DEFINER dekt dit
 );
 
 export async function GET() {
-  // Haal alle categorieën op (enkel actieve rijen)
-  const { data, error } = await supabase
-    .from('buyback_catalog')
-    .select('category')
-    .eq('active', true);
+  try {
+    // Haal distinct categories uit buyback_catalog (alleen niet-lege + active)
+    const { data, error } = await supabase
+      .from('buyback_catalog')
+      .select('category, active')
+      .not('category', 'is', null)
+      .neq('category', '')
+      .eq('active', true);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const cats = Array.from(
+      new Set((data ?? []).map((r: any) => String(r.category || '').trim()).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b, 'nl', { sensitivity: 'base' }));
+
+    return NextResponse.json({ categories: cats });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'Failed' }, { status: 500 });
   }
-
-  // Normaliseer naar string[], trimmen + lege entries weg
-  const raw: string[] = (data ?? [])
-    .map((r: any) => (r?.category ?? ''))
-    .map((s: string) => s.trim())
-    .filter(Boolean) as string[];
-
-  // ✔️ Dedupe + sort met expliciete generics om TS tevreden te houden
-  const categories: string[] = Array.from(new Set<string>(raw)).sort((a, b) =>
-    a.localeCompare(b)
-  );
-
-  return NextResponse.json({ categories });
 }
