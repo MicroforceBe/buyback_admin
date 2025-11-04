@@ -26,7 +26,6 @@ type ModelRow = {
   model: string;
   uses_category: boolean;
   has_custom: boolean;
-  // server mag dit meesturen; anders blijft het undefined
   assigned_set?: string | null;
 };
 
@@ -44,12 +43,9 @@ type ValidationErrors = {
 };
 
 type QuestionSet = {
-  // Unieke naam binnen categorie
-  name: string;
-  // Inhoud
-  questions: Questions;
-  // Volgorde van vragen (keys)
-  qOrder?: string[];
+  name: string;                // Unieke naam binnen categorie
+  questions: Questions;        // Inhoud
+  qOrder?: string[];           // Volgorde van vragen (keys)
 };
 
 /* ================== Utils ================== */
@@ -142,7 +138,7 @@ function hasErrors(errs: ValidationErrors) {
 /* ================== Component ================== */
 
 export default function AdminMultipliersClient() {
-  /* ---- Categorie + basis set (default) ---- */
+  /* ---- Categorie + basis set ---- */
   const [cats, setCats] = useState<CategoryInfo[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
@@ -157,9 +153,10 @@ export default function AdminMultipliersClient() {
 
   // Beschikbare custom sets binnen deze categorie
   const [sets, setSets] = useState<QuestionSet[]>([]);
-  const [openSet, setOpenSet] = useState<string | null>(null); // UI: uitklapper
+  // Alle sets standaard uitgeklapt
+  const [openSets, setOpenSets] = useState<Record<string, boolean>>({});
 
-  /* ---- Per-model custom editor (legacy) ---- */
+  /* ---- Per-model ad-hoc custom (optioneel) ---- */
   const [editModel, setEditModel] = useState<string | null>(null);
   const [editQs, setEditQs] = useState<Questions>({});
   const [editOrder, setEditOrder] = useState<string[]>([]);
@@ -200,20 +197,34 @@ export default function AdminMultipliersClient() {
       setModels(j.models ?? []);
       const qBase: Questions = j.base?.questions ?? {};
       setBaseQs(qBase);
-      setBaseOrder(j.base?.order && Array.isArray(j.base.order) ? j.base.order : Object.keys(qBase));
+      // support meerdere mogelijke property-namen voor volgorde
+      const incomingOrder: string[] =
+        (Array.isArray(j.base?.order) && j.base.order) ||
+        (Array.isArray(j.base?.q_order) && j.base.q_order) ||
+        (Array.isArray(j.base?.questions_order) && j.base.questions_order) ||
+        Object.keys(qBase);
+      setBaseOrder(incomingOrder);
       setBaseTips(j.base?.tips ?? {});
       setBaseDirty(false);
 
-      // 2) sets binnen categorie (exclusief de basis)
+      // 2) sets binnen categorie (exclusief basis)
       const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
       const sj = await s.json();
       const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
         name: String(row?.name ?? ''),
         questions: row?.questions ?? {},
-        qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
+        qOrder:
+          (Array.isArray(row?.order) && row.order) ||
+          (Array.isArray(row?.q_order) && row.q_order) ||
+          (Array.isArray(row?.questions_order) && row.questions_order) ||
+          Object.keys(row?.questions ?? {}),
       }));
       setSets(incoming);
-      setOpenSet(null);
+
+      // Alles uitgeklapt
+      const allOpen: Record<string, boolean> = {};
+      for (const it of incoming) allOpen[it.name] = true;
+      setOpenSets(allOpen);
     })().finally(() => setLoading(false));
   }, [activeCat]);
 
@@ -227,7 +238,7 @@ export default function AdminMultipliersClient() {
     const next = [...order];
     const [it] = next.splice(idx, 1);
     next.splice(to, 0, it);
-    // sanity: verwijder keys die niet bestaan en voeg missende toe achteraan
+    // sanity: verwijder niet-bestaande en voeg missende toe achteraan
     const onlyExisting = next.filter((k) => !!qs[k]);
     const missing = Object.keys(qs).filter((k) => !onlyExisting.includes(k));
     return [...onlyExisting, ...missing];
@@ -335,10 +346,19 @@ export default function AdminMultipliersClient() {
       alert('Los eerst de validatiefouten in de categorie-set op.');
       return;
     }
+    const payload = {
+      category: activeCat,
+      questions: baseQs,
+      tips: baseTips,
+      // meerdere namen meegeven zodat backend het hoe dan ook pikt
+      order: baseOrder,
+      q_order: baseOrder,
+      questions_order: baseOrder,
+    };
     const res = await fetch('/api/admin/multipliers/category', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ category: activeCat, questions: baseQs, tips: baseTips, order: baseOrder }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -348,7 +368,7 @@ export default function AdminMultipliersClient() {
     setBaseDirty(false);
   }
 
-  /* ================== Modellen: toggle + set toewijzing ================== */
+  /* ================== Modellen: toggle + set-toewijzing ================== */
 
   async function toggleModel(m: ModelRow, useCategory: boolean) {
     if (!activeCat) return;
@@ -393,6 +413,25 @@ export default function AdminMultipliersClient() {
 
   /* ================== Custom sets beheer (per categorie) ================== */
 
+  async function reloadSetsOpened() {
+    if (!activeCat) return;
+    const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
+    const sj = await s.json();
+    const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
+      name: String(row?.name ?? ''),
+      questions: row?.questions ?? {},
+      qOrder:
+        (Array.isArray(row?.order) && row.order) ||
+        (Array.isArray(row?.q_order) && row.q_order) ||
+        (Array.isArray(row?.questions_order) && row.questions_order) ||
+        Object.keys(row?.questions ?? {}),
+    }));
+    setSets(incoming);
+    const allOpen: Record<string, boolean> = {};
+    for (const it of incoming) allOpen[it.name] = true; // open laten
+    setOpenSets(allOpen);
+  }
+
   async function createSet() {
     if (!activeCat) return;
     const name = prompt('Naam voor nieuwe custom set (uniek binnen categorie)?')?.trim();
@@ -406,9 +445,13 @@ export default function AdminMultipliersClient() {
     if (mode === 'empty') {
       payload.questions = {};
       payload.order = [];
+      payload.q_order = [];
+      payload.questions_order = [];
     } else {
       payload.questions = deepClone(baseQs);
       payload.order = [...baseOrder];
+      payload.q_order = [...baseOrder];
+      payload.questions_order = [...baseOrder];
     }
 
     const res = await fetch('/api/admin/multipliers/set/create', {
@@ -419,16 +462,7 @@ export default function AdminMultipliersClient() {
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
 
-    // herladen sets
-    const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
-    const sj = await s.json();
-    const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
-      name: String(row?.name ?? ''),
-      questions: row?.questions ?? {},
-      qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
-    }));
-    setSets(incoming);
-    setOpenSet(name);
+    await reloadSetsOpened();
   }
 
   async function saveSet(set: QuestionSet) {
@@ -438,6 +472,7 @@ export default function AdminMultipliersClient() {
       alert(`Validatiefouten in set "${set.name}".`);
       return;
     }
+    const ord = set.qOrder ?? Object.keys(set.questions);
     const res = await fetch('/api/admin/multipliers/set/save', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -445,11 +480,14 @@ export default function AdminMultipliersClient() {
         category: activeCat,
         name: set.name,
         questions: set.questions,
-        order: set.qOrder ?? Object.keys(set.questions),
+        order: ord,
+        q_order: ord,
+        questions_order: ord,
       }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
+    await reloadSetsOpened();
   }
 
   async function deleteSet(name: string) {
@@ -462,17 +500,7 @@ export default function AdminMultipliersClient() {
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
-
-    // herladen sets
-    const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
-    const sj = await s.json();
-    const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
-      name: String(row?.name ?? ''),
-      questions: row?.questions ?? {},
-      qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
-    }));
-    setSets(incoming);
-    setOpenSet(null);
+    await reloadSetsOpened();
   }
 
   function updateSetQuestionTitle(setName: string, qk: string, title: string) {
@@ -595,7 +623,7 @@ export default function AdminMultipliersClient() {
     );
   }
 
-  /* ================== Per-model custom editor (backwards compat) ================== */
+  /* ================== Per-model ad-hoc custom (optioneel) ================== */
 
   async function startEditCustom(m: ModelRow) {
     if (m.uses_category) {
@@ -616,10 +644,18 @@ export default function AdminMultipliersClient() {
       alert('Los eerst de validatiefouten in de custom set op.');
       return;
     }
+    const ord = editOrder ?? Object.keys(editQs);
     const res = await fetch('/api/admin/multipliers/model/save', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: editModel, questions: editQs, tips: editTips, order: editOrder }),
+      body: JSON.stringify({
+        model: editModel,
+        questions: editQs,
+        tips: editTips,
+        order: ord,
+        q_order: ord,
+        questions_order: ord,
+      }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
@@ -750,7 +786,7 @@ export default function AdminMultipliersClient() {
         })}
       </div>
 
-      {/* Category editor (basis set) */}
+      {/* Category editor (basis set) — altijd zichtbaar/uitgeklapt */}
       <div className="bb-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Categorie-set {activeCat ? `— ${activeCat}` : ''}</h2>
@@ -871,7 +907,7 @@ export default function AdminMultipliersClient() {
         )}
       </div>
 
-      {/* Modellen-lijst + toggles + set-select */}
+      {/* Modellen-lijst + toggle-slider + set-select */}
       <div className="bb-card p-4">
         <div className="flex items-center justify-between">
           <h3 className="font-medium">Modellen in deze categorie</h3>
@@ -897,16 +933,26 @@ export default function AdminMultipliersClient() {
                   <tr key={m.model} className="border-t">
                     <td className="py-2 pr-3">{m.model}</td>
                     <td className="py-2 pr-3">
-                      <label className="inline-flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="accent-green-600"
-                          checked={m.uses_category}
-                          onChange={(e) => toggleModel(m, e.target.checked)}
-                        />
-                        <span className="text-xs text-gray-600">
-                          {m.uses_category ? 'Categorie' : 'Custom'}
-                        </span>
+                      {/* Toggle slider i.p.v. checkbox */}
+                      <label className="inline-flex items-center gap-2 select-none">
+                        <span className="text-xs text-gray-600">Custom</span>
+                        <button
+                          type="button"
+                          aria-pressed={m.uses_category}
+                          onClick={() => toggleModel(m, !m.uses_category)}
+                          className="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                          style={{ background: m.uses_category ? '#22c55e' : '#e5e7eb' }}
+                          title={m.uses_category ? 'Categorie-set actief' : 'Custom actief'}
+                        >
+                          <span
+                            className="inline-block h-5 w-5 transform rounded-full bg-white transition"
+                            style={{
+                              translate: m.uses_category ? '22px 0' : '2px 0',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                            }}
+                          />
+                        </button>
+                        <span className="text-xs text-gray-600">Categorie</span>
                       </label>
                     </td>
                     <td className="py-2 pr-3">
@@ -958,7 +1004,7 @@ export default function AdminMultipliersClient() {
         </div>
       </div>
 
-      {/* Lijst met beschikbare sets (uitklapbaar per rij) */}
+      {/* Lijst met beschikbare sets — standaard uitgeklapt */}
       <div className="bb-card p-4">
         <h3 className="font-medium mb-2">Beschikbare vragensets</h3>
         {sets.length === 0 ? (
@@ -968,7 +1014,7 @@ export default function AdminMultipliersClient() {
             {sets.map((s) => {
               const setErrs = validateQuestions(s.questions);
               const setHasErrs = hasErrors(setErrs);
-              const isOpen = openSet === s.name;
+              const isOpen = openSets[s.name] ?? true;
               return (
                 <div key={s.name} className="border rounded">
                   <div className="flex items-center justify-between px-3 py-2">
@@ -976,7 +1022,9 @@ export default function AdminMultipliersClient() {
                       <button
                         className="bb-btn"
                         title={isOpen ? 'Sluit' : 'Open'}
-                        onClick={() => setOpenSet(isOpen ? null : s.name)}
+                        onClick={() =>
+                          setOpenSets((prev) => ({ ...prev, [s.name]: !(prev[s.name] ?? true) }))
+                        }
                       >
                         {isOpen ? '▾' : '▸'}
                       </button>
@@ -1090,7 +1138,7 @@ export default function AdminMultipliersClient() {
         )}
       </div>
 
-      {/* Inline editor voor ad-hoc custom per-model (optioneel te behouden) */}
+      {/* Inline ad-hoc per-model editor (optioneel te behouden) */}
       {editModel && (
         <div className="bb-card p-4">
           <div className="flex items-center justify-between">
