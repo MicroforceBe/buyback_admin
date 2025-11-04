@@ -24,12 +24,13 @@ type ModelRow = { model: string; uses_category: boolean; has_custom: boolean };
 
 type QuestionErrors = {
   title?: AdminFieldError;
+  // ⬇️ Belangrijk: opties mogen undefined zijn als er géén fout is
   options?: Array<{
     key?: AdminFieldError;
     label?: AdminFieldError;
     type?: AdminFieldError;
     value?: AdminFieldError;
-  }>;
+  } | undefined>;
 };
 type ValidationErrors = {
   [qk: string]: QuestionErrors & { _questionKey?: AdminFieldError };
@@ -42,12 +43,11 @@ function normalizeKey(v: string) {
   return v.trim();
 }
 
-/** Strikte validatie voor de editor */
 function validateQuestions(qs: Questions): ValidationErrors {
   const errors: ValidationErrors = {};
   const questionKeys = Object.keys(qs);
 
-  // 1) Unieke question keys (case/space-insensitive? -> momenteel enkel trim)
+  // 1) Unieke question keys
   const seenQ = new Set<string>();
   for (const qk of questionKeys) {
     const nk = normalizeKey(qk);
@@ -58,11 +58,6 @@ function validateQuestions(qs: Questions): ValidationErrors {
     } else {
       seenQ.add(nk);
     }
-
-    // Optioneel: je kan titel verplicht maken
-    // if (!qs[qk]?.title?.trim()) {
-    //   errors[qk] = { ...(errors[qk] || {}), title: { message: 'Titel is verplicht.' } };
-    // }
   }
 
   // 2) Per vraag: unieke option keys + veldvalidaties
@@ -99,7 +94,7 @@ function validateQuestions(qs: Questions): ValidationErrors {
         rowErr.value = { type: 'validate', message: 'getal' };
       }
 
-      // Belangrijk: schrijf alleen iets wanneer er écht fouten zijn; anders undefined
+      // Alleen iets invullen als er echt fouten zijn
       optErrs[idx] = Object.keys(rowErr).length ? rowErr : undefined;
     });
 
@@ -138,14 +133,12 @@ export default function AdminMultipliersClient() {
   const [editTips, setEditTips] = useState<Record<string, string>>({});
   const [editDirty, setEditDirty] = useState(false);
 
-  // Validatie-status
   const baseErrors = useMemo(() => validateQuestions(baseQs), [baseQs]);
   const baseHasErrors = useMemo(() => hasErrors(baseErrors), [baseErrors]);
 
   const editErrors = useMemo(() => validateQuestions(editQs), [editQs]);
   const editHasErrors = useMemo(() => hasErrors(editErrors), [editErrors]);
 
-  // Load categories on mount
   useEffect(() => {
     (async () => {
       const r = await fetch('/api/admin/multipliers/categories', { cache: 'no-store' });
@@ -155,10 +148,8 @@ export default function AdminMultipliersClient() {
         setActiveCat((prev) => prev ?? j.categories[0].name);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load category content
   useEffect(() => {
     if (!activeCat) return;
     setLoading(true);
@@ -175,7 +166,6 @@ export default function AdminMultipliersClient() {
     })().finally(() => setLoading(false));
   }, [activeCat]);
 
-  /* ------------------------- helpers: base (category) ------------------------ */
   function addBaseQuestion() {
     const qk = prompt('Nieuwe vraag-sleutel (bijv. "battery", "screen")?')?.trim();
     if (!qk) return;
@@ -218,7 +208,6 @@ export default function AdminMultipliersClient() {
     setBaseQs((prev) => {
       const block = prev[qk] ?? { options: [] as QOption[] };
       const opts = [...(block.options ?? [])];
-      // default percent 1.0
       opts.push({
         key: `opt_${opts.length + 1}`,
         label: '',
@@ -286,7 +275,6 @@ export default function AdminMultipliersClient() {
     setBaseDirty(false);
   }
 
-  /* ---------------------------- helpers: models list ---------------------------- */
   async function toggleModel(m: ModelRow, useCategory: boolean) {
     if (!activeCat) return;
     const res = await fetch('/api/admin/multipliers/model/toggle', {
@@ -297,7 +285,6 @@ export default function AdminMultipliersClient() {
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
 
-    // refresh list
     const r = await fetch(
       `/api/admin/multipliers/category?category=${encodeURIComponent(activeCat)}`,
       { cache: 'no-store' }
@@ -307,13 +294,11 @@ export default function AdminMultipliersClient() {
   }
 
   async function startEditCustom(m: ModelRow) {
-    // Als het model nog categorie gebruikt, eerst custom aanmaken (copy from category)
     if (m.uses_category) {
       await toggleModel(m, false);
     }
     setEditModel(m.model);
 
-    // Init editor met kopie van category-set als er nog geen custom was
     const baseQsClone = deepClone(baseQs || {});
     const baseTipsClone = deepClone(baseTips || {});
     setEditQs(baseQsClone);
@@ -337,7 +322,6 @@ export default function AdminMultipliersClient() {
     setEditDirty(false);
     setEditModel(null);
 
-    // Refresh overzicht
     if (activeCat) {
       const r = await fetch(
         `/api/admin/multipliers/category?category=${encodeURIComponent(activeCat)}`,
@@ -348,7 +332,6 @@ export default function AdminMultipliersClient() {
     }
   }
 
-  /* ------------------------- helpers: edit (custom model) ------------------------ */
   function addEditQuestion() {
     const qk = prompt('Nieuwe vraag-sleutel?')?.trim();
     if (!qk) return;
