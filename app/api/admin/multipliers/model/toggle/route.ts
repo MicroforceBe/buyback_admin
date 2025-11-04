@@ -1,57 +1,68 @@
-// app/api/admin/multipliers/model/toggle/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+import { createClient } from '@supabase/supabase-js';
 
-function sb() {
-  const any: any = supabaseAdminExport as any;
-  return typeof any === 'function' ? any() : any;
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-/**
- * Body:
- * { model: string, category: string, use_category: boolean }
- * - use_category = true  => verwijder custom per-model rij (valt terug op category-json)
- * - use_category = false => maak custom per-model aan, initieel gekopieerd van category-json
- */
 export async function POST(req: Request) {
-  const s = sb();
   const body = await req.json().catch(() => ({}));
   const model = (body?.model || '').trim();
   const category = (body?.category || '').trim();
   const useCategory = !!body?.use_category;
 
-  if (!model || !category) {
-    return NextResponse.json({ error: 'model & category required' }, { status: 400 });
-  }
+  if (!model || !category)
+    return NextResponse.json({ error: 'model en category vereist' }, { status: 400 });
 
   if (useCategory) {
-    // Verwijder custom override
-    const { error } = await s
+    // Verwijder custom (terug naar categorie)
+    const { error } = await supabase
       .from('buyback_multipliers_per_model_json')
       .delete()
       .eq('model', model);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, removed_custom: true });
-  } else {
-    // Kopieer uit category naar per-model
-    const { data: base, error: e1 } = await s
-      .from('buyback_multipliers_per_category_json')
-      .select('questions_json,tips_json')
-      .eq('category', category)
-      .maybeSingle();
-
-    if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
-
-    const questions = base?.questions_json ?? {};
-    const tips = base?.tips_json ?? {};
-
-    const { error: e2 } = await s
-      .from('buyback_multipliers_per_model_json')
-      .upsert({ model, questions_json: questions, tips_json: tips });
-    if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
-
-    return NextResponse.json({ ok: true, created_custom: true });
+    return NextResponse.json({ ok: true, mode: 'category' });
   }
+
+  // Custom aanmaken op basis van categorie JSON
+  const { data: base } = await supabase
+    .from('buyback_multipliers_per_category_json')
+    .select('questions_json, tips_json')
+    .eq('category', category)
+    .maybeSingle();
+
+  const questions = base?.questions_json ?? {};
+  const tips = base?.tips_json ?? {};
+
+  const titles: Record<string, string | null> = {};
+  const options: Record<string, any[]> = {};
+  for (const [qk, block] of Object.entries(questions as any)) {
+    titles[qk] = block?.title ?? null;
+    options[qk] = (block?.options ?? []).map((o: any) => ({
+      key: String(o?.key ?? ''),
+      label: o?.label ?? null,
+      tip: o?.tip ?? null,
+      type: o?.type === 'fixed' ? 'fixed' : 'percent',
+      value: Number(o?.value ?? 1),
+      priority: o?.priority ?? null,
+      active: o?.active ?? true,
+    }));
+  }
+
+  const { error } = await supabase
+    .from('buyback_multipliers_per_model_json')
+    .upsert(
+      {
+        model,
+        titles,
+        options,
+        tips,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'model' }
+    );
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, mode: 'custom' });
 }
