@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+/* ================== Types ================== */
+
 type AdminFieldError = { type?: string; message?: string };
 
 type QType = 'percent' | 'fixed';
@@ -20,11 +22,16 @@ type QOption = {
 type Questions = Record<string, { title?: string | null; options: QOption[] }>;
 
 type CategoryInfo = { name: string; has_json: boolean };
-type ModelRow = { model: string; uses_category: boolean; has_custom: boolean };
+type ModelRow = {
+  model: string;
+  uses_category: boolean;
+  has_custom: boolean;
+  // server mag dit meesturen; anders blijft het undefined
+  assigned_set?: string | null;
+};
 
 type QuestionErrors = {
   title?: AdminFieldError;
-  // ⬇️ Belangrijk: opties mogen undefined zijn als er géén fout is
   options?: Array<{
     key?: AdminFieldError;
     label?: AdminFieldError;
@@ -36,11 +43,28 @@ type ValidationErrors = {
   [qk: string]: QuestionErrors & { _questionKey?: AdminFieldError };
 };
 
+type QuestionSet = {
+  // Unieke naam binnen categorie
+  name: string;
+  // Inhoud
+  questions: Questions;
+  // Volgorde van vragen (keys)
+  qOrder?: string[];
+};
+
+/* ================== Utils ================== */
+
 function deepClone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
 function normalizeKey(v: string) {
   return v.trim();
+}
+function orderedEntries(qs: Questions, qOrder?: string[]) {
+  const keys = qOrder && qOrder.length ? qOrder : Object.keys(qs);
+  return keys
+    .filter((k) => qs[k])
+    .map((k) => [k, qs[k]] as const);
 }
 
 function validateQuestions(qs: Questions): ValidationErrors {
@@ -94,19 +118,16 @@ function validateQuestions(qs: Questions): ValidationErrors {
         rowErr.value = { type: 'validate', message: 'getal' };
       }
 
-      // Alleen iets invullen als er echt fouten zijn
       optErrs[idx] = Object.keys(rowErr).length ? rowErr : undefined;
     });
 
-    // Alleen toewijzen wanneer er effectief fouten zijn in minstens één rij
-    if (optErrs.some(e => e && Object.keys(e).length > 0)) {
+    if (optErrs.some((e) => e && Object.keys(e).length > 0)) {
       errors[qk] = { ...(errors[qk] || {}), options: optErrs };
     }
   }
 
   return errors;
 }
-
 function hasErrors(errs: ValidationErrors) {
   return Object.keys(errs).some((k) => {
     const v = errs[k];
@@ -118,27 +139,41 @@ function hasErrors(errs: ValidationErrors) {
   });
 }
 
+/* ================== Component ================== */
+
 export default function AdminMultipliersClient() {
+  /* ---- Categorie + basis set (default) ---- */
   const [cats, setCats] = useState<CategoryInfo[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<ModelRow[]>([]);
+
+  // Basis (categorie) set
   const [baseQs, setBaseQs] = useState<Questions>({});
+  const [baseOrder, setBaseOrder] = useState<string[]>([]);
   const [baseTips, setBaseTips] = useState<Record<string, string>>({});
   const [baseDirty, setBaseDirty] = useState(false);
 
+  // Beschikbare custom sets binnen deze categorie
+  const [sets, setSets] = useState<QuestionSet[]>([]);
+  const [openSet, setOpenSet] = useState<string | null>(null); // UI: uitklapper
+
+  /* ---- Per-model custom editor (legacy) ---- */
   const [editModel, setEditModel] = useState<string | null>(null);
   const [editQs, setEditQs] = useState<Questions>({});
+  const [editOrder, setEditOrder] = useState<string[]>([]);
   const [editTips, setEditTips] = useState<Record<string, string>>({});
   const [editDirty, setEditDirty] = useState(false);
 
+  /* ---- Validatie ---- */
   const baseErrors = useMemo(() => validateQuestions(baseQs), [baseQs]);
   const baseHasErrors = useMemo(() => hasErrors(baseErrors), [baseErrors]);
 
   const editErrors = useMemo(() => validateQuestions(editQs), [editQs]);
   const editHasErrors = useMemo(() => hasErrors(editErrors), [editErrors]);
 
+  /* ---- Init ---- */
   useEffect(() => {
     (async () => {
       const r = await fetch('/api/admin/multipliers/categories', { cache: 'no-store' });
@@ -150,21 +185,55 @@ export default function AdminMultipliersClient() {
     })();
   }, []);
 
+  /* ---- Load category data ---- */
   useEffect(() => {
     if (!activeCat) return;
     setLoading(true);
     (async () => {
+      // 1) basis + modellen
       const r = await fetch(
         `/api/admin/multipliers/category?category=${encodeURIComponent(activeCat)}`,
         { cache: 'no-store' }
       );
       const j = await r.json();
+
       setModels(j.models ?? []);
-      setBaseQs(j.base?.questions ?? {});
+      const qBase: Questions = j.base?.questions ?? {};
+      setBaseQs(qBase);
+      setBaseOrder(j.base?.order && Array.isArray(j.base.order) ? j.base.order : Object.keys(qBase));
       setBaseTips(j.base?.tips ?? {});
       setBaseDirty(false);
+
+      // 2) sets binnen categorie (exclusief de basis)
+      const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
+      const sj = await s.json();
+      const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
+        name: String(row?.name ?? ''),
+        questions: row?.questions ?? {},
+        qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
+      }));
+      setSets(incoming);
+      setOpenSet(null);
     })().finally(() => setLoading(false));
   }, [activeCat]);
+
+  /* ================== Helpers: vraag-volgorde ================== */
+
+  function moveQuestion(order: string[], qs: Questions, key: string, dir: -1 | 1): string[] {
+    const idx = order.indexOf(key);
+    if (idx < 0) return order;
+    const to = idx + dir;
+    if (to < 0 || to >= order.length) return order;
+    const next = [...order];
+    const [it] = next.splice(idx, 1);
+    next.splice(to, 0, it);
+    // sanity: verwijder keys die niet bestaan en voeg missende toe achteraan
+    const onlyExisting = next.filter((k) => !!qs[k]);
+    const missing = Object.keys(qs).filter((k) => !onlyExisting.includes(k));
+    return [...onlyExisting, ...missing];
+  }
+
+  /* ================== Basis set (categorie) actions ================== */
 
   function addBaseQuestion() {
     const qk = prompt('Nieuwe vraag-sleutel (bijv. "battery", "screen")?')?.trim();
@@ -173,10 +242,8 @@ export default function AdminMultipliersClient() {
       alert('Die vraag-sleutel bestaat al.');
       return;
     }
-    setBaseQs((prev) => ({
-      ...prev,
-      [qk]: { title: '', options: [] },
-    }));
+    setBaseQs((prev) => ({ ...prev, [qk]: { title: '', options: [] } }));
+    setBaseOrder((prev) => [...prev, qk]);
     setBaseDirty(true);
   }
   function renameBaseQuestion(oldKey: string) {
@@ -192,6 +259,7 @@ export default function AdminMultipliersClient() {
       delete copy[oldKey];
       return copy;
     });
+    setBaseOrder((prev) => prev.map((k) => (k === oldKey ? newKey : k)));
     setBaseDirty(true);
   }
   function removeBaseQuestion(qk: string) {
@@ -201,6 +269,11 @@ export default function AdminMultipliersClient() {
       delete copy[qk];
       return copy;
     });
+    setBaseOrder((prev) => prev.filter((k) => k !== qk));
+    setBaseDirty(true);
+  }
+  function moveBaseQuestion(qk: string, dir: -1 | 1) {
+    setBaseOrder((prev) => moveQuestion(prev, baseQs, qk, dir));
     setBaseDirty(true);
   }
 
@@ -265,7 +338,7 @@ export default function AdminMultipliersClient() {
     const res = await fetch('/api/admin/multipliers/category', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ category: activeCat, questions: baseQs, tips: baseTips }),
+      body: JSON.stringify({ category: activeCat, questions: baseQs, tips: baseTips, order: baseOrder }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -275,12 +348,37 @@ export default function AdminMultipliersClient() {
     setBaseDirty(false);
   }
 
+  /* ================== Modellen: toggle + set toewijzing ================== */
+
   async function toggleModel(m: ModelRow, useCategory: boolean) {
     if (!activeCat) return;
     const res = await fetch('/api/admin/multipliers/model/toggle', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model: m.model, category: activeCat, use_category: useCategory }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(j?.error || res.status);
+
+    // herladen lijst
+    const r = await fetch(
+      `/api/admin/multipliers/category?category=${encodeURIComponent(activeCat)}`,
+      { cache: 'no-store' }
+    );
+    const d = await r.json();
+    setModels(d.models ?? []);
+  }
+
+  async function assignModelSet(m: ModelRow, setName: string | '') {
+    if (!activeCat) return;
+    const res = await fetch('/api/admin/multipliers/model/assign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: m.model,
+        category: activeCat,
+        set: setName || null, // leeg => geen custom set
+      }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
@@ -293,6 +391,212 @@ export default function AdminMultipliersClient() {
     setModels(d.models ?? []);
   }
 
+  /* ================== Custom sets beheer (per categorie) ================== */
+
+  async function createSet() {
+    if (!activeCat) return;
+    const name = prompt('Naam voor nieuwe custom set (uniek binnen categorie)?')?.trim();
+    if (!name) return;
+
+    const mode = window.confirm('Wil je starten met een kopie van de categorie-set?\nOK = kopie • Annuleren = leeg')
+      ? 'copy_base'
+      : 'empty';
+
+    const payload: any = { category: activeCat, name };
+    if (mode === 'empty') {
+      payload.questions = {};
+      payload.order = [];
+    } else {
+      payload.questions = deepClone(baseQs);
+      payload.order = [...baseOrder];
+    }
+
+    const res = await fetch('/api/admin/multipliers/set/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(j?.error || res.status);
+
+    // herladen sets
+    const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
+    const sj = await s.json();
+    const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
+      name: String(row?.name ?? ''),
+      questions: row?.questions ?? {},
+      qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
+    }));
+    setSets(incoming);
+    setOpenSet(name);
+  }
+
+  async function saveSet(set: QuestionSet) {
+    if (!activeCat) return;
+    const errs = validateQuestions(set.questions);
+    if (hasErrors(errs)) {
+      alert(`Validatiefouten in set "${set.name}".`);
+      return;
+    }
+    const res = await fetch('/api/admin/multipliers/set/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        category: activeCat,
+        name: set.name,
+        questions: set.questions,
+        order: set.qOrder ?? Object.keys(set.questions),
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(j?.error || res.status);
+  }
+
+  async function deleteSet(name: string) {
+    if (!activeCat) return;
+    if (!confirm(`Set "${name}" verwijderen?`)) return;
+    const res = await fetch('/api/admin/multipliers/set/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ category: activeCat, name }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(j?.error || res.status);
+
+    // herladen sets
+    const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
+    const sj = await s.json();
+    const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
+      name: String(row?.name ?? ''),
+      questions: row?.questions ?? {},
+      qOrder: Array.isArray(row?.order) ? row.order : Object.keys(row?.questions ?? {}),
+    }));
+    setSets(incoming);
+    setOpenSet(null);
+  }
+
+  function updateSetQuestionTitle(setName: string, qk: string, title: string) {
+    setSets((prev) =>
+      prev.map((s) =>
+        s.name !== setName
+          ? s
+          : { ...s, questions: { ...s.questions, [qk]: { ...(s.questions[qk] ?? { options: [] }), title } } }
+      )
+    );
+  }
+  function addSetQuestion(setName: string) {
+    const qk = prompt('Nieuwe vraag-sleutel?')?.trim();
+    if (!qk) return;
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        if (s.questions[qk]) {
+          alert('Die vraag-sleutel bestaat al.');
+          return s;
+        }
+        const qs = { ...s.questions, [qk]: { title: '', options: [] } };
+        const order = [...(s.qOrder ?? Object.keys(s.questions)), qk];
+        return { ...s, questions: qs, qOrder: order };
+      })
+    );
+  }
+  function renameSetQuestion(setName: string, oldKey: string) {
+    const newKey = prompt('Nieuwe sleutel voor deze vraag?', oldKey)?.trim();
+    if (!newKey || newKey === oldKey) return;
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        if (s.questions[newKey]) {
+          alert('Die vraag-sleutel bestaat al.');
+          return s;
+        }
+        const qs = deepClone(s.questions);
+        qs[newKey] = qs[oldKey];
+        delete qs[oldKey];
+        const order = (s.qOrder ?? Object.keys(s.questions)).map((k) => (k === oldKey ? newKey : k));
+        return { ...s, questions: qs, qOrder: order };
+      })
+    );
+  }
+  function removeSetQuestion(setName: string, qk: string) {
+    if (!confirm(`Vraag "${qk}" verwijderen?`)) return;
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const qs = deepClone(s.questions);
+        delete qs[qk];
+        const order = (s.qOrder ?? Object.keys(s.questions)).filter((k) => k !== qk);
+        return { ...s, questions: qs, qOrder: order };
+      })
+    );
+  }
+  function moveSetQuestion(setName: string, qk: string, dir: -1 | 1) {
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const order = moveQuestion(s.qOrder ?? Object.keys(s.questions), s.questions, qk, dir);
+        return { ...s, qOrder: order };
+      })
+    );
+  }
+  function updateSetOption(setName: string, qk: string, idx: number, patch: Partial<QOption>) {
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const blk = s.questions[qk] ?? { options: [] as QOption[] };
+        const next = [...(blk.options ?? [])];
+        next[idx] = { ...next[idx], ...patch };
+        return { ...s, questions: { ...s.questions, [qk]: { ...blk, options: next } } };
+      })
+    );
+  }
+  function addSetOption(setName: string, qk: string) {
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const blk = s.questions[qk] ?? { options: [] as QOption[] };
+        const next = [...(blk.options ?? [])];
+        next.push({
+          key: `opt_${next.length + 1}`,
+          label: '',
+          tip: '',
+          type: 'percent',
+          value: 1,
+          priority: (next.length + 1) * 10,
+          active: true,
+        });
+        return { ...s, questions: { ...s.questions, [qk]: { ...blk, options: next } } };
+      })
+    );
+  }
+  function removeSetOption(setName: string, qk: string, idx: number) {
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const blk = s.questions[qk] ?? { options: [] as QOption[] };
+        const next = [...(blk.options ?? [])];
+        next.splice(idx, 1);
+        return { ...s, questions: { ...s.questions, [qk]: { ...blk, options: next } } };
+      })
+    );
+  }
+  function moveSetOption(setName: string, qk: string, idx: number, dir: -1 | 1) {
+    setSets((prev) =>
+      prev.map((s) => {
+        if (s.name !== setName) return s;
+        const blk = s.questions[qk] ?? { options: [] as QOption[] };
+        const next = [...(blk.options ?? [])];
+        const to = idx + dir;
+        if (to < 0 || to >= next.length) return s;
+        const [it] = next.splice(idx, 1);
+        next.splice(to, 0, it);
+        return { ...s, questions: { ...s.questions, [qk]: { ...blk, options: next } } };
+      })
+    );
+  }
+
+  /* ================== Per-model custom editor (backwards compat) ================== */
+
   async function startEditCustom(m: ModelRow) {
     if (m.uses_category) {
       await toggleModel(m, false);
@@ -300,9 +604,9 @@ export default function AdminMultipliersClient() {
     setEditModel(m.model);
 
     const baseQsClone = deepClone(baseQs || {});
-    const baseTipsClone = deepClone(baseTips || {});
     setEditQs(baseQsClone);
-    setEditTips(baseTipsClone);
+    setEditOrder([...baseOrder]);
+    setEditTips({});
     setEditDirty(false);
   }
 
@@ -315,7 +619,7 @@ export default function AdminMultipliersClient() {
     const res = await fetch('/api/admin/multipliers/model/save', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: editModel, questions: editQs, tips: editTips }),
+      body: JSON.stringify({ model: editModel, questions: editQs, tips: editTips, order: editOrder }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
@@ -340,6 +644,7 @@ export default function AdminMultipliersClient() {
       return;
     }
     setEditQs((prev) => ({ ...prev, [qk]: { title: '', options: [] } }));
+    setEditOrder((prev) => [...prev, qk]);
     setEditDirty(true);
   }
   function renameEditQuestion(oldKey: string) {
@@ -355,6 +660,7 @@ export default function AdminMultipliersClient() {
       delete copy[oldKey];
       return copy;
     });
+    setEditOrder((prev) => prev.map((k) => (k === oldKey ? newKey : k)));
     setEditDirty(true);
   }
   function removeEditQuestion(qk: string) {
@@ -364,6 +670,11 @@ export default function AdminMultipliersClient() {
       delete copy[qk];
       return copy;
     });
+    setEditOrder((prev) => prev.filter((k) => k !== qk));
+    setEditDirty(true);
+  }
+  function moveEditQuestion(qk: string, dir: -1 | 1) {
+    setEditOrder((prev) => moveQuestion(prev, editQs, qk, dir));
     setEditDirty(true);
   }
   function addEditOption(qk: string) {
@@ -418,6 +729,8 @@ export default function AdminMultipliersClient() {
     setEditDirty(true);
   }
 
+  /* ================== Render ================== */
+
   return (
     <div className="space-y-4">
       {/* Tabs */}
@@ -437,7 +750,7 @@ export default function AdminMultipliersClient() {
         })}
       </div>
 
-      {/* Category editor */}
+      {/* Category editor (basis set) */}
       <div className="bb-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Categorie-set {activeCat ? `— ${activeCat}` : ''}</h2>
@@ -458,11 +771,11 @@ export default function AdminMultipliersClient() {
           <div className="text-sm text-gray-500 mt-3">Laden…</div>
         ) : (
           <div className="mt-3 space-y-5">
-            {Object.entries(baseQs).length === 0 && (
+            {orderedEntries(baseQs, baseOrder).length === 0 && (
               <div className="text-sm text-gray-500">Nog geen vragen. Voeg vragen toe.</div>
             )}
 
-            {Object.entries(baseQs).map(([qk, block]) => {
+            {orderedEntries(baseQs, baseOrder).map(([qk, block]) => {
               const qErr = baseErrors[qk];
               return (
                 <div key={qk} className="border rounded p-3">
@@ -482,6 +795,10 @@ export default function AdminMultipliersClient() {
                       placeholder={`Titel voor ${qk}`}
                       title={qErr?.title?.message}
                     />
+                    <div className="flex gap-1">
+                      <button className="bb-btn" title="Vraag omhoog" onClick={() => moveBaseQuestion(qk, -1)}>↑</button>
+                      <button className="bb-btn" title="Vraag omlaag" onClick={() => moveBaseQuestion(qk, 1)}>↓</button>
+                    </div>
                     <button className="bb-btn" onClick={() => removeBaseQuestion(qk)}>Verwijder vraag</button>
                   </div>
 
@@ -554,58 +871,84 @@ export default function AdminMultipliersClient() {
         )}
       </div>
 
-      {/* Modellen-lijst + toggles */}
+      {/* Modellen-lijst + toggles + set-select */}
       <div className="bb-card p-4">
-        <h3 className="font-medium mb-3">Modellen in deze categorie</h3>
-        <div className="overflow-x-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">Modellen in deze categorie</h3>
+          <div className="flex gap-2">
+            <button className="bb-btn" onClick={createSet}>+ Nieuwe custom set</button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto mt-2">
           <table className="w-full text-sm">
             <thead className="text-left text-gray-600">
               <tr>
                 <th className="py-2 pr-3">Model</th>
                 <th className="py-2 pr-3">Gebruik categorie-set</th>
+                <th className="py-2 pr-3">Custom set</th>
                 <th className="py-2 pr-3">Acties</th>
               </tr>
             </thead>
             <tbody>
-              {models.map((m) => (
-                <tr key={m.model} className="border-t">
-                  <td className="py-2 pr-3">{m.model}</td>
-                  <td className="py-2 pr-3">
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="accent-green-600"
-                        checked={m.uses_category}
-                        onChange={(e) => toggleModel(m, e.target.checked)}
-                      />
-                      <span className="text-xs text-gray-600">
-                        {m.uses_category ? 'Categorie' : 'Custom'}
-                      </span>
-                    </label>
-                  </td>
-                  <td className="py-2 pr-3">
-                    <div className="flex gap-2">
-                      {!m.uses_category && (
-                        <button className="bb-btn" onClick={() => startEditCustom(m)}>
-                          Bewerk custom
-                        </button>
-                      )}
-                      {!m.uses_category && (
-                        <button
-                          className="bb-btn"
-                          onClick={() => toggleModel(m, true)}
-                          title="Verwijder custom en gebruik categorie-set"
+              {models.map((m) => {
+                const assigned = (m as any).assigned_set as string | null | undefined;
+                return (
+                  <tr key={m.model} className="border-t">
+                    <td className="py-2 pr-3">{m.model}</td>
+                    <td className="py-2 pr-3">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="accent-green-600"
+                          checked={m.uses_category}
+                          onChange={(e) => toggleModel(m, e.target.checked)}
+                        />
+                        <span className="text-xs text-gray-600">
+                          {m.uses_category ? 'Categorie' : 'Custom'}
+                        </span>
+                      </label>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {!m.uses_category ? (
+                        <select
+                          className="border rounded px-2 py-1 bg-white"
+                          value={assigned || ''}
+                          onChange={(e) => assignModelSet(m, e.target.value)}
                         >
-                          Reset → categorie
-                        </button>
+                          <option value="">— kies set —</option>
+                          {sets.map((s) => (
+                            <option key={s.name} value={s.name}>{s.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-gray-400">—</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex gap-2">
+                        {!m.uses_category && (
+                          <button className="bb-btn" onClick={() => startEditCustom(m)}>
+                            Bewerk ad hoc (los van set)
+                          </button>
+                        )}
+                        {!m.uses_category && (
+                          <button
+                            className="bb-btn"
+                            onClick={() => toggleModel(m, true)}
+                            title="Verwijder custom en gebruik categorie-set"
+                          >
+                            Reset → categorie
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {models.length === 0 && (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={3}>
+                  <td className="py-3 text-gray-500" colSpan={4}>
                     Geen modellen gevonden.
                   </td>
                 </tr>
@@ -615,11 +958,143 @@ export default function AdminMultipliersClient() {
         </div>
       </div>
 
-      {/* Inline editor voor custom per-model */}
+      {/* Lijst met beschikbare sets (uitklapbaar per rij) */}
+      <div className="bb-card p-4">
+        <h3 className="font-medium mb-2">Beschikbare vragensets</h3>
+        {sets.length === 0 ? (
+          <div className="text-sm text-gray-500">Nog geen custom sets. Maak er één via “+ Nieuwe custom set”.</div>
+        ) : (
+          <div className="space-y-2">
+            {sets.map((s) => {
+              const setErrs = validateQuestions(s.questions);
+              const setHasErrs = hasErrors(setErrs);
+              const isOpen = openSet === s.name;
+              return (
+                <div key={s.name} className="border rounded">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="bb-btn"
+                        title={isOpen ? 'Sluit' : 'Open'}
+                        onClick={() => setOpenSet(isOpen ? null : s.name)}
+                      >
+                        {isOpen ? '▾' : '▸'}
+                      </button>
+                      <div className="font-medium">{s.name}</div>
+                      {setHasErrs && <span className="text-xs text-red-600">• validatiefouten</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="bb-btn" onClick={() => saveSet(s)}>Bewaar set</button>
+                      <button className="bb-btn" onClick={() => deleteSet(s.name)}>Verwijder set</button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="px-3 pb-3 space-y-4">
+                      <div>
+                        <button className="bb-btn" onClick={() => addSetQuestion(s.name)}>+ Vraag</button>
+                      </div>
+
+                      {orderedEntries(s.questions, s.qOrder).map(([qk, block]) => {
+                        const qErr = setErrs[qk];
+                        return (
+                          <div key={qk} className="border rounded p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <input
+                                className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
+                                defaultValue={qk}
+                                readOnly
+                                title={qErr?._questionKey?.message}
+                              />
+                              <button className="bb-btn" onClick={() => renameSetQuestion(s.name, qk)}>Hernoem sleutel</button>
+
+                              <input
+                                className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
+                                value={block?.title ?? ''}
+                                onChange={(e) => updateSetQuestionTitle(s.name, qk, e.target.value)}
+                                placeholder={`Titel voor ${qk}`}
+                                title={qErr?.title?.message}
+                              />
+                              <div className="flex gap-1">
+                                <button className="bb-btn" title="Vraag omhoog" onClick={() => moveSetQuestion(s.name, qk, -1)}>↑</button>
+                                <button className="bb-btn" title="Vraag omlaag" onClick={() => moveSetQuestion(s.name, qk, 1)}>↓</button>
+                              </div>
+                              <button className="bb-btn" onClick={() => removeSetQuestion(s.name, qk)}>Verwijder vraag</button>
+                            </div>
+
+                            <div className="space-y-2">
+                              {(block?.options ?? []).map((o, idx) => {
+                                const oe = qErr?.options?.[idx];
+                                return (
+                                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                    <input
+                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
+                                      value={o.label ?? ''}
+                                      onChange={(e) => updateSetOption(s.name, qk, idx, { label: e.target.value })}
+                                      placeholder="Label"
+                                      title={oe?.label?.message}
+                                    />
+                                    <input
+                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
+                                      value={o.key}
+                                      onChange={(e) => updateSetOption(s.name, qk, idx, { key: e.target.value })}
+                                      placeholder="Key"
+                                      title={oe?.key?.message}
+                                    />
+                                    <select
+                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
+                                      value={o.type}
+                                      onChange={(e) => updateSetOption(s.name, qk, idx, { type: e.target.value as QType })}
+                                      title={oe?.type?.message}
+                                    >
+                                      <option value="percent">percent</option>
+                                      <option value="fixed">fixed</option>
+                                    </select>
+                                    <input
+                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
+                                      type="number"
+                                      step={o.type === 'percent' ? 0.01 : 1}
+                                      value={o.value}
+                                      onChange={(e) => updateSetOption(s.name, qk, idx, { value: Number(e.target.value) })}
+                                      placeholder={o.type === 'percent' ? '1.00' : '100'}
+                                      title={oe?.value?.message}
+                                    />
+                                    <input
+                                      className="border rounded px-2 py-1 col-span-2"
+                                      value={o.tip ?? ''}
+                                      onChange={(e) => updateSetOption(s.name, qk, idx, { tip: e.target.value })}
+                                      placeholder="tip"
+                                    />
+                                    <div className="col-span-2 flex gap-2">
+                                      <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, -1)} title="Omhoog">↑</button>
+                                      <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, 1)} title="Omlaag">↓</button>
+                                      <button className="bb-btn" onClick={() => removeSetOption(s.name, qk, idx)}>Verwijder</button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div className="mt-2">
+                              <button className="bb-btn" onClick={() => addSetOption(s.name, qk)}>+ Optie</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Inline editor voor ad-hoc custom per-model (optioneel te behouden) */}
       {editModel && (
         <div className="bb-card p-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium">Custom multipliers — {editModel}</h3>
+            <h3 className="font-medium">Ad hoc custom (los van set) — {editModel}</h3>
             <div className="flex gap-2">
               <button className="bb-btn" onClick={() => setEditModel(null)}>
                 Annuleren
@@ -640,7 +1115,7 @@ export default function AdminMultipliersClient() {
           </div>
 
           <div className="mt-3 space-y-5">
-            {Object.entries(editQs).map(([qk, block]) => {
+            {orderedEntries(editQs, editOrder).map(([qk, block]) => {
               const qErr = editErrors[qk];
               return (
                 <div key={qk} className="border rounded p-3">
@@ -662,6 +1137,10 @@ export default function AdminMultipliersClient() {
                       placeholder={`Titel voor ${qk}`}
                       title={qErr?.title?.message}
                     />
+                    <div className="flex gap-1">
+                      <button className="bb-btn" title="Vraag omhoog" onClick={() => moveEditQuestion(qk, -1)}>↑</button>
+                      <button className="bb-btn" title="Vraag omlaag" onClick={() => moveEditQuestion(qk, 1)}>↓</button>
+                    </div>
                     <button className="bb-btn" onClick={() => removeEditQuestion(qk)}>
                       Verwijder vraag
                     </button>
