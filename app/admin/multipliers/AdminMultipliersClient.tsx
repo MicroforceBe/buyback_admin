@@ -67,7 +67,6 @@ function validateQuestions(qs: Questions): ValidationErrors {
   const errors: ValidationErrors = {};
   const questionKeys = Object.keys(qs);
 
-  // 1) Unieke question keys
   const seenQ = new Set<string>();
   for (const qk of questionKeys) {
     const nk = normalizeKey(qk);
@@ -80,7 +79,6 @@ function validateQuestions(qs: Questions): ValidationErrors {
     }
   }
 
-  // 2) Per vraag: unieke option keys + veldvalidaties
   for (const qk of questionKeys) {
     const block = qs[qk];
     const options = block?.options ?? [];
@@ -138,7 +136,7 @@ function hasErrors(errs: ValidationErrors) {
 /* ================== Component ================== */
 
 export default function AdminMultipliersClient() {
-  /* ---- Categorie + basis set ---- */
+  /* ---- Categorie + sets ---- */
   const [cats, setCats] = useState<CategoryInfo[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
@@ -172,7 +170,7 @@ export default function AdminMultipliersClient() {
   const editErrors = useMemo(() => validateQuestions(editQs), [editQs]);
   const editHasErrors = useMemo(() => hasErrors(editErrors), [editErrors]);
 
-  /* ---- Init: enkel categorie-lijst ophalen, GEEN auto-select ---- */
+  /* ---- Init ---- */
   useEffect(() => {
     (async () => {
       const r = await fetch('/api/admin/multipliers/categories', { cache: 'no-store' });
@@ -181,10 +179,9 @@ export default function AdminMultipliersClient() {
     })();
   }, []);
 
-  /* ---- Load category data NA keuze ---- */
+  /* ---- Load NA categorie-keuze ---- */
   useEffect(() => {
     if (!activeCat) {
-      // reset bij wisselen/geen keuze
       setModels([]);
       setBaseQs({});
       setBaseOrder([]);
@@ -192,7 +189,7 @@ export default function AdminMultipliersClient() {
       setBaseDirty(false);
       setSets([]);
       setOpenSets({});
-      setOpenBase(false); // standaard dicht
+      setOpenBase(false);
       return;
     }
 
@@ -217,7 +214,7 @@ export default function AdminMultipliersClient() {
       setBaseTips(j.base?.tips ?? {});
       setBaseDirty(false);
 
-      // 2) sets binnen categorie (exclusief basis)
+      // 2) sets (exclusief basis)
       const s = await fetch(`/api/admin/multipliers/sets?category=${encodeURIComponent(activeCat)}`, { cache: 'no-store' });
       const sj = await s.json();
       const incoming: QuestionSet[] = (sj?.sets ?? []).map((row: any) => ({
@@ -231,12 +228,10 @@ export default function AdminMultipliersClient() {
       }));
       setSets(incoming);
 
-      // Alle custom sets dicht
       const allClosed: Record<string, boolean> = {};
       for (const it of incoming) allClosed[it.name] = false;
       setOpenSets(allClosed);
 
-      // categorie-set ook dicht
       setOpenBase(false);
     })().finally(() => setLoading(false));
   }, [activeCat]);
@@ -413,12 +408,19 @@ export default function AdminMultipliersClient() {
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return alert(j?.error || res.status);
 
-    const r = await fetch(
-      `/api/admin/multipliers/category?category=${encodeURIComponent(activeCat)}`,
-      { cache: 'no-store' }
+    // Optimistisch updaten
+    setModels((prev) =>
+      prev.map((row) => {
+        if (row.model !== m.model) return row;
+        const hasSet = !!setName;
+        return {
+          ...row,
+          assigned_set: hasSet ? setName : null,
+          uses_category: !hasSet,
+          has_custom: hasSet,
+        } as ModelRow & { assigned_set?: string | null };
+      })
     );
-    const d = await r.json();
-    setModels(d.models ?? []);
   }
 
   /* ================== Custom sets beheer (per categorie) ================== */
@@ -437,7 +439,6 @@ export default function AdminMultipliersClient() {
         Object.keys(row?.questions ?? {}),
     }));
     setSets(incoming);
-    // standaard dicht
     const allClosed: Record<string, boolean> = {};
     for (const it of incoming) allClosed[it.name] = false;
     setOpenSets(allClosed);
@@ -780,7 +781,7 @@ export default function AdminMultipliersClient() {
 
   return (
     <div className="space-y-4">
-      {/* Categorie selectie (tabs) */}
+      {/* Categorie tabs */}
       <div className="flex gap-2 border-b">
         {cats.map((c) => {
           const active = c.name === activeCat;
@@ -797,17 +798,15 @@ export default function AdminMultipliersClient() {
         })}
       </div>
 
-      {/* Geen categorie gekozen → hint */}
       {!activeCat && (
         <div className="bb-card p-4 text-sm text-gray-600">
           Kies eerst een categorie hierboven om de modellen en vragensets te beheren.
         </div>
       )}
 
-      {/* Zodra een categorie gekozen is */}
       {activeCat && (
         <>
-          {/* === Vragensets (eerst), met categorie-set bovenaan; elk item inklapbaar === */}
+          {/* === Vragensets (eerst) === */}
           <div className="bb-card p-4">
             <div className="flex items-center justify-between">
               <h2 className="font-medium">Vragensets — {activeCat}</h2>
@@ -817,7 +816,7 @@ export default function AdminMultipliersClient() {
             </div>
 
             <div className="mt-3 space-y-2">
-              {/* 0) Categorie-set als eerste item (collapsible) */}
+              {/* Categorie-set (collapsible) */}
               <div className="border rounded">
                 <div className="flex items-center justify-between px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -952,7 +951,7 @@ export default function AdminMultipliersClient() {
                 )}
               </div>
 
-              {/* 1) Custom sets (elk als collapsible), komen NA de categorie-set */}
+              {/* Custom sets (collapsible items) */}
               {sets.length === 0 ? (
                 <div className="text-sm text-gray-500 border rounded px-3 py-2">
                   Nog geen custom sets. Maak er één via “+ Nieuwe custom set”.
@@ -962,7 +961,7 @@ export default function AdminMultipliersClient() {
                   {sets.map((s) => {
                     const setErrs = validateQuestions(s.questions);
                     const setHasErrs = hasErrors(setErrs);
-                    const isOpen = openSets[s.name] ?? false; // standaard dicht
+                    const isOpen = openSets[s.name] ?? false;
                     return (
                       <div key={s.name} className="border rounded">
                         <div className="flex items-center justify-between px-3 py-2">
@@ -1087,7 +1086,7 @@ export default function AdminMultipliersClient() {
             </div>
           </div>
 
-          {/* === Modellen-sectie: komt nu NA de vragensets === */}
+          {/* === Modellen in deze categorie (daarna) === */}
           <div className="bb-card p-4">
             <div className="flex items-center justify-between">
               <h3 className="font-medium">Modellen in deze categorie</h3>
@@ -1108,55 +1107,54 @@ export default function AdminMultipliersClient() {
                   {models.map((m) => {
                     const assigned = (m as any).assigned_set as string | null | undefined;
 
-                    // Slider logica:
-                    // - Groen (rechts) wanneer categorie actief OF géén custom set toegewezen
-                    // - Blauw (links) wanneer een custom set is toegewezen (dus niet de categorie-set)
+                    // Slider: groen (rechts) = categorie of geen set; blauw (links) = custom set
                     const sliderIsGreen = m.uses_category || !assigned;
-                    const trackColor = sliderIsGreen ? '#22c55e' /* green-500 */ : '#3b82f6' /* blue-500 */;
+                    const trackColor = sliderIsGreen ? '#22c55e' : '#3b82f6';
                     const knobTranslate = sliderIsGreen ? '22px 0' : '2px 0';
                     const titleText = sliderIsGreen ? 'Categorie-set actief' : 'Custom set actief';
 
                     return (
                       <tr key={m.model} className="border-t">
                         <td className="py-2 pr-3">{m.model}</td>
+
+                        {/* Toggle */}
                         <td className="py-2 pr-3">
                           <label className="inline-flex items-center gap-2 select-none">
                             <span className="text-xs text-gray-600">Custom</span>
                             <button
                               type="button"
-                              aria-pressed={sliderIsGreen}
-                              onClick={() => toggleModel(m, !m.uses_category)}
+                              aria-pressed={!m.uses_category}
+                              onClick={() => toggleModel(m, m.uses_category ? false : true)}
                               className="relative inline-flex h-6 w-11 items-center rounded-full transition"
                               style={{ background: trackColor }}
                               title={titleText}
                             >
                               <span
                                 className="inline-block h-5 w-5 transform rounded-full bg-white transition"
-                                style={{
-                                  translate: knobTranslate,
-                                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                                }}
+                                style={{ translate: knobTranslate, boxShadow: '0 1px 2px rgba(0,0,0,0.15)' }}
                               />
                             </button>
                             <span className="text-xs text-gray-600">Categorie</span>
                           </label>
                         </td>
+
+                        {/* Dropdown altijd zichtbaar */}
                         <td className="py-2 pr-3">
-                          {!m.uses_category ? (
-                            <select
-                              className="border rounded px-2 py-1 bg-white"
-                              value={assigned || ''}
-                              onChange={(e) => assignModelSet(m, e.target.value)}
-                            >
-                              <option value="">— kies set —</option>
-                              {sets.map((s) => (
-                                <option key={s.name} value={s.name}>{s.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
+                          <select
+                            className="border rounded px-2 py-1 bg-white"
+                            value={assigned || ''}
+                            onChange={async (e) => {
+                              const next = e.target.value || '';
+                              await assignModelSet(m, next);
+                            }}
+                          >
+                            <option value="">— kies set —</option>
+                            {sets.map((s) => (
+                              <option key={s.name} value={s.name}>{s.name}</option>
+                            ))}
+                          </select>
                         </td>
+
                         <td className="py-2 pr-3">
                           <div className="flex gap-2">
                             {!m.uses_category && (
@@ -1167,7 +1165,7 @@ export default function AdminMultipliersClient() {
                             {!m.uses_category && (
                               <button
                                 className="bb-btn"
-                                onClick={() => toggleModel(m, true)}
+                                onClick={() => assignModelSet(m, '')}
                                 title="Verwijder custom en gebruik categorie-set"
                               >
                                 Reset → categorie
@@ -1190,7 +1188,7 @@ export default function AdminMultipliersClient() {
             </div>
           </div>
 
-          {/* Inline ad-hoc per-model editor (optioneel) */}
+          {/* Inline ad-hoc editor */}
           {editModel && (
             <div className="bb-card p-4">
               <div className="flex items-center justify-between">
