@@ -142,8 +142,9 @@ export default function AdminMultipliersClient() {
   const [cats, setCats] = useState<CategoryInfo[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
-  // ✅ Alleen het 'sets' blok inklapbaar
-  const [openSetsPanel, setOpenSetsPanel] = useState(false);
+  // Collapsibles
+  const [openBase, setOpenBase] = useState(false);          // categorie-set (default dicht)
+  const [openSets, setOpenSets] = useState<Record<string, boolean>>({}); // custom sets (default dicht)
 
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<ModelRow[]>([]);
@@ -156,8 +157,6 @@ export default function AdminMultipliersClient() {
 
   // Beschikbare custom sets binnen deze categorie
   const [sets, setSets] = useState<QuestionSet[]>([]);
-  // Sets collapsibles: standaard dicht
-  const [openSets, setOpenSets] = useState<Record<string, boolean>>({});
 
   /* ---- Per-model ad-hoc custom (optioneel) ---- */
   const [editModel, setEditModel] = useState<string | null>(null);
@@ -179,14 +178,13 @@ export default function AdminMultipliersClient() {
       const r = await fetch('/api/admin/multipliers/categories', { cache: 'no-store' });
       const j = await r.json();
       setCats(j.categories ?? []);
-      // activeCat blijft null tot user kiest
     })();
   }, []);
 
   /* ---- Load category data NA keuze ---- */
   useEffect(() => {
     if (!activeCat) {
-      // reset alles als geen categorie gekozen is
+      // reset bij wisselen/geen keuze
       setModels([]);
       setBaseQs({});
       setBaseOrder([]);
@@ -194,7 +192,7 @@ export default function AdminMultipliersClient() {
       setBaseDirty(false);
       setSets([]);
       setOpenSets({});
-      setOpenSetsPanel(false); // panel standaard dicht bij nieuwe keuze
+      setOpenBase(false); // standaard dicht
       return;
     }
 
@@ -210,7 +208,6 @@ export default function AdminMultipliersClient() {
       setModels(j.models ?? []);
       const qBase: Questions = j.base?.questions ?? {};
       setBaseQs(qBase);
-      // support meerdere mogelijke property-namen voor volgorde
       const incomingOrder: string[] =
         (Array.isArray(j.base?.order) && j.base.order) ||
         (Array.isArray(j.base?.q_order) && j.base.q_order) ||
@@ -234,13 +231,13 @@ export default function AdminMultipliersClient() {
       }));
       setSets(incoming);
 
-      // Sets standaard dichtklappen
+      // Alle custom sets dicht
       const allClosed: Record<string, boolean> = {};
       for (const it of incoming) allClosed[it.name] = false;
       setOpenSets(allClosed);
 
-      // ✅ Alleen het sets-paneel is collapsible, en start dicht
-      setOpenSetsPanel(false);
+      // categorie-set ook dicht
+      setOpenBase(false);
     })().finally(() => setLoading(false));
   }, [activeCat]);
 
@@ -800,7 +797,7 @@ export default function AdminMultipliersClient() {
         })}
       </div>
 
-      {/* Geen categorie gekozen → niets laden / hint tonen */}
+      {/* Geen categorie gekozen → hint */}
       {!activeCat && (
         <div className="bb-card p-4 text-sm text-gray-600">
           Kies eerst een categorie hierboven om de modellen en vragensets te beheren.
@@ -810,14 +807,291 @@ export default function AdminMultipliersClient() {
       {/* Zodra een categorie gekozen is */}
       {activeCat && (
         <>
-          {/* ✅ Modellen-sectie: ALTIJD zichtbaar */}
+          {/* === Vragensets (eerst), met categorie-set bovenaan; elk item inklapbaar === */}
+          <div className="bb-card p-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium">Vragensets — {activeCat}</h2>
+              <div className="flex gap-2">
+                <button className="bb-btn" onClick={createSet}>+ Nieuwe custom set</button>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {/* 0) Categorie-set als eerste item (collapsible) */}
+              <div className="border rounded">
+                <div className="flex items-center justify-between px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="bb-btn"
+                      title={openBase ? 'Sluit' : 'Open'}
+                      onClick={() => setOpenBase((v) => !v)}
+                    >
+                      {openBase ? '▾' : '▸'}
+                    </button>
+                    <div className="font-medium">Categorie-set — {activeCat}</div>
+                    {baseHasErrors && <span className="text-xs text-red-600">• validatiefouten</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button className="bb-btn" onClick={addBaseQuestion}>+ Vraag</button>
+                    <button
+                      className={`bb-btn ${baseDirty && !baseHasErrors ? 'is-active' : ''}`}
+                      disabled={!baseDirty || baseHasErrors}
+                      onClick={saveCategory}
+                      title={baseHasErrors ? 'Los eerst validatiefouten op.' : undefined}
+                    >
+                      Bewaar categorie-set
+                    </button>
+                  </div>
+                </div>
+
+                {openBase && (
+                  <div className="px-3 pb-3">
+                    {loading ? (
+                      <div className="text-sm text-gray-500 mt-3">Laden…</div>
+                    ) : (
+                      <div className="mt-3 space-y-5">
+                        {orderedEntries(baseQs, baseOrder).length === 0 && (
+                          <div className="text-sm text-gray-500">Nog geen vragen. Voeg vragen toe.</div>
+                        )}
+
+                        {orderedEntries(baseQs, baseOrder).map(([qk, block]) => {
+                          const qErr = baseErrors[qk];
+                          return (
+                            <div key={qk} className="border rounded p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <input
+                                  className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
+                                  defaultValue={qk}
+                                  readOnly
+                                  title={qErr?._questionKey?.message}
+                                />
+                                <button className="bb-btn" onClick={() => renameBaseQuestion(qk)}>Hernoem sleutel</button>
+
+                                <input
+                                  className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
+                                  value={block?.title ?? ''}
+                                  onChange={(e) => updateBaseQuestionTitle(qk, e.target.value)}
+                                  placeholder={`Titel voor ${qk}`}
+                                  title={qErr?.title?.message}
+                                />
+                                <div className="flex gap-1">
+                                  <button className="bb-btn" title="Vraag omhoog" onClick={() => moveBaseQuestion(qk, -1)}>↑</button>
+                                  <button className="bb-btn" title="Vraag omlaag" onClick={() => moveBaseQuestion(qk, 1)}>↓</button>
+                                </div>
+                                <button className="bb-btn" onClick={() => removeBaseQuestion(qk)}>Verwijder vraag</button>
+                              </div>
+
+                              <div className="space-y-2">
+                                {(block?.options ?? []).map((o, idx) => {
+                                  const oe = qErr?.options?.[idx];
+                                  return (
+                                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                      <input
+                                        className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
+                                        value={o.label ?? ''}
+                                        onChange={(e) => updateBaseOption(qk, idx, { label: e.target.value })}
+                                        placeholder="Label"
+                                        title={oe?.label?.message}
+                                      />
+                                      <input
+                                        className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
+                                        value={o.key}
+                                        onChange={(e) => updateBaseOption(qk, idx, { key: e.target.value })}
+                                        placeholder="Key"
+                                        title={oe?.key?.message}
+                                      />
+                                      <select
+                                        className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
+                                        value={o.type}
+                                        onChange={(e) => updateBaseOption(qk, idx, { type: e.target.value as QType })}
+                                        title={oe?.type?.message}
+                                      >
+                                        <option value="percent">percent</option>
+                                        <option value="fixed">fixed</option>
+                                      </select>
+                                      <input
+                                        className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
+                                        type="number"
+                                        step={o.type === 'percent' ? 0.01 : 1}
+                                        value={o.value}
+                                        onChange={(e) => updateBaseOption(qk, idx, { value: Number(e.target.value) })}
+                                        placeholder={o.type === 'percent' ? '1.00' : '100'}
+                                        title={oe?.value?.message}
+                                      />
+                                      <input
+                                        className="border rounded px-2 py-1 col-span-2"
+                                        value={o.tip ?? ''}
+                                        onChange={(e) => updateBaseOption(qk, idx, { tip: e.target.value })}
+                                        placeholder="tip"
+                                      />
+                                      <div className="col-span-2 flex gap-2">
+                                        <button className="bb-btn" onClick={() => moveBaseOption(qk, idx, -1)} title="Omhoog">↑</button>
+                                        <button className="bb-btn" onClick={() => moveBaseOption(qk, idx, 1)} title="Omlaag">↓</button>
+                                        <button className="bb-btn" onClick={() => removeBaseOption(qk, idx)}>Verwijder</button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="mt-2">
+                                <button className="bb-btn" onClick={() => addBaseOption(qk)}>+ Optie</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {baseHasErrors && (
+                      <div className="mt-3 text-sm text-red-600">
+                        Er zijn validatiefouten. Beweeg met je muis over de rode velden voor details.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 1) Custom sets (elk als collapsible), komen NA de categorie-set */}
+              {sets.length === 0 ? (
+                <div className="text-sm text-gray-500 border rounded px-3 py-2">
+                  Nog geen custom sets. Maak er één via “+ Nieuwe custom set”.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sets.map((s) => {
+                    const setErrs = validateQuestions(s.questions);
+                    const setHasErrs = hasErrors(setErrs);
+                    const isOpen = openSets[s.name] ?? false; // standaard dicht
+                    return (
+                      <div key={s.name} className="border rounded">
+                        <div className="flex items-center justify-between px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="bb-btn"
+                              title={isOpen ? 'Sluit' : 'Open'}
+                              onClick={() =>
+                                setOpenSets((prev) => ({ ...prev, [s.name]: !(prev[s.name] ?? false) }))
+                              }
+                            >
+                              {isOpen ? '▾' : '▸'}
+                            </button>
+                            <div className="font-medium">{s.name}</div>
+                            {setHasErrs && <span className="text-xs text-red-600">• validatiefouten</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button className="bb-btn" onClick={() => saveSet(s)}>Bewaar set</button>
+                            <button className="bb-btn" onClick={() => deleteSet(s.name)}>Verwijder set</button>
+                          </div>
+                        </div>
+
+                        {isOpen && (
+                          <div className="px-3 pb-3 space-y-4">
+                            <div>
+                              <button className="bb-btn" onClick={() => addSetQuestion(s.name)}>+ Vraag</button>
+                            </div>
+
+                            {orderedEntries(s.questions, s.qOrder).map(([qk, block]) => {
+                              const qErr = setErrs[qk];
+                              return (
+                                <div key={qk} className="border rounded p-3">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <input
+                                      className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
+                                      defaultValue={qk}
+                                      readOnly
+                                      title={qErr?._questionKey?.message}
+                                    />
+                                    <button className="bb-btn" onClick={() => renameSetQuestion(s.name, qk)}>Hernoem sleutel</button>
+
+                                    <input
+                                      className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
+                                      value={block?.title ?? ''}
+                                      onChange={(e) => updateSetQuestionTitle(s.name, qk, e.target.value)}
+                                      placeholder={`Titel voor ${qk}`}
+                                      title={qErr?.title?.message}
+                                    />
+                                    <div className="flex gap-1">
+                                      <button className="bb-btn" title="Vraag omhoog" onClick={() => moveSetQuestion(s.name, qk, -1)}>↑</button>
+                                      <button className="bb-btn" title="Vraag omlaag" onClick={() => moveSetQuestion(s.name, qk, 1)}>↓</button>
+                                    </div>
+                                    <button className="bb-btn" onClick={() => removeSetQuestion(s.name, qk)}>Verwijder vraag</button>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    {(block?.options ?? []).map((o, idx) => {
+                                      const oe = qErr?.options?.[idx];
+                                      return (
+                                        <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                          <input
+                                            className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
+                                            value={o.label ?? ''}
+                                            onChange={(e) => updateSetOption(s.name, qk, idx, { label: e.target.value })}
+                                            placeholder="Label"
+                                            title={oe?.label?.message}
+                                          />
+                                          <input
+                                            className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
+                                            value={o.key}
+                                            onChange={(e) => updateSetOption(s.name, qk, idx, { key: e.target.value })}
+                                            placeholder="Key"
+                                            title={oe?.key?.message}
+                                          />
+                                          <select
+                                            className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
+                                            value={o.type}
+                                            onChange={(e) => updateSetOption(s.name, qk, idx, { type: e.target.value as QType })}
+                                            title={oe?.type?.message}
+                                          >
+                                            <option value="percent">percent</option>
+                                            <option value="fixed">fixed</option>
+                                          </select>
+                                          <input
+                                            className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
+                                            type="number"
+                                            step={o.type === 'percent' ? 0.01 : 1}
+                                            value={o.value}
+                                            onChange={(e) => updateSetOption(s.name, qk, idx, { value: Number(e.target.value) })}
+                                            placeholder={o.type === 'percent' ? '1.00' : '100'}
+                                            title={oe?.value?.message}
+                                          />
+                                          <input
+                                            className="border rounded px-2 py-1 col-span-2"
+                                            value={o.tip ?? ''}
+                                            onChange={(e) => updateSetOption(s.name, qk, idx, { tip: e.target.value })}
+                                            placeholder="tip"
+                                          />
+                                          <div className="col-span-2 flex gap-2">
+                                            <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, -1)} title="Omhoog">↑</button>
+                                            <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, 1)} title="Omlaag">↓</button>
+                                            <button className="bb-btn" onClick={() => removeSetOption(s.name, qk, idx)}>Verwijder</button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  <div className="mt-2">
+                                    <button className="bb-btn" onClick={() => addSetOption(s.name, qk)}>+ Optie</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* === Modellen-sectie: komt nu NA de vragensets === */}
           <div className="bb-card p-4">
             <div className="flex items-center justify-between">
               <h3 className="font-medium">Modellen in deze categorie</h3>
               <div className="text-sm text-gray-500">{loading ? 'Laden…' : `${models.length} modellen`}</div>
-              <div className="flex gap-2">
-                <button className="bb-btn" onClick={createSet}>+ Nieuwe custom set</button>
-              </div>
             </div>
 
             <div className="overflow-x-auto mt-2">
@@ -833,6 +1107,15 @@ export default function AdminMultipliersClient() {
                 <tbody>
                   {models.map((m) => {
                     const assigned = (m as any).assigned_set as string | null | undefined;
+
+                    // Slider logica:
+                    // - Groen (rechts) wanneer categorie actief OF géén custom set toegewezen
+                    // - Blauw (links) wanneer een custom set is toegewezen (dus niet de categorie-set)
+                    const sliderIsGreen = m.uses_category || !assigned;
+                    const trackColor = sliderIsGreen ? '#22c55e' /* green-500 */ : '#3b82f6' /* blue-500 */;
+                    const knobTranslate = sliderIsGreen ? '22px 0' : '2px 0';
+                    const titleText = sliderIsGreen ? 'Categorie-set actief' : 'Custom set actief';
+
                     return (
                       <tr key={m.model} className="border-t">
                         <td className="py-2 pr-3">{m.model}</td>
@@ -841,16 +1124,16 @@ export default function AdminMultipliersClient() {
                             <span className="text-xs text-gray-600">Custom</span>
                             <button
                               type="button"
-                              aria-pressed={m.uses_category}
+                              aria-pressed={sliderIsGreen}
                               onClick={() => toggleModel(m, !m.uses_category)}
                               className="relative inline-flex h-6 w-11 items-center rounded-full transition"
-                              style={{ background: m.uses_category ? '#22c55e' : '#e5e7eb' }}
-                              title={m.uses_category ? 'Categorie-set actief' : 'Custom actief'}
+                              style={{ background: trackColor }}
+                              title={titleText}
                             >
                               <span
                                 className="inline-block h-5 w-5 transform rounded-full bg-white transition"
                                 style={{
-                                  translate: m.uses_category ? '22px 0' : '2px 0',
+                                  translate: knobTranslate,
                                   boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
                                 }}
                               />
@@ -907,410 +1190,135 @@ export default function AdminMultipliersClient() {
             </div>
           </div>
 
-          {/* ✅ Vragensets-panel: ENKEL dit blok is inklapbaar (categorie-set + custom sets) */}
-          <div className="bb-card p-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <div className="flex items-center gap-2">
-                <button
-                  className="bb-btn"
-                  title={openSetsPanel ? 'Sluit' : 'Open'}
-                  onClick={() => setOpenSetsPanel((v) => !v)}
-                >
-                  {openSetsPanel ? '▾' : '▸'}
-                </button>
-                <h2 className="font-medium">Vragensets — {activeCat}</h2>
+          {/* Inline ad-hoc per-model editor (optioneel) */}
+          {editModel && (
+            <div className="bb-card p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">Ad hoc custom (los van set) — {editModel}</h3>
+                <div className="flex gap-2">
+                  <button className="bb-btn" onClick={() => setEditModel(null)}>
+                    Annuleren
+                  </button>
+                  <button
+                    className={`bb-btn ${editDirty && !editHasErrors ? 'is-active' : ''}`}
+                    disabled={!editDirty || editHasErrors}
+                    onClick={saveCustom}
+                    title={editHasErrors ? 'Los eerst validatiefouten op.' : undefined}
+                  >
+                    Bewaar custom
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {openSetsPanel && (
-              <div className="p-4 space-y-6">
-                {/* Category editor (basis set) */}
-                <div className="bb-card p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-medium">Categorie-set — {activeCat}</h3>
-                    <div className="flex gap-2">
-                      <button className="bb-btn" onClick={addBaseQuestion}>+ Vraag</button>
-                      <button
-                        className={`bb-btn ${baseDirty && !baseHasErrors ? 'is-active' : ''}`}
-                        disabled={!baseDirty || baseHasErrors}
-                        onClick={saveCategory}
-                        title={baseHasErrors ? 'Los eerst validatiefouten op.' : undefined}
-                      >
-                        Bewaar categorie-set
-                      </button>
-                    </div>
-                  </div>
+              <div className="mt-2 mb-3">
+                <button className="bb-btn" onClick={addEditQuestion}>+ Vraag</button>
+              </div>
 
-                  {loading ? (
-                    <div className="text-sm text-gray-500 mt-3">Laden…</div>
-                  ) : (
-                    <div className="mt-3 space-y-5">
-                      {orderedEntries(baseQs, baseOrder).length === 0 && (
-                        <div className="text-sm text-gray-500">Nog geen vragen. Voeg vragen toe.</div>
-                      )}
-
-                      {orderedEntries(baseQs, baseOrder).map(([qk, block]) => {
-                        const qErr = baseErrors[qk];
-                        return (
-                          <div key={qk} className="border rounded p-3">
-                            <div className="flex items-center gap-2 mb-2">
-                              <input
-                                className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
-                                defaultValue={qk}
-                                readOnly
-                                title={qErr?._questionKey?.message}
-                              />
-                              <button className="bb-btn" onClick={() => renameBaseQuestion(qk)}>Hernoem sleutel</button>
-
-                              <input
-                                className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
-                                value={block?.title ?? ''}
-                                onChange={(e) => updateBaseQuestionTitle(qk, e.target.value)}
-                                placeholder={`Titel voor ${qk}`}
-                                title={qErr?.title?.message}
-                              />
-                              <div className="flex gap-1">
-                                <button className="bb-btn" title="Vraag omhoog" onClick={() => moveBaseQuestion(qk, -1)}>↑</button>
-                                <button className="bb-btn" title="Vraag omlaag" onClick={() => moveBaseQuestion(qk, 1)}>↓</button>
-                              </div>
-                              <button className="bb-btn" onClick={() => removeBaseQuestion(qk)}>Verwijder vraag</button>
-                            </div>
-
-                            <div className="space-y-2">
-                              {(block?.options ?? []).map((o, idx) => {
-                                const oe = qErr?.options?.[idx];
-                                return (
-                                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
-                                      value={o.label ?? ''}
-                                      onChange={(e) => updateBaseOption(qk, idx, { label: e.target.value })}
-                                      placeholder="Label"
-                                      title={oe?.label?.message}
-                                    />
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
-                                      value={o.key}
-                                      onChange={(e) => updateBaseOption(qk, idx, { key: e.target.value })}
-                                      placeholder="Key"
-                                      title={oe?.key?.message}
-                                    />
-                                    <select
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
-                                      value={o.type}
-                                      onChange={(e) => updateBaseOption(qk, idx, { type: e.target.value as QType })}
-                                      title={oe?.type?.message}
-                                    >
-                                      <option value="percent">percent</option>
-                                      <option value="fixed">fixed</option>
-                                    </select>
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
-                                      type="number"
-                                      step={o.type === 'percent' ? 0.01 : 1}
-                                      value={o.value}
-                                      onChange={(e) => updateBaseOption(qk, idx, { value: Number(e.target.value) })}
-                                      placeholder={o.type === 'percent' ? '1.00' : '100'}
-                                      title={oe?.value?.message}
-                                    />
-                                    <input
-                                      className="border rounded px-2 py-1 col-span-2"
-                                      value={o.tip ?? ''}
-                                      onChange={(e) => updateBaseOption(qk, idx, { tip: e.target.value })}
-                                      placeholder="tip"
-                                    />
-                                    <div className="col-span-2 flex gap-2">
-                                      <button className="bb-btn" onClick={() => moveBaseOption(qk, idx, -1)} title="Omhoog">↑</button>
-                                      <button className="bb-btn" onClick={() => moveBaseOption(qk, idx, 1)} title="Omlaag">↓</button>
-                                      <button className="bb-btn" onClick={() => removeBaseOption(qk, idx)}>Verwijder</button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            <div className="mt-2">
-                              <button className="bb-btn" onClick={() => addBaseOption(qk)}>+ Optie</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {baseHasErrors && (
-                    <div className="mt-3 text-sm text-red-600">
-                      Er zijn validatiefouten. Beweeg met je muis over de rode velden voor details.
-                    </div>
-                  )}
-                </div>
-
-                {/* Lijst met custom sets (standaard dicht per set) */}
-                <div className="bb-card p-4">
-                  <h3 className="font-medium mb-2">Beschikbare vragensets</h3>
-                  {sets.length === 0 ? (
-                    <div className="text-sm text-gray-500">Nog geen custom sets. Maak er één via “+ Nieuwe custom set”.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {sets.map((s) => {
-                        const setErrs = validateQuestions(s.questions);
-                        const setHasErrs = hasErrors(setErrs);
-                        const isOpen = openSets[s.name] ?? false; // standaard dicht
-                        return (
-                          <div key={s.name} className="border rounded">
-                            <div className="flex items-center justify-between px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  className="bb-btn"
-                                  title={isOpen ? 'Sluit' : 'Open'}
-                                  onClick={() =>
-                                    setOpenSets((prev) => ({ ...prev, [s.name]: !(prev[s.name] ?? false) }))
-                                  }
-                                >
-                                  {isOpen ? '▾' : '▸'}
-                                </button>
-                                <div className="font-medium">{s.name}</div>
-                                {setHasErrs && <span className="text-xs text-red-600">• validatiefouten</span>}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button className="bb-btn" onClick={() => saveSet(s)}>Bewaar set</button>
-                                <button className="bb-btn" onClick={() => deleteSet(s.name)}>Verwijder set</button>
-                              </div>
-                            </div>
-
-                            {isOpen && (
-                              <div className="px-3 pb-3 space-y-4">
-                                <div>
-                                  <button className="bb-btn" onClick={() => addSetQuestion(s.name)}>+ Vraag</button>
-                                </div>
-
-                                {orderedEntries(s.questions, s.qOrder).map(([qk, block]) => {
-                                  const qErr = setErrs[qk];
-                                  return (
-                                    <div key={qk} className="border rounded p-3">
-                                      <div className="flex items-center gap-2 mb-2">
-                                        <input
-                                          className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
-                                          defaultValue={qk}
-                                          readOnly
-                                          title={qErr?._questionKey?.message}
-                                        />
-                                        <button className="bb-btn" onClick={() => renameSetQuestion(s.name, qk)}>Hernoem sleutel</button>
-
-                                        <input
-                                          className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
-                                          value={block?.title ?? ''}
-                                          onChange={(e) => updateSetQuestionTitle(s.name, qk, e.target.value)}
-                                          placeholder={`Titel voor ${qk}`}
-                                          title={qErr?.title?.message}
-                                        />
-                                        <div className="flex gap-1">
-                                          <button className="bb-btn" title="Vraag omhoog" onClick={() => moveSetQuestion(s.name, qk, -1)}>↑</button>
-                                          <button className="bb-btn" title="Vraag omlaag" onClick={() => moveSetQuestion(s.name, qk, 1)}>↓</button>
-                                        </div>
-                                        <button className="bb-btn" onClick={() => removeSetQuestion(s.name, qk)}>Verwijder vraag</button>
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        {(block?.options ?? []).map((o, idx) => {
-                                          const oe = qErr?.options?.[idx];
-                                          return (
-                                            <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                                              <input
-                                                className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
-                                                value={o.label ?? ''}
-                                                onChange={(e) => updateSetOption(s.name, qk, idx, { label: e.target.value })}
-                                                placeholder="Label"
-                                                title={oe?.label?.message}
-                                              />
-                                              <input
-                                                className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
-                                                value={o.key}
-                                                onChange={(e) => updateSetOption(s.name, qk, idx, { key: e.target.value })}
-                                                placeholder="Key"
-                                                title={oe?.key?.message}
-                                              />
-                                              <select
-                                                className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
-                                                value={o.type}
-                                                onChange={(e) => updateSetOption(s.name, qk, idx, { type: e.target.value as QType })}
-                                                title={oe?.type?.message}
-                                              >
-                                                <option value="percent">percent</option>
-                                                <option value="fixed">fixed</option>
-                                              </select>
-                                              <input
-                                                className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
-                                                type="number"
-                                                step={o.type === 'percent' ? 0.01 : 1}
-                                                value={o.value}
-                                                onChange={(e) => updateSetOption(s.name, qk, idx, { value: Number(e.target.value) })}
-                                                placeholder={o.type === 'percent' ? '1.00' : '100'}
-                                                title={oe?.value?.message}
-                                              />
-                                              <input
-                                                className="border rounded px-2 py-1 col-span-2"
-                                                value={o.tip ?? ''}
-                                                onChange={(e) => updateSetOption(s.name, qk, idx, { tip: e.target.value })}
-                                                placeholder="tip"
-                                              />
-                                              <div className="col-span-2 flex gap-2">
-                                                <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, -1)} title="Omhoog">↑</button>
-                                                <button className="bb-btn" onClick={() => moveSetOption(s.name, qk, idx, 1)} title="Omlaag">↓</button>
-                                                <button className="bb-btn" onClick={() => removeSetOption(s.name, qk, idx)}>Verwijder</button>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-
-                                      <div className="mt-2">
-                                        <button className="bb-btn" onClick={() => addSetOption(s.name, qk)}>+ Optie</button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Inline ad-hoc per-model editor (optioneel los van het sets-panel) */}
-                {editModel && (
-                  <div className="bb-card p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium">Ad hoc custom (los van set) — {editModel}</h3>
-                      <div className="flex gap-2">
-                        <button className="bb-btn" onClick={() => setEditModel(null)}>
-                          Annuleren
+              <div className="mt-3 space-y-5">
+                {orderedEntries(editQs, editOrder).map(([qk, block]) => {
+                  const qErr = editErrors[qk];
+                  return (
+                    <div key={qk} className="border rounded p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <input
+                          className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
+                          defaultValue={qk}
+                          readOnly
+                          title={qErr?._questionKey?.message}
+                        />
+                        <button className="bb-btn" onClick={() => renameEditQuestion(qk)}>
+                          Hernoem sleutel
                         </button>
-                        <button
-                          className={`bb-btn ${editDirty && !editHasErrors ? 'is-active' : ''}`}
-                          disabled={!editDirty || editHasErrors}
-                          onClick={saveCustom}
-                          title={editHasErrors ? 'Los eerst validatiefouten op.' : undefined}
-                        >
-                          Bewaar custom
-                        </button>
-                      </div>
-                    </div>
 
-                    <div className="mt-2 mb-3">
-                      <button className="bb-btn" onClick={addEditQuestion}>+ Vraag</button>
-                    </div>
-
-                    <div className="mt-3 space-y-5">
-                      {orderedEntries(editQs, editOrder).map(([qk, block]) => {
-                        const qErr = editErrors[qk];
-                        return (
-                          <div key={qk} className="border rounded p-3">
-                            <div className="flex items-center gap-2 mb-2">
-                              <input
-                                className={`border rounded px-2 py-1 w-64 ${qErr?._questionKey ? 'border-red-500' : ''}`}
-                                defaultValue={qk}
-                                readOnly
-                                title={qErr?._questionKey?.message}
-                              />
-                              <button className="bb-btn" onClick={() => renameEditQuestion(qk)}>
-                                Hernoem sleutel
-                              </button>
-
-                              <input
-                                className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
-                                value={block?.title ?? ''}
-                                onChange={(e) => updateEditQuestionTitle(qk, e.target.value)}
-                                placeholder={`Titel voor ${qk}`}
-                                title={qErr?.title?.message}
-                              />
-                              <div className="flex gap-1">
-                                <button className="bb-btn" title="Vraag omhoog" onClick={() => moveEditQuestion(qk, -1)}>↑</button>
-                                <button className="bb-btn" title="Vraag omlaag" onClick={() => moveEditQuestion(qk, 1)}>↓</button>
-                              </div>
-                              <button className="bb-btn" onClick={() => removeEditQuestion(qk)}>
-                                Verwijder vraag
-                              </button>
-                            </div>
-
-                            <div className="space-y-2">
-                              {(block?.options ?? []).map((o, idx) => {
-                                const oe = qErr?.options?.[idx];
-                                return (
-                                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
-                                      value={o.label ?? ''}
-                                      onChange={(e) => updateEditOption(qk, idx, { label: e.target.value })}
-                                      placeholder="Label"
-                                      title={oe?.label?.message}
-                                    />
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
-                                      value={o.key}
-                                      onChange={(e) => updateEditOption(qk, idx, { key: e.target.value })}
-                                      placeholder="Key"
-                                      title={oe?.key?.message}
-                                    />
-                                    <select
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
-                                      value={o.type}
-                                      onChange={(e) => updateEditOption(qk, idx, { type: e.target.value as QType })}
-                                      title={oe?.type?.message}
-                                    >
-                                      <option value="percent">percent</option>
-                                      <option value="fixed">fixed</option>
-                                    </select>
-                                    <input
-                                      className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
-                                      type="number"
-                                      step={o.type === 'percent' ? 0.01 : 1}
-                                      value={o.value}
-                                      onChange={(e) => updateEditOption(qk, idx, { value: Number(e.target.value) })}
-                                      placeholder={o.type === 'percent' ? '1.00' : '100'}
-                                      title={oe?.value?.message}
-                                    />
-                                    <input
-                                      className="border rounded px-2 py-1 col-span-2"
-                                      value={o.tip ?? ''}
-                                      onChange={(e) => updateEditOption(qk, idx, { tip: e.target.value })}
-                                      placeholder="tip"
-                                    />
-                                    <div className="col-span-2 flex gap-2">
-                                      <button className="bb-btn" onClick={() => moveEditOption(qk, idx, -1)} title="Omhoog">↑</button>
-                                      <button className="bb-btn" onClick={() => moveEditOption(qk, idx, 1)} title="Omlaag">↓</button>
-                                      <button className="bb-btn" onClick={() => removeEditOption(qk, idx)}>Verwijder</button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            <div className="mt-2">
-                              <button className="bb-btn" onClick={() => addEditOption(qk)}>+ Optie</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {Object.keys(editQs).length === 0 && (
-                        <div className="text-sm text-gray-500">
-                          Deze custom set startte leeg; voeg vragen/opties toe.
+                        <input
+                          className={`border rounded px-2 py-1 flex-1 ${qErr?.title ? 'border-red-500' : ''}`}
+                          value={block?.title ?? ''}
+                          onChange={(e) => updateEditQuestionTitle(qk, e.target.value)}
+                          placeholder={`Titel voor ${qk}`}
+                          title={qErr?.title?.message}
+                        />
+                        <div className="flex gap-1">
+                          <button className="bb-btn" title="Vraag omhoog" onClick={() => moveEditQuestion(qk, -1)}>↑</button>
+                          <button className="bb-btn" title="Vraag omlaag" onClick={() => moveEditQuestion(qk, 1)}>↓</button>
                         </div>
-                      )}
-                    </div>
-
-                    {editHasErrors && (
-                      <div className="mt-3 text-sm text-red-600">
-                        Er zijn validatiefouten. Beweeg met je muis over de rode velden voor details.
+                        <button className="bb-btn" onClick={() => removeEditQuestion(qk)}>
+                          Verwijder vraag
+                        </button>
                       </div>
-                    )}
+
+                      <div className="space-y-2">
+                        {(block?.options ?? []).map((o, idx) => {
+                          const oe = qErr?.options?.[idx];
+                          return (
+                            <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                              <input
+                                className={`border rounded px-2 py-1 col-span-2 ${oe?.label ? 'border-red-500' : ''}`}
+                                value={o.label ?? ''}
+                                onChange={(e) => updateEditOption(qk, idx, { label: e.target.value })}
+                                placeholder="Label"
+                                title={oe?.label?.message}
+                              />
+                              <input
+                                className={`border rounded px-2 py-1 col-span-2 ${oe?.key ? 'border-red-500' : ''}`}
+                                value={o.key}
+                                onChange={(e) => updateEditOption(qk, idx, { key: e.target.value })}
+                                placeholder="Key"
+                                title={oe?.key?.message}
+                              />
+                              <select
+                                className={`border rounded px-2 py-1 col-span-2 ${oe?.type ? 'border-red-500' : ''}`}
+                                value={o.type}
+                                onChange={(e) => updateEditOption(qk, idx, { type: e.target.value as QType })}
+                                title={oe?.type?.message}
+                              >
+                                <option value="percent">percent</option>
+                                <option value="fixed">fixed</option>
+                              </select>
+                              <input
+                                className={`border rounded px-2 py-1 col-span-2 ${oe?.value ? 'border-red-500' : ''}`}
+                                type="number"
+                                step={o.type === 'percent' ? 0.01 : 1}
+                                value={o.value}
+                                onChange={(e) => updateEditOption(qk, idx, { value: Number(e.target.value) })}
+                                placeholder={o.type === 'percent' ? '1.00' : '100'}
+                                title={oe?.value?.message}
+                              />
+                              <input
+                                className="border rounded px-2 py-1 col-span-2"
+                                value={o.tip ?? ''}
+                                onChange={(e) => updateEditOption(qk, idx, { tip: e.target.value })}
+                                placeholder="tip"
+                              />
+                              <div className="col-span-2 flex gap-2">
+                                <button className="bb-btn" onClick={() => moveEditOption(qk, idx, -1)} title="Omhoog">↑</button>
+                                <button className="bb-btn" onClick={() => moveEditOption(qk, idx, 1)} title="Omlaag">↓</button>
+                                <button className="bb-btn" onClick={() => removeEditOption(qk, idx)}>Verwijder</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-2">
+                        <button className="bb-btn" onClick={() => addEditOption(qk)}>+ Optie</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {Object.keys(editQs).length === 0 && (
+                  <div className="text-sm text-gray-500">
+                    Deze custom set startte leeg; voeg vragen/opties toe.
                   </div>
                 )}
               </div>
-            )}
-          </div>
+
+              {editHasErrors && (
+                <div className="mt-3 text-sm text-red-600">
+                  Er zijn validatiefouten. Beweeg met je muis over de rode velden voor details.
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
