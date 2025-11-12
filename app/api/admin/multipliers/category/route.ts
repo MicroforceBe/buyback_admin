@@ -23,8 +23,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "category is verplicht" }, { status: 400 });
     }
 
-    // 1) Basis (categorie) set ophalen
-    const baseRes = await sb()
+    const client = sb();
+
+    /* 1) Basis (categorie) set ophalen */
+    const baseRes = await client
       .from("buyback_category_multipliers_json")
       .select("category, questions, order, q_order, questions_order, tips")
       .eq("category", category)
@@ -47,21 +49,21 @@ export async function GET(req: Request) {
             tips: {},
           };
 
-    // 2) Modellen voor deze categorie
-    // PAS DIT AAN naar je eigen bron indien anders (view of tabel).
-    const modelsRes = await sb()
-      .from("buyback_models_by_category") // <- jouw bron met kolommen: model, category
-      .select("model")
+    /* 2) Modellen ophalen uit buyback_catalog */
+    const modelsRes = await client
+      .from("buyback_catalog")
+      .select("model, category")
       .eq("category", category)
       .order("model", { ascending: true });
 
     if (modelsRes.error) {
       return NextResponse.json({ error: modelsRes.error.message }, { status: 500 });
     }
+
     const modelNames: string[] = (modelsRes.data || []).map((r: any) => r.model);
 
-    // 3) Assignments ophalen voor deze categorie
-    const assignsRes = await sb()
+    /* 3) Assignments ophalen voor deze categorie */
+    const assignsRes = await client
       .from("buyback_model_multiplier_assignments")
       .select("model, uses_category, assigned_set")
       .eq("category", category);
@@ -72,10 +74,13 @@ export async function GET(req: Request) {
 
     const assignsMap = new Map<string, { uses_category: boolean; assigned_set: string | null }>();
     (assignsRes.data || []).forEach((r: any) =>
-      assignsMap.set(r.model, { uses_category: !!r.uses_category, assigned_set: r.assigned_set ?? null })
+      assignsMap.set(r.model, {
+        uses_category: !!r.uses_category,
+        assigned_set: r.assigned_set ?? null,
+      })
     );
 
-    // 4) Samenstellen models payload
+    /* 4) Samenstellen models payload */
     const models = modelNames.map((name) => {
       const a = assignsMap.get(name);
       const uses_category = a ? a.uses_category : true; // default: categorie
