@@ -8,7 +8,7 @@ function sb() {
 }
 
 /**
- * Verwacht query: ?category=Phones (bv.)
+ * Query: ?category=Phones
  * Response:
  * {
  *   base: { questions, order|q_order|questions_order, tips },
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 
     const client = sb();
 
-    /* 1) Basis (categorie) set ophalen */
+    // 1) Basis (categorie) set
     const baseRes = await client
       .from("buyback_category_multipliers_json")
       .select("category, questions, order, q_order, questions_order, tips")
@@ -49,20 +49,25 @@ export async function GET(req: Request) {
             tips: {},
           };
 
-    /* 2) Modellen ophalen uit buyback_catalog */
+    // 2) Modellen uit catalog (kunnen meerdere rijen per model hebben) → dedupe
     const modelsRes = await client
       .from("buyback_catalog")
       .select("model, category")
-      .eq("category", category)
-      .order("model", { ascending: true });
+      .eq("category", category);
 
     if (modelsRes.error) {
       return NextResponse.json({ error: modelsRes.error.message }, { status: 500 });
     }
 
-    const modelNames: string[] = (modelsRes.data || []).map((r: any) => r.model);
+    // Dedupe + sort
+    const uniq = new Set<string>();
+    for (const r of modelsRes.data || []) {
+      const m = (r as any).model as string | null;
+      if (m && m.trim()) uniq.add(m.trim());
+    }
+    const modelNames = Array.from(uniq).sort((a, b) => a.localeCompare(b, "nl", { sensitivity: "base" }));
 
-    /* 3) Assignments ophalen voor deze categorie */
+    // 3) Bestaande toewijzingen
     const assignsRes = await client
       .from("buyback_model_multiplier_assignments")
       .select("model, uses_category, assigned_set")
@@ -80,7 +85,7 @@ export async function GET(req: Request) {
       })
     );
 
-    /* 4) Samenstellen models payload */
+    // 4) Payload bouwen
     const models = modelNames.map((name) => {
       const a = assignsMap.get(name);
       const uses_category = a ? a.uses_category : true; // default: categorie
