@@ -2,57 +2,102 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const runtime = 'nodejs';
+
+type QOption = {
+  key: string;
+  label?: string | null;
+  tip?: string | null;
+  type: 'percent' | 'fixed';
+  value: number;
+  priority?: number | null;
+  active?: boolean | null;
+};
+
+type Questions = Record<string, { title?: string | null; options: QOption[] }>;
+
+function extractBase(obj: any): {
+  questions: Questions;
+  tips: Record<string, string>;
+  order: string[];
+} {
+  const qj = obj ?? {};
+  // Kolom kan 'questions_JSON' of 'questions_json' zijn
+  const raw = qj.questions_JSON ?? qj.questions_json ?? qj;
+
+  // Ondersteun 2 vormen:
+  // 1) { questions, tips?, order?/q_order?/questions_order? }
+  // 2) direct { <vraagKey>: {title, options}, ... }
+  const questions: Questions = raw?.questions ?? raw ?? {};
+  const tips: Record<string, string> = raw?.tips ?? {};
+  const ord: string[] =
+    (Array.isArray(raw?.order) && raw.order) ||
+    (Array.isArray(raw?.q_order) && raw.q_order) ||
+    (Array.isArray(raw?.questions_order) && raw.questions_order) ||
+    Object.keys(questions);
+
+  return { questions, tips, order: ord };
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const category = searchParams.get('category') ?? '';
-  if (!category) return NextResponse.json({ error: 'category is required' }, { status: 400 });
+  if (!category) {
+    return NextResponse.json({ error: 'category is required' }, { status: 400 });
+  }
 
   const sb = supabaseAdmin;
 
-  // Lees de hele JSON-structuur (incl. tips + volgorde)
-  const { data: row, error } = await sb
+  // 1) Basis-set uit buyback_multipliers_per_category_json
+  const { data: baseRow, error: baseErr } = await sb
     .from('buyback_multipliers_per_category_json')
-    .select('category, questions_JSON, updated_at')
+    .select('category, questions_JSON, questions_json, updated_at')
     .eq('category', category)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (baseErr) {
+    return NextResponse.json({ error: baseErr.message }, { status: 500 });
+  }
 
-  const qj = (row?.questions_JSON ?? {}) as any;
-  const questions = qj.questions ?? qj ?? {}; // fallback: oudere schema’s waar questions_JSON direct de vragen bevat
-  const tips = qj.tips ?? {};
-  const ord: string[] =
-    (Array.isArray(qj.order) && qj.order) ||
-    (Array.isArray(qj.q_order) && qj.q_order) ||
-    (Array.isArray(qj.questions_order) && qj.questions_order) ||
-    Object.keys(questions);
+  const base = extractBase(baseRow);
 
-  // Modellen (pas evt. kolomnamen aan naar jullie catalog)
-  const { data: modelsRows, error: modelsErr } = await sb
+  // 2) Modellen uit buyback_catalog voor deze categorie
+  const { data: modelRows, error: modelErr } = await sb
     .from('buyback_catalog')
-    .select('model')
+    .select('model, category')
     .eq('category', category);
 
-  if (modelsErr) return NextResponse.json({ error: modelsErr.message }, { status: 500 });
+  if (modelErr) {
+    return NextResponse.json({ error: modelErr.message }, { status: 500 });
+  }
 
-  const uniqModels = Array.from(new Set((modelsRows ?? []).map(r => r.model).filter(Boolean)));
+  const uniqModels = Array.from(
+    new Set((modelRows ?? []).map((r: any) => String(r.model ?? '')).filter(Boolean))
+  );
+
   const models = uniqModels.map((m) => ({
-    model: m as string,
-    uses_category: true,
+    model: m,
+    uses_category: true,   // default: categorie-set actief tot je custom toewijst
     has_custom: false,
     assigned_set: null as string | null,
   }));
 
   return NextResponse.json({
     base: {
-      questions,
-      tips,
-      order: ord,
-      q_order: ord,
-      questions_order: ord,
-      updated_at: row?.updated_at ?? null,
+      questions: base.questions,
+      tips: base.tips,
+      order: base.order,
+      q_order: base.order,
+      questions_order: base.order,
+      updated_at: baseRow?.updated_at ?? null,
     },
     models,
+  }, {
+    headers: {
+      'cache-control': 'no-store, no-cache, must-revalidate',
+    },
   });
 }
 
@@ -62,22 +107,22 @@ export async function POST(req: Request) {
     category,
     questions,
     tips = {},
-    // een van deze kan gezet zijn door de client
     order,
     q_order,
     questions_order,
   } = body as {
     category: string;
-    questions: Record<string, any>;
+    questions: Questions;
     tips?: Record<string, string>;
     order?: string[];
     q_order?: string[];
     questions_order?: string[];
   };
 
-  if (!category) return NextResponse.json({ error: 'category required' }, { status: 400 });
+  if (!category) {
+    return NextResponse.json({ error: 'category required' }, { status: 400 });
+  }
 
-  // Kies één consistente volgorde-key om op te slaan (we nemen 'order')
   const ord: string[] =
     (Array.isArray(order) && order) ||
     (Array.isArray(q_order) && q_order) ||
@@ -86,9 +131,9 @@ export async function POST(req: Request) {
 
   const sb = supabaseAdmin;
 
-  // Schrijf alles gecapsuleerd in questions_JSON
   const payload = {
     category,
+    // Bewaar ALLES genest in questions_JSON
     questions_JSON: {
       questions: questions ?? {},
       tips: tips ?? {},
@@ -101,6 +146,11 @@ export async function POST(req: Request) {
     .from('buyback_multipliers_per_category_json')
     .upsert(payload, { onConflict: 'category' });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true }, {
+    headers: { 'cache-control': 'no-store, no-cache, must-revalidate' },
+  });
 }
