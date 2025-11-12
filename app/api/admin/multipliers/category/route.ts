@@ -1,39 +1,28 @@
-// app/api/admin/multipliers/category/route.ts
-import { NextResponse } from 'next/server';
-import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const runtime = 'nodejs';
-
-// Ondersteun zowel een object-export als een factory-functie
-function sbClient() {
-  const anySb: any = supabaseAdminExport as any;
-  return typeof anySb === 'function' ? anySb() : anySb;
+function safeParseJson(maybe: any) {
+  if (!maybe) return {};
+  if (typeof maybe === 'string') { try { return JSON.parse(maybe); } catch { return {}; } }
+  return maybe;
 }
+function extractBase(row: any) {
+  const raw = row?.questions_json ?? row?.questions_JSON ?? {};
+  const container = safeParseJson(raw);
 
-type QType = 'percent' | 'fixed';
-type QOption = {
-  key: string;
-  label?: string | null;
-  tip?: string | null;
-  type: QType;
-  value: number;
-  priority?: number | null;
-  active?: boolean | null;
-};
-type Questions = Record<string, { title?: string | null; options: QOption[] }>;
+  // Jouw vorm: alles vlak + optioneel tips/order
+  let questions: any = {};
+  if (container && typeof container === 'object') {
+    if (container.questions && typeof container.questions === 'object') {
+      questions = container.questions;
+    } else {
+      const { tips, order, q_order, questions_order, updated_at, ...rest } = container;
+      questions = rest && Object.keys(rest).length ? rest : {};
+    }
+  }
 
-function extractBase(row: any): {
-  questions: Questions;
-  tips: Record<string, string>;
-  order: string[];
-} {
-  const container = row?.questions_JSON ?? row?.questions_json ?? {};
-  // Ondersteun twee vormen: genest of plat
-  const questions: Questions = container?.questions ?? container ?? {};
-  const tips: Record<string, string> = container?.tips ?? {};
-  const order: string[] =
+  const tips = container?.tips ?? {};
+  const order =
     (Array.isArray(container?.order) && container.order) ||
     (Array.isArray(container?.q_order) && container.q_order) ||
     (Array.isArray(container?.questions_order) && container.questions_order) ||
@@ -42,114 +31,81 @@ function extractBase(row: any): {
   return { questions, tips, order };
 }
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const category = (searchParams.get('category') || '').trim();
-  if (!category) {
-    return NextResponse.json({ error: 'category is required' }, { status: 400 });
-  }
+export async function GET(req: NextRequest) {
+  const sb = typeof (supabaseAdmin as any) === 'function' ? (supabaseAdmin as any)() : supabaseAdmin;
+  const category = String(req.nextUrl.searchParams.get('category') || '').trim();
 
-  const sb = sbClient();
+  const { data: baseRow, error: baseErr } = await sb
+    .from('buyback_multipliers_per_category_json')
+    .select('category, questions_json, questions_JSON, updated_at, tips, order')
+    .eq('category', category)
+    .maybeSingle();
 
-  // 1) Basis set uit JSON-tabel (mag leeg zijn; maar niet crashen)
-  let baseRow: any = null;
-  {
-    const { data, error } = await sb
-      .from('buyback_multipliers_per_category_json')
-      .select('category, questions_JSON, questions_json, updated_at')
-      .eq('category', category)
-      .maybeSingle();
+  if (baseErr) return NextResponse.json({ error: baseErr.message }, { status: 500 });
 
-    if (error && error.code !== 'PGRST116') {
-      // PGRST116 = not found; andere errors melden
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    baseRow = data ?? null;
-  }
+  const base = baseRow ? extractBase(baseRow) : { questions: {}, tips: {}, order: [] };
 
-  const base = extractBase(baseRow ?? {});
+  const { data: modelsRows, error: modelsErr } = await sb
+    .from('buyback_catalog')
+    .select('model, category')
+    .eq('category', category);
 
-  // 2) Modellen uit catalog (dedupe)
-  let models: Array<{ model: string; uses_category: boolean; has_custom: boolean; assigned_set: string | null }> = [];
-  {
-    const { data: modelRows, error: modelErr } = await sb
-      .from('buyback_catalog')
-      .select('model, category')
-      .eq('category', category);
+  if (modelsErr) return NextResponse.json({ error: modelsErr.message }, { status: 500 });
 
-    if (!modelErr && Array.isArray(modelRows)) {
-      const uniqModels = Array.from(
-        new Set(
-          modelRows
-            .map((r: any) => String(r.model ?? '').trim())
-            .filter(Boolean)
-        )
-      );
-      models = uniqModels.map((m) => ({
-        model: m,
-        uses_category: true,
-        has_custom: false,
-        assigned_set: null,
-      }));
-    } else {
-      // Geen modellen gevonden of query fout: stuur lege lijst i.p.v. 500
-      models = [];
-    }
-  }
+  const { data: assignedRows } = await sb
+    .from('buyback_model_assigned_set')
+    .select('model, set_name, category')
+    .eq('category', category);
 
-  return NextResponse.json(
-    {
-      base: {
-        questions: base.questions,
-        tips: base.tips,
-        order: base.order,
-        q_order: base.order,
-        questions_order: base.order,
-        updated_at: baseRow?.updated_at ?? null,
-      },
-      models,
+  const assignedMap = new Map<string, string | null>();
+  (assignedRows || []).forEach((r: any) => assignedMap.set(String(r.model), r.set_name || null));
+
+  const { data: customRows } = await sb
+    .from('buyback_model_custom_json')
+    .select('model');
+
+  const customSet = new Set((customRows || []).map((r: any) => String(r.model)));
+
+  const seen = new Set<string>();
+  const models = (modelsRows || [])
+    .map((r: any) => String(r.model))
+    .filter((m) => {
+      const k = m.trim();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return !!k;
+    })
+    .map((model) => {
+      const assigned = assignedMap.get(model) ?? null;
+      const has_custom = customSet.has(model) || !!assigned;
+      const uses_category = !has_custom || !assigned;
+      return { model, uses_category, has_custom, assigned_set: assigned } as any;
+    });
+
+  return NextResponse.json({
+    base: {
+      questions: base.questions,
+      tips: base.tips,
+      order: base.order,
+      questions_order: base.order,
+      q_order: base.order,
     },
-    { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } }
-  );
+    models,
+  });
 }
 
-export async function POST(req: Request) {
-  const sb = sbClient();
-  const body = await req.json().catch(() => ({}));
-  const {
-    category,
-    questions,
-    tips = {},
-    order,
-    q_order,
-    questions_order,
-  } = body as {
-    category: string;
-    questions: Questions;
-    tips?: Record<string, string>;
-    order?: string[];
-    q_order?: string[];
-    questions_order?: string[];
-  };
+export async function POST(req: NextRequest) {
+  const sb = typeof (supabaseAdmin as any) === 'function' ? (supabaseAdmin as any)() : supabaseAdmin;
+  const body = await req.json();
 
-  if (!category) {
-    return NextResponse.json({ error: 'category required' }, { status: 400 });
-  }
-
-  const ord: string[] =
-    (Array.isArray(order) && order) ||
-    (Array.isArray(q_order) && q_order) ||
-    (Array.isArray(questions_order) && questions_order) ||
-    Object.keys(questions ?? {});
+  const category = String(body?.category || '').trim();
+  const questions = body?.questions || {};
+  const tips = body?.tips || {};
+  const order = body?.order || body?.q_order || body?.questions_order || Object.keys(questions);
 
   const payload = {
     category,
-    // Alles netjes genest in questions_JSON
-    questions_JSON: {
-      questions: questions ?? {},
-      tips: tips ?? {},
-      order: ord,
-    },
+    questions_json: { ...questions, tips, order },
     updated_at: new Date().toISOString(),
   };
 
@@ -157,12 +113,6 @@ export async function POST(req: Request) {
     .from('buyback_multipliers_per_category_json')
     .upsert(payload, { onConflict: 'category' });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json(
-    { ok: true },
-    { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } }
-  );
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
