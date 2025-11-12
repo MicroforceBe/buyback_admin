@@ -13,7 +13,7 @@ function sbAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/** Hulp: veilige JSON parse als Supabase TEXT terugstuurt */
+/** Safe JSON parse – accepteert objecten of JSON strings, anders fallback */
 function safeParseJSON<T = any>(v: any, fallback: T): T {
   if (v == null) return fallback;
   if (typeof v === 'object') return v as T;
@@ -23,7 +23,7 @@ function safeParseJSON<T = any>(v: any, fallback: T): T {
   return fallback;
 }
 
-/** Hulp: haal volgorde uit diverse velden */
+/** Haal order uit diverse veldnamen (enkel arrays tellen) */
 function firstOrderLike(obj: any, fallback: string[] = []): string[] {
   if (Array.isArray(obj?.order) && obj.order.length) return obj.order;
   if (Array.isArray(obj?.q_order) && obj.q_order.length) return obj.q_order;
@@ -32,7 +32,7 @@ function firstOrderLike(obj: any, fallback: string[] = []): string[] {
   return fallback;
 }
 
-/** Hulp: haal 'questions' uit object dat ofwel {questions:{...}} is, of vlakke vorm */
+/** Extracteer vragen + meta (werkt voor {questions:{...}} of vlakke vorm) */
 function extractQuestionsAndMeta(raw: any): {
   questions: Record<string, any>;
   tips?: Record<string, string>;
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const categoryRaw = url.searchParams.get('category')?.trim();
-    const modelRaw = url.searchParams.get('model')?.trim(); // <-- optioneel: model voor custom/fallbacks
+    const modelRaw = url.searchParams.get('model')?.trim(); // optioneel: model voor custom/fallbacks
 
     if (!categoryRaw) {
       return NextResponse.json({ error: 'missing category' }, { status: 400 });
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = sbAdmin();
 
-    // ==== 1) CATEGORIE ophalen (exact, dan case-insensitive) ====
+    // 1) Categorie ophalen
     let { data: catRow, error: catErr } = await supabase
       .from('buyback_multipliers_per_category_json')
       .select('category, questions_json, updated_at')
@@ -99,9 +99,8 @@ export async function GET(req: NextRequest) {
     let outTips: Record<string, string> | undefined = catMeta.tips ?? {};
     let voucher_help: string | null | undefined = catMeta.voucher_help ?? null;
 
-    // ==== 2) MODEL-specifiek? Dan eerst ad-hoc custom, anders toegewezen set, anders uses_category ====
+    // 2) MODEL-specifiek?
     if (modelRaw) {
-      // Model mapping (naamvelden zoals gebruikt in admin)
       const { data: mRow, error: mErr } = await supabase
         .from('buyback_multipliers_models')
         .select('model, category, uses_category, assigned_set, custom_questions, custom_order, custom_tips')
@@ -109,41 +108,41 @@ export async function GET(req: NextRequest) {
         .maybeSingle();
 
       if (!mErr && mRow) {
-        // 2a) ad-hoc custom voor dit model
-        const customQ = safeParseJSON<Record<string, any>>(mRow.custom_questions, null);
-        if (customQ && Object.keys(customQ).length) {
+        // 2a) Ad-hoc custom
+        const customQ = safeParseJSON<Record<string, any>>(mRow.custom_questions, {}); // <-- geen null meer
+        if (Object.keys(customQ).length) {
           outQuestions = customQ;
-          outOrder = Array.isArray(mRow.custom_order) && mRow.custom_order.length
-            ? mRow.custom_order
-            : Object.keys(customQ);
-          outTips = (mRow.custom_tips && typeof mRow.custom_tips === 'object')
-            ? (mRow.custom_tips as Record<string, string>)
-            : outTips;
+          const parsedCustomOrder = safeParseJSON<string[]>(mRow.custom_order, []);
+          outOrder = parsedCustomOrder.length ? parsedCustomOrder : Object.keys(customQ);
+          const parsedCustomTips = safeParseJSON<Record<string, string>>(mRow.custom_tips, {});
+          if (Object.keys(parsedCustomTips).length) outTips = parsedCustomTips;
         }
-        // 2b) toegewezen custom set-naam
+        // 2b) Toegewezen set
         else if (mRow.assigned_set) {
           const { data: setRow, error: setErr } = await supabase
             .from('buyback_multipliers_sets')
-            .select('category, name, questions, order, updated_at')
-            .eq('category', catRow.category)
+            .select('category, name, questions, "order", updated_at')
+            .eq('category', (catRow as any).category)
             .eq('name', mRow.assigned_set)
             .maybeSingle();
 
           if (!setErr && setRow) {
-            const setQuestions = safeParseJSON<Record<string, any>>(setRow.questions, {});
+            const setQuestions = safeParseJSON<Record<string, any>>((setRow as any).questions, {});
+            const parsedSetOrder = safeParseJSON<string[]>((setRow as any).order, []);
             outQuestions = setQuestions;
-            outOrder = firstOrderLike(setRow, Object.keys(setQuestions));
-            // Tips in sets heb je (nu) niet voorzien—laat categorie-tips staan.
+            outOrder = parsedSetOrder.length
+              ? parsedSetOrder
+              : firstOrderLike(setRow, Object.keys(setQuestions));
+            // tips: sets hebben geen tips-kolom → laat categorie-tips staan
           }
-          // else: als set niet gevonden → blijf op categorie-fallback
         }
-        // 2c) uses_category === true of geen info → categorie-fallback (reeds ingesteld)
+        // 2c) uses_category → blijft categorie-default
       }
     }
 
     const payload = {
-      category: catRow.category,
-      updated_at: catRow.updated_at,
+      category: (catRow as any).category,
+      updated_at: (catRow as any).updated_at,
       model: modelRaw || null,
       questions: outQuestions,
       question_order: outOrder,
