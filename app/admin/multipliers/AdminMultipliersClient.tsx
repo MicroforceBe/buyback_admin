@@ -792,7 +792,7 @@ export default function AdminMultipliersClient() {
               onClick={() => setActiveCat(c.name)}
             >
               {c.name}
-              {c.has_json ? '' : ' • nieuw'}
+              {c.has_json ? '' : ' '}
             </button>
           );
         })}
