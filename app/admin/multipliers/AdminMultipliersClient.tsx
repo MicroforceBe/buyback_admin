@@ -244,7 +244,7 @@ export default function AdminMultipliersClient() {
     const to = idx + dir;
     if (to < 0 || to >= order.length) return order;
     const next = [...order];
-    const [it] = next.splice(idx, 1);
+       const [it] = next.splice(idx, 1);
     next.splice(to, 0, it);
     const onlyExisting = next.filter((k) => !!qs[k]);
     const missing = Object.keys(qs).filter((k) => !onlyExisting.includes(k));
@@ -1121,26 +1121,14 @@ export default function AdminMultipliersClient() {
                         <td className="py-2 pr-3">
                           <label className="inline-flex items-center gap-2 select-none">
                             <span className="text-xs text-gray-600">Custom</span>
-                          <button
-                            type="button"
-                            aria-pressed={m.uses_category}
-                            onClick={() => toggleModel(m, !m.uses_category)}
-                            className="relative inline-flex h-6 w-11 items-center rounded-full transition"
-                            style={{
-                              // Groen wanneer categorie-set actief, anders blauw
-                              background: m.uses_category ? '#22c55e' /* green-500 */ : '#3b82f6' /* blue-500 */,
-                            }}
-                            title={m.uses_category ? 'Categorie-set actief' : 'Custom (set/adhoc) actief'}
-                          >
-                            <span
-                              className="inline-block h-5 w-5 transform rounded-full bg-white transition"
-                              style={{
-                                translate: m.uses_category ? '22px 0' : '2px 0', // rechts bij categorie, links bij custom
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                              }}
-                            />
-                          </button>
-
+                            <button
+                              type="button"
+                              aria-pressed={m.uses_category}
+                              onClick={() => toggleModel(m, !m.uses_category)}
+                              className="relative inline-flex h-6 w-11 items-center rounded-full transition"
+                              style={{ background: trackColor }}
+                              title={titleText}
+                            >
                               <span
                                 className="inline-block h-5 w-5 transform rounded-full bg-white transition"
                                 style={{ translate: knobTranslate, boxShadow: '0 1px 2px rgba(0,0,0,0.15)' }}
