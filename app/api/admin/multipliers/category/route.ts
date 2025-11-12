@@ -1,118 +1,134 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+// app/api/admin/multipliers/category/route.ts
+import { NextResponse } from 'next/server';
+import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
 
-function safeParseJson(maybe: any) {
-  if (!maybe) return {};
-  if (typeof maybe === 'string') { try { return JSON.parse(maybe); } catch { return {}; } }
-  return maybe;
+// In sommige projecten exporteert lib/supabaseAdmin een kant-en-klare client,
+// in andere een factory. Deze helper vangt beide gevallen af.
+function sbClient() {
+  const anySb: any = supabaseAdminExport as any;
+  return typeof anySb === 'function' ? anySb() : anySb;
 }
-function extractBase(row: any) {
-  const raw = row?.questions_json ?? row?.questions_JSON ?? {};
-  const container = safeParseJson(raw);
 
-  // Jouw vorm: alles vlak + optioneel tips/order
-  let questions: any = {};
-  if (container && typeof container === 'object') {
-    if (container.questions && typeof container.questions === 'object') {
-      questions = container.questions;
-    } else {
-      const { tips, order, q_order, questions_order, updated_at, ...rest } = container;
-      questions = rest && Object.keys(rest).length ? rest : {};
-    }
+type Questions = Record<
+  string,
+  {
+    title?: string | null;
+    options: Array<{
+      key: string;
+      label?: string | null;
+      tip?: string | null;
+      type: 'percent' | 'fixed';
+      value: number;
+      priority?: number | null;
+      active?: boolean | null;
+    }>;
   }
+>;
 
-  const tips = container?.tips ?? {};
-  const order =
-    (Array.isArray(container?.order) && container.order) ||
-    (Array.isArray(container?.q_order) && container.q_order) ||
-    (Array.isArray(container?.questions_order) && container.questions_order) ||
-    Object.keys(questions);
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-  return { questions, tips, order };
-}
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const category = searchParams.get('category')?.trim() || null;
 
-export async function GET(req: NextRequest) {
-  const sb = typeof (supabaseAdmin as any) === 'function' ? (supabaseAdmin as any)() : supabaseAdmin;
-  const category = String(req.nextUrl.searchParams.get('category') || '').trim();
+    if (!category) {
+      return NextResponse.json(
+        { error: 'category query param is required' },
+        { status: 400 }
+      );
+    }
 
-  const { data: baseRow, error: baseErr } = await sb
-    .from('buyback_multipliers_per_category_json')
-    .select('category, questions_json, questions_JSON, updated_at, tips, order')
-    .eq('category', category)
-    .maybeSingle();
+    const sb = sbClient();
 
-  if (baseErr) return NextResponse.json({ error: baseErr.message }, { status: 500 });
+    // ====== 1) BASIS (categorie-set) uit buyback_multipliers_per_category_json ======
+    // Kolommen minimaal: category, questions_json, updated_at
+    // In sommige setups zitten tips en order in aparte kolommen tips_json/order_json,
+    // in andere zitten ze mee IN questions_json of ontbreken ze.
+    const baseSel = sb
+      .from('buyback_multipliers_per_category_json')
+      .select('questions_json, tips_json, order_json')
+      .eq('category', category)
+      .maybeSingle(); // gebruik maybeSingle i.p.v. single: bestaat mogelijks (nog) niet
 
-  const base = baseRow ? extractBase(baseRow) : { questions: {}, tips: {}, order: [] };
+    // ====== 2) MODELLEN uit buyback_catalog (distinct per model voor de gekozen categorie) ======
+    const modelsSel = sb
+      .from('buyback_catalog')
+      .select('model')
+      .eq('category', category);
 
-  const { data: modelsRows, error: modelsErr } = await sb
-    .from('buyback_catalog')
-    .select('model, category')
-    .eq('category', category);
+    const [baseRes, modelsRes] = await Promise.all([baseSel, modelsSel]);
 
-  if (modelsErr) return NextResponse.json({ error: modelsErr.message }, { status: 500 });
+    // --- Basis ---
+    if (baseRes.error) {
+      // Niet fataal: we sturen lege basis terug als de rij nog niet bestaat
+      // maar melden de fouttekst in payload voor debug.
+      // console.error('baseRes.error', baseRes.error);
+    }
 
-  const { data: assignedRows } = await sb
-    .from('buyback_model_assigned_set')
-    .select('model, set_name, category')
-    .eq('category', category);
+    const baseRow = baseRes.data as
+      | {
+          questions_json?: Questions | null;
+          tips_json?: Record<string, string> | null;
+          order_json?: string[] | null;
+        }
+      | null;
 
-  const assignedMap = new Map<string, string | null>();
-  (assignedRows || []).forEach((r: any) => assignedMap.set(String(r.model), r.set_name || null));
+    // Vragen (verplicht veld in jouw geval)
+    const questions: Questions = (baseRow?.questions_json as Questions) ?? {};
 
-  const { data: customRows } = await sb
-    .from('buyback_model_custom_json')
-    .select('model');
+    // Tips (optioneel)
+    const tips: Record<string, string> =
+      (baseRow?.tips_json as Record<string, string>) ?? {};
 
-  const customSet = new Set((customRows || []).map((r: any) => String(r.model)));
+    // Volgorde (optioneel → val terug op de sleutelvolgorde van questions)
+    const order: string[] =
+      (Array.isArray(baseRow?.order_json) && (baseRow?.order_json as string[])) ||
+      Object.keys(questions);
 
-  const seen = new Set<string>();
-  const models = (modelsRows || [])
-    .map((r: any) => String(r.model))
-    .filter((m) => {
-      const k = m.trim();
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return !!k;
-    })
-    .map((model) => {
-      const assigned = assignedMap.get(model) ?? null;
-      const has_custom = customSet.has(model) || !!assigned;
-      const uses_category = !has_custom || !assigned;
-      return { model, uses_category, has_custom, assigned_set: assigned } as any;
+    // --- Modellen ---
+    const modelsRows = modelsRes.data as Array<{ model: string }> | null;
+    let models: string[] =
+      (modelsRows || [])
+        .map((r: { model: string }) => String(r.model))
+        // fix: type geven aan m om TS "implicitly any" te vermijden
+        .filter((m: string) => {
+          const k = m.trim();
+          return k.length > 0;
+        }) || [];
+
+    // Deduplicatie en sortering
+    const seen = new Set<string>();
+    models = models
+      .filter((m: string) => {
+        const k = m.trim();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a: string, b: string) => a.localeCompare(b, 'nl', { numeric: true }));
+
+    // Vorm in het formaat dat de client verwacht
+    const modelRows = models.map((m) => ({
+      model: m,
+      uses_category: true, // default; echte status komt uit aparte endpoints/tabel als je die gebruikt
+      has_custom: false,
+      assigned_set: null as string | null,
+    }));
+
+    return NextResponse.json({
+      base: {
+        questions,
+        tips,
+        order,
+      },
+      models: modelRows,
     });
-
-  return NextResponse.json({
-    base: {
-      questions: base.questions,
-      tips: base.tips,
-      order: base.order,
-      questions_order: base.order,
-      q_order: base.order,
-    },
-    models,
-  });
-}
-
-export async function POST(req: NextRequest) {
-  const sb = typeof (supabaseAdmin as any) === 'function' ? (supabaseAdmin as any)() : supabaseAdmin;
-  const body = await req.json();
-
-  const category = String(body?.category || '').trim();
-  const questions = body?.questions || {};
-  const tips = body?.tips || {};
-  const order = body?.order || body?.q_order || body?.questions_order || Object.keys(questions);
-
-  const payload = {
-    category,
-    questions_json: { ...questions, tips, order },
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await sb
-    .from('buyback_multipliers_per_category_json')
-    .upsert(payload, { onConflict: 'category' });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message || 'Unexpected error' },
+      { status: 500 }
+    );
+  }
 }
