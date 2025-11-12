@@ -2,30 +2,43 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const runtime = 'nodejs';
+
+function hasQuestions(row: any): boolean {
+  const qj = row?.questions_JSON ?? row?.questions_json ?? {};
+  const qs = qj?.questions ?? qj ?? {};
+  return qs && typeof qs === 'object' && Object.keys(qs).length > 0;
+}
+
 export async function GET() {
   const sb = supabaseAdmin;
 
-  // Alle categorieën uit catalog (pas aan indien nodig)
+  // Alle categorieën uit catalog
   const { data: catRows, error: catErr } = await sb
     .from('buyback_catalog')
     .select('category')
     .not('category', 'is', null);
 
-  if (catErr) return NextResponse.json({ error: catErr.message }, { status: 500 });
+  if (catErr) {
+    return NextResponse.json({ error: catErr.message }, { status: 500 });
+  }
 
-  const allCats = Array.from(new Set((catRows ?? []).map(r => r.category))).filter(Boolean) as string[];
+  const allCats = Array.from(new Set((catRows ?? []).map((r: any) => String(r.category)).filter(Boolean)));
 
-  // Bestaan van basis-set (questions_JSON mag nested zijn)
-  const { data: baseRows } = await sb
+  // Check of er een basis-set bestaat in de JSON-tabel
+  const { data: baseRows, error: baseErr } = await sb
     .from('buyback_multipliers_per_category_json')
-    .select('category, questions_JSON');
+    .select('category, questions_JSON, questions_json');
+
+  if (baseErr) {
+    return NextResponse.json({ error: baseErr.message }, { status: 500 });
+  }
 
   const hasMap = new Map<string, boolean>();
   for (const r of baseRows ?? []) {
-    const qj = (r as any).questions_JSON ?? {};
-    const qs = qj.questions ?? qj; // wederom backwards-compat
-    const has = qs && typeof qs === 'object' && Object.keys(qs).length > 0;
-    hasMap.set((r as any).category, !!has);
+    hasMap.set(r.category, hasQuestions(r));
   }
 
   const categories = allCats.map((name) => ({
@@ -33,5 +46,7 @@ export async function GET() {
     has_json: !!hasMap.get(name),
   }));
 
-  return NextResponse.json({ categories });
+  return NextResponse.json({ categories }, {
+    headers: { 'cache-control': 'no-store, no-cache, must-revalidate' },
+  });
 }
