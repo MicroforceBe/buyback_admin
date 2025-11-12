@@ -1,61 +1,37 @@
 // app/api/admin/multipliers/categories/route.ts
-export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // SECURITY DEFINER in de DB zorgt voor juiste rechten
-);
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function GET() {
-  try {
-    // 1) Unieke categorieën uit catalog
-    const { data: catRows, error: e1 } = await supabase
-      .from('buyback_catalog')
-      .select('category, active')
-      .eq('active', true);
+  const sb = supabaseAdmin;
 
-    if (e1) {
-      return NextResponse.json({ error: e1.message }, { status: 500 });
-    }
+  // Alle categorieën uit catalog (pas aan indien nodig)
+  const { data: catRows, error: catErr } = await sb
+    .from('buyback_catalog')
+    .select('category')
+    .not('category', 'is', null);
 
-    const cats = Array.from(
-      new Set(
-        (catRows ?? [])
-          .map(r => (r?.category ?? '').toString().trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b));
+  if (catErr) return NextResponse.json({ error: catErr.message }, { status: 500 });
 
-    // 2) Kijken welke categorieën al een JSON set hebben
-    //    Tabel: buyback_multipliers_per_category_json (kolom 'category')
-    let hasJsonSet = new Set<string>();
-    {
-      const { data: jsonRows, error: e2 } = await supabase
-        .from('buyback_multipliers_per_category_json')
-        .select('category');
+  const allCats = Array.from(new Set((catRows ?? []).map(r => r.category))).filter(Boolean) as string[];
 
-      // Best-effort: als tabel (nog) niet bestaat of leeg is -> niemand heeft json
-      if (!e2 && Array.isArray(jsonRows)) {
-        hasJsonSet = new Set(
-          jsonRows
-            .map(r => (r?.category ?? '').toString().trim())
-            .filter(Boolean)
-        );
-      }
-    }
+  // Bestaan van basis-set (questions_JSON mag nested zijn)
+  const { data: baseRows } = await sb
+    .from('buyback_multipliers_per_category_json')
+    .select('category, questions_JSON');
 
-    const categories = cats.map(name => ({
-      name,
-      has_json: hasJsonSet.has(name),
-    }));
-
-    return NextResponse.json(
-      { categories },
-      { headers: { 'Cache-Control': 'no-store' } }
-    );
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'failed' }, { status: 500 });
+  const hasMap = new Map<string, boolean>();
+  for (const r of baseRows ?? []) {
+    const qj = (r as any).questions_JSON ?? {};
+    const qs = qj.questions ?? qj; // wederom backwards-compat
+    const has = qs && typeof qs === 'object' && Object.keys(qs).length > 0;
+    hasMap.set((r as any).category, !!has);
   }
+
+  const categories = allCats.map((name) => ({
+    name,
+    has_json: !!hasMap.get(name),
+  }));
+
+  return NextResponse.json({ categories });
 }
