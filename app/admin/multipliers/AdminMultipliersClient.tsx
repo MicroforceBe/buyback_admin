@@ -43,9 +43,9 @@ type ValidationErrors = {
 };
 
 type QuestionSet = {
-  name: string;                // Unieke naam binnen categorie
-  questions: Questions;        // Inhoud
-  qOrder?: string[];           // Volgorde van vragen (keys)
+  name: string;         // Unieke naam binnen categorie
+  questions: Questions; // Inhoud
+  qOrder?: string[];    // Volgorde van vragen (keys)
 };
 
 /* ================== Utils ================== */
@@ -141,7 +141,7 @@ export default function AdminMultipliersClient() {
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
   // Collapsibles
-  const [openBase, setOpenBase] = useState(false);          // categorie-set (default dicht)
+  const [openBase, setOpenBase] = useState(false);                  // categorie-set (default dicht)
   const [openSets, setOpenSets] = useState<Record<string, boolean>>({}); // custom sets (default dicht)
 
   const [loading, setLoading] = useState(false);
@@ -244,7 +244,7 @@ export default function AdminMultipliersClient() {
     const to = idx + dir;
     if (to < 0 || to >= order.length) return order;
     const next = [...order];
-       const [it] = next.splice(idx, 1);
+    const [it] = next.splice(idx, 1);
     next.splice(to, 0, it);
     const onlyExisting = next.filter((k) => !!qs[k]);
     const missing = Object.keys(qs).filter((k) => !onlyExisting.includes(k));
@@ -1107,12 +1107,6 @@ export default function AdminMultipliersClient() {
                   {models.map((m) => {
                     const assigned = (m as any).assigned_set as string | null | undefined;
 
-                    // Slider: groen (rechts) = categorie of geen set; blauw (links) = custom set
-                    const sliderIsGreen = m.uses_category || !assigned;
-                    const trackColor = sliderIsGreen ? '#22c55e' : '#3b82f6';
-                    const knobTranslate = sliderIsGreen ? '22px 0' : '2px 0';
-                    const titleText = sliderIsGreen ? 'Categorie-set actief' : 'Custom set actief';
-
                     return (
                       <tr key={m.model} className="border-t">
                         <td className="py-2 pr-3">{m.model}</td>
@@ -1126,19 +1120,21 @@ export default function AdminMultipliersClient() {
                               aria-pressed={m.uses_category}
                               onClick={() => toggleModel(m, !m.uses_category)}
                               className="relative inline-flex h-6 w-11 items-center rounded-full transition"
-                              style={{ background: trackColor }}
-                              title={titleText}
+                              style={{
+                                background: m.uses_category ? '#22c55e' : '#3b82f6',
+                              }}
+                              title={m.uses_category ? 'Categorie-set actief' : 'Custom (set/adhoc) actief'}
                             >
                               <span
                                 className="inline-block h-5 w-5 transform rounded-full bg-white transition"
-                                style={{ translate: knobTranslate, boxShadow: '0 1px 2px rgba(0,0,0,0.15)' }}
+                                style={{ translate: m.uses_category ? '22px 0' : '2px 0', boxShadow: '0 1px 2px rgba(0,0,0,0.15)' }}
                               />
                             </button>
                             <span className="text-xs text-gray-600">Categorie</span>
                           </label>
                         </td>
 
-                        {/* Dropdown altijd zichtbaar */}
+                        {/* Dropdown */}
                         <td className="py-2 pr-3">
                           <select
                             className="border rounded px-2 py-1 bg-white"
