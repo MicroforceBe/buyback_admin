@@ -34,7 +34,6 @@ type Draft = {
 };
 
 type SortKey = 'variant' | 'capacity_gb' | 'base_price_cents';
-
 type SortDir = 'asc' | 'desc';
 
 function inferBrand(category: string | null, currentBrand: string): string {
@@ -66,7 +65,6 @@ export default function Table({ category, rows }: Props) {
   // Sync houden met props.rows (bij filter/zoeken)
   useMemo(() => {
     setLocalRows(rows);
-    // sort resetten bij nieuwe dataset
     setSortKey(null);
     setSortDir('asc');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,7 +81,6 @@ export default function Table({ category, rows }: Props) {
         setSortDir((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
         return prevKey;
       }
-      // nieuw veld -> begin met asc
       setSortDir('asc');
       return column;
     });
@@ -97,10 +94,8 @@ export default function Table({ category, rows }: Props) {
       let bv: any;
 
       if (sortKey === 'variant') {
-        av = a.variant || '';
-        bv = b.variant || '';
-        av = av.toString().toLowerCase();
-        bv = bv.toString().toLowerCase();
+        av = (a.variant || '').toString().toLowerCase();
+        bv = (b.variant || '').toString().toLowerCase();
       } else if (sortKey === 'capacity_gb') {
         av = a.capacity_gb ?? 0;
         bv = b.capacity_gb ?? 0;
@@ -284,7 +279,6 @@ export default function Table({ category, rows }: Props) {
         const created = await createCatalogRow(payload);
         const id = (created as any)?.id as number | undefined;
 
-        // Optimistisch: toon bovenaan
         const nowIso = new Date().toISOString();
         const newRow: CatalogRow = {
           id: id ?? Math.floor(Math.random() * 1e9),
@@ -347,7 +341,7 @@ export default function Table({ category, rows }: Props) {
           <tr>
             <th className="px-3 py-2 text-left">Foto</th>
             <th className="px-3 py-2 text-left">Brand</th>
-            {showingAllCategories && (
+            {!category && (
               <th className="px-3 py-2 text-left">Categorie</th>
             )}
             <th className="px-3 py-2 text-left">Model</th>
@@ -399,15 +393,16 @@ export default function Table({ category, rows }: Props) {
               <td className="px-3 py-2 text-gray-400 italic">—</td>
               <td className="px-3 py-2">
                 <input
-                  className="bb-input"
+                  className="bb-input bb-input-wide"
                   value={draft.brand}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, brand: e.target.value }))
                   }
                   placeholder="bv. Apple"
+                  maxLength={50}
                 />
               </td>
-              {showingAllCategories && (
+              {!category && (
                 <td className="px-3 py-2">
                   <input
                     className="bb-input"
@@ -421,12 +416,13 @@ export default function Table({ category, rows }: Props) {
               )}
               <td className="px-3 py-2">
                 <input
-                  className="bb-input"
+                  className="bb-input bb-input-wide"
                   value={draft.model}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, model: e.target.value }))
                   }
                   placeholder="bv. iPad 10.2 (9th)"
+                  maxLength={50}
                 />
               </td>
               <td className="px-3 py-2">
@@ -474,7 +470,6 @@ export default function Table({ category, rows }: Props) {
                 </div>
               </td>
               <td className="px-3 py-2">
-                {/* Toggle slider */}
                 <label className="inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
@@ -561,13 +556,14 @@ export default function Table({ category, rows }: Props) {
 
                 <td className="px-3 py-2">
                   <input
-                    className="bb-input"
+                    className="bb-input bb-input-wide"
                     defaultValue={row.brand}
                     onBlur={(e) => onEditText(row, 'brand', e.target.value)}
                     disabled={isPending}
+                    maxLength={50}
                   />
                 </td>
-                {showingAllCategories && (
+                {!category && (
                   <td className="px-3 py-2">
                     <input
                       className="bb-input"
@@ -582,10 +578,11 @@ export default function Table({ category, rows }: Props) {
                 )}
                 <td className="px-3 py-2">
                   <input
-                    className="bb-input"
+                    className="bb-input bb-input-wide"
                     defaultValue={row.model}
                     onBlur={(e) => onEditText(row, 'model', e.target.value)}
                     disabled={isPending}
+                    maxLength={50}
                   />
                 </td>
                 <td className="px-3 py-2">
@@ -657,6 +654,9 @@ export default function Table({ category, rows }: Props) {
           border-radius: 8px;
           background: #fff;
           outline: none;
+        }
+        .bb-input-wide {
+          max-width: 320px; /* breedte voor Brand + Model */
         }
         .bb-input:focus {
           border-color: #10b981;
