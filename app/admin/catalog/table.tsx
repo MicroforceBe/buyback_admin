@@ -33,6 +33,10 @@ type Draft = {
   active: boolean;
 };
 
+type SortKey = 'variant' | 'capacity_gb' | 'base_price_cents';
+
+type SortDir = 'asc' | 'desc';
+
 function inferBrand(category: string | null, currentBrand: string): string {
   if (currentBrand?.trim()) return currentBrand.trim();
   if (category && BRAND_BY_CATEGORY[category]) return BRAND_BY_CATEGORY[category];
@@ -45,10 +49,13 @@ export default function Table({ category, rows }: Props) {
   const [isAdding, setIsAdding] = useState(false);
   const [savingNew, startSavingNew] = useTransition();
 
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
     brand: inferBrand(category, ''),
-    category: category ?? '', // bij filter op categorie is dit die categorie
+    category: category ?? '',
     model: '',
     variant: null,
     capacity_gb: '',
@@ -59,11 +66,57 @@ export default function Table({ category, rows }: Props) {
   // Sync houden met props.rows (bij filter/zoeken)
   useMemo(() => {
     setLocalRows(rows);
+    // sort resetten bij nieuwe dataset
+    setSortKey(null);
+    setSortDir('asc');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
   // File inputs per rij (voor image upload)
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  const showingAllCategories = !category;
+
+  function toggleSort(column: SortKey) {
+    setSortKey((prevKey) => {
+      if (prevKey === column) {
+        setSortDir((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
+        return prevKey;
+      }
+      // nieuw veld -> begin met asc
+      setSortDir('asc');
+      return column;
+    });
+  }
+
+  const displayRows = useMemo(() => {
+    if (!sortKey) return localRows;
+
+    const sorted = [...localRows].sort((a, b) => {
+      let av: any;
+      let bv: any;
+
+      if (sortKey === 'variant') {
+        av = a.variant || '';
+        bv = b.variant || '';
+        av = av.toString().toLowerCase();
+        bv = bv.toString().toLowerCase();
+      } else if (sortKey === 'capacity_gb') {
+        av = a.capacity_gb ?? 0;
+        bv = b.capacity_gb ?? 0;
+      } else {
+        // base_price_cents
+        av = a.base_price_cents ?? 0;
+        bv = b.base_price_cents ?? 0;
+      }
+
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return 0;
+    });
+
+    return sortDir === 'asc' ? sorted : sorted.reverse();
+  }, [localRows, sortKey, sortDir]);
 
   async function onToggleActive(row: CatalogRow, next: boolean) {
     try {
@@ -220,7 +273,7 @@ export default function Table({ category, rows }: Props) {
       try {
         const payload = {
           brand: inferBrand(draft.category || null, draft.brand),
-          category: draft.category.trim() || (category ?? null), // als we in een categorie zitten, die gebruiken
+          category: draft.category.trim() || (category ?? null),
           model: draft.model.trim(),
           variant: draft.variant?.trim() || null,
           capacity_gb: Number(draft.capacity_gb),
@@ -261,8 +314,6 @@ export default function Table({ category, rows }: Props) {
     });
   }
 
-  const showingAllCategories = !category; // true als "Alle" actief is
-
   return (
     <div className="bb-card overflow-x-auto p-0">
       {/* Toolbar */}
@@ -300,9 +351,42 @@ export default function Table({ category, rows }: Props) {
               <th className="px-3 py-2 text-left">Categorie</th>
             )}
             <th className="px-3 py-2 text-left">Model</th>
-            <th className="px-3 py-2 text-left">Variant</th>
-            <th className="px-3 py-2 text-left">Cap. (GB)</th>
-            <th className="px-3 py-2 text-left">Basisprijs (€)</th>
+            <th className="px-3 py-2 text-left">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1"
+                onClick={() => toggleSort('variant')}
+              >
+                Variant
+                {sortKey === 'variant' && (
+                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
+                )}
+              </button>
+            </th>
+            <th className="px-3 py-2 text-left">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1"
+                onClick={() => toggleSort('capacity_gb')}
+              >
+                Cap. (GB)
+                {sortKey === 'capacity_gb' && (
+                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
+                )}
+              </button>
+            </th>
+            <th className="px-3 py-2 text-left">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1"
+                onClick={() => toggleSort('base_price_cents')}
+              >
+                Basisprijs (€)
+                {sortKey === 'base_price_cents' && (
+                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
+                )}
+              </button>
+            </th>
             <th className="px-3 py-2 text-left">Actief</th>
             <th className="px-3 py-2 text-left">Acties</th>
           </tr>
@@ -431,7 +515,7 @@ export default function Table({ category, rows }: Props) {
           )}
 
           {/* Bestaande rijen */}
-          {localRows.map((row) => {
+          {displayRows.map((row) => {
             const isPending = pendingId === row.id;
             return (
               <tr key={row.id} className="border-b last:border-0">
