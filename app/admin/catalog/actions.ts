@@ -1,3 +1,4 @@
+//app/admin/catalog/actions.ts
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -50,11 +51,16 @@ export async function getCategories(): Promise<string[]> {
     .order('category', { ascending: true });
 
   if (error) throw new Error(error.message);
-  const cats = Array.from(new Set((data || []).map((r: any) => r.category).filter(Boolean)));
+  const cats = Array.from(
+    new Set((data || []).map((r: any) => r.category).filter(Boolean)),
+  );
   return cats as string[];
 }
 
-export async function getCatalogRows(opts?: { category?: string | null; q?: string | null }): Promise<CatalogRow[]> {
+export async function getCatalogRows(opts?: {
+  category?: string | null;
+  q?: string | null;
+}): Promise<CatalogRow[]> {
   const sb = sbClient();
   const { category, q } = opts || {};
   let query = sb.from('buyback_catalog').select(
@@ -62,7 +68,7 @@ export async function getCatalogRows(opts?: { category?: string | null; q?: stri
       id, brand, category, model, submodel, variant,
       year, capacity_gb, connectivity, cpu, ram_gb, ssd_gb,
       base_price_cents, image_url, active, created_at, updated_at
-    `
+    `,
   );
 
   if (category && category !== '__ALL__') {
@@ -101,20 +107,27 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'active',
 ]);
 
-export async function saveCatalogRowField(id: number, key: string, value: unknown) {
+export async function saveCatalogRowField(
+  id: number,
+  key: string,
+  value: unknown,
+) {
   'use server';
   if (!ALLOWED_UPDATE_FIELDS.has(key)) {
     throw new Error(`Veld '${key}' mag niet geüpdatet worden.`);
   }
   const sb = sbClient();
 
-  const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  const patch: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
   if (key === 'year' || key === 'capacity_gb' || key === 'base_price_cents') {
     const n = value === null || value === '' ? null : Number(value);
     if (key !== 'base_price_cents' && n === null) {
       patch[key] = null;
     } else {
-      if (Number.isNaN(n)) throw new Error(`Ongeldige numerieke waarde voor '${key}'.`);
+      if (Number.isNaN(n))
+        throw new Error(`Ongeldige numerieke waarde voor '${key}'.`);
       patch[key] = n;
     }
   } else if (key === 'active') {
@@ -122,7 +135,7 @@ export async function saveCatalogRowField(id: number, key: string, value: unknow
   } else if (key === 'image_url') {
     patch[key] = (value ?? null) as string | null;
   } else {
-    patch[key] = (value ?? null) as any;
+    patch[key] = value ?? null;
   }
 
   const { error } = await sb.from('buyback_catalog').update(patch).eq('id', id);
@@ -138,7 +151,11 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
   // brand is NIET meer verplicht; we leiden het af uit category indien leeg.
   const required = ['model', 'capacity_gb', 'base_price_cents'] as const;
   for (const k of required) {
-    if (payload[k] === undefined || payload[k] === null || payload[k] === '') {
+    if (
+      payload[k] === undefined ||
+      payload[k] === null ||
+      payload[k] === ''
+    ) {
       throw new Error(`Veld '${k}' is verplicht.`);
     }
   }
@@ -176,7 +193,11 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
   };
 
   const sb = sbClient();
-  const { data, error } = await sb.from('buyback_catalog').insert(row).select('id').single();
+  const { data, error } = await sb
+    .from('buyback_catalog')
+    .insert(row)
+    .select('id')
+    .single();
   if (error) throw new Error(error.message);
 
   revalidatePath('/admin/catalog');
@@ -212,23 +233,26 @@ export async function uploadCatalogRowImage(form: FormData) {
   const rowId = Number(rowIdRaw);
   if (!Number.isFinite(rowId)) throw new Error('Ongeldige rowId.');
 
-  const bucket = process.env.NEXT_PUBLIC_SUPABASE_CATALOG_BUCKET || 'buyback-catalog';
+  const bucket =
+    process.env.NEXT_PUBLIC_SUPABASE_CATALOG_BUCKET || 'buyback-catalog';
   const sb = sbClient();
 
   const mime = file.type || 'application/octet-stream';
   const ext = (mime.split('/')[1] || 'bin').toLowerCase();
   const path = `models/${rowId}/main.${ext}`;
 
-  const { error: upErr } = await sb.storage
-    .from(bucket)
-    .upload(path, file, {
-      contentType: mime,
-      upsert: true,
-    });
+  const { error: upErr } = await sb.storage.from(bucket).upload(path, file, {
+    contentType: mime,
+    upsert: true,
+  });
 
   if (upErr) {
     const anyErr = upErr as any;
-    throw new Error(`Upload mislukt: ${anyErr?.message || 'unknown'} (bucket=${bucket}, path=${path})`);
+    throw new Error(
+      `Upload mislukt: ${
+        anyErr?.message || 'unknown'
+      } (bucket=${bucket}, path=${path})`,
+    );
   }
 
   const { data: pub } = sb.storage.from(bucket).getPublicUrl(path);
