@@ -32,7 +32,9 @@ export default async function CatalogPage({ searchParams }: Props) {
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Catalogus</h1>
         {/* (optioneel) naar overzicht of andere admin secties */}
-        <Link href="/admin" className="bb-btn">← Terug naar admin</Link>
+        <Link href="/admin" className="bb-btn">
+          ← Terug naar admin
+        </Link>
       </header>
 
       {/* Categorie tegels + "Alle" + "Nieuwe categorie" */}
@@ -41,7 +43,11 @@ export default async function CatalogPage({ searchParams }: Props) {
           <h2 className="text-lg font-medium">Categorieën</h2>
 
           {/* Snelle zoekbalk (server side via ?q=) */}
-          <form className="flex items-center gap-2" action="/admin/catalog" method="get">
+          <form
+            className="flex items-center gap-2"
+            action="/admin/catalog"
+            method="get"
+          >
             {/* behoud category in de query wanneer we zoeken */}
             <input type="hidden" name="category" value={selected} />
             <input
@@ -50,7 +56,9 @@ export default async function CatalogPage({ searchParams }: Props) {
               placeholder="Zoek op merk/model…"
               className="border rounded px-3 py-2 text-sm"
             />
-            <button className="bb-btn" type="submit">Zoek</button>
+            <button className="bb-btn" type="submit">
+              Zoek
+            </button>
           </form>
         </div>
 
@@ -59,12 +67,17 @@ export default async function CatalogPage({ searchParams }: Props) {
           <CategoryTile
             label="Alle"
             isActive={selected === "__ALL__"}
-            href={`/admin/catalog?category=__ALL__${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            href={`/admin/catalog?category=__ALL__${
+              q ? `&q=${encodeURIComponent(q)}` : ""
+            }`}
           />
           {/* bestaande categorieën */}
           {categories.map((c) => {
             const isActive = selected === c;
-            const url = new URL("/admin/catalog", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost");
+            const url = new URL(
+              "/admin/catalog",
+              process.env.NEXT_PUBLIC_BASE_URL || "http://localhost",
+            );
             url.searchParams.set("category", c);
             if (q) url.searchParams.set("q", q);
             return (
@@ -77,7 +90,7 @@ export default async function CatalogPage({ searchParams }: Props) {
             );
           })}
 
-          {/* (optioneel) knop om via de tabel meteen een nieuw model met nieuwe categorie te maken */}
+          {/* hint-knop (blijft disabled, is enkel uitleg) */}
           <button
             className="bb-btn opacity-60 cursor-not-allowed"
             title="Gebruik 'Model toevoegen' onderaan de tabel om meteen een nieuwe categorie aan te maken."
@@ -100,12 +113,18 @@ export default async function CatalogPage({ searchParams }: Props) {
   );
 }
 
-function CategoryTile(props: { label: string; isActive: boolean; href: string }) {
+function CategoryTile(props: {
+  label: string;
+  isActive: boolean;
+  href: string;
+}) {
   const { label, isActive, href } = props;
   return (
     <Link
       href={href}
-      className={`bb-tile px-3 py-2 ${isActive ? "ring-2 ring-emerald-600" : ""}`}
+      className={`bb-tile px-3 py-2 ${
+        isActive ? "ring-2 ring-emerald-600" : ""
+      }`}
     >
       {label}
     </Link>
