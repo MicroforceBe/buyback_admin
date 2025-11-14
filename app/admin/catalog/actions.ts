@@ -76,9 +76,24 @@ export async function getCatalogRows(opts?: {
   }
 
   if (q && q.trim()) {
-    const like = `%${q.trim()}%`;
-    // server-side or-filter op merk/model; rest kan client-side indien nodig
-    query = query.or(`model.ilike.${like},brand.ilike.${like}`);
+    // 🔍 Nieuwe logica:
+    // - 1 woord: zoals vroeger, match op brand OF model
+    // - 2+ woorden: AND-match op model: elk woord moet in model voorkomen
+    const terms = q
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (terms.length === 1) {
+      const like = `%${terms[0]}%`;
+      query = query.or(`model.ilike.${like},brand.ilike.${like}`);
+    } else {
+      // AND-voorwaarden op model: model moet elk woord bevatten
+      for (const term of terms) {
+        const like = `%${term}%`;
+        query = query.ilike('model', like);
+      }
+    }
   }
 
   const { data, error } = await query
