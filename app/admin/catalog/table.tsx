@@ -25,7 +25,7 @@ type Props = {
 
 type Draft = {
   brand: string;
-  category: string; // ⬅️ string i.p.v. string | null
+  category: string; // als string in UI
   model: string;
   variant: string | null;
   capacity_gb: string; // als string in UI, naar number bij save
@@ -39,7 +39,7 @@ function inferBrand(category: string | null, currentBrand: string): string {
   return 'Apple'; // veilige default
 }
 
-export default function Table({ category, rows, allCategories }: Props) {
+export default function Table({ category, rows }: Props) {
   const [localRows, setLocalRows] = useState<CatalogRow[]>(rows);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -48,7 +48,7 @@ export default function Table({ category, rows, allCategories }: Props) {
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
     brand: inferBrand(category, ''),
-    category: category ?? '', // ⬅️ hier als string
+    category: category ?? '', // bij filter op categorie is dit die categorie
     model: '',
     variant: null,
     capacity_gb: '',
@@ -56,7 +56,7 @@ export default function Table({ category, rows, allCategories }: Props) {
     active: true,
   });
 
-  // Zorg dat we sync blijven als props.rows veranderen (navigatie/filters)
+  // Sync houden met props.rows (bij filter/zoeken)
   useMemo(() => {
     setLocalRows(rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,7 +124,9 @@ export default function Table({ category, rows, allCategories }: Props) {
       setPendingId(row.id);
       setLocalRows((prev) =>
         prev.map((r) =>
-          r.id === row.id ? { ...r, [key]: v || (key === 'category' ? null : '') } : r,
+          r.id === row.id
+            ? { ...r, [key]: v || (key === 'category' ? null : '') }
+            : r,
         ),
       );
       await saveCatalogRowField(row.id, key, v || null);
@@ -218,7 +220,7 @@ export default function Table({ category, rows, allCategories }: Props) {
       try {
         const payload = {
           brand: inferBrand(draft.category || null, draft.brand),
-          category: draft.category.trim() || null, // ⬅️ HIER komt de nieuwe categorie mee
+          category: draft.category.trim() || (category ?? null), // als we in een categorie zitten, die gebruiken
           model: draft.model.trim(),
           variant: draft.variant?.trim() || null,
           capacity_gb: Number(draft.capacity_gb),
@@ -259,6 +261,8 @@ export default function Table({ category, rows, allCategories }: Props) {
     });
   }
 
+  const showingAllCategories = !category; // true als "Alle" actief is
+
   return (
     <div className="bb-card overflow-x-auto p-0">
       {/* Toolbar */}
@@ -292,7 +296,9 @@ export default function Table({ category, rows, allCategories }: Props) {
           <tr>
             <th className="px-3 py-2 text-left">Foto</th>
             <th className="px-3 py-2 text-left">Brand</th>
-            <th className="px-3 py-2 text-left">Categorie</th>
+            {showingAllCategories && (
+              <th className="px-3 py-2 text-left">Categorie</th>
+            )}
             <th className="px-3 py-2 text-left">Model</th>
             <th className="px-3 py-2 text-left">Variant</th>
             <th className="px-3 py-2 text-left">Cap. (GB)</th>
@@ -317,16 +323,18 @@ export default function Table({ category, rows, allCategories }: Props) {
                   placeholder="bv. Apple"
                 />
               </td>
-              <td className="px-3 py-2">
-                <input
-                  className="bb-input"
-                  value={draft.category}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, category: e.target.value }))
-                  }
-                  placeholder="bv. iPhone, iPad, Watch…"
-                />
-              </td>
+              {showingAllCategories && (
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
+                    value={draft.category}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, category: e.target.value }))
+                    }
+                    placeholder="bv. iPhone, iPad, Watch…"
+                  />
+                </td>
+              )}
               <td className="px-3 py-2">
                 <input
                   className="bb-input"
@@ -475,17 +483,19 @@ export default function Table({ category, rows, allCategories }: Props) {
                     disabled={isPending}
                   />
                 </td>
-                <td className="px-3 py-2">
-                  <input
-                    className="bb-input"
-                    defaultValue={row.category ?? ''}
-                    onBlur={(e) =>
-                      onEditText(row, 'category', e.target.value)
-                    }
-                    disabled={isPending}
-                    placeholder="bv. iPhone"
-                  />
-                </td>
+                {showingAllCategories && (
+                  <td className="px-3 py-2">
+                    <input
+                      className="bb-input"
+                      defaultValue={row.category ?? ''}
+                      onBlur={(e) =>
+                        onEditText(row, 'category', e.target.value)
+                      }
+                      disabled={isPending}
+                      placeholder="bv. iPhone"
+                    />
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   <input
                     className="bb-input"
