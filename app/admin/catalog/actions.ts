@@ -26,7 +26,7 @@ export type CatalogRow = {
   ssd_gb: number | null;
   base_price_cents: number;
   image_url: string | null;
-  search_terms: string | null; // 🔹 nieuw veld
+  search_terms: string | null; // 🔹 extra veld per model(groep)
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -94,7 +94,7 @@ export async function getCatalogRows(opts?: {
     }
   }
 
-  // 🔽 Sortering:
+  // Sortering:
   // - in een specifieke categorie: eerst variant, dan capaciteit
   // - in "Alle": sorteren op brand, model, capaciteit
   if (category && category !== '__ALL__') {
@@ -128,7 +128,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'capacity_gb',
   'base_price_cents',
   'image_url',
-  'search_terms', // 🔹 nieuw veld bewerkbaar
+  'search_terms', // 🔹 mag inline geüpdatet worden
   'active',
 ]);
 
@@ -213,7 +213,7 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
     ram_gb: payload.ram_gb ?? null,
     ssd_gb: payload.ssd_gb ?? null,
     image_url: payload.image_url ?? null,
-    search_terms: payload.search_terms ?? null, // 🔹 default null
+    search_terms: payload.search_terms ?? null,
     active: payload.active ?? true,
     created_at: now,
     updated_at: now,
@@ -292,4 +292,36 @@ export async function uploadCatalogRowImage(form: FormData) {
 
   revalidatePath('/admin/catalog');
   return { ok: true, url: publicUrl, path };
+}
+
+/* =========================================================
+ *  SEARCH TERMS PER MODEL (alle varianten tegelijk)
+ * =======================================================*/
+
+export async function saveSearchTermsForModel(params: {
+  category: string | null;
+  model: string;
+  search_terms: string;
+}) {
+  'use server';
+  const { category, model, search_terms } = params;
+  const sb = sbClient();
+
+  const patch = {
+    search_terms: search_terms.trim() ? search_terms.trim() : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  let query = sb.from('buyback_catalog').update(patch).eq('model', model);
+
+  // per categorie werken: alleen rijen binnen deze category updaten
+  if (category && category !== '__ALL__') {
+    query = query.eq('category', category);
+  }
+
+  const { error } = await query;
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/admin/catalog');
+  return { ok: true };
 }
