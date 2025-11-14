@@ -76,9 +76,7 @@ export async function getCatalogRows(opts?: {
   }
 
   if (q && q.trim()) {
-    // 🔍 Nieuwe logica:
-    // - 1 woord: zoals vroeger, match op brand OF model
-    // - 2+ woorden: AND-match op model: elk woord moet in model voorkomen
+    // Meerdere woorden => AND-match op model
     const terms = q
       .trim()
       .split(/\s+/)
@@ -88,7 +86,6 @@ export async function getCatalogRows(opts?: {
       const like = `%${terms[0]}%`;
       query = query.or(`model.ilike.${like},brand.ilike.${like}`);
     } else {
-      // AND-voorwaarden op model: model moet elk woord bevatten
       for (const term of terms) {
         const like = `%${term}%`;
         query = query.ilike('model', like);
@@ -96,10 +93,21 @@ export async function getCatalogRows(opts?: {
     }
   }
 
-  const { data, error } = await query
-    .order('brand', { ascending: true })
-    .order('model', { ascending: true })
-    .order('capacity_gb', { ascending: true });
+  // 🔽 Sortering:
+  // - in een specifieke categorie: eerst variant, dan capaciteit
+  // - in "Alle": oude sortering op brand, model, capaciteit
+  if (category && category !== '__ALL__') {
+    query = query
+      .order('variant', { ascending: true, nullsFirst: true })
+      .order('capacity_gb', { ascending: true });
+  } else {
+    query = query
+      .order('brand', { ascending: true })
+      .order('model', { ascending: true })
+      .order('capacity_gb', { ascending: true });
+  }
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return (data || []) as CatalogRow[];
@@ -230,10 +238,6 @@ export async function deleteCatalogRow(id: number) {
 
 /* =========================================================
  *  IMAGE UPLOAD (Supabase Storage)
- *  FormData verwacht:
- *   - 'file' (File)
- *   - 'rowId' (string/number)
- *  Let op: we uploaden direct de File/Blob (Edge-safe; geen Buffer nodig).
  * =======================================================*/
 
 export async function uploadCatalogRowImage(form: FormData) {
