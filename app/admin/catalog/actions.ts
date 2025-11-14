@@ -26,6 +26,7 @@ export type CatalogRow = {
   ssd_gb: number | null;
   base_price_cents: number;
   image_url: string | null;
+  search_terms: string | null; // 🔹 nieuw veld
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -67,7 +68,7 @@ export async function getCatalogRows(opts?: {
     `
       id, brand, category, model, submodel, variant,
       year, capacity_gb, connectivity, cpu, ram_gb, ssd_gb,
-      base_price_cents, image_url, active, created_at, updated_at
+      base_price_cents, image_url, search_terms, active, created_at, updated_at
     `,
   );
 
@@ -95,7 +96,7 @@ export async function getCatalogRows(opts?: {
 
   // 🔽 Sortering:
   // - in een specifieke categorie: eerst variant, dan capaciteit
-  // - in "Alle": oude sortering op brand, model, capaciteit
+  // - in "Alle": sorteren op brand, model, capaciteit
   if (category && category !== '__ALL__') {
     query = query
       .order('variant', { ascending: true, nullsFirst: true })
@@ -127,6 +128,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'capacity_gb',
   'base_price_cents',
   'image_url',
+  'search_terms', // 🔹 nieuw veld bewerkbaar
   'active',
 ]);
 
@@ -144,6 +146,7 @@ export async function saveCatalogRowField(
   const patch: Record<string, any> = {
     updated_at: new Date().toISOString(),
   };
+
   if (key === 'year' || key === 'capacity_gb' || key === 'base_price_cents') {
     const n = value === null || value === '' ? null : Number(value);
     if (key !== 'base_price_cents' && n === null) {
@@ -155,7 +158,7 @@ export async function saveCatalogRowField(
     }
   } else if (key === 'active') {
     patch[key] = Boolean(value);
-  } else if (key === 'image_url') {
+  } else if (key === 'image_url' || key === 'search_terms') {
     patch[key] = (value ?? null) as string | null;
   } else {
     patch[key] = value ?? null;
@@ -210,6 +213,7 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
     ram_gb: payload.ram_gb ?? null,
     ssd_gb: payload.ssd_gb ?? null,
     image_url: payload.image_url ?? null,
+    search_terms: payload.search_terms ?? null, // 🔹 default null
     active: payload.active ?? true,
     created_at: now,
     updated_at: now,
