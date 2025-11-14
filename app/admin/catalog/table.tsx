@@ -8,6 +8,7 @@ import {
   uploadCatalogRowImage,
   deleteCatalogRow,
   createCatalogRow,
+  saveSearchTermsForModel, // 🔹 nieuw
 } from './actions';
 
 /* Zelfde mapping als in actions.ts */
@@ -51,6 +52,9 @@ export default function Table({ category, rows }: Props) {
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // 🔹 zoektermen-draft per modelnaam
+  const [searchDrafts, setSearchDrafts] = useState<Record<string, string>>({});
+
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
     brand: inferBrand(category, ''),
@@ -67,6 +71,16 @@ export default function Table({ category, rows }: Props) {
     setLocalRows(rows);
     setSortKey(null);
     setSortDir('asc');
+
+    // zoektermen initialiseren per model
+    const byModel: Record<string, string> = {};
+    for (const r of rows) {
+      if (!byModel[r.model]) {
+        byModel[r.model] = r.search_terms ?? '';
+      }
+    }
+    setSearchDrafts(byModel);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
@@ -74,7 +88,7 @@ export default function Table({ category, rows }: Props) {
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const showingAllCategories = !category;
-  const showSearchTermsCol = !!category; // 🔹 alleen in een actieve categorie
+  const showSearchTermsBlock = !!category; // 🔹 alleen als je in een specifieke categorie zit
 
   function toggleSort(column: SortKey) {
     setSortKey((prevKey) => {
@@ -165,7 +179,7 @@ export default function Table({ category, rows }: Props) {
 
   async function onEditText(
     row: CatalogRow,
-    key: 'brand' | 'model' | 'variant' | 'category' | 'search_terms',
+    key: 'brand' | 'model' | 'variant' | 'category',
     value: string,
   ) {
     const v = value.trim();
@@ -174,7 +188,7 @@ export default function Table({ category, rows }: Props) {
       setLocalRows((prev) =>
         prev.map((r) =>
           r.id === row.id
-            ? { ...r, [key]: v || (key === 'category' || key === 'search_terms' ? null : '') }
+            ? { ...r, [key]: v || (key === 'category' ? null : '') }
             : r,
         ),
       );
@@ -310,6 +324,42 @@ export default function Table({ category, rows }: Props) {
     });
   }
 
+  // 🔹 Zoektermen per model opslaan
+  async function saveSearchTerms(modelName: string) {
+    if (!category) {
+      alert('Zoektermen per model werken alleen binnen een specifieke categorie.');
+      return;
+    }
+    const value = searchDrafts[modelName] ?? '';
+    try {
+      await saveSearchTermsForModel({
+        category,
+        model: modelName,
+        search_terms: value,
+      });
+      // lokale rows updaten zodat UI klopt
+      setLocalRows((prev) =>
+        prev.map((r) =>
+          r.model === modelName && r.category === category
+            ? { ...r, search_terms: value.trim() || null }
+            : r,
+        ),
+      );
+      alert('Zoektermen bewaard voor alle varianten van dit model.');
+    } catch (e: any) {
+      alert(e?.message || 'Opslaan van zoektermen mislukt');
+    }
+  }
+
+  // models gesorteerd voor het blok
+  const modelsForSearchBlock = useMemo(() => {
+    if (!category) return [];
+    const uniqueModels = Array.from(
+      new Set(localRows.map((r) => r.model)),
+    ).sort((a, b) => a.localeCompare(b));
+    return uniqueModels;
+  }, [category, localRows]);
+
   return (
     <div className="bb-card overflow-x-auto p-0">
       {/* Toolbar */}
@@ -338,12 +388,62 @@ export default function Table({ category, rows }: Props) {
         </div>
       </div>
 
+      {/* 🔹 Apart blok: zoektermen per model (alleen binnen een categorie) */}
+      {showSearchTermsBlock && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-3 py-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">
+              Zoektermen per model (voor widget-zoekbalk)
+            </h3>
+            <span className="text-xs text-gray-500">
+              Deze zoektermen gelden voor alle GB/varianten van hetzelfde model.
+            </span>
+          </div>
+          <div className="max-h-72 overflow-auto space-y-2 pr-1">
+            {modelsForSearchBlock.map((modelName) => (
+              <div
+                key={modelName}
+                className="flex items-start gap-2 border border-gray-200 rounded-lg bg-white px-2 py-2"
+              >
+                <div className="w-1/3 text-xs sm:text-sm font-medium truncate">
+                  {modelName}
+                </div>
+                <div className="flex-1 flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                  <input
+                    className="bb-input text-xs sm:text-sm"
+                    value={searchDrafts[modelName] ?? ''}
+                    onChange={(e) =>
+                      setSearchDrafts((prev) => ({
+                        ...prev,
+                        [modelName]: e.target.value,
+                      }))
+                    }
+                    placeholder="bv. air 2020, a2179, 13 inch"
+                  />
+                  <button
+                    type="button"
+                    className="bb-btn text-xs sm:text-sm"
+                    onClick={() => saveSearchTerms(modelName)}
+                  >
+                    Bewaar
+                  </button>
+                </div>
+              </div>
+            ))}
+            {modelsForSearchBlock.length === 0 && (
+              <div className="text-xs text-gray-500 italic">
+                Geen modellen in deze categorie.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <table className="min-w-full text-sm">
         <thead className="bg-gray-50 text-gray-700">
           <tr>
             <th className="px-3 py-2 text-left">Foto</th>
             <th className="px-3 py-2 text-left">Brand</th>
-            {!showingAllCategories && null}
             {showingAllCategories && (
               <th className="px-3 py-2 text-left">Categorie</th>
             )}
@@ -384,9 +484,6 @@ export default function Table({ category, rows }: Props) {
                 )}
               </button>
             </th>
-            {showSearchTermsCol && (
-              <th className="px-3 py-2 text-left">Zoektermen (widget)</th>
-            )}
             <th className="px-3 py-2 text-left">Actief</th>
             <th className="px-3 py-2 text-left">Acties</th>
           </tr>
@@ -475,11 +572,6 @@ export default function Table({ category, rows }: Props) {
                   />
                 </div>
               </td>
-              {showSearchTermsCol && (
-                <td className="px-3 py-2 text-gray-400 text-xs">
-                  Opslaan en daarna zoektermen invullen
-                </td>
-              )}
               <td className="px-3 py-2">
                 <label className="inline-flex items-center cursor-pointer">
                   <input
@@ -627,19 +719,6 @@ export default function Table({ category, rows }: Props) {
                     title="Prijs in centen"
                   />
                 </td>
-                {showSearchTermsCol && (
-                  <td className="px-3 py-2">
-                    <input
-                      className="bb-input"
-                      defaultValue={row.search_terms ?? ''}
-                      onBlur={(e) =>
-                        onEditText(row, 'search_terms', e.target.value)
-                      }
-                      disabled={isPending}
-                      placeholder="bv. air 2020, a2270, 9e generatie"
-                    />
-                  </td>
-                )}
                 <td className="px-3 py-2">
                   <label className="inline-flex items-center cursor-pointer">
                     <input
@@ -682,7 +761,7 @@ export default function Table({ category, rows }: Props) {
         .bb-input-wide {
           width: 100%;
           min-width: 260px;
-          max-width: 420px; /* genoeg om 50 karakters redelijk leesbaar te houden */
+          max-width: 420px;
         }
         .bb-input:focus {
           border-color: #10b981;
