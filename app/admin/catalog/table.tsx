@@ -74,6 +74,7 @@ export default function Table({ category, rows }: Props) {
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const showingAllCategories = !category;
+  const showSearchTermsCol = !!category; // 🔹 alleen in een actieve categorie
 
   function toggleSort(column: SortKey) {
     setSortKey((prevKey) => {
@@ -164,7 +165,7 @@ export default function Table({ category, rows }: Props) {
 
   async function onEditText(
     row: CatalogRow,
-    key: 'brand' | 'model' | 'variant' | 'category',
+    key: 'brand' | 'model' | 'variant' | 'category' | 'search_terms',
     value: string,
   ) {
     const v = value.trim();
@@ -173,7 +174,7 @@ export default function Table({ category, rows }: Props) {
       setLocalRows((prev) =>
         prev.map((r) =>
           r.id === row.id
-            ? { ...r, [key]: v || (key === 'category' ? null : '') }
+            ? { ...r, [key]: v || (key === 'category' || key === 'search_terms' ? null : '') }
             : r,
         ),
       );
@@ -295,6 +296,7 @@ export default function Table({ category, rows }: Props) {
           ssd_gb: null,
           base_price_cents: payload.base_price_cents as number,
           image_url: null,
+          search_terms: null,
           active: payload.active ?? true,
           created_at: nowIso,
           updated_at: nowIso,
@@ -341,7 +343,8 @@ export default function Table({ category, rows }: Props) {
           <tr>
             <th className="px-3 py-2 text-left">Foto</th>
             <th className="px-3 py-2 text-left">Brand</th>
-            {!category && (
+            {!showingAllCategories && null}
+            {showingAllCategories && (
               <th className="px-3 py-2 text-left">Categorie</th>
             )}
             <th className="px-3 py-2 text-left">Model</th>
@@ -381,6 +384,9 @@ export default function Table({ category, rows }: Props) {
                 )}
               </button>
             </th>
+            {showSearchTermsCol && (
+              <th className="px-3 py-2 text-left">Zoektermen (widget)</th>
+            )}
             <th className="px-3 py-2 text-left">Actief</th>
             <th className="px-3 py-2 text-left">Acties</th>
           </tr>
@@ -402,7 +408,7 @@ export default function Table({ category, rows }: Props) {
                   maxLength={50}
                 />
               </td>
-              {!category && (
+              {showingAllCategories && (
                 <td className="px-3 py-2">
                   <input
                     className="bb-input"
@@ -469,6 +475,11 @@ export default function Table({ category, rows }: Props) {
                   />
                 </div>
               </td>
+              {showSearchTermsCol && (
+                <td className="px-3 py-2 text-gray-400 text-xs">
+                  Opslaan en daarna zoektermen invullen
+                </td>
+              )}
               <td className="px-3 py-2">
                 <label className="inline-flex items-center cursor-pointer">
                   <input
@@ -563,7 +574,7 @@ export default function Table({ category, rows }: Props) {
                     maxLength={50}
                   />
                 </td>
-                {!category && (
+                {showingAllCategories && (
                   <td className="px-3 py-2">
                     <input
                       className="bb-input"
@@ -616,6 +627,19 @@ export default function Table({ category, rows }: Props) {
                     title="Prijs in centen"
                   />
                 </td>
+                {showSearchTermsCol && (
+                  <td className="px-3 py-2">
+                    <input
+                      className="bb-input"
+                      defaultValue={row.search_terms ?? ''}
+                      onBlur={(e) =>
+                        onEditText(row, 'search_terms', e.target.value)
+                      }
+                      disabled={isPending}
+                      placeholder="bv. air 2020, a2270, 9e generatie"
+                    />
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   <label className="inline-flex items-center cursor-pointer">
                     <input
@@ -656,7 +680,9 @@ export default function Table({ category, rows }: Props) {
           outline: none;
         }
         .bb-input-wide {
-          max-width: 320px; /* breedte voor Brand + Model */
+          width: 100%;
+          min-width: 260px;
+          max-width: 420px; /* genoeg om 50 karakters redelijk leesbaar te houden */
         }
         .bb-input:focus {
           border-color: #10b981;
