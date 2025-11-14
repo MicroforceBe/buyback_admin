@@ -1,3 +1,4 @@
+//app/admin/catalog/table.tsx
 'use client';
 
 import { useMemo, useRef, useState, useTransition } from 'react';
@@ -24,7 +25,7 @@ type Props = {
 
 type Draft = {
   brand: string;
-  category: string | null;
+  category: string; // ⬅️ string i.p.v. string | null
   model: string;
   variant: string | null;
   capacity_gb: string; // als string in UI, naar number bij save
@@ -47,7 +48,7 @@ export default function Table({ category, rows, allCategories }: Props) {
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
     brand: inferBrand(category, ''),
-    category: category ?? null,
+    category: category ?? '', // ⬅️ hier als string
     model: '',
     variant: null,
     capacity_gb: '',
@@ -67,25 +68,43 @@ export default function Table({ category, rows, allCategories }: Props) {
   async function onToggleActive(row: CatalogRow, next: boolean) {
     try {
       setPendingId(row.id);
-      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, active: next } : r)));
+      setLocalRows((prev) =>
+        prev.map((r) => (r.id === row.id ? { ...r, active: next } : r)),
+      );
       await saveCatalogRowField(row.id, 'active', next);
     } catch (e: any) {
       alert(e?.message || 'Opslaan mislukt');
-      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, active: row.active } : r)));
+      setLocalRows((prev) =>
+        prev.map((r) => (r.id === row.id ? { ...r, active: row.active } : r)),
+      );
     } finally {
       setPendingId(null);
     }
   }
 
-  async function onEditNumber(row: CatalogRow, key: 'capacity_gb' | 'base_price_cents', value: string) {
+  async function onEditNumber(
+    row: CatalogRow,
+    key: 'capacity_gb' | 'base_price_cents',
+    value: string,
+  ) {
     const n = value.trim() === '' ? null : Number(value);
     if (value.trim() !== '' && Number.isNaN(n)) return;
     try {
       setPendingId(row.id);
-      setLocalRows(prev =>
-        prev.map(r =>
-          r.id === row.id ? { ...r, [key]: n == null ? (key === 'capacity_gb' ? r.capacity_gb : r.base_price_cents) : n } : r
-        )
+      setLocalRows((prev) =>
+        prev.map((r) =>
+          r.id === row.id
+            ? {
+                ...r,
+                [key]:
+                  n == null
+                    ? key === 'capacity_gb'
+                      ? r.capacity_gb
+                      : r.base_price_cents
+                    : n,
+              }
+            : r,
+        ),
       );
       if (n != null) await saveCatalogRowField(row.id, key, n);
     } catch (e: any) {
@@ -95,12 +114,20 @@ export default function Table({ category, rows, allCategories }: Props) {
     }
   }
 
-  async function onEditText(row: CatalogRow, key: 'brand' | 'model' | 'variant', value: string) {
+  async function onEditText(
+    row: CatalogRow,
+    key: 'brand' | 'model' | 'variant' | 'category',
+    value: string,
+  ) {
     const v = value.trim();
     try {
       setPendingId(row.id);
-      setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, [key]: v } : r)));
-      await saveCatalogRowField(row.id, key, v);
+      setLocalRows((prev) =>
+        prev.map((r) =>
+          r.id === row.id ? { ...r, [key]: v || (key === 'category' ? null : '') } : r,
+        ),
+      );
+      await saveCatalogRowField(row.id, key, v || null);
     } catch (e: any) {
       alert(e?.message || 'Opslaan mislukt');
     } finally {
@@ -109,11 +136,14 @@ export default function Table({ category, rows, allCategories }: Props) {
   }
 
   async function onDelete(row: CatalogRow) {
-    if (!confirm(`Model "${row.model}" (${row.capacity_gb} GB) verwijderen?`)) return;
+    if (
+      !confirm(`Model "${row.model}" (${row.capacity_gb} GB) verwijderen?`)
+    )
+      return;
     try {
       setPendingId(row.id);
       await deleteCatalogRow(row.id);
-      setLocalRows(prev => prev.filter(r => r.id !== row.id));
+      setLocalRows((prev) => prev.filter((r) => r.id !== row.id));
     } catch (e: any) {
       alert(e?.message || 'Verwijderen mislukt');
     } finally {
@@ -139,7 +169,9 @@ export default function Table({ category, rows, allCategories }: Props) {
       const res = await uploadCatalogRowImage(fd);
       const newUrl = (res && (res as any).url) as string | null;
       if (typeof newUrl === 'string' && newUrl.length > 0) {
-        setLocalRows(prev => prev.map(r => (r.id === row.id ? { ...r, image_url: newUrl } : r)));
+        setLocalRows((prev) =>
+          prev.map((r) => (r.id === row.id ? { ...r, image_url: newUrl } : r)),
+        );
       }
     } catch (e: any) {
       alert(e?.message || 'Upload mislukt');
@@ -152,7 +184,7 @@ export default function Table({ category, rows, allCategories }: Props) {
   function openAddRow() {
     setDraft({
       brand: inferBrand(category, ''),
-      category: category ?? null,
+      category: category ?? '',
       model: '',
       variant: null,
       capacity_gb: '',
@@ -167,8 +199,12 @@ export default function Table({ category, rows, allCategories }: Props) {
   }
 
   const addValid = useMemo(() => {
-    const cap = draft.capacity_gb.trim() === '' ? NaN : Number(draft.capacity_gb);
-    const price = draft.base_price_cents.trim() === '' ? NaN : Number(draft.base_price_cents);
+    const cap =
+      draft.capacity_gb.trim() === '' ? NaN : Number(draft.capacity_gb);
+    const price =
+      draft.base_price_cents.trim() === ''
+        ? NaN
+        : Number(draft.base_price_cents);
     return (
       draft.model.trim().length > 0 &&
       Number.isFinite(cap) &&
@@ -181,8 +217,8 @@ export default function Table({ category, rows, allCategories }: Props) {
     startSavingNew(async () => {
       try {
         const payload = {
-          brand: inferBrand(draft.category, draft.brand),
-          category: draft.category,
+          brand: inferBrand(draft.category || null, draft.brand),
+          category: draft.category.trim() || null, // ⬅️ HIER komt de nieuwe categorie mee
           model: draft.model.trim(),
           variant: draft.variant?.trim() || null,
           capacity_gb: Number(draft.capacity_gb),
@@ -215,7 +251,7 @@ export default function Table({ category, rows, allCategories }: Props) {
           updated_at: nowIso,
         };
 
-        setLocalRows(prev => [newRow, ...prev]);
+        setLocalRows((prev) => [newRow, ...prev]);
         setIsAdding(false);
       } catch (e: any) {
         alert(e?.message || 'Aanmaken mislukt');
@@ -228,10 +264,24 @@ export default function Table({ category, rows, allCategories }: Props) {
       {/* Toolbar */}
       <div className="flex items-center justify-between p-3">
         <div className="text-sm text-gray-600">
-          {category ? <>Categorie: <span className="font-medium">{category}</span></> : 'Alle categorieën'}
+          {category ? (
+            <>
+              Categorie:{' '}
+              <span className="font-medium">
+                {category}
+              </span>
+            </>
+          ) : (
+            'Alle categorieën'
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className="bb-btn" onClick={openAddRow} disabled={isAdding}>
+          <button
+            type="button"
+            className="bb-btn"
+            onClick={openAddRow}
+            disabled={isAdding}
+          >
             + Model toevoegen
           </button>
         </div>
@@ -242,6 +292,7 @@ export default function Table({ category, rows, allCategories }: Props) {
           <tr>
             <th className="px-3 py-2 text-left">Foto</th>
             <th className="px-3 py-2 text-left">Brand</th>
+            <th className="px-3 py-2 text-left">Categorie</th>
             <th className="px-3 py-2 text-left">Model</th>
             <th className="px-3 py-2 text-left">Variant</th>
             <th className="px-3 py-2 text-left">Cap. (GB)</th>
@@ -260,15 +311,29 @@ export default function Table({ category, rows, allCategories }: Props) {
                 <input
                   className="bb-input"
                   value={draft.brand}
-                  onChange={e => setDraft(d => ({ ...d, brand: e.target.value }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, brand: e.target.value }))
+                  }
                   placeholder="bv. Apple"
                 />
               </td>
               <td className="px-3 py-2">
                 <input
                   className="bb-input"
+                  value={draft.category}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, category: e.target.value }))
+                  }
+                  placeholder="bv. iPhone, iPad, Watch…"
+                />
+              </td>
+              <td className="px-3 py-2">
+                <input
+                  className="bb-input"
                   value={draft.model}
-                  onChange={e => setDraft(d => ({ ...d, model: e.target.value }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, model: e.target.value }))
+                  }
                   placeholder="bv. iPad 10.2 (9th)"
                 />
               </td>
@@ -276,7 +341,12 @@ export default function Table({ category, rows, allCategories }: Props) {
                 <input
                   className="bb-input"
                   value={draft.variant ?? ''}
-                  onChange={e => setDraft(d => ({ ...d, variant: e.target.value || null }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      variant: e.target.value || null,
+                    }))
+                  }
                   placeholder="(optioneel)"
                 />
               </td>
@@ -285,7 +355,12 @@ export default function Table({ category, rows, allCategories }: Props) {
                   className="bb-input"
                   inputMode="numeric"
                   value={draft.capacity_gb}
-                  onChange={e => setDraft(d => ({ ...d, capacity_gb: e.target.value }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      capacity_gb: e.target.value,
+                    }))
+                  }
                   placeholder="64"
                 />
               </td>
@@ -295,7 +370,12 @@ export default function Table({ category, rows, allCategories }: Props) {
                     className="bb-input"
                     inputMode="numeric"
                     value={draft.base_price_cents}
-                    onChange={e => setDraft(d => ({ ...d, base_price_cents: e.target.value }))}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        base_price_cents: e.target.value,
+                      }))
+                    }
                     placeholder="bv. 12000 (voor €120)"
                     title="Prijs in centen"
                   />
@@ -308,7 +388,9 @@ export default function Table({ category, rows, allCategories }: Props) {
                     type="checkbox"
                     className="sr-only peer"
                     checked={draft.active}
-                    onChange={e => setDraft(d => ({ ...d, active: e.target.checked }))}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, active: e.target.checked }))
+                    }
                   />
                   <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-green-600 relative transition-colors">
                     <span className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
@@ -318,13 +400,21 @@ export default function Table({ category, rows, allCategories }: Props) {
               <td className="px-3 py-2">
                 <div className="flex items-center gap-2">
                   <button
-                    className={`bb-btn border is-active ${!addValid || savingNew ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    className={`bb-btn border is-active ${
+                      !addValid || savingNew
+                        ? 'opacity-60 cursor-not-allowed'
+                        : ''
+                    }`}
                     disabled={!addValid || savingNew}
                     onClick={saveAddRow}
                   >
                     Opslaan
                   </button>
-                  <button className="bb-btn" onClick={cancelAddRow} disabled={savingNew}>
+                  <button
+                    className="bb-btn"
+                    onClick={cancelAddRow}
+                    disabled={savingNew}
+                  >
                     Annuleren
                   </button>
                 </div>
@@ -333,7 +423,7 @@ export default function Table({ category, rows, allCategories }: Props) {
           )}
 
           {/* Bestaande rijen */}
-          {localRows.map(row => {
+          {localRows.map((row) => {
             const isPending = pendingId === row.id;
             return (
               <tr key={row.id} className="border-b last:border-0">
@@ -342,14 +432,20 @@ export default function Table({ category, rows, allCategories }: Props) {
                     <div className="w-12 h-12 rounded border bg-white overflow-hidden flex items-center justify-center">
                       {row.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={row.image_url} alt="" className="w-full h-full object-cover" />
+                        <img
+                          src={row.image_url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
                       ) : (
-                        <span className="text-[10px] text-gray-400">geen foto</span>
+                        <span className="text-[10px] text-gray-400">
+                          geen foto
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       <input
-                        ref={el => {
+                        ref={(el) => {
                           fileInputs.current[row.id] = el;
                           return undefined;
                         }}
@@ -375,15 +471,26 @@ export default function Table({ category, rows, allCategories }: Props) {
                   <input
                     className="bb-input"
                     defaultValue={row.brand}
-                    onBlur={e => onEditText(row, 'brand', e.target.value)}
+                    onBlur={(e) => onEditText(row, 'brand', e.target.value)}
                     disabled={isPending}
                   />
                 </td>
                 <td className="px-3 py-2">
                   <input
                     className="bb-input"
+                    defaultValue={row.category ?? ''}
+                    onBlur={(e) =>
+                      onEditText(row, 'category', e.target.value)
+                    }
+                    disabled={isPending}
+                    placeholder="bv. iPhone"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  <input
+                    className="bb-input"
                     defaultValue={row.model}
-                    onBlur={e => onEditText(row, 'model', e.target.value)}
+                    onBlur={(e) => onEditText(row, 'model', e.target.value)}
                     disabled={isPending}
                   />
                 </td>
@@ -391,7 +498,7 @@ export default function Table({ category, rows, allCategories }: Props) {
                   <input
                     className="bb-input"
                     defaultValue={row.variant ?? ''}
-                    onBlur={e => onEditText(row, 'variant', e.target.value)}
+                    onBlur={(e) => onEditText(row, 'variant', e.target.value)}
                     disabled={isPending}
                   />
                 </td>
@@ -400,7 +507,9 @@ export default function Table({ category, rows, allCategories }: Props) {
                     className="bb-input"
                     inputMode="numeric"
                     defaultValue={String(row.capacity_gb)}
-                    onBlur={e => onEditNumber(row, 'capacity_gb', e.target.value)}
+                    onBlur={(e) =>
+                      onEditNumber(row, 'capacity_gb', e.target.value)
+                    }
                     disabled={isPending}
                   />
                 </td>
@@ -409,7 +518,9 @@ export default function Table({ category, rows, allCategories }: Props) {
                     className="bb-input"
                     inputMode="numeric"
                     defaultValue={String(row.base_price_cents)}
-                    onBlur={e => onEditNumber(row, 'base_price_cents', e.target.value)}
+                    onBlur={(e) =>
+                      onEditNumber(row, 'base_price_cents', e.target.value)
+                    }
                     disabled={isPending}
                     title="Prijs in centen"
                   />
@@ -420,7 +531,7 @@ export default function Table({ category, rows, allCategories }: Props) {
                       type="checkbox"
                       className="sr-only peer"
                       checked={row.active}
-                      onChange={e => onToggleActive(row, e.target.checked)}
+                      onChange={(e) => onToggleActive(row, e.target.checked)}
                       disabled={isPending}
                     />
                     <div className="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-green-600 relative transition-colors">
