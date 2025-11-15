@@ -29,6 +29,37 @@ type ModelRow = {
   assigned_set?: string | null;
 };
 
+type QType = 'percent' | 'fixed';
+
+type QOption = {
+  key: string;
+  label?: string | null;
+  tip?: string | null;
+  type: QType;
+  value: number;
+  priority?: number | null;
+  active?: boolean | null;
+};
+
+type Questions = Record<
+  string,
+  {
+    title?: string | null;
+    options: QOption[];
+  }
+>;
+
+type Body = {
+  category: string;
+  questions: Questions;
+  order?: string[];
+  q_order?: string[];
+  questions_order?: string[];
+  tips?: Record<string, string>;
+};
+
+/* ===================== GET: basis-set + modellen ===================== */
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -57,7 +88,6 @@ export async function GET(req: NextRequest) {
       catRow = list?.[0] ?? null;
     }
 
-    // Niets gevonden: lege basis-set
     const rawQuestions =
       (catRow as any)?.questions ??
       (catRow as any)?.questions_json ??
@@ -184,6 +214,66 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payload, {
       headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=600' },
     });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: 'server_error', detail: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
+}
+
+/* ===================== POST: basis categorie-set opslaan ===================== */
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = sbAdmin();
+    const body = (await req.json()) as Body;
+
+    const category = (body.category || '').trim();
+    if (!category) {
+      return NextResponse.json(
+        { error: 'category is verplicht' },
+        { status: 400 }
+      );
+    }
+
+    const questions: Questions = body.questions || {};
+
+    const order: string[] =
+      (Array.isArray(body.order) && body.order) ||
+      (Array.isArray(body.q_order) && body.q_order) ||
+      (Array.isArray(body.questions_order) && body.questions_order) ||
+      Object.keys(questions);
+
+    const tips: Record<string, string> = body.tips || {};
+
+    // We slaan alles op in questions_json als één JSON-object
+    const questions_json = {
+      questions,
+      tips,
+      question_order: order,
+    };
+
+    const { error } = await supabase
+      .from('buyback_multipliers_per_category_json')
+      .upsert(
+        {
+          category,
+          questions_json,
+          question_order: order,
+          tips,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'category',
+        }
+      );
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
       { error: 'server_error', detail: e?.message || String(e) },
