@@ -40,45 +40,61 @@ export async function GET(req: NextRequest) {
     const supabase = sbAdmin();
 
     // 1) Categorie-basisset ophalen (voor beheer-paneel linksboven)
-    //    Vorm: buyback_multipliers_per_category_json(category, questions_json, updated_at)
+    //    Tabel kan zowel 'questions' als 'questions_json' en zowel 'order' als 'question_order' bevatten.
     let { data: catRow, error: catErr } = await supabase
       .from('buyback_multipliers_per_category_json')
-      .select('category, questions_json, updated_at, tips, question_order, voucher_help')
+      .select('*')
       .eq('category', categoryRaw)
       .maybeSingle();
 
     if (!catRow && !catErr) {
       const { data: list, error: e2 } = await supabase
         .from('buyback_multipliers_per_category_json')
-        .select('category, questions_json, updated_at, tips, question_order, voucher_help')
+        .select('*')
         .ilike('category', categoryRaw)
         .limit(1);
       if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
       catRow = list?.[0] ?? null;
     }
 
-    const parsed = safeParseJSON<any>(catRow?.questions_json ?? {}, {});
+    // Niets gevonden: lege basis-set
+    const rawQuestions =
+      (catRow as any)?.questions ??
+      (catRow as any)?.questions_json ??
+      {};
+
+    const parsed = safeParseJSON<any>(rawQuestions, {});
+
+    // Ondersteun twee vormen:
+    // A) { questions: { ... }, tips, question_order, ... }
+    // B) { func: {...}, screen: {...}, ... } (directe keys)
     const baseQuestions =
       parsed?.questions && typeof parsed.questions === 'object'
         ? parsed.questions
         : (() => {
-            // Vorm B: alle keys behalve meta
-            const META = new Set(['questions', 'tips', 'voucher_help', 'question_order']);
+            const META = new Set(['questions', 'tips', 'voucher_help', 'question_order', 'order']);
             return Object.fromEntries(
               Object.entries(parsed).filter(([k]) => !META.has(k))
             );
           })();
 
+    const rawOrder =
+      (catRow as any)?.order ??
+      (catRow as any)?.question_order ??
+      parsed?.order ??
+      parsed?.question_order ??
+      null;
+
     const baseOrder: string[] =
-      (Array.isArray(catRow?.question_order) && catRow?.question_order) ||
-      (Array.isArray(parsed?.question_order) && parsed?.question_order) ||
+      (Array.isArray(rawOrder) && rawOrder) ||
       Object.keys(baseQuestions);
 
-    const baseTips = (catRow as any)?.tips ?? parsed?.tips ?? {};
+    const baseTips =
+      (catRow as any)?.tips ??
+      parsed?.tips ??
+      {};
 
     // 2) Modellen voor deze categorie ophalen.
-    //    Bronnen kunnen verschillen per project; we proberen eerst buyback_catalog (distinct model).
-    //    Val terug op andere tabellen indien nodig.
     let modelNames: string[] = [];
 
     {
@@ -88,7 +104,7 @@ export async function GET(req: NextRequest) {
         .ilike('category', categoryRaw);
 
       if (error && error.message?.toLowerCase().includes('relation')) {
-        // Tabel bestaat niet; laat val-back hieronder zijn werk doen
+        // Tabel bestaat niet; fallback hieronder
       } else if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       } else if (rows) {
@@ -161,7 +177,7 @@ export async function GET(req: NextRequest) {
         order: baseOrder,
         q_order: baseOrder,
         questions_order: baseOrder,
-        updated_at: catRow?.updated_at ?? null,
+        updated_at: (catRow as any)?.updated_at ?? null,
       },
     };
 
