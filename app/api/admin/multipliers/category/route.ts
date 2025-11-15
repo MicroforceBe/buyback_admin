@@ -70,8 +70,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = sbAdmin();
 
-    // 1) Categorie-basisset ophalen (voor beheer-paneel linksboven)
-    //    Tabel kan zowel 'questions' als 'questions_json' en zowel 'order' als 'question_order' bevatten.
+    // 1) Categorie-basisset ophalen
     let { data: catRow, error: catErr } = await supabase
       .from('buyback_multipliers_per_category_json')
       .select('*')
@@ -89,8 +88,8 @@ export async function GET(req: NextRequest) {
     }
 
     const rawQuestions =
-      (catRow as any)?.questions ??
       (catRow as any)?.questions_json ??
+      (catRow as any)?.questions ??
       {};
 
     const parsed = safeParseJSON<any>(rawQuestions, {});
@@ -109,8 +108,6 @@ export async function GET(req: NextRequest) {
           })();
 
     const rawOrder =
-      (catRow as any)?.order ??
-      (catRow as any)?.question_order ??
       parsed?.order ??
       parsed?.question_order ??
       null;
@@ -120,7 +117,6 @@ export async function GET(req: NextRequest) {
       Object.keys(baseQuestions);
 
     const baseTips =
-      (catRow as any)?.tips ??
       parsed?.tips ??
       {};
 
@@ -247,7 +243,7 @@ export async function POST(req: NextRequest) {
 
     const tips: Record<string, string> = body.tips || {};
 
-    // We slaan alles op in questions_json als één JSON-object
+    // Alles gaat in questions_json
     const questions_json = {
       questions,
       tips,
@@ -260,8 +256,6 @@ export async function POST(req: NextRequest) {
         {
           category,
           questions_json,
-          question_order: order,
-          tips,
           updated_at: new Date().toISOString(),
         },
         {
