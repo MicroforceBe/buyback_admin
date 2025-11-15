@@ -8,7 +8,7 @@ import {
   uploadCatalogRowImage,
   deleteCatalogRow,
   createCatalogRow,
-  saveSearchTermsForModel, // 🔹 nieuw
+  saveSearchTermsForModel,
 } from './actions';
 
 /* Zelfde mapping als in actions.ts */
@@ -34,7 +34,7 @@ type Draft = {
   active: boolean;
 };
 
-type SortKey = 'variant' | 'capacity_gb' | 'base_price_cents';
+type SortKey = 'model' | 'variant' | 'capacity_gb' | 'base_price_cents';
 type SortDir = 'asc' | 'desc';
 
 function inferBrand(category: string | null, currentBrand: string): string {
@@ -54,6 +54,8 @@ export default function Table({ category, rows }: Props) {
 
   // 🔹 zoektermen-draft per modelnaam
   const [searchDrafts, setSearchDrafts] = useState<Record<string, string>>({});
+  // 🔹 zoektermen-blok inklapbaar, standaard dicht
+  const [searchBlockOpen, setSearchBlockOpen] = useState(false);
 
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
@@ -88,7 +90,7 @@ export default function Table({ category, rows }: Props) {
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const showingAllCategories = !category;
-  const showSearchTermsBlock = !!category; // 🔹 alleen als je in een specifieke categorie zit
+  const showSearchTermsBlock = !!category; // alleen binnen specifieke categorie
 
   function toggleSort(column: SortKey) {
     setSortKey((prevKey) => {
@@ -101,6 +103,11 @@ export default function Table({ category, rows }: Props) {
     });
   }
 
+  function sortIcon(column: SortKey) {
+    if (sortKey !== column) return '⇅';
+    return sortDir === 'asc' ? '▲' : '▼';
+  }
+
   const displayRows = useMemo(() => {
     if (!sortKey) return localRows;
 
@@ -108,7 +115,10 @@ export default function Table({ category, rows }: Props) {
       let av: any;
       let bv: any;
 
-      if (sortKey === 'variant') {
+      if (sortKey === 'model') {
+        av = (a.model || '').toString().toLowerCase();
+        bv = (b.model || '').toString().toLowerCase();
+      } else if (sortKey === 'variant') {
         av = (a.variant || '').toString().toLowerCase();
         bv = (b.variant || '').toString().toLowerCase();
       } else if (sortKey === 'capacity_gb') {
@@ -390,52 +400,64 @@ export default function Table({ category, rows }: Props) {
 
       {/* 🔹 Apart blok: zoektermen per model (alleen binnen een categorie) */}
       {showSearchTermsBlock && (
-        <div className="border-t border-gray-100 bg-gray-50/60 px-3 py-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">
-              Zoektermen per model (voor widget-zoekbalk)
-            </h3>
+        <div className="border-t border-gray-100 bg-gray-50/60 px-3 py-2">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between text-left"
+            onClick={() => setSearchBlockOpen((open) => !open)}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xs">
+                {searchBlockOpen ? '▾' : '▸'}
+              </span>
+              <h3 className="text-sm font-semibold">
+                Zoektermen per model (voor widget-zoekbalk)
+              </h3>
+            </div>
             <span className="text-xs text-gray-500">
               Deze zoektermen gelden voor alle GB/varianten van hetzelfde model.
             </span>
-          </div>
-          <div className="max-h-72 overflow-auto space-y-2 pr-1">
-            {modelsForSearchBlock.map((modelName) => (
-              <div
-                key={modelName}
-                className="flex items-start gap-2 border border-gray-200 rounded-lg bg-white px-2 py-2"
-              >
-                <div className="w-1/3 text-xs sm:text-sm font-medium truncate">
-                  {modelName}
+          </button>
+
+          {searchBlockOpen && (
+            <div className="mt-2 max-h-72 overflow-auto space-y-2 pr-1">
+              {modelsForSearchBlock.map((modelName) => (
+                <div
+                  key={modelName}
+                  className="flex items-start gap-2 border border-gray-200 rounded-lg bg-white px-2 py-2"
+                >
+                  <div className="w-1/3 text-xs sm:text-sm font-medium truncate">
+                    {modelName}
+                  </div>
+                  <div className="flex-1 flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                    <input
+                      className="bb-input text-xs sm:text-sm"
+                      value={searchDrafts[modelName] ?? ''}
+                      onChange={(e) =>
+                        setSearchDrafts((prev) => ({
+                          ...prev,
+                          [modelName]: e.target.value,
+                        }))
+                      }
+                      placeholder="bv. air 2020, a2179, 13 inch"
+                    />
+                    <button
+                      type="button"
+                      className="bb-btn text-xs sm:text-sm"
+                      onClick={() => saveSearchTerms(modelName)}
+                    >
+                      Bewaar
+                    </button>
+                  </div>
                 </div>
-                <div className="flex-1 flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                  <input
-                    className="bb-input text-xs sm:text-sm"
-                    value={searchDrafts[modelName] ?? ''}
-                    onChange={(e) =>
-                      setSearchDrafts((prev) => ({
-                        ...prev,
-                        [modelName]: e.target.value,
-                      }))
-                    }
-                    placeholder="bv. air 2020, a2179, 13 inch"
-                  />
-                  <button
-                    type="button"
-                    className="bb-btn text-xs sm:text-sm"
-                    onClick={() => saveSearchTerms(modelName)}
-                  >
-                    Bewaar
-                  </button>
+              ))}
+              {modelsForSearchBlock.length === 0 && (
+                <div className="text-xs text-gray-500 italic">
+                  Geen modellen in deze categorie.
                 </div>
-              </div>
-            ))}
-            {modelsForSearchBlock.length === 0 && (
-              <div className="text-xs text-gray-500 italic">
-                Geen modellen in deze categorie.
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -447,17 +469,24 @@ export default function Table({ category, rows }: Props) {
             {showingAllCategories && (
               <th className="px-3 py-2 text-left">Categorie</th>
             )}
-            <th className="px-3 py-2 text-left">Model</th>
+            <th className="px-3 py-2 text-left">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1"
+                onClick={() => toggleSort('model')}
+              >
+                <span>Model</span>
+                <span className="text-[10px]">{sortIcon('model')}</span>
+              </button>
+            </th>
             <th className="px-3 py-2 text-left">
               <button
                 type="button"
                 className="inline-flex items-center gap-1"
                 onClick={() => toggleSort('variant')}
               >
-                Variant
-                {sortKey === 'variant' && (
-                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
-                )}
+                <span>Variant</span>
+                <span className="text-[10px]">{sortIcon('variant')}</span>
               </button>
             </th>
             <th className="px-3 py-2 text-left">
@@ -466,10 +495,8 @@ export default function Table({ category, rows }: Props) {
                 className="inline-flex items-center gap-1"
                 onClick={() => toggleSort('capacity_gb')}
               >
-                Cap. (GB)
-                {sortKey === 'capacity_gb' && (
-                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
-                )}
+                <span>Cap. (GB)</span>
+                <span className="text-[10px]">{sortIcon('capacity_gb')}</span>
               </button>
             </th>
             <th className="px-3 py-2 text-left">
@@ -478,10 +505,10 @@ export default function Table({ category, rows }: Props) {
                 className="inline-flex items-center gap-1"
                 onClick={() => toggleSort('base_price_cents')}
               >
-                Basisprijs (€)
-                {sortKey === 'base_price_cents' && (
-                  <span>{sortDir === 'asc' ? '▲' : '▼'}</span>
-                )}
+                <span>Basisprijs (€)</span>
+                <span className="text-[10px]">
+                  {sortIcon('base_price_cents')}
+                </span>
               </button>
             </th>
             <th className="px-3 py-2 text-left">Actief</th>
@@ -496,7 +523,7 @@ export default function Table({ category, rows }: Props) {
               <td className="px-3 py-2 text-gray-400 italic">—</td>
               <td className="px-3 py-2">
                 <input
-                  className="bb-input bb-input-wide"
+                  className="bb-input bb-input-brand"
                   value={draft.brand}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, brand: e.target.value }))
@@ -659,7 +686,7 @@ export default function Table({ category, rows }: Props) {
 
                 <td className="px-3 py-2">
                   <input
-                    className="bb-input bb-input-wide"
+                    className="bb-input bb-input-brand"
                     defaultValue={row.brand}
                     onBlur={(e) => onEditText(row, 'brand', e.target.value)}
                     disabled={isPending}
@@ -762,6 +789,11 @@ export default function Table({ category, rows }: Props) {
           width: 100%;
           min-width: 260px;
           max-width: 420px;
+        }
+        .bb-input-brand {
+          width: auto;
+          min-width: 80px;
+          max-width: 220px;
         }
         .bb-input:focus {
           border-color: #10b981;
