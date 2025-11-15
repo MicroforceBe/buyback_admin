@@ -1,3 +1,5 @@
+//app/admin/multipliers/actions.ts
+
 'use server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -5,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 // Schema: multiplier-regel
 const MultRow = z.object({
   model: z.string().min(1),
-  question_key: z.enum(['functional', 'screen', 'housing', 'battery', 'eu', 'icloud']),
+  question_key: z.string().min(1),
   option_key: z.string().min(1),
   label: z.string().optional().nullable(),
   tip: z.string().optional().nullable(),
