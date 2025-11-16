@@ -60,7 +60,7 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
     const { data, error } = await supabaseAdmin
       .from("buyback_email_templates")
       .select("*")
-      .order("key", { ascending: true }); // alleen sorteren op key (bestaat sowieso)
+      .order("key", { ascending: true });
 
     if (error) {
       console.warn("[SETTINGS][email-templates] load error:", error);
@@ -69,34 +69,37 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
     const rows = (data || []) as any[];
 
-    return rows
-      .map((row) => {
-        // key kan 'key' of 'type' zijn
-        const key: string =
-          (row.key as string | undefined) ??
-          (row.type as string | undefined) ??
-          "";
+    const out: TemplateRow[] = [];
+    for (const row of rows) {
+      if (!row) continue;
 
-        if (!key) return null;
+      // key kan 'key' of 'type' zijn
+      const key: string =
+        (row.key as string | undefined) ??
+        (row.type as string | undefined) ??
+        "";
 
-        // language kan 'language', 'locale' of 'lang' zijn
-        const language: string =
-          (row.language as string | undefined) ??
-          (row.locale as string | undefined) ??
-          (row.lang as string | undefined) ??
-          "nl";
+      if (!key) continue;
 
-        return {
-          id: row.id as number,
-          key,
-          language,
-          subject: (row.subject as string | null) ?? "",
-          body_html: (row.body_html as string | null) ?? "",
-          body_text: (row.body_text as string | null) ?? "",
-          updated_at: (row.updated_at as string | null) ?? null,
-        } satisfies TemplateRow;
-      })
-      .filter((r): r is TemplateRow => !!r);
+      // language kan 'language', 'locale' of 'lang' zijn
+      const language: string =
+        (row.language as string | undefined) ??
+        (row.locale as string | undefined) ??
+        (row.lang as string | undefined) ??
+        "nl";
+
+      out.push({
+        id: row.id as number,
+        key,
+        language,
+        subject: (row.subject as string | null) ?? "",
+        body_html: (row.body_html as string | null) ?? "",
+        body_text: (row.body_text as string | null) ?? "",
+        updated_at: (row.updated_at as string | null) ?? null,
+      });
+    }
+
+    return out;
   } catch (e) {
     console.warn("[SETTINGS][email-templates] exception:", e);
     return [];
