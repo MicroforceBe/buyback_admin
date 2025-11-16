@@ -9,6 +9,7 @@ import {
   deleteCatalogRow,
   createCatalogRow,
   saveSearchTermsForModel,
+  uploadCategoryImage, // 👈 NIEUW: categorie-afbeelding uploaden
 } from './actions';
 
 /* Zelfde mapping als in actions.ts */
@@ -56,6 +57,11 @@ export default function Table({ category, rows }: Props) {
   const [searchDrafts, setSearchDrafts] = useState<Record<string, string>>({});
   // 🔹 zoektermen-blok inklapbaar, standaard dicht
   const [searchBlockOpen, setSearchBlockOpen] = useState(false);
+
+  // 🔹 categorie-afbeelding (voor widget categorie-tegel)
+  const [categoryImageUrl, setCategoryImageUrl] = useState<string | null>(null);
+  const [categoryImagePending, setCategoryImagePending] = useState(false);
+  const categoryFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Nieuw-model draft state
   const [draft, setDraft] = useState<Draft>({
@@ -255,6 +261,38 @@ export default function Table({ category, rows }: Props) {
     }
   }
 
+  // === categorie-afbeelding uploaden ===
+  function onPickCategoryImage() {
+    if (!category) return;
+    if (!categoryFileInputRef.current) return;
+    categoryFileInputRef.current.value = '';
+    categoryFileInputRef.current.click();
+  }
+
+  async function onCategoryFileChange(file?: File | null) {
+    if (!category) {
+      alert('Geen categorie geselecteerd.');
+      return;
+    }
+    const f = file ?? categoryFileInputRef.current?.files?.[0] ?? null;
+    if (!f) return;
+    try {
+      setCategoryImagePending(true);
+      const fd = new FormData();
+      fd.append('category', category);
+      fd.append('file', f);
+      const res = await uploadCategoryImage(fd);
+      const newUrl = (res && (res as any).url) as string | null;
+      if (typeof newUrl === 'string' && newUrl.length > 0) {
+        setCategoryImageUrl(newUrl);
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Categorie-afbeelding uploaden mislukt');
+    } finally {
+      setCategoryImagePending(false);
+    }
+  }
+
   // === Nieuw model toevoegen ===
   function openAddRow() {
     setDraft({
@@ -397,6 +435,53 @@ export default function Table({ category, rows }: Props) {
           </button>
         </div>
       </div>
+
+      {/* 🔹 NIEUW: categorie-afbeelding blok (alleen binnen specifieke categorie) */}
+      {category && (
+        <div className="border-t border-gray-100 bg-gray-50/70 px-3 py-3">
+          <div className="flex items-start gap-3">
+            <div className="w-16 h-16 rounded border bg-white overflow-hidden flex items-center justify-center">
+              {categoryImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={categoryImageUrl}
+                  alt={`Categorie ${category}`}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <span className="text-[11px] text-gray-400 text-center px-1">
+                  geen categorie-foto
+                </span>
+              )}
+            </div>
+            <div className="flex-1 flex flex-col gap-1">
+              <div className="text-sm font-semibold">
+                Afbeelding voor categorie “{category}”
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  ref={categoryFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={() => onCategoryFileChange()}
+                />
+                <button
+                  type="button"
+                  className="bb-btn"
+                  onClick={onPickCategoryImage}
+                  disabled={categoryImagePending}
+                >
+                  {categoryImagePending ? 'Uploading…' : 'Categorie-afbeelding uploaden'}
+                </button>
+                <span className="text-xs text-gray-500">
+                  Deze foto verschijnt op de categorie-tegel in de widget.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🔹 Apart blok: zoektermen per model (alleen binnen een categorie) */}
       {showSearchTermsBlock && (
