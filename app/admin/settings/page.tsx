@@ -56,26 +56,47 @@ async function loadSettings(): Promise<SettingsRow> {
 
 async function loadEmailTemplates(): Promise<TemplateRow[]> {
   try {
+    // Gebruik select("*") om niet te crashen op kolomnamen
     const { data, error } = await supabaseAdmin
       .from("buyback_email_templates")
-      .select("id, key, language, subject, body_html, body_text, updated_at")
-      .order("key", { ascending: true })
-      .order("language", { ascending: true });
+      .select("*")
+      .order("key", { ascending: true }); // alleen sorteren op key (bestaat sowieso)
 
     if (error) {
       console.warn("[SETTINGS][email-templates] load error:", error);
       return [];
     }
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      key: row.key,
-      language: row.language ?? "nl",
-      subject: row.subject ?? "",
-      body_html: row.body_html ?? "",
-      body_text: row.body_text ?? "",
-      updated_at: row.updated_at ?? null,
-    }));
+    const rows = (data || []) as any[];
+
+    return rows
+      .map((row) => {
+        // key kan 'key' of 'type' zijn
+        const key: string =
+          (row.key as string | undefined) ??
+          (row.type as string | undefined) ??
+          "";
+
+        if (!key) return null;
+
+        // language kan 'language', 'locale' of 'lang' zijn
+        const language: string =
+          (row.language as string | undefined) ??
+          (row.locale as string | undefined) ??
+          (row.lang as string | undefined) ??
+          "nl";
+
+        return {
+          id: row.id as number,
+          key,
+          language,
+          subject: (row.subject as string | null) ?? "",
+          body_html: (row.body_html as string | null) ?? "",
+          body_text: (row.body_text as string | null) ?? "",
+          updated_at: (row.updated_at as string | null) ?? null,
+        } satisfies TemplateRow;
+      })
+      .filter((r): r is TemplateRow => !!r);
   } catch (e) {
     console.warn("[SETTINGS][email-templates] exception:", e);
     return [];
@@ -191,7 +212,8 @@ export default async function SettingsPage() {
           <div>
             <h2 className="text-lg font-medium">Branding</h2>
             <p className="text-sm text-gray-500">
-              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails &amp; UI.
+              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails &amp;
+              UI.
             </p>
           </div>
           <Link href="/admin/uploads" className="text-sm underline">
@@ -273,7 +295,8 @@ export default async function SettingsPage() {
               className="bb-input text-sm px-2 py-2"
             />
             <span className="text-xs text-gray-500">
-              Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet nodig.
+              Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet
+              nodig.
             </span>
           </label>
 
@@ -303,19 +326,22 @@ export default async function SettingsPage() {
             dynamisch uit deze templates gehaald, per <code>key</code> en taal.
             <br />
             <span className="text-xs text-gray-400">
-              Voorbeeld keys: <code>status_initial</code> (eerste bevestiging) en{" "}
-              <code>status_update</code> (statuswijzigingen).
+              Verwachte tabel in Supabase:{" "}
+              <code>buyback_email_templates</code> met minimaal{" "}
+              <code>id</code>, <code>key</code> (of <code>type</code>),{" "}
+              <code>language</code> (of <code>locale</code>),{" "}
+              <code>subject</code>, <code>body_html</code>,{" "}
+              <code>body_text</code>, <code>updated_at</code>.
             </span>
           </p>
         </header>
 
         {templates.length === 0 ? (
           <p className="text-sm text-gray-500">
-            Er zijn nog geen e-mailtemplates gevonden in{" "}
-            <code>buyback_email_templates</code>. De UI verwacht minstens kolommen{" "}
-            <code>id</code>, <code>key</code>, <code>language</code>,{" "}
-            <code>subject</code>, <code>body_html</code>, <code>body_text</code>,{" "}
-            <code>updated_at</code>.
+            Er werden geen e-mailtemplates geladen. Controleer in Supabase of er
+            rijen bestaan in <code>buyback_email_templates</code> en of kolommen{" "}
+            <code>key</code> (of <code>type</code>) en{" "}
+            <code>language/locale</code> aanwezig zijn.
           </p>
         ) : (
           <div className="space-y-5">
@@ -396,7 +422,9 @@ export default async function SettingsPage() {
                       </label>
 
                       <label className="flex flex-col gap-1 text-sm">
-                        <span className="font-medium">Tekstversie (optional)</span>
+                        <span className="font-medium">
+                          Tekstversie (optional)
+                        </span>
                         <textarea
                           name="body_text"
                           defaultValue={tpl.body_text ?? ""}
@@ -430,9 +458,9 @@ export default async function SettingsPage() {
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
         <h3 className="text-sm font-medium">Tip</h3>
         <p className="text-sm text-gray-600">
-          Deze instellingen worden gebruikt in je bevestigingsmails (via Resend) en
-          kunnen later eenvoudig uitgebreid worden (bijv. extra huisstijl-varianten per
-          shop of extra e-mailtypes).
+          Deze instellingen worden gebruikt in je bevestigingsmails (via Resend)
+          en kunnen later eenvoudig uitgebreid worden (bijv. extra
+          huisstijl-varianten per shop of extra e-mailtypes).
         </p>
       </section>
     </div>
