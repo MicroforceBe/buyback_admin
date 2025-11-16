@@ -1,10 +1,9 @@
 // app/api/buyback/email/sendStatusUpdateMail.ts
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplate } from "./templateHelpers";
 
-/** Statussen waarvoor we mails sturen (moet matchen met actions.ts) */
-export type Status =
-  | "new"                // toegevoegd om typing in actions.ts te dekken (meestal niet verzonden)
+/** Statussen waarvoor we mails sturen (moet matchen met actions.ts) */ export type Status =
+  | "new" // toegevoegd om typing in actions.ts te dekken (meestal niet verzonden)
   | "received_store"
   | "label_created"
   | "shipment_received"
@@ -12,8 +11,7 @@ export type Status =
   | "check_failed"
   | "done";
 
-/** Payload van status-update mails (matcht aanroep in actions.ts) */
-export type Input = {
+/** Payload van status-update mails (matcht aanroep in actions.ts) */ export type Input = {
   // ontvanger + basis
   to: string | null;
   first_name?: string | null;
@@ -44,14 +42,16 @@ export type Input = {
   tracking_code?: string | null;
   tracking_url?: string | null;
   label_pdf_url?: string | null;
+
+  // taal / locale (optioneel, voor templates)
+  language?: string | null;
 };
 
 // ---------- helpers gedeeld ----------
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
-  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
-}
+  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" }); }
 
 function fullName(first?: string | null, last?: string | null) {
   const s = [first, last].filter(Boolean).join(" ").trim();
@@ -71,11 +71,11 @@ function escapeHtml(s: string) {
 
 type BrandingCfg = {
   brand_name: string;
-  brand_color: string;       // uit DB (hex)
-  email_from: string;        // uit ENV
+  brand_color: string; // uit DB (hex)
+  email_from: string; // uit ENV
   email_reply_to?: string | undefined; // uit ENV
-  email_disclaimer?: string | null;    // uit DB
-  logo_url?: string | null;            // uit DB
+  email_disclaimer?: string | null; // uit DB
+  logo_url?: string | null; // uit DB
 };
 
 async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
@@ -114,18 +114,42 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
 
 // ---------- openingsuren (ma → zo, dagen voluit NL) ----------
 
-const DAY_ORDER = ["maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag","zondag"];
+const DAY_ORDER = [
+  "maandag",
+  "dinsdag",
+  "woensdag",
+  "donderdag",
+  "vrijdag",
+  "zaterdag",
+  "zondag",
+];
 const DAY_ALIASES: Record<string, string> = {
-  ma: "maandag", maandag: "maandag", mon: "maandag",
-  di: "dinsdag", dinsdag: "dinsdag", tue: "dinsdag",
-  wo: "woensdag", woensdag: "woensdag", wed: "woensdag",
-  do: "donderdag", donderdag: "donderdag", thu: "donderdag",
-  vr: "vrijdag", vrijdag: "vrijdag", fri: "vrijdag",
-  za: "zaterdag", zaterdag: "zaterdag", sat: "zaterdag",
-  zo: "zondag", zondag: "zondag", sun: "zondag",
+  ma: "maandag",
+  maandag: "maandag",
+  mon: "maandag",
+  di: "dinsdag",
+  dinsdag: "dinsdag",
+  tue: "dinsdag",
+  wo: "woensdag",
+  woensdag: "woensdag",
+  wed: "woensdag",
+  do: "donderdag",
+  donderdag: "donderdag",
+  thu: "donderdag",
+  vr: "vrijdag",
+  vrijdag: "vrijdag",
+  fri: "vrijdag",
+  za: "zaterdag",
+  zaterdag: "zaterdag",
+  sat: "zaterdag",
+  zo: "zondag",
+  zondag: "zondag",
+  sun: "zondag",
 };
 
-function normalizeOpeningHours(input?: Record<string, string> | null): Record<string, string> | null {
+function normalizeOpeningHours(
+  input?: Record<string, string> | null
+): Record<string, string> | null {
   if (!input || typeof input !== "object") return null;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) {
@@ -142,7 +166,9 @@ function renderOpeningHoursTable(oh?: Record<string, string> | null) {
   if (!hours) return "";
   const rows = DAY_ORDER.map((d) => {
     const v = hours[d] || "Gesloten";
-    return `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${d}</td><td style="padding:1px 0">${escapeHtml(v)}</td></tr>`;
+    return `<tr><td style="padding:1px 8px 1px 0;color:#6b7280">${d}</td><td style="padding:1px 0">${escapeHtml(
+      v
+    )}</td></tr>`;
   }).join("");
   return `
     <div style="margin-top:6px">
@@ -159,13 +185,20 @@ function renderOpeningHoursTable(oh?: Record<string, string> | null) {
 function subjectFor(status: Status, brand: string, order: string) {
   const base = `[${brand}]`;
   switch (status) {
-    case "received_store":     return `${base} Ontvangen in de winkel — ${order}`;
-    case "label_created":      return `${base} Verzendlabel aangemaakt — ${order}`;
-    case "shipment_received":  return `${base} Zending ontvangen — ${order}`;
-    case "check_passed":       return `${base} Controle geslaagd — ${order}`;
-    case "check_failed":       return `${base} Afwijking vastgesteld — ${order}`;
-    case "done":               return `${base} Afgewerkt — ${order}`;
-    case "new":                return `${base} Status update — ${order}`; // fallback
+    case "received_store":
+      return `${base} Ontvangen in de winkel — ${order}`;
+    case "label_created":
+      return `${base} Verzendlabel aangemaakt — ${order}`;
+    case "shipment_received":
+      return `${base} Zending ontvangen — ${order}`;
+    case "check_passed":
+      return `${base} Controle geslaagd — ${order}`;
+    case "check_failed":
+      return `${base} Afwijking vastgesteld — ${order}`;
+    case "done":
+      return `${base} Afgewerkt — ${order}`;
+    case "new":
+      return `${base} Status update — ${order}`; // fallback
   }
 }
 
@@ -201,7 +234,9 @@ function actionBlockFor(status: Status, input: Input) {
            </p>`
         : `<p style="margin:0 0 12px">Je verzendlabel wordt klaargemaakt. Ontvang je het nog niet meteen, dan volgt het in een aparte e-mail.</p>`;
       const trackLine = input.tracking_url
-        ? `<p style="margin:0 0 12px">Tracking: <a href="${input.tracking_url}">${input.tracking_code || input.tracking_url}</a></p>`
+        ? `<p style="margin:0 0 12px">Tracking: <a href="${input.tracking_url}">${
+            input.tracking_code || input.tracking_url
+          }</a></p>`
         : "";
       return `${labelBtn}${trackLine}<p style="margin:0 0 12px">Verpak je toestel goed en verstuur binnen 5 werkdagen.</p>`;
     }
@@ -209,8 +244,12 @@ function actionBlockFor(status: Status, input: Input) {
       return `<p style="margin:0 0 12px">De technische controle volgt zo snel mogelijk.</p>`;
     case "check_passed": {
       const payout = input.wants_voucher
-        ? `Fantastisch dat je voor een voucher koos! Eénmaal jouw toestel is gecontroleerd en aanvaard, ontvang je een voucher code ter waarde van <strong>${eur(input.final_price_cents ?? 0)}</strong> waarmee je online of in één van onze winkels een aankoop kan doen.`
-        : `We starten de uitbetaling${input.iban ? ` naar <code>${escapeHtml(input.iban)}</code>` : ""} op.`;
+        ? `Fantastisch dat je voor een voucher koos! Eénmaal jouw toestel is gecontroleerd en aanvaard, ontvang je een voucher code ter waarde van <strong>${eur(
+            input.final_price_cents ?? 0
+          )}</strong> waarmee je online of in één van onze winkels een aankoop kan doen.`
+        : `We starten de uitbetaling${
+            input.iban ? ` naar <code>${escapeHtml(input.iban)}</code>` : ""
+          } op.`;
       return `<p style="margin:0 0 12px">${payout}</p>`;
     }
     case "check_failed":
@@ -247,9 +286,15 @@ export async function sendStatusUpdateMail(input: Input) {
     : `<h2 style="margin:0 0 8px;font-size:18px;color:${branding.brand_color}">${branding.brand_name}</h2>`;
 
   // compact detailtabel (referentie, toestel, berekende prijs)
-  const devLine = input.capacity_gb ? `${input.model ?? "—"} • ${input.capacity_gb} GB` : (input.model ?? "—");
-  const priceLine = typeof input.final_price_cents === "number"
-    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}` : "—";
+  const devLine = input.capacity_gb
+    ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
+    : input.model ?? "—";
+  const priceLine =
+    typeof input.final_price_cents === "number"
+      ? `${eur(input.final_price_cents)}${
+          input.wants_voucher ? " (incl. voucherbonus)" : ""
+        }`
+      : "—";
 
   const detailsTable = `
     <table role="presentation" cellpadding="0" cellspacing="0"
@@ -279,12 +324,17 @@ export async function sendStatusUpdateMail(input: Input) {
       ? `
         <h3 style="margin:18px 0 6px;font-size:14px">Winkel</h3>
         <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-          <tr><td style="padding:2px 0"><strong>Locatie</strong></td><td style="padding:2px 0">: ${input.shop_location ?? "—"}</td></tr>
+          <tr><td style="padding:2px 0"><strong>Locatie</strong></td><td style="padding:2px 0">: ${
+            input.shop_location ?? "—"
+          }</td></tr>
           ${
             input.shop_address1 || input.shop_zip || input.shop_city
-              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
-                  [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
-                }</td></tr>`
+              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${[
+                  input.shop_address1,
+                  [input.shop_zip, input.shop_city].filter(Boolean).join(" "),
+                ]
+                  .filter(Boolean)
+                  .join(", ")}</td></tr>`
               : ""
           }
         </table>
@@ -305,16 +355,17 @@ export async function sendStatusUpdateMail(input: Input) {
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
     <p style="margin:0 0 12px">
       Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
-      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
     </p>
   `;
 
-  // disclaimer
   const disclaimer = branding.email_disclaimer
-    ? `<p style="margin:0;color:#64748b;font-size:12px;white-space:pre-wrap">${escapeHtml(branding.email_disclaimer || "")}</p>`
+    ? `<p style="margin:0;color:#64748b;font-size:12px;white-space:pre-wrap">${escapeHtml(
+        branding.email_disclaimer || ""
+      )}</p>`
     : `<p style="margin:0;color:#64748b;font-size:12px">Vermeld je referentie <strong>${input.order_code}</strong> bij contact.</p>`;
 
-  const html = `
+  const baseHtml = `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
       ${header}
       <p style="margin:0 0 12px">${leadIn}</p>
@@ -322,22 +373,31 @@ export async function sendStatusUpdateMail(input: Input) {
       ${actionBlock}
       ${deliveryBlock}
       ${nextSteps}
-      <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
+      <p style="margin:12px 0 0;color:#475569">Vragen?Antwoord gerust op deze e-mail.</p>
       <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${branding.brand_name}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
       ${disclaimer}
     </div>
   `;
 
-  // text fallback
   const text = [
     leadIn.replace(/<[^>]+>/g, ""),
     "",
     `Referentie: ${input.order_code}`,
-    `Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`,
-    `Berekende prijs: ${typeof input.final_price_cents === "number" ? eur(input.final_price_cents) : "—"}`,
-    input.status === "label_created" && input.label_pdf_url ? `Label (PDF): ${input.label_pdf_url}` : "",
-    input.status === "label_created" && input.tracking_url ? `Tracking: ${input.tracking_url}` : "",
+    `Toestel: ${input.model ?? "—"}${
+      input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""
+    }`,
+    `Berekende prijs: ${
+      typeof input.final_price_cents === "number"
+        ? eur(input.final_price_cents)
+        : "—"
+    }`,
+    input.status === "label_created" && input.label_pdf_url
+      ? `Label (PDF): ${input.label_pdf_url}`
+      : "",
+    input.status === "label_created" && input.tracking_url
+      ? `Tracking: ${input.tracking_url}`
+      : "",
     "",
     input.delivery_method === "dropoff"
       ? `Winkel: ${input.shop_location ?? "—"}`
@@ -349,15 +409,48 @@ export async function sendStatusUpdateMail(input: Input) {
     branding.brand_name,
     "",
     branding.email_disclaimer ? `--\n${branding.email_disclaimer}` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  // verzenden
+  // 🔹 Taal bepalen voor templates
+  const languageRaw =
+    input.language ||
+    (input as any).locale ||
+    "nl";
+  const language =
+    typeof languageRaw === "string" ? languageRaw : "nl";
+
+  // 🔹 Template-key per status, bv. 'status_update.received_store'
+  const templateKey = `status_update.${input.status}`;
+
+  const templateVars: Record<string, string> = {
+    first_name: input.first_name ?? "",
+    last_name: input.last_name ?? "",
+    full_name: name,
+    order_code: input.order_code,
+    brand_name: branding.brand_name,
+    status: input.status,
+    lead_in: leadIn,
+    action_block: actionBlock,
+    details_table: detailsTable,
+    delivery_block: deliveryBlock,
+    next_steps: nextSteps,
+    header,
+    disclaimer_html: disclaimer,
+  };
+
+  const rendered = await renderEmailTemplate(templateKey, language, templateVars);
+
+  const finalSubject = rendered?.subject || subject;
+  const finalHtml = rendered?.html || baseHtml;
+
   const res = await resend.emails.send({
     from: branding.email_from,
     to: input.to!,
     replyTo: branding.email_reply_to,
-    subject,
-    html,
+    subject: finalSubject,
+    html: finalHtml,
     text,
   });
 
@@ -366,6 +459,10 @@ export async function sendStatusUpdateMail(input: Input) {
     throw new Error((res as any).error?.message || "Resend send failed");
   }
 
-  console.info("[MAIL][statusUpdate] send ok:", { id: (res as any).id, to: input.to, status: input.status });
+  console.info("[MAIL][statusUpdate] send ok:", {
+    id: (res as any).id,
+    to: input.to,
+    status: input.status,
+  });
   return res;
 }
