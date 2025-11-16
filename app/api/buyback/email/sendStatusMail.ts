@@ -1,6 +1,6 @@
 // app/api/buyback/email/sendStatusMail.ts
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplate } from "./templateHelpers";
 
 /** Inkomende payload vanuit routes */
 export type Input = {
@@ -37,17 +37,18 @@ export type Input = {
   postal_code?: string | null;
   city?: string | null;
   country?: string | null;
+
+  // taal / locale (optioneel, voor templates)
+  language?: string | null;
 };
 
 // ---------- Helpers
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
-  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
-}
+  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" }); }
 
-// Fallback labels (indien DB-labels niet beschikbaar zijn)
-const FALLBACK_LABELS: Record<string, string> = {
+// Fallback labels (indien DB-labels niet beschikbaar zijn) const FALLBACK_LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
   icloud: "iCloud/Google-vergrendeling",
@@ -57,8 +58,12 @@ const FALLBACK_LABELS: Record<string, string> = {
   housing: "Behuizing",
 };
 const YESNO: Record<string, string> = {
-  yes: "Ja", true: "Ja", ja: "Ja",
-  no: "Nee", false: "Nee", nee: "Nee",
+  yes: "Ja",
+  true: "Ja",
+  ja: "Ja",
+  no: "Nee",
+  false: "Nee",
+  nee: "Nee",
 };
 
 function humanizeValue(key: string, val: string) {
@@ -86,15 +91,14 @@ function customerFullName(first?: string | null, last?: string | null) {
 
 type BrandingCfg = {
   brand_name: string;
-  brand_color: string;         // hex uit DB
-  email_from: string;          // uit ENV
+  brand_color: string; // hex uit DB
+  email_from: string; // uit ENV
   email_reply_to?: string | null; // uit ENV
   email_disclaimer?: string | null; // uit DB
-  logo_url?: string | null;    // uit DB
+  logo_url?: string | null; // uit DB
 };
 
-/** Haal branding rechtstreeks uit buyback_settings (id=1) */
-async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
+/** Haal branding rechtstreeks uit buyback_settings (id=1) */ async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_settings")
@@ -118,8 +122,7 @@ async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   }
 }
 
-/** Probeer labels uit DB te laden (verwacht tabel/view: buyback_answer_labels met kolommen: key, label) */
-async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> {
+/** Probeer labels uit DB te laden (verwacht tabel/view: buyback_answer_labels met kolommen: key, label) */ async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_answer_labels")
@@ -157,11 +160,7 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   };
 }
 
-/** Genereer ALLE rijtjes voor de “Toestel-details” tabel (zonder <table> wrapper). */
-function renderDetailsRows(
-  input: Input,
-  labels: Record<string, string>
-) {
+/** Genereer ALLE rijtjes voor de “Toestel-details” tabel (zonder <table> wrapper). */ function renderDetailsRows(input: Input, labels: Record<string, string>) {
   const rows: string[] = [];
 
   // Referentie
@@ -174,7 +173,7 @@ function renderDetailsRows(
   // Toestel
   const devLine = input.capacity_gb
     ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
-    : (input.model ?? "—");
+    : input.model ?? "—";
   rows.push(`
     <tr>
       <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
@@ -182,9 +181,12 @@ function renderDetailsRows(
     </tr>`);
 
   // Berekende prijs
-  const priceLine = typeof input.final_price_cents === "number"
-    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
-    : "—";
+  const priceLine =
+    typeof input.final_price_cents === "number"
+      ? `${eur(input.final_price_cents)}${
+          input.wants_voucher ? " (incl. voucherbonus)" : ""
+        }`
+      : "—";
   rows.push(`
     <tr>
       <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Berekende prijs</strong></td>
@@ -215,41 +217,78 @@ function renderDetailsRows(
   return rows.join("");
 }
 
-/** Normaliseer openingsuren-waarden en toon standaard 'Gesloten' */
-function normalizeOpenHoursValue(v?: string | null) {
+/** Normaliseer openingsuren-waarden en toon standaard 'Gesloten' */ function normalizeOpenHoursValue(v?: string | null) {
   const raw = (v ?? "").toString().trim();
   if (!raw) return "Gesloten";
   const low = raw.toLowerCase();
-  if (["-", "closed", "gesloten", "sluiten", "nvt", "n/a", "n.v.t."].includes(low)) return "Gesloten";
+  if (["-", "closed", "gesloten", "sluiten", "nvt", "n/a", "n.v.t."].includes(low))
+    return "Gesloten";
   return raw;
 }
 
-/** Converteer allerlei sleutelvarianten naar een canonieke Engelstalige dagnaam */
-function canonicalDayKey(k: string): "monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday"|null {
+/** Converteer allerlei sleutelvarianten naar een canonieke Engelstalige dagnaam */ function canonicalDayKey(
+  k: string
+): "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null {
   const s = k.toLowerCase().trim().replace(/\./g, "");
-  const map: Record<string, "monday"|"tuesday"|"wednesday"|"thursday"|"friday"|"saturday"|"sunday"> = {
+  const map: Record<
+    string,
+    "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
+  > = {
     // Maandag
-    monday: "monday", mon: "monday", ma: "monday", maan: "monday", maandag: "monday",
+    monday: "monday",
+    mon: "monday",
+    ma: "monday",
+    maan: "monday",
+    maandag: "monday",
     // Dinsdag
-    tuesday: "tuesday", tue: "tuesday", di: "tuesday", dins: "tuesday", dinsdag: "tuesday",
+    tuesday: "tuesday",
+    tue: "tuesday",
+    di: "tuesday",
+    dins: "tuesday",
+    dinsdag: "tuesday",
     // Woensdag
-    wednesday: "wednesday", wed: "wednesday", wo: "wednesday", woens: "wednesday", woensdag: "wednesday",
+    wednesday: "wednesday",
+    wed: "wednesday",
+    wo: "wednesday",
+    woens: "wednesday",
+    woensdag: "wednesday",
     // Donderdag
-    thursday: "thursday", thu: "thursday", do: "thursday", donder: "thursday", donderdag: "thursday",
+    thursday: "thursday",
+    thu: "thursday",
+    do: "thursday",
+    donder: "thursday",
+    donderdag: "thursday",
     // Vrijdag
-    friday: "friday", fri: "friday", vr: "friday", vrij: "friday", vrijdag: "friday",
+    friday: "friday",
+    fri: "friday",
+    vr: "friday",
+    vrij: "friday",
+    vrijdag: "friday",
     // Zaterdag
-    saturday: "saturday", sat: "saturday", za: "saturday", zat: "saturday", zaterdag: "saturday",
+    saturday: "saturday",
+    sat: "saturday",
+    za: "saturday",
+    zat: "saturday",
+    zaterdag: "saturday",
     // Zondag
-    sunday: "sunday", sun: "sunday", zo: "sunday", zon: "sunday", zondag: "sunday",
+    sunday: "sunday",
+    sun: "sunday",
+    zo: "sunday",
+    zon: "sunday",
+    zondag: "sunday",
   };
   return map[s] ?? null;
 }
 
-/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) — ondersteunt NL/EN/afkortingen als keys */
-function renderOpeningHours(hours: Record<string, string>) {
+/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) — ondersteunt NL/EN/afkortingen als keys */ function renderOpeningHours(hours: Record<string, string>) {
   const DAY_ORDER = [
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
   ] as const;
   const DAY_LABELS: Record<(typeof DAY_ORDER)[number], string> = {
     monday: "Maandag",
@@ -270,7 +309,7 @@ function renderOpeningHours(hours: Record<string, string>) {
     if (!normalized[canon]) normalized[canon] = (v ?? "").toString();
   }
 
-  const rows = DAY_ORDER.map(key => {
+  const rows = DAY_ORDER.map((key) => {
     const val = normalizeOpenHoursValue(normalized[key] ?? "");
     return `
       <tr>
@@ -293,13 +332,18 @@ function renderOpeningHours(hours: Record<string, string>) {
 export async function sendStatusMail(input: Input) {
   // Basic guards
   if (!input?.to) {
-    console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", { order_code: input?.order_code });
+    console.warn("[MAIL][sendStatusMail] geen ontvanger; skipping", {
+      order_code: input?.order_code,
+    });
     return { skipped: true, reason: "missing-to" } as const;
   }
   if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt in env");
 
   // Branding + labels ophalen
-  const [dbBranding, dbLabels] = await Promise.all([loadBrandingFromDB(), loadAnswerLabelsFromDB()]);
+  const [dbBranding, dbLabels] = await Promise.all([
+    loadBrandingFromDB(),
+    loadAnswerLabelsFromDB(),
+  ]);
   const cfg = mergeBrandingWithEnv(dbBranding);
   const LABELS = dbLabels || FALLBACK_LABELS;
 
@@ -319,12 +363,17 @@ export async function sendStatusMail(input: Input) {
       ? `
         <h3 style="margin:18px 0 6px;font-size:14px">Binnenbrengen in winkel</h3>
         <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-          <tr><td style="padding:2px 0"><strong>Winkel</strong></td><td style="padding:2px 0">: ${input.shop_location ?? "—"}</td></tr>
+          <tr><td style="padding:2px 0"><strong>Winkel</strong></td><td style="padding:2px 0">: ${
+            input.shop_location ?? "—"
+          }</td></tr>
           ${
             input.shop_address1 || input.shop_zip || input.shop_city
-              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${
-                  [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ")
-                }</td></tr>`
+              ? `<tr><td style="padding:2px 0"><strong>Adres</strong></td><td style="padding:2px 0">: ${[
+                  input.shop_address1,
+                  [input.shop_zip, input.shop_city].filter(Boolean).join(" "),
+                ]
+                  .filter(Boolean)
+                  .join(", ")}</td></tr>`
               : ""
           }
         </table>
@@ -335,15 +384,19 @@ export async function sendStatusMail(input: Input) {
         <h3 style="margin:18px 0 6px;font-size:14px">Verzenden per post</h3>
         <p style="margin:0">Je ontvangt (of ontving) de verzendinstructies via e-mail.</p>
         ${
-          input.street || input.house_number || input.postal_code || input.city || input.country
+          input.street ||
+          input.house_number ||
+          input.postal_code ||
+          input.city ||
+          input.country
             ? `<p style="margin:8px 0 0"><strong>Afzenderadres (voor het etiket):</strong><br/>
-                ${
-                  [
-                    [input.street, input.house_number].filter(Boolean).join(" "),
-                    [input.postal_code, input.city].filter(Boolean).join(" "),
-                    input.country
-                  ].filter(Boolean).join("<br/>")
-                }
+                ${[
+                  [input.street, input.house_number].filter(Boolean).join(" "),
+                  [input.postal_code, input.city].filter(Boolean).join(" "),
+                  input.country,
+                ]
+                  .filter(Boolean)
+                  .join("<br/>")}
                </p>`
             : ""
         }
@@ -355,18 +408,29 @@ export async function sendStatusMail(input: Input) {
 
   // Uitbetalingsblok (voucher-copy aangepast)
   const payoutBlock = input.wants_voucher
-    ? `<p style="margin:0"><strong>Uitbetaling:</strong> Fantastisch dat je voor een voucher koos! Eénmaal jouw toestel is gecontroleerd en aanvaard, ontvang je een voucher code ter waarde van <strong>${eur(input.final_price_cents ?? 0)}</strong> waarmee je online of in één van onze winkels een aankoop kan doen.</p>`
-    : `<p style="margin:0"><strong>Uitbetaling:</strong> overschrijving op IBAN ${input.iban ? `<code>${input.iban}</code>` : "—"}.</p>`;
+    ? `<p style="margin:0"><strong>Uitbetaling:</strong> Fantastisch dat je voor een voucher koos! Eénmaal jouw toestel is gecontroleerd en aanvaard, ontvang je een voucher code ter waarde van <strong>${eur(
+        input.final_price_cents ?? 0
+      )}</strong> waarmee je online of in één van onze winkels een aankoop kan doen.</p>`
+    : `<p style="margin:0"><strong>Uitbetaling:</strong> overschrijving op IBAN ${
+        input.iban ? `<code>${input.iban}</code>` : "—"
+      }.</p>`;
 
   // Tekst fallback
   const textParts: string[] = [];
   textParts.push(`Beste ${name},`);
   textParts.push("");
   textParts.push(`Referentie: ${input.order_code}`);
-  textParts.push(`Toestel: ${input.model ?? "—"}${input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""}`);
-  const priceLineText = typeof input.final_price_cents === "number"
-    ? `${eur(input.final_price_cents)}${input.wants_voucher ? " (incl. voucherbonus)" : ""}`
-    : "—";
+  textParts.push(
+    `Toestel: ${input.model ?? "—"}${
+      input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""
+    }`
+  );
+  const priceLineText =
+    typeof input.final_price_cents === "number"
+      ? `${eur(input.final_price_cents)}${
+          input.wants_voucher ? " (incl. voucherbonus)" : ""
+        }`
+      : "—";
   textParts.push(`Berekende prijs: ${priceLineText}`);
   textParts.push("");
   textParts.push("Conditie/antwoorden:");
@@ -382,25 +446,42 @@ export async function sendStatusMail(input: Input) {
   if (input.delivery_method === "dropoff") {
     textParts.push("Binnenbrengen in winkel:");
     textParts.push(`- Winkel: ${input.shop_location ?? "—"}`);
-    const addr = [input.shop_address1, [input.shop_zip, input.shop_city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    const addr = [
+      input.shop_address1,
+      [input.shop_zip, input.shop_city].filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(", ");
     if (addr) textParts.push(`- Adres: ${addr}`);
   } else if (input.delivery_method === "ship") {
     textParts.push("Verzenden per post — instructies via e-mail.");
     const addr = [
       [input.street, input.house_number].filter(Boolean).join(" "),
       [input.postal_code, input.city].filter(Boolean).join(" "),
-      input.country
-    ].filter(Boolean).join(", ");
+      input.country,
+    ]
+      .filter(Boolean)
+      .join(", ");
     if (addr) textParts.push(`Afzenderadres: ${addr}`);
   }
   textParts.push("");
   if (input.wants_voucher) {
-    textParts.push(`Uitbetaling: voucher t.w.v. ${eur(input.final_price_cents ?? 0)} (code volgt na controle).`);
+    textParts.push(
+      `Uitbetaling: voucher t.w.v. ${eur(
+        input.final_price_cents ?? 0
+      )} (code volgt na controle).`
+    );
   } else {
-    textParts.push(`Uitbetaling: overschrijving${input.iban ? ` op IBAN ${input.iban}` : ""}.`);
+    textParts.push(
+      `Uitbetaling: overschrijving${
+        input.iban ? ` op IBAN ${input.iban}` : ""
+      }.`
+    );
   }
   textParts.push("");
-  textParts.push("Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop. Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.");
+  textParts.push(
+    "Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop. Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen."
+  );
   textParts.push("");
   textParts.push(`Met vriendelijke groeten,\n${cfg.brand_name}`);
   if (cfg.email_disclaimer) {
@@ -429,8 +510,16 @@ export async function sendStatusMail(input: Input) {
     </table>
   `;
 
-  // HTML body — één blok voor toestel-details (2 kolommen) + overige secties
-  const html = `
+  const nextStepsHtml = `
+    <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
+    <p style="margin:0 0 12px">
+      Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
+    </p>
+  `;
+
+  // HTML body — één blok voor toestel-details (2 kolommen) + overige secties (fallback)
+  const baseHtml = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
     ${header}
 
@@ -447,20 +536,55 @@ export async function sendStatusMail(input: Input) {
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
     <p style="margin:0 0 12px">
       Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
-      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
     </p>
 
-    <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
+    <p style="margin:12px 0 0;color:#475569">Vragen?Antwoord gerust op deze e-mail.</p>
     <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${cfg.brand_name}</p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
     ${
       cfg.email_disclaimer
-        ? `<p style="margin:0;color:#64748b;font-size:12px;white-space:pre-wrap">${escapeHtml(cfg.email_disclaimer)}</p>`
+        ? `<p style="margin:0;color:#64748b;font-size:12px;white-space:pre-wrap">${escapeHtml(
+            cfg.email_disclaimer
+          )}</p>`
         : `<p style="margin:0;color:#64748b;font-size:12px">Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.</p>`
     }
   </div>
   `;
+
+  const baseSubject = subject;
+
+  // 🔹 Taal bepalen voor templates
+  const languageRaw =
+    input.language ||
+    (input as any).locale ||
+    "nl";
+  const language =
+    typeof languageRaw === "string" ? languageRaw : "nl";
+
+  // 🔹 Variabelen voor template-rendering
+  const templateVars: Record<string, string> = {
+    first_name: input.first_name ?? "",
+    last_name: input.last_name ?? "",
+    full_name: name,
+    order_code: input.order_code,
+    brand_name: cfg.brand_name,
+    header,
+    details_table: detailsTable,
+    delivery_block: deliveryBlock,
+    payout_block: payoutBlock,
+    next_steps: nextStepsHtml,
+    disclaimer_html: cfg.email_disclaimer
+      ? escapeHtml(cfg.email_disclaimer)
+      : `Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.`,
+  };
+
+  // 🔹 Probeer DB-template 'status_initial' (per taal)
+  const rendered = await renderEmailTemplate("status_initial", language, templateVars);
+
+  const finalSubject = rendered?.subject || baseSubject;
+  const finalHtml = rendered?.html || baseHtml;
 
   // Logging + verzenden
   console.info("[MAIL][sendStatusMail] env check", {
@@ -482,8 +606,8 @@ export async function sendStatusMail(input: Input) {
       from: cfg.email_from,
       to: input.to!,
       replyTo: cfg.email_reply_to || undefined,
-      subject,
-      html,
+      subject: finalSubject,
+      html: finalHtml,
       text,
     });
 
@@ -494,7 +618,10 @@ export async function sendStatusMail(input: Input) {
       throw new Error(res.error?.message || "Resend send failed");
     }
 
-    console.info("[MAIL][sendStatusMail] send ok:", { id: (res as any)?.id, to: input.to });
+    console.info("[MAIL][sendStatusMail] send ok:", {
+      id: (res as any)?.id,
+      to: input.to,
+    });
     return res;
   } catch (err: any) {
     console.error("[MAIL][sendStatusMail] exception:", err);
@@ -502,8 +629,7 @@ export async function sendStatusMail(input: Input) {
   }
 }
 
-// Kleine helper om disclaimer veilig weer te geven
-function escapeHtml(s: string) {
+// Kleine helper om disclaimer veilig weer te geven function escapeHtml(s: string) {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
