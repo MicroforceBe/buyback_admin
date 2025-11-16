@@ -41,10 +41,12 @@ const BRAND_BY_CATEGORY: Record<string, string> = {
 
 /* Kleine helper om categorie naar een veilige slug te krijgen voor bestandsnamen */
 function slugifyCategory(category: string): string {
-  return category
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'category';
+  return (
+    category
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'category'
+  );
 }
 
 /* =========================================================
@@ -360,6 +362,24 @@ export async function uploadCategoryImage(form: FormData) {
 
   revalidatePath('/admin/catalog');
   return { ok: true, url: publicUrl, path };
+}
+
+/* =========================================================
+ *  CATEGORIE-IMAGE OPHALEN
+ * =======================================================*/
+
+export async function getCategoryImage(category: string): Promise<string | null> {
+  'use server';
+  const sb = sbClient();
+
+  const { data, error } = await sb
+    .from('buyback_category_meta')
+    .select('image_url')
+    .eq('category', category)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data?.image_url as string | null) ?? null;
 }
 
 /* =========================================================
