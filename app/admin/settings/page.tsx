@@ -17,7 +17,7 @@ type SettingsRow = {
 
 type TemplateRow = {
   id: number;
-  type: string;
+  key: string;
   language: string;
   subject: string | null;
   body_html: string | null;
@@ -58,8 +58,8 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_email_templates")
-      .select("id, type, language, subject, body_html, body_text, updated_at")
-      .order("type", { ascending: true })
+      .select("id, key, language, subject, body_html, body_text, updated_at")
+      .order("key", { ascending: true })
       .order("language", { ascending: true });
 
     if (error) {
@@ -69,7 +69,7 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
     return (data || []).map((row: any) => ({
       id: row.id,
-      type: row.type,
+      key: row.key,
       language: row.language ?? "nl",
       subject: row.subject ?? "",
       body_html: row.body_html ?? "",
@@ -86,7 +86,7 @@ export default async function SettingsPage() {
   const row = await loadSettings();
   const templates = await loadEmailTemplates();
 
-  // ---- Server Action (inline, geen extra export!) ----
+  // ---- Server Action branding (inline, geen extra export!) ----
   async function actionSaveBranding(formData: FormData) {
     "use server";
 
@@ -113,34 +113,35 @@ export default async function SettingsPage() {
 
     if (error) {
       console.error("[SETTINGS][branding] upsert error:", error);
-      // Laat fout zien via querystring
       return { ok: false as const, message: error.message };
     }
 
-    // Revalidate settings en terugkoppeling
     revalidatePath("/admin/settings");
     return { ok: true as const, message: "Instellingen bewaard." };
   }
 
+  // ---- Server Action e-mailtemplate bewaren ----
   async function actionSaveTemplate(formData: FormData) {
     "use server";
 
     const idRaw = (formData.get("template_id") as string | null) ?? "";
     const id = idRaw ? Number(idRaw) : undefined;
 
-    const type = ((formData.get("template_type") as string | null) ?? "").trim();
+    const key =
+      ((formData.get("template_key") as string | null) ?? "").trim();
     const language =
-      ((formData.get("template_language") as string | null) ?? "nl").trim() || "nl";
+      ((formData.get("template_language") as string | null) ?? "nl").trim() ||
+      "nl";
     const subject = (formData.get("subject") as string | null) ?? "";
     const body_html = (formData.get("body_html") as string | null) ?? "";
     const body_text = (formData.get("body_text") as string | null) ?? "";
 
-    if (!type) {
-      return { ok: false as const, message: "Template type ontbreekt." };
+    if (!key) {
+      return { ok: false as const, message: "Template key ontbreekt." };
     }
 
     const payload: any = {
-      type,
+      key,
       language,
       subject,
       body_html,
@@ -152,7 +153,7 @@ export default async function SettingsPage() {
     const { error } = await supabaseAdmin
       .from("buyback_email_templates")
       .upsert(payload, {
-        onConflict: "type,language",
+        onConflict: "key,language",
         ignoreDuplicates: false,
       });
 
@@ -165,11 +166,11 @@ export default async function SettingsPage() {
     return { ok: true as const, message: "Template bewaard." };
   }
 
-  // Groepeer templates per type voor overzicht
-  const templatesByType = templates.reduce<Record<string, TemplateRow[]>>(
+  // Groepeer templates per key voor overzicht
+  const templatesByKey = templates.reduce<Record<string, TemplateRow[]>>(
     (acc, t) => {
-      if (!acc[t.type]) acc[t.type] = [];
-      acc[t.type].push(t);
+      if (!acc[t.key]) acc[t.key] = [];
+      acc[t.key].push(t);
       return acc;
     },
     {}
@@ -249,7 +250,9 @@ export default async function SettingsPage() {
 
             {row.logo_url ? (
               <div className="md:col-span-2">
-                <span className="block text-sm text-gray-500 mb-1">Logo voorbeeld</span>
+                <span className="block text-sm text-gray-500 mb-1">
+                  Logo voorbeeld
+                </span>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={row.logo_url}
@@ -296,11 +299,11 @@ export default async function SettingsPage() {
         <header>
           <h2 className="text-lg font-medium">E-mailtemplates</h2>
           <p className="text-sm text-gray-500">
-            Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt dynamisch
-            uit deze templates gehaald, per type en taal.
+            Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt
+            dynamisch uit deze templates gehaald, per <code>key</code> en taal.
             <br />
             <span className="text-xs text-gray-400">
-              Voorbeeld types: <code>status_initial</code> (eerste bevestiging) en{" "}
+              Voorbeeld keys: <code>status_initial</code> (eerste bevestiging) en{" "}
               <code>status_update</code> (statuswijzigingen).
             </span>
           </p>
@@ -309,16 +312,18 @@ export default async function SettingsPage() {
         {templates.length === 0 ? (
           <p className="text-sm text-gray-500">
             Er zijn nog geen e-mailtemplates gevonden in{" "}
-            <code>buyback_email_templates</code>. Voeg daar records toe om ze hier te
-            kunnen bewerken.
+            <code>buyback_email_templates</code>. De UI verwacht minstens kolommen{" "}
+            <code>id</code>, <code>key</code>, <code>language</code>,{" "}
+            <code>subject</code>, <code>body_html</code>, <code>body_text</code>,{" "}
+            <code>updated_at</code>.
           </p>
         ) : (
           <div className="space-y-5">
-            {Object.entries(templatesByType).map(([type, list]) => (
-              <div key={type} className="space-y-3">
+            {Object.entries(templatesByKey).map(([key, list]) => (
+              <div key={key} className="space-y-3">
                 <div className="flex items-baseline justify-between">
                   <h3 className="text-md font-semibold">
-                    Template type: <code>{type}</code>
+                    Template key: <code>{key}</code>
                   </h3>
                   <span className="text-xs text-gray-400">
                     {list.length} taal/varianten
@@ -333,7 +338,7 @@ export default async function SettingsPage() {
                       className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
                     >
                       <input type="hidden" name="template_id" value={tpl.id} />
-                      <input type="hidden" name="template_type" value={tpl.type} />
+                      <input type="hidden" name="template_key" value={tpl.key} />
                       <input
                         type="hidden"
                         name="template_language"
@@ -342,7 +347,7 @@ export default async function SettingsPage() {
 
                       <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
                         <span>
-                          Type: <code>{tpl.type}</code> • Taal:{" "}
+                          Key: <code>{tpl.key}</code> • Taal:{" "}
                           <code>{tpl.language}</code>
                         </span>
                         <span>
