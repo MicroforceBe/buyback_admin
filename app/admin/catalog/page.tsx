@@ -1,7 +1,8 @@
 // app/admin/catalog/page.tsx
+// app/admin/catalog/page.tsx
 
 import Link from "next/link";
-import { getCategories, getCatalogRows } from "./actions";
+import { getCategories, getCatalogRows, getCategoryImage } from "./actions";
 import Table from "./table";
 
 type Props = {
@@ -18,14 +19,20 @@ export default async function CatalogPage({ searchParams }: Props) {
   const selected = searchParams?.category ?? "__ALL__";
   const q = (searchParams?.q ?? "").trim();
 
+  const selectedCategory = selected === "__ALL__" ? null : selected;
+
   // 1) Categorieën voor de tegels
   const categories = await getCategories();
 
   // 2) Rijen ophalen met correcte argumentvorm
   const rows = await getCatalogRows({
-    category: selected === "__ALL__" ? null : selected,
+    category: selectedCategory,
     q: q || null,
   });
+
+  // 3) Categorie-afbeelding voor de huidige categorie (indien niet "Alle")
+  const categoryImageUrl =
+    selectedCategory ? await getCategoryImage(selectedCategory) : null;
 
   return (
     <div className="p-4 space-y-6">
@@ -67,25 +74,20 @@ export default async function CatalogPage({ searchParams }: Props) {
           <CategoryTile
             label="Alle"
             isActive={selected === "__ALL__"}
-            href={`/admin/catalog?category=__ALL__${
-              q ? `&q=${encodeURIComponent(q)}` : ""
-            }`}
+            href={`/admin/catalog?category=__ALL__${q ? `&q=${encodeURIComponent(q)}` : ""}`}
           />
           {/* bestaande categorieën */}
           {categories.map((c) => {
             const isActive = selected === c;
-            const url = new URL(
-              "/admin/catalog",
-              process.env.NEXT_PUBLIC_BASE_URL || "http://localhost",
-            );
-            url.searchParams.set("category", c);
-            if (q) url.searchParams.set("q", q);
+            const href = `/admin/catalog?category=${encodeURIComponent(
+              c,
+            )}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
             return (
               <CategoryTile
                 key={c}
                 label={c}
                 isActive={isActive}
-                href={url.pathname + "?" + url.searchParams.toString()}
+                href={href}
               />
             );
           })}
@@ -104,9 +106,10 @@ export default async function CatalogPage({ searchParams }: Props) {
       {/* Tabel */}
       <section>
         <Table
-          category={selected === "__ALL__" ? null : selected}
+          category={selectedCategory}
           rows={rows}
           allCategories={categories}
+          categoryImageUrl={categoryImageUrl}
         />
       </section>
     </div>
