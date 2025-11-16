@@ -1,6 +1,7 @@
 // app/api/buyback/email/sendStatusMail.ts
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplate } from "./templateHelpers";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { renderEmailTemplate } from "./templateHelpers";
 
 /** Inkomende payload vanuit routes */
 export type Input = {
@@ -46,9 +47,14 @@ export type Input = {
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
-  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" }); }
+  return (v / 100).toLocaleString("nl-BE", {
+    style: "currency",
+    currency: "EUR",
+  });
+}
 
-// Fallback labels (indien DB-labels niet beschikbaar zijn) const FALLBACK_LABELS: Record<string, string> = {
+// Fallback labels (indien DB-labels niet beschikbaar zijn)
+const FALLBACK_LABELS: Record<string, string> = {
   functional: "Werkt het toestel?",
   eu_model: "EU-model",
   icloud: "iCloud/Google-vergrendeling",
@@ -57,6 +63,7 @@ function eur(cents?: number | null) {
   screen: "Scherm",
   housing: "Behuizing",
 };
+
 const YESNO: Record<string, string> = {
   yes: "Ja",
   true: "Ja",
@@ -98,7 +105,8 @@ type BrandingCfg = {
   logo_url?: string | null; // uit DB
 };
 
-/** Haal branding rechtstreeks uit buyback_settings (id=1) */ async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
+/** Haal branding rechtstreeks uit buyback_settings (id=1) */
+async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_settings")
@@ -122,7 +130,8 @@ type BrandingCfg = {
   }
 }
 
-/** Probeer labels uit DB te laden (verwacht tabel/view: buyback_answer_labels met kolommen: key, label) */ async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> {
+/** Probeer labels uit DB te laden (verwacht tabel/view: buyback_answer_labels met kolommen: key, label) */
+async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_answer_labels")
@@ -143,7 +152,8 @@ type BrandingCfg = {
 }
 
 function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
-  const brand_name = partial.brand_name || process.env.MAIL_BRAND_NAME || "Microforce Buyback";
+  const brand_name =
+    partial.brand_name || process.env.MAIL_BRAND_NAME || "Microforce Buyback";
   const brand_color = partial.brand_color || "#0ea5e9";
   const email_from = process.env.MAIL_FROM || ""; // verplicht via ENV
   const email_reply_to = process.env.MAIL_REPLY_TO || undefined;
@@ -160,7 +170,8 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   };
 }
 
-/** Genereer ALLE rijtjes voor de “Toestel-details” tabel (zonder <table> wrapper). */ function renderDetailsRows(input: Input, labels: Record<string, string>) {
+/** Genereer ALLE rijtjes voor de “Toestel-details” tabel (zonder <table> wrapper). */
+function renderDetailsRows(input: Input, labels: Record<string, string>) {
   const rows: string[] = [];
 
   // Referentie
@@ -217,18 +228,30 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   return rows.join("");
 }
 
-/** Normaliseer openingsuren-waarden en toon standaard 'Gesloten' */ function normalizeOpenHoursValue(v?: string | null) {
+/** Normaliseer openingsuren-waarden en toon standaard 'Gesloten' */
+function normalizeOpenHoursValue(v?: string | null) {
   const raw = (v ?? "").toString().trim();
   if (!raw) return "Gesloten";
   const low = raw.toLowerCase();
-  if (["-", "closed", "gesloten", "sluiten", "nvt", "n/a", "n.v.t."].includes(low))
+  if (
+    ["-", "closed", "gesloten", "sluiten", "nvt", "n/a", "n.v.t."].includes(low)
+  )
     return "Gesloten";
   return raw;
 }
 
-/** Converteer allerlei sleutelvarianten naar een canonieke Engelstalige dagnaam */ function canonicalDayKey(
+/** Converteer allerlei sleutelvarianten naar een canonieke Engelstalige dagnaam */
+function canonicalDayKey(
   k: string
-): "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null {
+):
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday"
+  | null {
   const s = k.toLowerCase().trim().replace(/\./g, "");
   const map: Record<
     string,
@@ -280,7 +303,8 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
   return map[s] ?? null;
 }
 
-/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) — ondersteunt NL/EN/afkortingen als keys */ function renderOpeningHours(hours: Record<string, string>) {
+/** Sorteer en toon openingsuren Ma → Zo met dagnaam voluit (NL) — ondersteunt NL/EN/afkortingen als keys */
+function renderOpeningHours(hours: Record<string, string>) {
   const DAY_ORDER = [
     "monday",
     "tuesday",
@@ -355,7 +379,7 @@ export async function sendStatusMail(input: Input) {
 
   // Subject, header
   const name = customerFullName(input.first_name, input.last_name);
-  const subject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
+  const baseSubject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
 
   // Leveringsblok (met correcte openingsuren lay-out Ma → Zo, dagen voluit NL)
   const deliveryBlock =
@@ -518,7 +542,7 @@ export async function sendStatusMail(input: Input) {
     </p>
   `;
 
-  // HTML body — één blok voor toestel-details (2 kolommen) + overige secties (fallback)
+  // HTML fallback body
   const baseHtml = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
     ${header}
@@ -533,11 +557,7 @@ export async function sendStatusMail(input: Input) {
     <h3 style="margin:18px 0 6px;font-size:14px">Uitbetaling</h3>
     ${payoutBlock}
 
-    <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
-    <p style="margin:0 0 12px">
-      Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
-      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
-    </p>
+    ${nextStepsHtml}
 
     <p style="margin:12px 0 0;color:#475569">Vragen?Antwoord gerust op deze e-mail.</p>
     <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${cfg.brand_name}</p>
@@ -553,15 +573,9 @@ export async function sendStatusMail(input: Input) {
   </div>
   `;
 
-  const baseSubject = subject;
-
-  // 🔹 Taal bepalen voor templates
-  const languageRaw =
-    input.language ||
-    (input as any).locale ||
-    "nl";
-  const language =
-    typeof languageRaw === "string" ? languageRaw : "nl";
+  // 🔹 Taal voor templates
+  const languageRaw = input.language || (input as any).locale || "nl";
+  const language = typeof languageRaw === "string" ? languageRaw : "nl";
 
   // 🔹 Variabelen voor template-rendering
   const templateVars: Record<string, string> = {
@@ -629,7 +643,8 @@ export async function sendStatusMail(input: Input) {
   }
 }
 
-// Kleine helper om disclaimer veilig weer te geven function escapeHtml(s: string) {
+// Kleine helper om disclaimer veilig weer te geven
+function escapeHtml(s: string) {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
