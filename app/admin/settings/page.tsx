@@ -15,6 +15,16 @@ type SettingsRow = {
   updated_at?: string | null;
 };
 
+type TemplateRow = {
+  id: number;
+  type: string;
+  language: string;
+  subject: string | null;
+  body_html: string | null;
+  body_text: string | null;
+  updated_at: string | null;
+};
+
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
@@ -44,8 +54,37 @@ async function loadSettings(): Promise<SettingsRow> {
   };
 }
 
+async function loadEmailTemplates(): Promise<TemplateRow[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_email_templates")
+      .select("id, type, language, subject, body_html, body_text, updated_at")
+      .order("type", { ascending: true })
+      .order("language", { ascending: true });
+
+    if (error) {
+      console.warn("[SETTINGS][email-templates] load error:", error);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      type: row.type,
+      language: row.language ?? "nl",
+      subject: row.subject ?? "",
+      body_html: row.body_html ?? "",
+      body_text: row.body_text ?? "",
+      updated_at: row.updated_at ?? null,
+    }));
+  } catch (e) {
+    console.warn("[SETTINGS][email-templates] exception:", e);
+    return [];
+  }
+}
+
 export default async function SettingsPage() {
   const row = await loadSettings();
+  const templates = await loadEmailTemplates();
 
   // ---- Server Action (inline, geen extra export!) ----
   async function actionSaveBranding(formData: FormData) {
@@ -83,6 +122,59 @@ export default async function SettingsPage() {
     return { ok: true as const, message: "Instellingen bewaard." };
   }
 
+  async function actionSaveTemplate(formData: FormData) {
+    "use server";
+
+    const idRaw = (formData.get("template_id") as string | null) ?? "";
+    const id = idRaw ? Number(idRaw) : undefined;
+
+    const type = ((formData.get("template_type") as string | null) ?? "").trim();
+    const language =
+      ((formData.get("template_language") as string | null) ?? "nl").trim() || "nl";
+    const subject = (formData.get("subject") as string | null) ?? "";
+    const body_html = (formData.get("body_html") as string | null) ?? "";
+    const body_text = (formData.get("body_text") as string | null) ?? "";
+
+    if (!type) {
+      return { ok: false as const, message: "Template type ontbreekt." };
+    }
+
+    const payload: any = {
+      type,
+      language,
+      subject,
+      body_html,
+      body_text,
+      updated_at: new Date().toISOString(),
+    };
+    if (id) payload.id = id;
+
+    const { error } = await supabaseAdmin
+      .from("buyback_email_templates")
+      .upsert(payload, {
+        onConflict: "type,language",
+        ignoreDuplicates: false,
+      });
+
+    if (error) {
+      console.error("[SETTINGS][email-templates] upsert error:", error);
+      return { ok: false as const, message: error.message };
+    }
+
+    revalidatePath("/admin/settings");
+    return { ok: true as const, message: "Template bewaard." };
+  }
+
+  // Groepeer templates per type voor overzicht
+  const templatesByType = templates.reduce<Record<string, TemplateRow[]>>(
+    (acc, t) => {
+      if (!acc[t.type]) acc[t.type] = [];
+      acc[t.type].push(t);
+      return acc;
+    },
+    {}
+  );
+
   return (
     <div className="w-full p-4 space-y-6">
       <div className="flex items-center justify-between">
@@ -92,12 +184,13 @@ export default async function SettingsPage() {
         </Link>
       </div>
 
+      {/* BRANDING */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium">Branding</h2>
             <p className="text-sm text-gray-500">
-              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails & UI.
+              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails &amp; UI.
             </p>
           </div>
           <Link href="/admin/uploads" className="text-sm underline">
@@ -146,7 +239,11 @@ export default async function SettingsPage() {
                 className="bb-input h-9 text-sm px-2"
               />
               <span className="text-xs text-gray-500">
-                Kies een bestand via <Link href="/admin/uploads" className="underline">Uploads</Link> en plak hier de URL.
+                Kies een bestand via{" "}
+                <Link href="/admin/uploads" className="underline">
+                  Uploads
+                </Link>{" "}
+                en plak hier de URL.
               </span>
             </label>
 
@@ -186,16 +283,151 @@ export default async function SettingsPage() {
 
         <footer className="pt-2">
           <p className="text-xs text-gray-400">
-            Laatst bijgewerkt: {row.updated_at ? new Date(row.updated_at).toLocaleString("nl-BE") : "—"}
+            Laatst bijgewerkt:{" "}
+            {row.updated_at
+              ? new Date(row.updated_at).toLocaleString("nl-BE")
+              : "—"}
           </p>
         </footer>
+      </section>
+
+      {/* E-MAIL TEMPLATES */}
+      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <header>
+          <h2 className="text-lg font-medium">E-mailtemplates</h2>
+          <p className="text-sm text-gray-500">
+            Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt dynamisch
+            uit deze templates gehaald, per type en taal.
+            <br />
+            <span className="text-xs text-gray-400">
+              Voorbeeld types: <code>status_initial</code> (eerste bevestiging) en{" "}
+              <code>status_update</code> (statuswijzigingen).
+            </span>
+          </p>
+        </header>
+
+        {templates.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            Er zijn nog geen e-mailtemplates gevonden in{" "}
+            <code>buyback_email_templates</code>. Voeg daar records toe om ze hier te
+            kunnen bewerken.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {Object.entries(templatesByType).map(([type, list]) => (
+              <div key={type} className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-md font-semibold">
+                    Template type: <code>{type}</code>
+                  </h3>
+                  <span className="text-xs text-gray-400">
+                    {list.length} taal/varianten
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {list.map((tpl) => (
+                    <form
+                      key={tpl.id}
+                      action={actionSaveTemplate}
+                      className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
+                    >
+                      <input type="hidden" name="template_id" value={tpl.id} />
+                      <input type="hidden" name="template_type" value={tpl.type} />
+                      <input
+                        type="hidden"
+                        name="template_language"
+                        value={tpl.language}
+                      />
+
+                      <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                        <span>
+                          Type: <code>{tpl.type}</code> • Taal:{" "}
+                          <code>{tpl.language}</code>
+                        </span>
+                        <span>
+                          Laatst bijgewerkt:{" "}
+                          {tpl.updated_at
+                            ? new Date(tpl.updated_at).toLocaleString("nl-BE")
+                            : "—"}
+                        </span>
+                      </div>
+
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="font-medium">Onderwerp</span>
+                        <input
+                          name="subject"
+                          defaultValue={tpl.subject ?? ""}
+                          className="bb-input h-9 text-sm px-2"
+                          placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                        />
+                        <span className="text-xs text-gray-500">
+                          Je kan placeholders gebruiken zoals{" "}
+                          <code>{`{{first_name}}`}</code>,{" "}
+                          <code>{`{{order_code}}`}</code>,{" "}
+                          <code>{`{{brand_name}}`}</code>…
+                        </span>
+                      </label>
+
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="font-medium">HTML body</span>
+                        <textarea
+                          name="body_html"
+                          defaultValue={tpl.body_html ?? ""}
+                          rows={8}
+                          className="bb-input text-xs px-2 py-2 font-mono"
+                          placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                        />
+                        <span className="text-xs text-gray-500">
+                          Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
+                          <code>{`{{full_name}}`}</code>,{" "}
+                          <code>{`{{order_code}}`}</code>,{" "}
+                          <code>{`{{details_table}}`}</code>,{" "}
+                          <code>{`{{delivery_block}}`}</code>,{" "}
+                          <code>{`{{payout_block}}`}</code>,{" "}
+                          <code>{`{{next_steps}}`}</code>,{" "}
+                          <code>{`{{disclaimer_html}}`}</code>.
+                        </span>
+                      </label>
+
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="font-medium">Tekstversie (optional)</span>
+                        <textarea
+                          name="body_text"
+                          defaultValue={tpl.body_text ?? ""}
+                          rows={5}
+                          className="bb-input text-xs px-2 py-2 font-mono"
+                          placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
+                        />
+                        <span className="text-xs text-gray-500">
+                          Wordt gebruikt als tekst-only fallback. Laat leeg om de
+                          standaard gegenereerde tekst te gebruiken.
+                        </span>
+                      </label>
+
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          type="submit"
+                          className="bb-btn primary h-8 text-xs px-3"
+                        >
+                          Template bewaren
+                        </button>
+                      </div>
+                    </form>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
         <h3 className="text-sm font-medium">Tip</h3>
         <p className="text-sm text-gray-600">
-          Deze instellingen worden gebruikt in je bevestigingsmails (via Resend) en kunnen later
-          eenvoudig uitgebreid worden (bijv. extra huisstijl-varianten per shop).
+          Deze instellingen worden gebruikt in je bevestigingsmails (via Resend) en
+          kunnen later eenvoudig uitgebreid worden (bijv. extra huisstijl-varianten per
+          shop of extra e-mailtypes).
         </p>
       </section>
     </div>
