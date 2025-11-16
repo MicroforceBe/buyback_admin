@@ -39,6 +39,14 @@ const BRAND_BY_CATEGORY: Record<string, string> = {
   Samsung: 'Samsung',
 };
 
+/* Kleine helper om categorie naar een veilige slug te krijgen voor bestandsnamen */
+function slugifyCategory(category: string): string {
+  return category
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'category';
+}
+
 /* =========================================================
  *  CATEGORIES + ROWS
  * =======================================================*/
@@ -241,7 +249,7 @@ export async function deleteCatalogRow(id: number) {
 }
 
 /* =========================================================
- *  IMAGE UPLOAD (Supabase Storage)
+ *  IMAGE UPLOAD (Supabase Storage) – MODEL
  * =======================================================*/
 
 export async function uploadCatalogRowImage(form: FormData) {
@@ -288,6 +296,66 @@ export async function uploadCatalogRowImage(form: FormData) {
 
   if (updErr) {
     throw new Error(`Upload OK, maar DB-update faalde: ${updErr.message}`);
+  }
+
+  revalidatePath('/admin/catalog');
+  return { ok: true, url: publicUrl, path };
+}
+
+/* =========================================================
+ *  IMAGE UPLOAD – CATEGORIE
+ * =======================================================*/
+
+export async function uploadCategoryImage(form: FormData) {
+  'use server';
+
+  const file = form.get('file') as File | null;
+  const categoryRaw = form.get('category');
+
+  if (!file) throw new Error('Geen bestand ontvangen.');
+  if (!categoryRaw) throw new Error('category ontbreekt.');
+
+  const category = String(categoryRaw).trim();
+  if (!category) throw new Error('Ongeldige category.');
+
+  const bucket =
+    process.env.NEXT_PUBLIC_SUPABASE_CATALOG_BUCKET || 'buyback-catalog';
+  const sb = sbClient();
+
+  const mime = file.type || 'application/octet-stream';
+  const ext = (mime.split('/')[1] || 'bin').toLowerCase();
+  const slug = slugifyCategory(category);
+  const path = `categories/${slug}/main.${ext}`;
+
+  const { error: upErr } = await sb.storage.from(bucket).upload(path, file, {
+    contentType: mime,
+    upsert: true,
+  });
+
+  if (upErr) {
+    const anyErr = upErr as any;
+    throw new Error(
+      `Upload mislukt: ${
+        anyErr?.message || 'unknown'
+      } (bucket=${bucket}, path=${path})`,
+    );
+  }
+
+  const { data: pub } = sb.storage.from(bucket).getPublicUrl(path);
+  const publicUrl = pub?.publicUrl || null;
+
+  // Upsert in buyback_category_meta: per category één record
+  const { error: upsertErr } = await sb
+    .from('buyback_category_meta')
+    .upsert(
+      { category, image_url: publicUrl },
+      { onConflict: 'category' },
+    );
+
+  if (upsertErr) {
+    throw new Error(
+      `Upload OK, maar wegschrijven van categorie-afbeelding faalde: ${upsertErr.message}`,
+    );
   }
 
   revalidatePath('/admin/catalog');
