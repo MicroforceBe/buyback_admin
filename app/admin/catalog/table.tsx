@@ -1,7 +1,7 @@
 //app/admin/catalog/table.tsx
 'use client';
 
-import { useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import type { CatalogRow } from './actions';
 import {
   saveCatalogRowField,
@@ -9,7 +9,7 @@ import {
   deleteCatalogRow,
   createCatalogRow,
   saveSearchTermsForModel,
-  uploadCategoryImage, // 👈 NIEUW: categorie-afbeelding uploaden
+  uploadCategoryImage, // 👈 categorie-image upload
 } from './actions';
 
 /* Zelfde mapping als in actions.ts */
@@ -23,6 +23,7 @@ type Props = {
   category: string | null;
   rows: CatalogRow[];
   allCategories: string[];
+  categoryImageUrl?: string | null; // 👈 nieuwe prop
 };
 
 type Draft = {
@@ -44,7 +45,12 @@ function inferBrand(category: string | null, currentBrand: string): string {
   return 'Apple'; // veilige default
 }
 
-export default function Table({ category, rows }: Props) {
+export default function Table({
+  category,
+  rows,
+  allCategories,
+  categoryImageUrl: initialCategoryImageUrl,
+}: Props) {
   const [localRows, setLocalRows] = useState<CatalogRow[]>(rows);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -59,7 +65,9 @@ export default function Table({ category, rows }: Props) {
   const [searchBlockOpen, setSearchBlockOpen] = useState(false);
 
   // 🔹 categorie-afbeelding (voor widget categorie-tegel)
-  const [categoryImageUrl, setCategoryImageUrl] = useState<string | null>(null);
+  const [categoryImageUrl, setCategoryImageUrl] = useState<string | null>(
+    initialCategoryImageUrl ?? null,
+  );
   const [categoryImagePending, setCategoryImagePending] = useState(false);
   const categoryFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -91,6 +99,11 @@ export default function Table({ category, rows }: Props) {
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
+
+  // categorie-image syncen met serverprop (bij refresh of cat-wissel)
+  useEffect(() => {
+    setCategoryImageUrl(initialCategoryImageUrl ?? null);
+  }, [initialCategoryImageUrl]);
 
   // File inputs per rij (voor image upload)
   const fileInputs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -436,7 +449,7 @@ export default function Table({ category, rows }: Props) {
         </div>
       </div>
 
-      {/* 🔹 NIEUW: categorie-afbeelding blok (alleen binnen specifieke categorie) */}
+      {/* 🔹 categorie-afbeelding blok (alleen binnen specifieke categorie) */}
       {category && (
         <div className="border-t border-gray-100 bg-gray-50/70 px-3 py-3">
           <div className="flex items-start gap-3">
