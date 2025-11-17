@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
 import { sendStatusMail } from "@/lib/email/sendStatusMail";
+import { sendStatusUpdateMail } from "@/lib/email/sendStatusUpdateMail";
 import type { BuybackStatus } from "@/lib/email/templates";
 
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
