@@ -1,198 +1,520 @@
 // lib/email/templates.ts
+"use server";
+
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-/**
- * Alle statussen die je in admin/leads gebruikt.
- * Deze union is gedeeld tussen templates & mails.
- */
-export const BUYBACK_STATUSES = [
-  "new",
-  "received_store",
-  "label_created",
-  "shipment_received",
-  "check_passed",
-  "check_failed",
-  "done",
-] as const;
+export type BuybackStatus =
+  | "new"
+  | "received_store"
+  | "label_created"
+  | "shipment_received"
+  | "check_passed"
+  | "check_failed"
+  | "done";
 
-export type BuybackStatus = (typeof BUYBACK_STATUSES)[number];
+export type TemplateContext = {
+  // basis
+  first_name?: string | null;
+  last_name?: string | null;
+  order_code?: string | null;
+  email?: string | null;
 
-type SettingsRow = {
-  brand_name: string | null;
-  brand_color: string | null;
+  // toestel
+  model?: string | null;
+  capacity_gb?: number | null;
+
+  // prijs / uitbetaling
+  final_price_cents?: number | null;
+  wants_voucher?: boolean | null;
+  iban?: string | null;
+
+  // levering / shop
+  delivery_method?: string | null;
+  shop_location?: string | null;
+  shop_address1?: string | null;
+  shop_zip?: string | null;
+  shop_city?: string | null;
+  opening_hours?: Record<string, string> | null;
+
+  // tracking / label
+  tracking_code?: string | null;
+  tracking_url?: string | null;
+  label_pdf_url?: string | null;
+};
+
+type BrandSettings = {
+  brand_name: string;
+  brand_color: string;
   logo_url: string | null;
   email_disclaimer: string | null;
 };
 
 type EmailTemplateRow = {
+  id: number;
   key: string;
   language: string;
   subject: string | null;
   body_html: string | null;
-  body_text: string | null;
 };
 
-export type TemplateContext = {
+export type RenderStatusEmailOptions = {
   status: BuybackStatus;
-  language: string;
-
-  // klant / order
-  first_name?: string | null;
-  last_name?: string | null;
-  email?: string | null;
-  order_code?: string | null;
-  order_date?: string | null; // geformatteerde string
-
-  // HTML blocks
-  details_table_html?: string;
-  delivery_block_html?: string;
-  payout_block_html?: string;
-  next_steps_html?: string;
+  language?: string;
+  context: TemplateContext;
 };
 
-type RenderedEmail = {
-  subject: string;
-  html: string;
-  text?: string;
-};
+/* ========== Helpers ========== */
 
-/**
- * Helper om settings (brand + disclaimer) op te halen
- */
-async function loadSettings(): Promise<SettingsRow> {
-  const { data } = await supabaseAdmin
+async function getBrandSettings(): Promise<BrandSettings> {
+  const { data, error } = await supabaseAdmin
     .from("buyback_settings")
     .select("brand_name, brand_color, logo_url, email_disclaimer")
     .eq("id", 1)
-    .single();
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[EMAIL][settings] load error:", error.message);
+  }
 
   return {
-    brand_name: data?.brand_name ?? "",
-    brand_color: data?.brand_color ?? "",
-    logo_url: data?.logo_url ?? "",
-    email_disclaimer: data?.email_disclaimer ?? "",
+    brand_name: (data?.brand_name as string | null) || "Microforce Buyback",
+    brand_color: (data?.brand_color as string | null) || "#0EA5E9",
+    logo_url: (data?.logo_url as string | null) || null,
+    email_disclaimer: (data?.email_disclaimer as string | null) || null,
   };
 }
 
-/**
- * Haalt template voor een bepaalde key + language op,
- * met eenvoudige fallback naar 'nl' en/of eerste gevonden rij.
- */
-async function loadTemplate(
-  key: string,
+async function getStatusTemplate(
+  status: BuybackStatus,
   language: string
 ): Promise<EmailTemplateRow | null> {
-  // 1. exacte match key + language
   const { data, error } = await supabaseAdmin
     .from("buyback_email_templates")
-    .select("key, language, subject, body_html, body_text")
-    .eq("key", key)
+    .select("id, key, language, subject, body_html")
+    .eq("key", status)
     .eq("language", language)
     .maybeSingle();
 
-  if (data && !error) return data as EmailTemplateRow;
-
-  // 2. fallback: zelfde key, 'nl'
-  if (language !== "nl") {
-    const { data: dataNl } = await supabaseAdmin
-      .from("buyback_email_templates")
-      .select("key, language, subject, body_html, body_text")
-      .eq("key", key)
-      .eq("language", "nl")
-      .maybeSingle();
-
-    if (dataNl) return dataNl as EmailTemplateRow;
+  if (error) {
+    console.error(
+      "[EMAIL][templates] load error:",
+      status,
+      language,
+      error.message
+    );
+    return null;
   }
 
-  // 3. fallback: eerste rij met deze key
-  const { data: anyLang } = await supabaseAdmin
-    .from("buyback_email_templates")
-    .select("key, language, subject, body_html, body_text")
-    .eq("key", key)
-    .limit(1)
-    .maybeSingle();
+  if (!data) {
+    // poging: fallback naar NL
+    if (language !== "nl") {
+      const { data: fallback, error: fbErr } = await supabaseAdmin
+        .from("buyback_email_templates")
+        .select("id, key, language, subject, body_html")
+        .eq("key", status)
+        .eq("language", "nl")
+        .maybeSingle();
 
-  if (anyLang) return anyLang as EmailTemplateRow;
+      if (fbErr) {
+        console.error(
+          "[EMAIL][templates] fallback load error:",
+          status,
+          fbErr.message
+        );
+        return null;
+      }
+      return (fallback as EmailTemplateRow | null) || null;
+    }
+    return null;
+  }
 
-  return null;
+  return data as EmailTemplateRow;
 }
 
-/**
- * Vervangt {{placeholders}} in subject/body
- */
-function replacePlaceholders(
-  template: string,
-  vars: Record<string, string | undefined>
+function nl2br(text: string | null | undefined): string {
+  if (!text) return "";
+  return text.replace(/\r\n|\r|\n/g, "<br/>");
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatCurrency(
+  cents?: number | null,
+  locale: string = "nl-BE",
+  currency: string = "EUR"
 ): string {
-  return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, name) => {
-    const v = vars[name];
-    return v == null ? "" : v;
-  });
+  if (cents == null) return "";
+  const eur = cents / 100;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(eur);
+  } catch {
+    return `${eur.toFixed(2)} €`;
+  }
 }
 
 /**
- * Bouwt de variabelen voor de placeholders ({{first_name}}, {{order_code}}, ...)
+ * Bouwt reusable HTML-snippers (header, details_table, delivery_block, payout_block, next_steps, disclaimer_html)
  */
-function buildVariables(ctx: TemplateContext, settings: SettingsRow) {
-  const full_name =
-    (ctx.first_name ?? "") || (ctx.last_name ?? "")
-      ? [ctx.first_name, ctx.last_name].filter(Boolean).join(" ")
-      : "";
+function buildBlocks(
+  status: BuybackStatus,
+  ctx: TemplateContext,
+  brand: BrandSettings
+) {
+  const full_name = `${ctx.first_name || ""} ${ctx.last_name || ""}`.trim();
+
+  const header = `
+    <div style="margin-bottom:16px;">
+      ${
+        brand.logo_url
+          ? `<img src="${brand.logo_url}" alt="${escapeHtml(
+              brand.brand_name
+            )}" style="max-height:40px;margin-bottom:12px;"/>`
+          : `<h1 style="margin:0;font-size:20px;color:#0f172a;">${escapeHtml(
+              brand.brand_name
+            )}</h1>`
+      }
+    </div>
+  `;
+
+  const priceStr = formatCurrency(ctx.final_price_cents ?? null);
+  const details_table = `
+    <table style="border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;">
+      <tbody>
+        ${
+          ctx.model
+            ? `<tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;width:30%;color:#6b7280;">Toestel</td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;">${escapeHtml(
+                  ctx.model
+                )}${
+                ctx.capacity_gb
+                  ? ` (${ctx.capacity_gb} GB)`
+                  : ""
+              }</td>
+              </tr>`
+            : ""
+        }
+        ${
+          priceStr
+            ? `<tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;width:30%;color:#6b7280;">Indicatieve prijs</td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;">${escapeHtml(
+                  priceStr
+                )}</td>
+              </tr>`
+            : ""
+        }
+        ${
+          ctx.order_code
+            ? `<tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;width:30%;color:#6b7280;">Ordercode</td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;">${escapeHtml(
+                  ctx.order_code
+                )}</td>
+              </tr>`
+            : ""
+        }
+      </tbody>
+    </table>
+  `;
+
+  let delivery_block = "";
+  if (ctx.delivery_method === "store") {
+    const addr = [ctx.shop_address1, ctx.shop_zip, ctx.shop_city]
+      .filter(Boolean)
+      .join(" ");
+    delivery_block = `
+      <h3 style="margin:18px 0 6px;font-size:14px;">Inleveren in de winkel</h3>
+      <p style="margin:0 0 10px;">
+        Breng je toestel naar ${
+          ctx.shop_location
+            ? escapeHtml(ctx.shop_location)
+            : "de geselecteerde winkel"
+        }.
+      </p>
+      ${
+        addr
+          ? `<p style="margin:0 0 10px;color:#475569;">Adres: ${escapeHtml(
+              addr
+            )}</p>`
+          : ""
+      }
+    `;
+  } else if (ctx.delivery_method === "ship") {
+    delivery_block = `
+      <h3 style="margin:18px 0 6px;font-size:14px;">Verzending</h3>
+      <p style="margin:0 0 10px;">
+        Je ontvangt (of ontving) een verzendlabel waarmee je je toestel gratis kan opsturen.
+      </p>
+    `;
+    if (ctx.tracking_url || ctx.tracking_code || ctx.label_pdf_url) {
+      delivery_block += `<p style="margin:0 0 10px;">`;
+      if (ctx.tracking_url) {
+        delivery_block += `Track &amp; trace: <a href="${ctx.tracking_url}" style="color:#0ea5e9;">${ctx.tracking_url}</a><br/>`;
+      }
+      if (ctx.tracking_code) {
+        delivery_block += `Tracking code: ${escapeHtml(ctx.tracking_code)}<br/>`;
+      }
+      if (ctx.label_pdf_url) {
+        delivery_block += `Label PDF: <a href="${ctx.label_pdf_url}" style="color:#0ea5e9;">download label</a>`;
+      }
+      delivery_block += `</p>`;
+    }
+  }
+
+  let payout_block = "";
+  if (ctx.wants_voucher) {
+    payout_block = `
+      <p style="margin:0 0 10px;">
+        Je hebt gekozen voor uitbetaling via <strong>voucher</strong>. Na een succesvolle controle ontvang je een voucher ter waarde van ${escapeHtml(
+          priceStr || ""
+        )}.
+      </p>
+    `;
+  } else {
+    payout_block = `
+      <p style="margin:0 0 10px;">
+        Je hebt gekozen voor uitbetaling via <strong>bankoverschrijving</strong>.
+      </p>
+      ${
+        ctx.iban
+          ? `<p style="margin:0 0 10px;color:#475569;">Rekeningnummer (IBAN): ${escapeHtml(
+              ctx.iban
+            )}</p>`
+          : ""
+      }
+    `;
+  }
+
+  let next_steps = "";
+  switch (status) {
+    case "new":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Volg de instructies in deze e-mail om je toestel af te geven of op te sturen.
+          Na ontvangst en controle brengen we je op de hoogte.
+        </p>
+      `;
+      break;
+    case "label_created":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Print het verzendlabel, verpak je toestel veilig en geef het pakket af bij het aangegeven verzendpunt.
+        </p>
+      `;
+      break;
+    case "shipment_received":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Je toestel is aangekomen. Onze techniekers voeren binnenkort de controle uit.
+        </p>
+      `;
+      break;
+    case "check_passed":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          De controle is geslaagd. We verwerken je uitbetaling zo snel mogelijk.
+        </p>
+      `;
+      break;
+    case "check_failed":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          De controle is niet volledig geslaagd. Je wordt apart gecontacteerd over het vervolg.
+        </p>
+      `;
+      break;
+    case "done":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Je buyback-aanvraag werd volledig afgehandeld. Bedankt!
+        </p>
+      `;
+      break;
+  }
+
+  const disclaimer_html = brand.email_disclaimer
+    ? nl2br(brand.email_disclaimer)
+    : "";
 
   return {
-    // contact
-    first_name: ctx.first_name ?? "",
-    last_name: ctx.last_name ?? "",
     full_name,
-    email: ctx.email ?? "",
-
-    // order
-    order_code: ctx.order_code ?? "",
-    order_date: ctx.order_date ?? "",
-    status: ctx.status ?? "",
-
-    // branding
-    brand_name: settings.brand_name ?? "",
-    logo_url: settings.logo_url ?? "",
-
-    // blocks (HTML)
-    details_table: ctx.details_table_html ?? "",
-    delivery_block: ctx.delivery_block_html ?? "",
-    payout_block: ctx.payout_block_html ?? "",
-    next_steps: ctx.next_steps_html ?? "",
-
-    // disclaimer
-    disclaimer_html: settings.email_disclaimer ?? "",
+    header,
+    details_table,
+    delivery_block,
+    payout_block,
+    next_steps,
+    disclaimer_html,
+    brand_name: brand.brand_name,
   };
 }
 
 /**
- * Publieke helper: haal template op voor een status-key
- * (bv. 'check_passed') en render subject + html + text.
+ * Eenvoudige {{placeholder}} vervanger.
  */
+function renderWithPlaceholders(
+  text: string,
+  replacements: Record<string, string>
+): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    const k = key as keyof typeof replacements;
+    const v = replacements[k];
+    return v != null ? v : "";
+  });
+}
+
+/* ========== Publieke functie ========== */
+
 export async function renderStatusEmail(
-  statusKey: BuybackStatus,
-  ctx: TemplateContext
-): Promise<RenderedEmail | null> {
-  const [settings, template] = await Promise.all([
-    loadSettings(),
-    loadTemplate(statusKey, ctx.language || "nl"),
+  options: RenderStatusEmailOptions
+): Promise<{ subject: string; html: string }> {
+  const language = options.language || "nl";
+  const status = options.status;
+  const ctx = options.context;
+
+  const [brand, template] = await Promise.all([
+    getBrandSettings(),
+    getStatusTemplate(status, language),
   ]);
 
   if (!template) {
-    // geen rij in DB -> hier kan optioneel een hardcoded fallback komen
-    return null;
+    // fallback: heel eenvoudige mail als er geen template is
+    const fallbackSubject = `[${brand.brand_name}] Update buyback-order ${
+      ctx.order_code || ""
+    }`;
+    const fallbackHtml = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
+        <p>Beste ${escapeHtml(
+          `${ctx.first_name || ""} ${ctx.last_name || ""}`.trim() || "klant"
+        )},</p>
+        <p>De status van je buyback-aanvraag is gewijzigd naar: <strong>${escapeHtml(
+          status
+        )}</strong>.</p>
+      </div>
+    `;
+    return { subject: fallbackSubject, html: fallbackHtml };
   }
 
-  const vars = buildVariables(ctx, settings);
+  const blocks = buildBlocks(status, ctx, brand);
 
-  const subjectRaw = template.subject || "";
-  const htmlRaw = template.body_html || "";
-  const textRaw = template.body_text || "";
+  const subjectTemplate = template.subject || "";
+  const bodyTemplate = template.body_html || "";
 
-  const subject = replacePlaceholders(subjectRaw, vars);
-  const html = replacePlaceholders(htmlRaw, vars);
-  const text = textRaw ? replacePlaceholders(textRaw, vars) : undefined;
+  const replacements: Record<string, string> = {
+    // basis
+    first_name: ctx.first_name || "",
+    last_name: ctx.last_name || "",
+    full_name: blocks.full_name || "",
+    order_code: ctx.order_code || "",
+    email: ctx.email || "",
+    // toestel
+    model: ctx.model || "",
+    capacity_gb: ctx.capacity_gb != null ? String(ctx.capacity_gb) : "",
+    // prijs
+    final_price: formatCurrency(ctx.final_price_cents ?? null),
+    // brand
+    brand_name: brand.brand_name,
+    brand_color: brand.brand_color,
+    logo_url: brand.logo_url || "",
+    // blocks
+    header: blocks.header,
+    details_table: blocks.details_table,
+    delivery_block: blocks.delivery_block,
+    payout_block: blocks.payout_block,
+    next_steps: blocks.next_steps,
+    disclaimer_html: blocks.disclaimer_html,
+    // tracking
+    tracking_code: ctx.tracking_code || "",
+    tracking_url: ctx.tracking_url || "",
+    label_pdf_url: ctx.label_pdf_url || "",
+    // iban
+    iban: ctx.iban || "",
+  };
 
-  return { subject, html, text };
+  const subject = renderWithPlaceholders(subjectTemplate, replacements);
+  const html = renderWithPlaceholders(bodyTemplate, replacements);
+
+  return { subject, html };
+}
+
+
+2.
+
+// lib/email/sendStatusUpdateMail.ts
+"use server";
+
+import { Resend } from "resend";
+import {
+  BuybackStatus,
+  TemplateContext,
+  renderStatusEmail,
+} from "./templates";
+
+const resendApiKey = process.env.RESEND_API_KEY || "";
+const resend = resendApiKey ? new Resend(resendApiKey) : null;
+
+export type StatusMailInput = TemplateContext & {
+  to: string;
+  status: BuybackStatus;
+  language?: string;
+};
+
+export async function sendStatusUpdateMail(input: StatusMailInput) {
+  const to = input.to;
+  if (!to) {
+    console.warn("[MAIL][status] missing 'to', skipping send");
+    return;
+  }
+
+  const fromAddress =
+    process.env.MAIL_FROM || "no-reply@microforce-buyback.local";
+  const language = input.language || "nl";
+
+  // Render subject + html o.b.v. Supabase template
+  const { subject, html } = await renderStatusEmail({
+    status: input.status,
+    language,
+    context: {
+      ...input,
+      email: input.email || input.to,
+    },
+  });
+
+  if (!resend) {
+    console.warn(
+      "[MAIL][status] RESEND_API_KEY missing – mail wordt niet echt verstuurd"
+    );
+    console.info("[MAIL][status] would send:", { from: fromAddress, to, subject });
+    return;
+  }
+
+  try {
+    await resend.emails.send({
+      from: fromAddress,
+      to,
+      subject,
+      html,
+    });
+    console.info("[MAIL][status] sent OK", { to, subject });
+  } catch (e: any) {
+    console.error(
+      "[MAIL][status] send failed:",
+      e?.message || e?.toString() || e
+    );
+  }
 }
