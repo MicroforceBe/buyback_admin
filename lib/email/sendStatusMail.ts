@@ -6,6 +6,10 @@ import {
   renderStatusEmail,
 } from "@/lib/email/templates";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  buildEmailBlocks,
+  type EmailBlocksInput,
+} from "@/lib/email/buildBlocks";
 
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 
@@ -18,10 +22,18 @@ export type LeadForEmail = {
   order_code?: string | null;
   created_at?: string | null;
 
-  details_table_html?: string;
-  delivery_block_html?: string;
-  payout_block_html?: string;
-  next_steps_html?: string;
+  model?: string | null;
+  capacity_gb?: number | null;
+  final_price_cents?: number | null;
+
+  delivery_method?: string | null;
+  shop_location?: string | null;
+
+  wants_voucher?: boolean | null;
+  iban?: string | null;
+
+  tracking_url?: string | null;
+  label_pdf_url?: string | null;
 };
 
 // Haal brand_name op voor weergavenaam in de from-header
@@ -67,6 +79,23 @@ export async function sendStatusMail(lead: LeadForEmail) {
   const brand = await loadBrandSettings();
   const from = buildFromHeader(brand.brand_name);
 
+  // 1) Blocks opbouwen (details, levering, uitbetaling, next steps)
+  const blocksInput: EmailBlocksInput = {
+    status: lead.status,
+    model: lead.model,
+    capacity_gb: lead.capacity_gb,
+    final_price_cents: lead.final_price_cents,
+    delivery_method: lead.delivery_method,
+    shop_location: lead.shop_location,
+    wants_voucher: lead.wants_voucher,
+    iban: lead.iban,
+    tracking_url: lead.tracking_url,
+    label_pdf_url: lead.label_pdf_url,
+  };
+
+  const blocks = buildEmailBlocks(blocksInput);
+
+  // 2) Context voor template rendering
   const ctx: TemplateContext = {
     status: lead.status,
     language,
@@ -77,10 +106,10 @@ export async function sendStatusMail(lead: LeadForEmail) {
     order_date: lead.created_at
       ? new Date(lead.created_at).toLocaleDateString("nl-BE")
       : "",
-    details_table_html: lead.details_table_html,
-    delivery_block_html: lead.delivery_block_html,
-    payout_block_html: lead.payout_block_html,
-    next_steps_html: lead.next_steps_html,
+    details_table_html: blocks.details_table_html,
+    delivery_block_html: blocks.delivery_block_html,
+    payout_block_html: blocks.payout_block_html,
+    next_steps_html: blocks.next_steps_html,
   };
 
   const rendered = await renderStatusEmail(lead.status, ctx);
