@@ -16,6 +16,65 @@ function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
+/**
+ * Eenvoudige helper om van de ruwe `answers` JSON een HTML-tabel te maken.
+ * Voor nu gebruiken we gewoon de keys en values; later kan dit uitgebreid
+ * worden met labels uit buyback_multipliers_per_category_json.
+ */
+function buildQuestionsAnswersHtml(rawAnswers: any): string {
+  if (!rawAnswers || typeof rawAnswers !== 'object') return '';
+
+  const entries = Array.isArray(rawAnswers)
+    ? rawAnswers.map((v, i) => [String(i), v] as [string, any])
+    : Object.entries(rawAnswers as Record<string, any>);
+
+  if (entries.length === 0) return '';
+
+  const escapeHtml = (str: string) =>
+    str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  const rows: string[] = [];
+
+  for (const [key, value] of entries) {
+    let valueStr: string;
+    if (value === null || value === undefined) {
+      valueStr = '';
+    } else if (typeof value === 'object') {
+      // voorlopig gewoon JSON-string; kan later vervangen worden
+      try {
+        valueStr = JSON.stringify(value);
+      } catch {
+        valueStr = String(value);
+      }
+    } else {
+      valueStr = String(value);
+    }
+
+    rows.push(`
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;width:45%;color:#6b7280;">
+          ${escapeHtml(key)}
+        </td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">
+          ${escapeHtml(valueStr)}
+        </td>
+      </tr>
+    `);
+  }
+
+  return `
+    <h3 style="margin:18px 0 6px;font-size:14px;">Vragen en antwoorden</h3>
+    <table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;">
+      <tbody>
+        ${rows.join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 export async function GET() {
   return j({ ok: true, expects: 'POST', table: 'buyback_leads' }, 200);
 }
@@ -101,6 +160,9 @@ export async function POST(req: Request) {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
+  // Hier maken we een eerste leesbare HTML-versie van de vragenset
+  const questions_answers_html = buildQuestionsAnswersHtml(answers);
+
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
     const { data: existing } = await supabase
@@ -168,6 +230,7 @@ export async function POST(req: Request) {
       wants_voucher,
       order_code,
       idempotency_key,
+      questions_answers_html, // <== NIEUW veld
     }])
     .select('id, order_code, email')
     .single();
