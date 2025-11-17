@@ -38,41 +38,42 @@ type StatusMeta = {
 const ORDER_STATUS_KEYS: StatusMeta[] = [
   {
     key: "new",
-    label: "Nieuw (new)",
+    label: "Nieuw",
     description: "E-mail wanneer een nieuwe buyback-aanvraag wordt aangemaakt.",
   },
   {
     key: "received_store",
-    label: "Ontvangen in winkel (received_store)",
+    label: "Ontvangen in winkel",
     description: "E-mail wanneer het toestel in de winkel werd ontvangen.",
   },
   {
     key: "label_created",
-    label: "Label aangemaakt (label_created)",
+    label: "Label aangemaakt",
     description: "E-mail wanneer het verzendlabel is aangemaakt.",
   },
   {
     key: "shipment_received",
-    label: "Zending ontvangen (shipment_received)",
+    label: "Zending ontvangen",
     description:
       "E-mail wanneer de zending is ontvangen in het controlecentrum.",
   },
   {
     key: "check_passed",
-    label: "Controle OK (check_passed)",
+    label: "Controle OK",
     description: "E-mail wanneer de controle is goedgekeurd.",
   },
   {
     key: "check_failed",
-    label: "Controle NOK (check_failed)",
+    label: "Controle NOK",
     description: "E-mail wanneer de controle niet is goedgekeurd.",
   },
   {
     key: "done",
-    label: "Afgehandeld (done)",
+    label: "Afgewerkt",
     description: "Slotsituatie: buyback-order is volledig afgehandeld.",
   },
 ];
+
 
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
