@@ -2,6 +2,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import StatusTemplatesTabs from "./StatusTemplatesTabs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -410,7 +411,7 @@ export default async function SettingsPage() {
         </footer>
       </section>
 
-      {/* E-MAIL TEMPLATES (statussen) */}
+      {/* E-MAIL TEMPLATES (statussen met tabs + variabelen + preview) */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header>
           <h2 className="text-lg font-medium">E-mailtemplates</h2>
@@ -427,123 +428,11 @@ export default async function SettingsPage() {
           </p>
         </header>
 
-        {/* STATUS-UPDATE TEMPLATES */}
-        <div className="space-y-6">
-          {statusTemplates.map((status) => (
-            <div
-              key={status.key}
-              className="border border-gray-200 rounded-lg p-3 space-y-3"
-            >
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold">
-                    {status.label}{" "}
-                    <span className="text-xs text-gray-500">
-                      (<code>{status.key}</code>)
-                    </span>
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    {status.description}
-                  </p>
-                </div>
-                <div className="text-xs text-gray-500">
-                  Talen:{" "}
-                  {LANGUAGES.map((lang, idx) => (
-                    <span key={lang}>
-                      {idx > 0 ? ", " : ""}
-                      <code>{lang}</code>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {status.rows.map((tpl) => (
-                  <form
-                    key={`${tpl.key}-${tpl.language}`}
-                    action={actionSaveTemplate}
-                    className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
-                  >
-                    <input
-                      type="hidden"
-                      name="template_id"
-                      value={tpl.id ?? 0}
-                    />
-                    <input
-                      type="hidden"
-                      name="template_key"
-                      value={tpl.key}
-                    />
-                    <input
-                      type="hidden"
-                      name="template_language"
-                      value={tpl.language}
-                    />
-
-                    <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
-                      <span>
-                        Key: <code>{tpl.key}</code> • Taal:{" "}
-                        <code>{tpl.language}</code>
-                      </span>
-                      <span>
-                        Laatst bijgewerkt:{" "}
-                        {tpl.updated_at
-                          ? new Date(tpl.updated_at).toLocaleString("nl-BE")
-                          : "—"}
-                      </span>
-                    </div>
-
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium">Onderwerp</span>
-                      <input
-                        name="subject"
-                        defaultValue={tpl.subject ?? ""}
-                        className="bb-input h-9 text-sm px-2"
-                        placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
-                      />
-                      <span className="text-xs text-gray-500">
-                        Placeholders:{" "}
-                        <code>{`{{first_name}}`}</code>,{" "}
-                        <code>{`{{order_code}}`}</code>,{" "}
-                        <code>{`{{brand_name}}`}</code>…
-                      </span>
-                    </label>
-
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium">HTML body</span>
-                      <textarea
-                        name="body_html"
-                        defaultValue={tpl.body_html ?? ""}
-                        rows={8}
-                        className="bb-input text-xs px-2 py-2 font-mono"
-                        placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
-                      />
-                      <span className="text-xs text-gray-500">
-                        Beschikbare variabelen o.a.:{" "}
-                        <code>{`{{full_name}}`}</code>,{" "}
-                        <code>{`{{order_code}}`}</code>,{" "}
-                        <code>{`{{details_table}}`}</code>,{" "}
-                        <code>{`{{delivery_block}}`}</code>,{" "}
-                        <code>{`{{payout_block}}`}</code>,{" "}
-                        <code>{`{{next_steps}}`}</code>,{" "}
-                        <code>{`{{disclaimer_html}}`}</code>.
-                      </span>
-                    </label>
-
-                    <div className="pt-1 flex justify-end">
-                      <button
-                        type="submit"
-                        className="bb-btn primary h-8 text-xs px-3"
-                      >
-                        Template bewaren
-                      </button>
-                    </div>
-                  </form>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <StatusTemplatesTabs
+          statusTemplates={statusTemplates}
+          languages={LANGUAGES}
+          onSaveTemplate={actionSaveTemplate}
+        />
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
         <div className="pt-6 space-y-4">
