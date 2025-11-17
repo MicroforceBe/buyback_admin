@@ -21,7 +21,6 @@ type TemplateRow = {
   language: string;
   subject: string | null;
   body_html: string | null;
-  body_text: string | null;
   updated_at: string | null;
 };
 
@@ -143,7 +142,6 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
         language,
         subject: (row.subject as string | null) ?? "",
         body_html: (row.body_html as string | null) ?? "",
-        body_text: (row.body_text as string | null) ?? "",
         updated_at: (row.updated_at as string | null) ?? null,
       });
     }
@@ -206,7 +204,6 @@ export default async function SettingsPage() {
       "nl";
     const subject = (formData.get("subject") as string | null) ?? "";
     const body_html = (formData.get("body_html") as string | null) ?? "";
-    const body_text = (formData.get("body_text") as string | null) ?? "";
 
     if (!keyInput) {
       return { ok: false as const, message: "Template key ontbreekt." };
@@ -215,12 +212,13 @@ export default async function SettingsPage() {
     const key = keyInput;
     const language = languageInput;
 
+    // Alleen kolommen gebruiken die echt in de tabel staan:
+    // id, key, language, subject, body_html, updated_at
     const payload: any = {
       key,
       language,
       subject,
       body_html,
-      body_text,
       updated_at: new Date().toISOString(),
     };
     if (id && Number.isFinite(id)) {
@@ -275,7 +273,6 @@ export default async function SettingsPage() {
         language: lang,
         subject: "",
         body_html: "",
-        body_text: "",
         updated_at: null,
         _isNew: true,
       };
@@ -426,8 +423,7 @@ export default async function SettingsPage() {
             Verwachte tabel in Supabase:{" "}
             <code>buyback_email_templates</code> met minimaal <code>id</code>,{" "}
             <code>key</code>, <code>language</code>, <code>subject</code>,{" "}
-            <code>body_html</code>, <code>body_text</code>,{" "}
-            <code>updated_at</code>.
+            <code>body_html</code>, <code>updated_at</code>.
           </p>
         </header>
 
@@ -531,23 +527,6 @@ export default async function SettingsPage() {
                         <code>{`{{payout_block}}`}</code>,{" "}
                         <code>{`{{next_steps}}`}</code>,{" "}
                         <code>{`{{disclaimer_html}}`}</code>.
-                      </span>
-                    </label>
-
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium">
-                        Tekstversie (optional)
-                      </span>
-                      <textarea
-                        name="body_text"
-                        defaultValue={tpl.body_text ?? ""}
-                        rows={5}
-                        className="bb-input text-xs px-2 py-2 font-mono"
-                        placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
-                      />
-                      <span className="text-xs text-gray-500">
-                        Wordt gebruikt als tekst-only fallback. Laat leeg om de
-                        standaard gegenereerde tekst te gebruiken.
                       </span>
                     </label>
 
@@ -667,23 +646,6 @@ export default async function SettingsPage() {
                             <code>{`{{payout_block}}`}</code>,{" "}
                             <code>{`{{next_steps}}`}</code>,{" "}
                             <code>{`{{disclaimer_html}}`}</code>.
-                          </span>
-                        </label>
-
-                        <label className="flex flex-col gap-1 text-sm">
-                          <span className="font-medium">
-                            Tekstversie (optional)
-                          </span>
-                          <textarea
-                            name="body_text"
-                            defaultValue={tpl.body_text ?? ""}
-                            rows={5}
-                            className="bb-input text-xs px-2 py-2 font-mono"
-                            placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
-                          />
-                          <span className="text-xs text-gray-500">
-                            Wordt gebruikt als tekst-only fallback. Laat leeg om
-                            de standaard gegenereerde tekst te gebruiken.
                           </span>
                         </label>
 
