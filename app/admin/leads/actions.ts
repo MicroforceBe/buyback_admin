@@ -501,49 +501,70 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
 
-        // 6.c E-mail versturen via templated mails (met HTML-blocks)
-          await sendStatusMail({
-            // verplicht
-            to: (after as any).email,
-            status: newStatus!,
-          
-            // optioneel, maar toegestaan in StatusMailInput
-            language: (after as any).language || "nl",
-          
-            // basis
-            first_name: (after as any).first_name,
-            last_name: (after as any).last_name,
-            order_code: (after as any).order_code,
-            email: (after as any).email,
-          
-            // toestel
-            model: (after as any).model,
-            capacity_gb: (after as any).capacity_gb,
-          
-            // prijs / uitbetaling
-            final_price_cents: (after as any).final_price_cents,
-            wants_voucher: (after as any).wants_voucher ?? null,
-            iban: (after as any).iban ?? null,
-          
-            // levering / shop
-            delivery_method: (after as any).delivery_method,
-            shop_location: (after as any).shop_location,
-            shop_address1,
-            shop_zip,
-            shop_city,
-            opening_hours,
-          
-            // tracking/label
-            tracking_code: tracking_code ?? undefined,
-            tracking_url: tracking_url ?? undefined,
-            label_pdf_url: label_pdf_url ?? undefined,
-          });
+        // 6.b Shopdetails ophalen indien beschikbaar
+        let shop_address1: string | null = null;
+        let shop_zip: string | null = null;
+        let shop_city: string | null = null;
+        let opening_hours: Record<string, string> | null = null;
 
+        if ((after as any).shop_id) {
+          const { data: shop, error: shopErr } = await sb
+            .from("buyback_shops")
+            .select("name, address1, zip, city, opening_hours")
+            .eq("id", (after as any).shop_id)
+            .single();
+
+          if (!shopErr && shop) {
+            shop_address1 = shop.address1 ?? null;
+            shop_zip = shop.zip ?? null;
+            shop_city = shop.city ?? null;
+            opening_hours = (shop.opening_hours as any) ?? null;
+          }
+        }
+
+        // 6.c E-mail versturen met context (incl. tracking/label indien aanwezig)
+        await sendStatusMail({
+          // verplicht voor verzending
+          to: (after as any).email,
+
+          // template- & taalkeuze
+          status: newStatus!,                          // BuybackStatus
+          language: (after as any).language || "nl",
+
+          // basis
+          first_name: (after as any).first_name,
+          last_name: (after as any).last_name,
+          order_code: (after as any).order_code,
+          email: (after as any).email,
+
+          // toestel
+          model: (after as any).model,
+          capacity_gb: (after as any).capacity_gb,
+
+          // prijs / uitbetaling
+          final_price_cents: (after as any).final_price_cents,
+          wants_voucher: (after as any).wants_voucher ?? null,
+          iban: (after as any).iban ?? null,
+
+          // levering + shop
+          delivery_method: (after as any).delivery_method,
+          shop_location: (after as any).shop_location,
+          shop_address1,
+          shop_zip,
+          shop_city,
+          opening_hours,
+
+          // tracking/label
+          tracking_code: tracking_code ?? undefined,
+          tracking_url: tracking_url ?? undefined,
+          label_pdf_url: label_pdf_url ?? undefined,
+        });
       } catch (e: any) {
         console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
       }
     })();
   }
+
 
   // 7) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
   const setKeys = Object.keys(patch).sort();
