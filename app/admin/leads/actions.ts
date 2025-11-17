@@ -500,7 +500,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
 
-        // 6.c E-mail versturen via templated mails
+        // 6.c E-mail versturen via templated mails (met HTML-blocks)
         await sendStatusMail({
           status: newStatus!,
           language: (after as any).language,
@@ -509,8 +509,19 @@ export async function updateLeadInlineAction(formData: FormData) {
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
           created_at: (after as any).created_at,
-          // details_table_html / delivery_block_html / payout_block_html / next_steps_html
-          // kan je later nog opbouwen en hier meegeven
+
+          model: (after as any).model,
+          capacity_gb: (after as any).capacity_gb,
+          final_price_cents: (after as any).final_price_cents,
+
+          delivery_method: (after as any).delivery_method,
+          shop_location: (after as any).shop_location,
+
+          wants_voucher: (after as any).wants_voucher ?? null,
+          iban: (after as any).iban ?? null,
+
+          tracking_url: tracking_url ?? undefined,
+          label_pdf_url: label_pdf_url ?? undefined,
         });
       } catch (e: any) {
         console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
