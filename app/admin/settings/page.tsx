@@ -25,6 +25,53 @@ type TemplateRow = {
   updated_at: string | null;
 };
 
+type TemplateRowWithMeta = TemplateRow & { _isNew?: boolean };
+
+type StatusMeta = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+// Deze keys moeten overeenkomen met de order-statussen in je admin/leads
+const ORDER_STATUS_KEYS: StatusMeta[] = [
+  {
+    key: "new",
+    label: "Nieuw (new)",
+    description: "E-mail wanneer een nieuwe buyback-aanvraag wordt aangemaakt.",
+  },
+  {
+    key: "received_store",
+    label: "Ontvangen in winkel (received_store)",
+    description: "E-mail wanneer het toestel in de winkel werd ontvangen.",
+  },
+  {
+    key: "label_created",
+    label: "Label aangemaakt (label_created)",
+    description: "E-mail wanneer het verzendlabel is aangemaakt.",
+  },
+  {
+    key: "shipment_received",
+    label: "Zending ontvangen (shipment_received)",
+    description: "E-mail wanneer de zending is ontvangen in het controlecentrum.",
+  },
+  {
+    key: "check_passed",
+    label: "Controle OK (check_passed)",
+    description: "E-mail wanneer de controle is goedgekeurd.",
+  },
+  {
+    key: "check_failed",
+    label: "Controle NOK (check_failed)",
+    description: "E-mail wanneer de controle niet is goedgekeurd.",
+  },
+  {
+    key: "done",
+    label: "Afgehandeld (done)",
+    description: "Slotsituatie: buyback-order is volledig afgehandeld.",
+  },
+];
+
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
@@ -190,9 +237,45 @@ export default async function SettingsPage() {
     return { ok: true as const, message: "Template bewaard." };
   }
 
-  // Groepeer templates per key voor overzicht
+  // ====== AFLEIDINGEN VOOR STATUS + TALEN ======
+
+  // Alle talen die nu in de tabel voorkomen (bv. ["nl","fr"])
+  const languagesFromData = Array.from(
+    new Set(templates.map((t) => t.language))
+  ).sort();
+
+  const LANGUAGES =
+    languagesFromData.length > 0 ? languagesFromData : ["nl"];
+
+  const statusKeysSet = new Set(ORDER_STATUS_KEYS.map((s) => s.key));
+
+  // Matrix: per status per taal één rij (bestaand of nieuw)
+  const statusTemplates = ORDER_STATUS_KEYS.map((status) => {
+    const rows: TemplateRowWithMeta[] = LANGUAGES.map((lang) => {
+      const existing = templates.find(
+        (t) => t.key === status.key && t.language === lang
+      );
+      if (existing) {
+        return existing as TemplateRowWithMeta;
+      }
+      return {
+        id: 0,
+        key: status.key,
+        language: lang,
+        subject: "",
+        body_html: "",
+        body_text: "",
+        updated_at: null,
+        _isNew: true,
+      };
+    });
+    return { ...status, rows };
+  });
+
+  // Overige templates (alles wat geen orderstatus-key is)
   const templatesByKey = templates.reduce<Record<string, TemplateRow[]>>(
     (acc, t) => {
+      if (statusKeysSet.has(t.key)) return acc; // status-templates tonen we elders
       if (!acc[t.key]) acc[t.key] = [];
       acc[t.key].push(t);
       return acc;
@@ -215,8 +298,8 @@ export default async function SettingsPage() {
           <div>
             <h2 className="text-lg font-medium">Branding</h2>
             <p className="text-sm text-gray-500">
-              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails &amp;
-              UI.
+              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails
+              &amp; UI.
             </p>
           </div>
           <Link href="/admin/uploads" className="text-sm underline">
@@ -325,13 +408,14 @@ export default async function SettingsPage() {
         <header>
           <h2 className="text-lg font-medium">E-mailtemplates</h2>
           <p className="text-sm text-gray-500">
-            Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt
-            dynamisch uit deze templates gehaald, per <code>key</code> en taal.
+            Bevestigings- en statusupdate-mails voor buyback orders. Tekst
+            wordt dynamisch uit deze templates gehaald, per <code>key</code> en
+            taal.
             <br />
             <span className="text-xs text-gray-400">
               Verwachte tabel in Supabase:{" "}
-              <code>buyback_email_templates</code> met minimaal{" "}
-              <code>id</code>, <code>key</code> (of <code>type</code>),{" "}
+              <code>buyback_email_templates</code> met minimaal <code>id</code>
+              , <code>key</code> (of <code>type</code>),{" "}
               <code>language</code> (of <code>locale</code>),{" "}
               <code>subject</code>, <code>body_html</code>,{" "}
               <code>body_text</code>, <code>updated_at</code>.
@@ -339,123 +423,277 @@ export default async function SettingsPage() {
           </p>
         </header>
 
-        {templates.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            Er werden geen e-mailtemplates geladen. Controleer in Supabase of er
-            rijen bestaan in <code>buyback_email_templates</code> en of kolommen{" "}
-            <code>key</code> (of <code>type</code>) en{" "}
-            <code>language/locale</code> aanwezig zijn.
-          </p>
-        ) : (
-          <div className="space-y-5">
-            {Object.entries(templatesByKey).map(([key, list]) => (
-              <div key={key} className="space-y-3">
-                <div className="flex items-baseline justify-between">
-                  <h3 className="text-md font-semibold">
-                    Template key: <code>{key}</code>
-                  </h3>
-                  <span className="text-xs text-gray-400">
-                    {list.length} taal/varianten
-                  </span>
-                </div>
+        {/* STATUS-UPDATE TEMPLATES */}
+        <div className="space-y-5">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-md font-semibold">
+              Statusupdate e-mails per orderstatus
+            </h3>
+            <span className="text-xs text-gray-500">
+              1 template per status × taal. Talen:{" "}
+              {LANGUAGES.map((lang, idx) => (
+                <span key={lang}>
+                  {idx > 0 ? ", " : ""}
+                  <code>{lang}</code>
+                </span>
+              ))}
+            </span>
+          </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {list.map((tpl) => (
-                    <form
-                      key={tpl.id}
-                      action={actionSaveTemplate}
-                      className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
-                    >
-                      <input type="hidden" name="template_id" value={tpl.id} />
-                      <input type="hidden" name="template_key" value={tpl.key} />
-                      <input
-                        type="hidden"
-                        name="template_language"
-                        value={tpl.language}
-                      />
-
-                      <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
-                        <span>
-                          Key: <code>{tpl.key}</code> • Taal:{" "}
-                          <code>{tpl.language}</code>
-                        </span>
-                        <span>
-                          Laatst bijgewerkt:{" "}
-                          {tpl.updated_at
-                            ? new Date(tpl.updated_at).toLocaleString("nl-BE")
-                            : "—"}
-                        </span>
-                      </div>
-
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="font-medium">Onderwerp</span>
-                        <input
-                          name="subject"
-                          defaultValue={tpl.subject ?? ""}
-                          className="bb-input h-9 text-sm px-2"
-                          placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
-                        />
-                        <span className="text-xs text-gray-500">
-                          Je kan placeholders gebruiken zoals{" "}
-                          <code>{`{{first_name}}`}</code>,{" "}
-                          <code>{`{{order_code}}`}</code>,{" "}
-                          <code>{`{{brand_name}}`}</code>…
-                        </span>
-                      </label>
-
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="font-medium">HTML body</span>
-                        <textarea
-                          name="body_html"
-                          defaultValue={tpl.body_html ?? ""}
-                          rows={8}
-                          className="bb-input text-xs px-2 py-2 font-mono"
-                          placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
-                        />
-                        <span className="text-xs text-gray-500">
-                          Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
-                          <code>{`{{full_name}}`}</code>,{" "}
-                          <code>{`{{order_code}}`}</code>,{" "}
-                          <code>{`{{details_table}}`}</code>,{" "}
-                          <code>{`{{delivery_block}}`}</code>,{" "}
-                          <code>{`{{payout_block}}`}</code>,{" "}
-                          <code>{`{{next_steps}}`}</code>,{" "}
-                          <code>{`{{disclaimer_html}}`}</code>.
-                        </span>
-                      </label>
-
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="font-medium">
-                          Tekstversie (optional)
-                        </span>
-                        <textarea
-                          name="body_text"
-                          defaultValue={tpl.body_text ?? ""}
-                          rows={5}
-                          className="bb-input text-xs px-2 py-2 font-mono"
-                          placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
-                        />
-                        <span className="text-xs text-gray-500">
-                          Wordt gebruikt als tekst-only fallback. Laat leeg om de
-                          standaard gegenereerde tekst te gebruiken.
-                        </span>
-                      </label>
-
-                      <div className="pt-1 flex justify-end">
-                        <button
-                          type="submit"
-                          className="bb-btn primary h-8 text-xs px-3"
-                        >
-                          Template bewaren
-                        </button>
-                      </div>
-                    </form>
-                  ))}
+          {statusTemplates.map((status) => (
+            <div key={status.key} className="space-y-3">
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <div className="text-sm font-medium flex items-center gap-2">
+                    <span>{status.label}</span>
+                    <code className="text-xs text-gray-500">{status.key}</code>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    {status.description}
+                  </p>
                 </div>
               </div>
-            ))}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {status.rows.map((tpl) => (
+                  <form
+                    key={`${tpl.key}-${tpl.language}`}
+                    action={actionSaveTemplate}
+                    className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
+                  >
+                    {!tpl._isNew && tpl.id ? (
+                      <input
+                        type="hidden"
+                        name="template_id"
+                        value={tpl.id}
+                      />
+                    ) : null}
+                    <input type="hidden" name="template_key" value={tpl.key} />
+                    <input
+                      type="hidden"
+                      name="template_language"
+                      value={tpl.language}
+                    />
+
+                    <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>
+                        Status-key: <code>{tpl.key}</code> • Taal:{" "}
+                        <code>{tpl.language}</code>
+                      </span>
+                      <span>
+                        Laatst bijgewerkt:{" "}
+                        {tpl.updated_at
+                          ? new Date(tpl.updated_at).toLocaleString("nl-BE")
+                          : "—"}
+                      </span>
+                    </div>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">Onderwerp</span>
+                      <input
+                        name="subject"
+                        defaultValue={tpl.subject ?? ""}
+                        className="bb-input h-9 text-sm px-2"
+                        placeholder="bv. [{{brand_name}}] Update over je buyback-order {{order_code}}"
+                      />
+                      <span className="text-xs text-gray-500">
+                        Je kan placeholders gebruiken zoals{" "}
+                        <code>{`{{first_name}}`}</code>,{" "}
+                        <code>{`{{order_code}}`}</code>,{" "}
+                        <code>{`{{brand_name}}`}</code>…
+                      </span>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">HTML body</span>
+                      <textarea
+                        name="body_html"
+                        defaultValue={tpl.body_html ?? ""}
+                        rows={8}
+                        className="bb-input text-xs px-2 py-2 font-mono"
+                        placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}, {{payout_block}}…"
+                      />
+                      <span className="text-xs text-gray-500">
+                        Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
+                        <code>{`{{full_name}}`}</code>,{" "}
+                        <code>{`{{order_code}}`}</code>,{" "}
+                        <code>{`{{details_table}}`}</code>,{" "}
+                        <code>{`{{delivery_block}}`}</code>,{" "}
+                        <code>{`{{payout_block}}`}</code>,{" "}
+                        <code>{`{{next_steps}}`}</code>,{" "}
+                        <code>{`{{disclaimer_html}}`}</code>.
+                      </span>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">
+                        Tekstversie (optional)
+                      </span>
+                      <textarea
+                        name="body_text"
+                        defaultValue={tpl.body_text ?? ""}
+                        rows={5}
+                        className="bb-input text-xs px-2 py-2 font-mono"
+                        placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
+                      />
+                      <span className="text-xs text-gray-500">
+                        Wordt gebruikt als tekst-only fallback. Laat leeg om de
+                        standaard gegenereerde tekst te gebruiken.
+                      </span>
+                    </label>
+
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        type="submit"
+                        className="bb-btn primary h-8 text-xs px-3"
+                      >
+                        Template bewaren
+                      </button>
+                    </div>
+                  </form>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* OVERIGE / GEVANCEERDE TEMPLATES */}
+        <div className="pt-6 space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-md font-semibold">
+              Overige e-mailtemplates (geavanceerd)
+            </h3>
+            <span className="text-xs text-gray-500">
+              Templates waarvan de <code>key</code> geen orderstatus is.
+            </span>
           </div>
-        )}
+
+          {Object.keys(templatesByKey).length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Er zijn momenteel geen extra e-mailtemplates buiten de
+              orderstatussen.
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {Object.entries(templatesByKey).map(([key, list]) => (
+                <div key={key} className="space-y-3">
+                  <div className="flex items-baseline justify-between">
+                    <h4 className="text-sm font-semibold">
+                      Template key: <code>{key}</code>
+                    </h4>
+                    <span className="text-xs text-gray-400">
+                      {list.length} taal/varianten
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {list.map((tpl) => (
+                      <form
+                        key={tpl.id}
+                        action={actionSaveTemplate}
+                        className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
+                      >
+                        <input
+                          type="hidden"
+                          name="template_id"
+                          value={tpl.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="template_key"
+                          value={tpl.key}
+                        />
+                        <input
+                          type="hidden"
+                          name="template_language"
+                          value={tpl.language}
+                        />
+
+                        <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                          <span>
+                            Key: <code>{tpl.key}</code> • Taal:{" "}
+                            <code>{tpl.language}</code>
+                          </span>
+                          <span>
+                            Laatst bijgewerkt:{" "}
+                            {tpl.updated_at
+                              ? new Date(tpl.updated_at).toLocaleString(
+                                  "nl-BE"
+                                )
+                              : "—"}
+                          </span>
+                        </div>
+
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">Onderwerp</span>
+                          <input
+                            name="subject"
+                            defaultValue={tpl.subject ?? ""}
+                            className="bb-input h-9 text-sm px-2"
+                            placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                          />
+                          <span className="text-xs text-gray-500">
+                            Je kan placeholders gebruiken zoals{" "}
+                            <code>{`{{first_name}}`}</code>,{" "}
+                            <code>{`{{order_code}}`}</code>,{" "}
+                            <code>{`{{brand_name}}`}</code>…
+                          </span>
+                        </label>
+
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">HTML body</span>
+                          <textarea
+                            name="body_html"
+                            defaultValue={tpl.body_html ?? ""}
+                            rows={8}
+                            className="bb-input text-xs px-2 py-2 font-mono"
+                            placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                          />
+                          <span className="text-xs text-gray-500">
+                            Volledige HTML-template. Beschikbare variabelen
+                            o.a.: <code>{`{{full_name}}`}</code>,{" "}
+                            <code>{`{{order_code}}`}</code>,{" "}
+                            <code>{`{{details_table}}`}</code>,{" "}
+                            <code>{`{{delivery_block}}`}</code>,{" "}
+                            <code>{`{{payout_block}}`}</code>,{" "}
+                            <code>{`{{next_steps}}`}</code>,{" "}
+                            <code>{`{{disclaimer_html}}`}</code>.
+                          </span>
+                        </label>
+
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">
+                            Tekstversie (optional)
+                          </span>
+                          <textarea
+                            name="body_text"
+                            defaultValue={tpl.body_text ?? ""}
+                            rows={5}
+                            className="bb-input text-xs px-2 py-2 font-mono"
+                            placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
+                          />
+                          <span className="text-xs text-gray-500">
+                            Wordt gebruikt als tekst-only fallback. Laat leeg om
+                            de standaard gegenereerde tekst te gebruiken.
+                          </span>
+                        </label>
+
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            type="submit"
+                            className="bb-btn primary h-8 text-xs px-3"
+                          >
+                            Template bewaren
+                          </button>
+                        </div>
+                      </form>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
