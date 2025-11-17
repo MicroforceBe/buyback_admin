@@ -40,9 +40,9 @@ export type TemplateContext = {
   tracking_code?: string | null;
   tracking_url?: string | null;
   label_pdf_url?: string | null;
-  
+
   // HTML met vragen/antwoorden uit lead
-  questions_answers_html?: string | null; 
+  questions_answers_html?: string | null;
 };
 
 type BrandSettings = {
@@ -355,6 +355,8 @@ function buildBlocks(
     ? nl2br(brand.email_disclaimer)
     : "";
 
+  const questions_answers = ctx.questions_answers_html || "";
+
   return {
     full_name,
     header,
@@ -364,6 +366,7 @@ function buildBlocks(
     next_steps,
     disclaimer_html,
     brand_name: brand.brand_name,
+    questions_answers,
   };
 }
 
@@ -447,6 +450,8 @@ export async function renderStatusEmail(
     label_pdf_url: ctx.label_pdf_url || "",
     // iban
     iban: ctx.iban || "",
+    // vragen + antwoorden (HTML)
+    questions_answers: blocks.questions_answers || "",
   };
 
   const subject = renderWithPlaceholders(subjectTemplate, replacements);
