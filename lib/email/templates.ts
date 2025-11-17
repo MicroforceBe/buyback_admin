@@ -40,6 +40,9 @@ export type TemplateContext = {
   tracking_code?: string | null;
   tracking_url?: string | null;
   label_pdf_url?: string | null;
+  
+  // HTML met vragen/antwoorden uit lead
+  questions_answers_html?: string | null; 
 };
 
 type BrandSettings = {
