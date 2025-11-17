@@ -43,7 +43,6 @@ function buildQuestionsAnswersHtml(rawAnswers: any): string {
     if (value === null || value === undefined) {
       valueStr = '';
     } else if (typeof value === 'object') {
-      // voorlopig gewoon JSON-string; kan later vervangen worden
       try {
         valueStr = JSON.stringify(value);
       } catch {
@@ -261,8 +260,9 @@ export async function POST(req: Request) {
       final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
       wants_voucher,
 
-      // antwoorden/conditie uit de widget (optioneel meenemen)
+      // antwoorden/conditie uit de widget
       answers,
+      questions_answers_html,   // <== ook meegeven aan template-context
 
       // uitbetaling
       iban: wants_voucher ? null : (iban ?? null),
