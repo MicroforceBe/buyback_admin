@@ -436,7 +436,6 @@ export async function updateLeadInlineAction(formData: FormData) {
       "delivery_method",
       "shop_id",
       "shop_location",
-      "language",
       "created_at",
       "updated_at",
       // trackingvelden
@@ -529,7 +528,7 @@ export async function updateLeadInlineAction(formData: FormData) {
 
           // template- & taalkeuze
           status: newStatus!,                          // BuybackStatus
-          language: (after as any).language || "nl",
+          language: "nl", //voorlopig enkel nl
 
           // basis
           first_name: (after as any).first_name,
