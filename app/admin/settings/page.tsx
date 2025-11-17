@@ -1,4 +1,4 @@
-// app/admin/settings/page.tsx
+ // app/admin/settings/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
@@ -69,11 +69,10 @@ const ORDER_STATUS_KEYS: StatusMeta[] = [
   },
   {
     key: "done",
-    label: "Afgewerkt",
+    label: "Afgehandeld",
     description: "Slotsituatie: buyback-order is volledig afgehandeld.",
   },
 ];
-
 
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
@@ -224,12 +223,10 @@ export default async function SettingsPage() {
     };
     if (id) payload.id = id;
 
+    // BELANGRIJKE FIX: geen onConflict op (key,language), gewoon PK 'id' gebruiken
     const { error } = await supabaseAdmin
       .from("buyback_email_templates")
-      .upsert(payload, {
-        onConflict: "key,language",
-        ignoreDuplicates: false,
-      });
+      .upsert(payload);
 
     if (error) {
       console.error("[SETTINGS][email-templates] upsert error:", error);
@@ -539,7 +536,7 @@ export default async function SettingsPage() {
                             defaultValue={tpl.body_html ?? ""}
                             rows={8}
                             className="bb-input text-xs px-2 py-2 font-mono"
-                            placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                            placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}…"
                           />
                           <span className="text-xs text-gray-500">
                             Volledige HTML-template. Beschikbare variabelen
