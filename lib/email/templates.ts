@@ -1,5 +1,21 @@
-// lib/emailTemplates.ts
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; import type { Status } from "@/app/admin/leads/actions"; // of waar jouw Status-type staat
+// lib/email/templates.ts
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+/**
+ * Alle statussen die je in admin/leads gebruikt.
+ * Deze union is gedeeld tussen templates & mails.
+ */
+export const BUYBACK_STATUSES = [
+  "new",
+  "received_store",
+  "label_created",
+  "shipment_received",
+  "check_passed",
+  "check_failed",
+  "done",
+] as const;
+
+export type BuybackStatus = (typeof BUYBACK_STATUSES)[number];
 
 type SettingsRow = {
   brand_name: string | null;
@@ -17,7 +33,7 @@ type EmailTemplateRow = {
 };
 
 export type TemplateContext = {
-  status: Status;
+  status: BuybackStatus;
   language: string;
 
   // klant / order
@@ -25,9 +41,9 @@ export type TemplateContext = {
   last_name?: string | null;
   email?: string | null;
   order_code?: string | null;
-  order_date?: string | null; // als string geformatteerd
+  order_date?: string | null; // geformatteerde string
 
-  // dingen die je nu waarschijnlijk al hebt
+  // HTML blocks
   details_table_html?: string;
   delivery_block_html?: string;
   payout_block_html?: string;
@@ -41,7 +57,9 @@ type RenderedEmail = {
 };
 
 /**
- * Helper om settings (brand + disclaimer) op te halen  */ async function loadSettings(): Promise<SettingsRow> {
+ * Helper om settings (brand + disclaimer) op te halen
+ */
+async function loadSettings(): Promise<SettingsRow> {
   const { data } = await supabaseAdmin
     .from("buyback_settings")
     .select("brand_name, brand_color, logo_url, email_disclaimer")
@@ -64,7 +82,7 @@ async function loadTemplate(
   key: string,
   language: string
 ): Promise<EmailTemplateRow | null> {
-  // 1. proberen exacte match key + language
+  // 1. exacte match key + language
   const { data, error } = await supabaseAdmin
     .from("buyback_email_templates")
     .select("key, language, subject, body_html, body_text")
@@ -100,7 +118,9 @@ async function loadTemplate(
 }
 
 /**
- * Vervangt {{placeholders}} in subject/body  */ function replacePlaceholders(
+ * Vervangt {{placeholders}} in subject/body
+ */
+function replacePlaceholders(
   template: string,
   vars: Record<string, string | undefined>
 ): string {
@@ -111,7 +131,9 @@ async function loadTemplate(
 }
 
 /**
- * Bouwt de variabelen voor de placeholders ({{first_name}}, {{order_code}}, ...)  */ function buildVariables(ctx: TemplateContext, settings: SettingsRow) {
+ * Bouwt de variabelen voor de placeholders ({{first_name}}, {{order_code}}, ...)
+ */
+function buildVariables(ctx: TemplateContext, settings: SettingsRow) {
   const full_name =
     (ctx.first_name ?? "") || (ctx.last_name ?? "")
       ? [ctx.first_name, ctx.last_name].filter(Boolean).join(" ")
@@ -145,11 +167,11 @@ async function loadTemplate(
 }
 
 /**
- * Publieke helper: haal template op voor een status-key (bv. 'check_passed')
- * en render subject + html + text.
+ * Publieke helper: haal template op voor een status-key
+ * (bv. 'check_passed') en render subject + html + text.
  */
 export async function renderStatusEmail(
-  statusKey: Status,
+  statusKey: BuybackStatus,
   ctx: TemplateContext
 ): Promise<RenderedEmail | null> {
   const [settings, template] = await Promise.all([
@@ -158,7 +180,7 @@ export async function renderStatusEmail(
   ]);
 
   if (!template) {
-    // geen rij in DB -> je kan hier fallback tekst hardcoden indien gewenst
+    // geen rij in DB -> hier kan optioneel een hardcoded fallback komen
     return null;
   }
 
