@@ -2,8 +2,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import StatusTemplatesTabs from "./StatusTemplatesTabs";
-import { saveEmailTemplateAction } from "./emailActions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -78,7 +76,9 @@ const ORDER_STATUS_KEYS: StatusMeta[] = [
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
-    .select("id, brand_name, brand_color, logo_url, email_disclaimer, updated_at")
+    .select(
+      "id, brand_name, brand_color, logo_url, email_disclaimer, updated_at"
+    )
     .eq("id", 1)
     .single();
 
@@ -109,7 +109,7 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
     const { data, error } = await supabaseAdmin
       .from("buyback_email_templates")
       .select("*")
-      .order("id", { ascending: true }); // veiliger dan "key" als die soms niet bestaat
+      .order("id", { ascending: true });
 
     if (error) {
       console.warn("[SETTINGS][email-templates] load error:", error);
@@ -118,47 +118,24 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
     const rows = (data || []) as any[];
 
-    // Helpers om key + language te normaliseren
-    function normalizeKey(rawKey: any, rawType: any): string {
-      const base = (rawKey ?? rawType ?? "").toString().trim();
-      if (!base) return "";
-
-      const lower = base.toLowerCase();
-
-      // Veelvoorkomende oude varianten mappen naar onze status-keys
-      const map: Record<string, string> = {
-        status_new: "new",
-        status_received_store: "received_store",
-        status_label_created: "label_created",
-        status_shipment_received: "shipment_received",
-        status_check_passed: "check_passed",
-        status_check_failed: "check_failed",
-        status_done: "done",
-      };
-
-      return map[lower] ?? base; // als het al "new" is, laten we het gewoon zo
-    }
-
-    function normalizeLanguage(rawLang: any, rawLocale: any, rawLang2: any): string {
-      const base = (rawLang ?? rawLocale ?? rawLang2 ?? "").toString().trim();
-      if (!base) return "nl";
-
-      const lower = base.toLowerCase();
-      if (lower === "nl-be" || lower === "nl_nl" || lower === "dutch") return "nl";
-      if (lower === "fr-be" || lower === "fr_fr" || lower === "french") return "fr";
-
-      return base; // bv. "nl", "fr"
-    }
-
     const out: TemplateRow[] = [];
-
     for (const row of rows) {
       if (!row) continue;
 
-      const key = normalizeKey(row.key, row.type);
+      // key kan 'key' of 'type' zijn
+      const key: string =
+        (row.key as string | undefined) ??
+        (row.type as string | undefined) ??
+        "";
+
       if (!key) continue;
 
-      const language = normalizeLanguage(row.language, row.locale, row.lang);
+      // language kan 'language', 'locale' of 'lang' zijn
+      const language: string =
+        (row.language as string | undefined) ??
+        (row.locale as string | undefined) ??
+        (row.lang as string | undefined) ??
+        "nl";
 
       out.push({
         id: row.id as number,
@@ -192,7 +169,6 @@ export default async function SettingsPage() {
     const email_disclaimer =
       (formData.get("email_disclaimer") as string | null) ?? "";
 
-    // Upsert naar id=1
     const { error } = await supabaseAdmin
       .from("buyback_settings")
       .upsert(
@@ -216,19 +192,75 @@ export default async function SettingsPage() {
     return { ok: true as const, message: "Instellingen bewaard." };
   }
 
+  // ---- Server Action e-mailtemplate bewaren (rechtstreeks hier) ----
+  async function actionSaveTemplate(formData: FormData) {
+    "use server";
+
+    const idRaw = (formData.get("template_id") as string | null) ?? "";
+    const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
+
+    const keyInput =
+      ((formData.get("template_key") as string | null) ?? "").trim();
+    const languageInput =
+      ((formData.get("template_language") as string | null) ?? "nl").trim() ||
+      "nl";
+    const subject = (formData.get("subject") as string | null) ?? "";
+    const body_html = (formData.get("body_html") as string | null) ?? "";
+    const body_text = (formData.get("body_text") as string | null) ?? "";
+
+    if (!keyInput) {
+      return { ok: false as const, message: "Template key ontbreekt." };
+    }
+
+    const key = keyInput;
+    const language = languageInput;
+
+    const payload: any = {
+      key,
+      language,
+      subject,
+      body_html,
+      body_text,
+      updated_at: new Date().toISOString(),
+    };
+    if (id && Number.isFinite(id)) {
+      payload.id = id;
+    }
+
+    try {
+      const { error } = await supabaseAdmin
+        .from("buyback_email_templates")
+        .upsert(payload);
+
+      if (error) {
+        console.error("[SETTINGS][email-templates] upsert error:", error);
+        return { ok: false as const, message: error.message };
+      }
+    } catch (e: any) {
+      console.error(
+        "[SETTINGS][email-templates] upsert exception:",
+        e?.message || e
+      );
+      return {
+        ok: false as const,
+        message: "Onbekende fout bij bewaren van template.",
+      };
+    }
+
+    revalidatePath("/admin/settings");
+    return { ok: true as const, message: "Template bewaard." };
+  }
+
   // ====== AFLEIDINGEN VOOR STATUS + TALEN ======
 
-  // Alle talen die nu in de tabel voorkomen (bv. ["nl","fr"])
   const languagesFromData = Array.from(
     new Set(templates.map((t) => t.language))
   ).sort();
 
-  const LANGUAGES =
-    languagesFromData.length > 0 ? languagesFromData : ["nl"];
+  const LANGUAGES = languagesFromData.length > 0 ? languagesFromData : ["nl"];
 
   const statusKeysSet = new Set(ORDER_STATUS_KEYS.map((s) => s.key));
 
-  // Matrix: per status per taal één rij (bestaand of nieuw)
   const statusTemplates = ORDER_STATUS_KEYS.map((status) => {
     const rows: TemplateRowWithMeta[] = LANGUAGES.map((lang) => {
       const existing = templates.find(
@@ -251,10 +283,9 @@ export default async function SettingsPage() {
     return { ...status, rows };
   });
 
-  // Overige templates (alles wat geen orderstatus-key is)
   const templatesByKey = templates.reduce<Record<string, TemplateRow[]>>(
     (acc, t) => {
-      if (statusKeysSet.has(t.key)) return acc; // status-templates tonen we elders
+      if (statusKeysSet.has(t.key)) return acc;
       if (!acc[t.key]) acc[t.key] = [];
       acc[t.key].push(t);
       return acc;
@@ -382,7 +413,7 @@ export default async function SettingsPage() {
         </footer>
       </section>
 
-      {/* E-MAIL TEMPLATES */}
+      {/* E-MAIL TEMPLATES (statussen) */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header>
           <h2 className="text-lg font-medium">E-mailtemplates</h2>
@@ -390,38 +421,149 @@ export default async function SettingsPage() {
             Bevestigings- en statusupdate-mails voor buyback orders. Tekst
             wordt dynamisch uit deze templates gehaald, per <code>key</code> en
             taal.
-            <br />
-            <span className="text-xs text-gray-400">
-              Verwachte tabel in Supabase:{" "}
-              <code>buyback_email_templates</code> met minimaal <code>id</code>
-              , <code>key</code>, <code>language</code>, <code>subject</code>,{" "}
-              <code>body_html</code>, <code>body_text</code>,{" "}
-              <code>updated_at</code>.
-            </span>
+          </p>
+          <p className="text-xs text-gray-400">
+            Verwachte tabel in Supabase:{" "}
+            <code>buyback_email_templates</code> met minimaal <code>id</code>,{" "}
+            <code>key</code>, <code>language</code>, <code>subject</code>,{" "}
+            <code>body_html</code>, <code>body_text</code>,{" "}
+            <code>updated_at</code>.
           </p>
         </header>
 
-        {/* STATUS-UPDATE TEMPLATES VIA TABS */}
-        <div className="space-y-5">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-md font-semibold">
-              Statusupdate e-mails per orderstatus
-            </h3>
-            <span className="text-xs text-gray-500">
-              1 template per status × taal. Talen:{" "}
-              {LANGUAGES.map((lang, idx) => (
-                <span key={lang}>
-                  {idx > 0 ? ", " : ""}
-                  <code>{lang}</code>
-                </span>
-              ))}
-            </span>
-          </div>
+        {/* STATUS-UPDATE TEMPLATES */}
+        <div className="space-y-6">
+          {statusTemplates.map((status) => (
+            <div
+              key={status.key}
+              className="border border-gray-200 rounded-lg p-3 space-y-3"
+            >
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    {status.label}{" "}
+                    <span className="text-xs text-gray-500">
+                      (<code>{status.key}</code>)
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {status.description}
+                  </p>
+                </div>
+                <div className="text-xs text-gray-500">
+                  Talen:{" "}
+                  {LANGUAGES.map((lang, idx) => (
+                    <span key={lang}>
+                      {idx > 0 ? ", " : ""}
+                      <code>{lang}</code>
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-          <StatusTemplatesTabs
-            statusTemplates={statusTemplates}
-            actionSaveTemplate={saveEmailTemplateAction}
-          />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {status.rows.map((tpl) => (
+                  <form
+                    key={`${tpl.key}-${tpl.language}`}
+                    action={actionSaveTemplate}
+                    className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
+                  >
+                    <input
+                      type="hidden"
+                      name="template_id"
+                      value={tpl.id ?? 0}
+                    />
+                    <input
+                      type="hidden"
+                      name="template_key"
+                      value={tpl.key}
+                    />
+                    <input
+                      type="hidden"
+                      name="template_language"
+                      value={tpl.language}
+                    />
+
+                    <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>
+                        Key: <code>{tpl.key}</code> • Taal:{" "}
+                        <code>{tpl.language}</code>
+                      </span>
+                      <span>
+                        Laatst bijgewerkt:{" "}
+                        {tpl.updated_at
+                          ? new Date(tpl.updated_at).toLocaleString("nl-BE")
+                          : "—"}
+                      </span>
+                    </div>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">Onderwerp</span>
+                      <input
+                        name="subject"
+                        defaultValue={tpl.subject ?? ""}
+                        className="bb-input h-9 text-sm px-2"
+                        placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                      />
+                      <span className="text-xs text-gray-500">
+                        Placeholders:{" "}
+                        <code>{`{{first_name}}`}</code>,{" "}
+                        <code>{`{{order_code}}`}</code>,{" "}
+                        <code>{`{{brand_name}}`}</code>…
+                      </span>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">HTML body</span>
+                      <textarea
+                        name="body_html"
+                        defaultValue={tpl.body_html ?? ""}
+                        rows={8}
+                        className="bb-input text-xs px-2 py-2 font-mono"
+                        placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                      />
+                      <span className="text-xs text-gray-500">
+                        Beschikbare variabelen o.a.:{" "}
+                        <code>{`{{full_name}}`}</code>,{" "}
+                        <code>{`{{order_code}}`}</code>,{" "}
+                        <code>{`{{details_table}}`}</code>,{" "}
+                        <code>{`{{delivery_block}}`}</code>,{" "}
+                        <code>{`{{payout_block}}`}</code>,{" "}
+                        <code>{`{{next_steps}}`}</code>,{" "}
+                        <code>{`{{disclaimer_html}}`}</code>.
+                      </span>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="font-medium">
+                        Tekstversie (optional)
+                      </span>
+                      <textarea
+                        name="body_text"
+                        defaultValue={tpl.body_text ?? ""}
+                        rows={5}
+                        className="bb-input text-xs px-2 py-2 font-mono"
+                        placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
+                      />
+                      <span className="text-xs text-gray-500">
+                        Wordt gebruikt als tekst-only fallback. Laat leeg om de
+                        standaard gegenereerde tekst te gebruiken.
+                      </span>
+                    </label>
+
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        type="submit"
+                        className="bb-btn primary h-8 text-xs px-3"
+                      >
+                        Template bewaren
+                      </button>
+                    </div>
+                  </form>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
@@ -457,7 +599,7 @@ export default async function SettingsPage() {
                     {list.map((tpl) => (
                       <form
                         key={tpl.id}
-                        action={saveEmailTemplateAction}
+                        action={actionSaveTemplate}
                         className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
                       >
                         <input
