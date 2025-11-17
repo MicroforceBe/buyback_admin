@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import StatusTemplatesTabs from "./StatusTemplatesTabs";
+import { saveEmailTemplateAction } from "./emailActions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -159,7 +160,7 @@ export default async function SettingsPage() {
   const row = await loadSettings();
   const templates = await loadEmailTemplates();
 
-  // ---- Server Action branding (inline, geen extra export!) ----
+  // ---- Server Action branding (inline) ----
   async function actionSaveBranding(formData: FormData) {
     "use server";
 
@@ -191,69 +192,6 @@ export default async function SettingsPage() {
 
     revalidatePath("/admin/settings");
     return { ok: true as const, message: "Instellingen bewaard." };
-  }
-
-  // ---- Server Action e-mailtemplate bewaren ----
-  async function actionSaveTemplate(formData: FormData) {
-    "use server";
-
-    const idRaw = (formData.get("template_id") as string | null) ?? "";
-    // id=0 (nieuwe template) => undefined, zodat DB zelf een id kan geven
-    const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
-
-    const keyInput =
-      ((formData.get("template_key") as string | null) ?? "").trim();
-    const languageInput =
-      ((formData.get("template_language") as string | null) ?? "nl").trim() ||
-      "nl";
-    const subject = (formData.get("subject") as string | null) ?? "";
-    const body_html = (formData.get("body_html") as string | null) ?? "";
-    const body_text = (formData.get("body_text") as string | null) ?? "";
-
-    if (!keyInput) {
-      return { ok: false as const, message: "Template key ontbreekt." };
-    }
-
-    const key = keyInput;
-    const language = languageInput;
-
-    // Schrijf zowel key als type, language als locale -> werkt ongeacht hoe de tabel is aangemaakt
-    const payload: any = {
-      key,
-      type: key,
-      language,
-      locale: language,
-      subject,
-      body_html,
-      body_text,
-      updated_at: new Date().toISOString(),
-    };
-    if (id && Number.isFinite(id)) {
-      payload.id = id;
-    }
-
-    try {
-      const { error } = await supabaseAdmin
-        .from("buyback_email_templates")
-        .upsert(payload);
-
-      if (error) {
-        console.error("[SETTINGS][email-templates] upsert error:", error);
-        return { ok: false as const, message: error.message };
-      }
-    } catch (e: any) {
-      console.error(
-        "[SETTINGS][email-templates] upsert exception:",
-        e?.message || e
-      );
-      return {
-        ok: false as const,
-        message: "Onbekende fout bij bewaren van template.",
-      };
-    }
-
-    revalidatePath("/admin/settings");
-    return { ok: true as const, message: "Template bewaard." };
   }
 
   // ====== AFLEIDINGEN VOOR STATUS + TALEN ======
@@ -434,10 +372,9 @@ export default async function SettingsPage() {
             <span className="text-xs text-gray-400">
               Verwachte tabel in Supabase:{" "}
               <code>buyback_email_templates</code> met minimaal <code>id</code>
-              , <code>key</code> (of <code>type</code>),{" "}
-              <code>language</code> (of <code>locale</code>),{" "}
-              <code>subject</code>, <code>body_html</code>,{" "}
-              <code>body_text</code>, <code>updated_at</code>.
+              , <code>key</code>, <code>language</code>, <code>subject</code>,{" "}
+              <code>body_html</code>, <code>body_text</code>,{" "}
+              <code>updated_at</code>.
             </span>
           </p>
         </header>
@@ -461,7 +398,7 @@ export default async function SettingsPage() {
 
           <StatusTemplatesTabs
             statusTemplates={statusTemplates}
-            actionSaveTemplate={actionSaveTemplate}
+            actionSaveTemplate={saveEmailTemplateAction}
           />
         </div>
 
@@ -498,7 +435,7 @@ export default async function SettingsPage() {
                     {list.map((tpl) => (
                       <form
                         key={tpl.id}
-                        action={actionSaveTemplate}
+                        action={saveEmailTemplateAction}
                         className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
                       >
                         <input
