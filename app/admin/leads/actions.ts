@@ -502,28 +502,43 @@ export async function updateLeadInlineAction(formData: FormData) {
         }
 
         // 6.c E-mail versturen via templated mails (met HTML-blocks)
-        await sendStatusMail({
-          status: newStatus!,
-          language: (after as any).language,
-          customer_email: (after as any).email,
-          first_name: (after as any).first_name,
-          last_name: (after as any).last_name,
-          order_code: (after as any).order_code,
-          created_at: (after as any).created_at,
+          await sendStatusMail({
+            // verplicht
+            to: (after as any).email,
+            status: newStatus!,
+          
+            // optioneel, maar toegestaan in StatusMailInput
+            language: (after as any).language || "nl",
+          
+            // basis
+            first_name: (after as any).first_name,
+            last_name: (after as any).last_name,
+            order_code: (after as any).order_code,
+            email: (after as any).email,
+          
+            // toestel
+            model: (after as any).model,
+            capacity_gb: (after as any).capacity_gb,
+          
+            // prijs / uitbetaling
+            final_price_cents: (after as any).final_price_cents,
+            wants_voucher: (after as any).wants_voucher ?? null,
+            iban: (after as any).iban ?? null,
+          
+            // levering / shop
+            delivery_method: (after as any).delivery_method,
+            shop_location: (after as any).shop_location,
+            shop_address1,
+            shop_zip,
+            shop_city,
+            opening_hours,
+          
+            // tracking/label
+            tracking_code: tracking_code ?? undefined,
+            tracking_url: tracking_url ?? undefined,
+            label_pdf_url: label_pdf_url ?? undefined,
+          });
 
-          model: (after as any).model,
-          capacity_gb: (after as any).capacity_gb,
-          final_price_cents: (after as any).final_price_cents,
-
-          delivery_method: (after as any).delivery_method,
-          shop_location: (after as any).shop_location,
-
-          wants_voucher: (after as any).wants_voucher ?? null,
-          iban: (after as any).iban ?? null,
-
-          tracking_url: tracking_url ?? undefined,
-          label_pdf_url: label_pdf_url ?? undefined,
-        });
       } catch (e: any) {
         console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
       }
