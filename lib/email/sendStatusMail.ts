@@ -1,10 +1,11 @@
-// lib/email/sendStatusEmail.ts
+// lib/email/sendStatusMail.ts
 import { Resend } from "resend";
 import {
   BuybackStatus,
   TemplateContext,
   renderStatusEmail,
 } from "@/lib/email/templates";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 
@@ -17,20 +18,54 @@ export type LeadForEmail = {
   order_code?: string | null;
   created_at?: string | null;
 
-  // optioneel: als je hier ooit HTML-blocks wil meegeven
   details_table_html?: string;
   delivery_block_html?: string;
   payout_block_html?: string;
   next_steps_html?: string;
 };
 
-export async function sendStatusEmail(lead: LeadForEmail) {
+// Haal brand_name op voor weergavenaam in de from-header
+async function loadBrandSettings() {
+  const { data } = await supabaseAdmin
+    .from("buyback_settings")
+    .select("brand_name")
+    .eq("id", 1)
+    .single();
+
+  return {
+    brand_name: data?.brand_name || "Buyback",
+  };
+}
+
+function buildFromHeader(brandName: string): string {
+  const raw = process.env.MAIL_FROM;
+
+  if (!raw) {
+    console.warn(
+      "[MAIL] MAIL_FROM is niet gezet, fallback naar dummy-from. Stel MAIL_FROM in in je environment."
+    );
+    return `${brandName} <noreply@example.com>`;
+  }
+
+  // Als MAIL_FROM al de vorm 'Naam <email@domein>' heeft -> gebruik 1-op-1
+  if (raw.includes("<") && raw.includes(">")) {
+    return raw;
+  }
+
+  // Anders gaan we ervan uit dat het een kaal e-mailadres is
+  return `${brandName} <${raw}>`;
+}
+
+export async function sendStatusMail(lead: LeadForEmail) {
   if (!lead.customer_email) {
-    console.warn("[MAIL] geen customer_email, mail wordt niet verstuurd");
+    console.warn("[MAIL] geen customer_email — mail niet verstuurd");
     return;
   }
 
   const language = lead.language || "nl";
+
+  const brand = await loadBrandSettings();
+  const from = buildFromHeader(brand.brand_name);
 
   const ctx: TemplateContext = {
     status: lead.status,
@@ -53,14 +88,14 @@ export async function sendStatusEmail(lead: LeadForEmail) {
     console.warn(
       "[MAIL] Geen template gevonden voor status",
       lead.status,
-      " / language",
-      language
+      "(language:",
+      language + ")"
     );
     return;
   }
 
   await resend.emails.send({
-    from: `Micoforce Buyback <klantenservice@microforce.be>`, // eventueel dynamisch maken met settings
+    from,
     to: lead.customer_email,
     subject: rendered.subject,
     html: rendered.html,
