@@ -1,4 +1,4 @@
- // app/admin/settings/page.tsx
+// app/admin/settings/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
@@ -198,39 +198,58 @@ export default async function SettingsPage() {
     "use server";
 
     const idRaw = (formData.get("template_id") as string | null) ?? "";
-    const id = idRaw ? Number(idRaw) : undefined;
+    // id=0 (nieuwe template) => undefined, zodat DB zelf een id kan geven
+    const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
 
-    const key =
+    const keyInput =
       ((formData.get("template_key") as string | null) ?? "").trim();
-    const language =
+    const languageInput =
       ((formData.get("template_language") as string | null) ?? "nl").trim() ||
       "nl";
     const subject = (formData.get("subject") as string | null) ?? "";
     const body_html = (formData.get("body_html") as string | null) ?? "";
     const body_text = (formData.get("body_text") as string | null) ?? "";
 
-    if (!key) {
+    if (!keyInput) {
       return { ok: false as const, message: "Template key ontbreekt." };
     }
 
+    const key = keyInput;
+    const language = languageInput;
+
+    // Schrijf zowel key als type, language als locale -> werkt ongeacht hoe de tabel is aangemaakt
     const payload: any = {
       key,
+      type: key,
       language,
+      locale: language,
       subject,
       body_html,
       body_text,
       updated_at: new Date().toISOString(),
     };
-    if (id) payload.id = id;
+    if (id && Number.isFinite(id)) {
+      payload.id = id;
+    }
 
-    // BELANGRIJKE FIX: geen onConflict op (key,language), gewoon PK 'id' gebruiken
-    const { error } = await supabaseAdmin
-      .from("buyback_email_templates")
-      .upsert(payload);
+    try {
+      const { error } = await supabaseAdmin
+        .from("buyback_email_templates")
+        .upsert(payload);
 
-    if (error) {
-      console.error("[SETTINGS][email-templates] upsert error:", error);
-      return { ok: false as const, message: error.message };
+      if (error) {
+        console.error("[SETTINGS][email-templates] upsert error:", error);
+        return { ok: false as const, message: error.message };
+      }
+    } catch (e: any) {
+      console.error(
+        "[SETTINGS][email-templates] upsert exception:",
+        e?.message || e
+      );
+      return {
+        ok: false as const,
+        message: "Onbekende fout bij bewaren van template.",
+      };
     }
 
     revalidatePath("/admin/settings");
