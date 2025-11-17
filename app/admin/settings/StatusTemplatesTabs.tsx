@@ -95,6 +95,12 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
   },
 ];
 
+type ActiveField =
+  | HTMLInputElement
+  | HTMLTextAreaElement
+  | HTMLDivElement
+  | null;
+
 export default function StatusTemplatesTabs({
   statusTemplates,
   languages,
@@ -108,9 +114,8 @@ export default function StatusTemplatesTabs({
   const activeGroup =
     statusTemplates.find((g) => g.key === activeKey) ?? statusTemplates[0];
 
-  // Laatst gefocuste input/textarea (voor variabele insert)
-  const [activeFieldEl, setActiveFieldEl] =
-    useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  // Laatst gefocuste input/editor (voor variabele insert & preview)
+  const [activeFieldEl, setActiveFieldEl] = useState<ActiveField>(null);
 
   // HTML preview content
   const [previewHtml, setPreviewHtml] = useState<string>("");
@@ -119,31 +124,86 @@ export default function StatusTemplatesTabs({
     const el = activeFieldEl;
     if (!el) return;
 
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const current = el.value ?? "";
+    // 1) Input of textarea → klassieke insert op cursorpositie
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? el.value.length;
+      const current = el.value ?? "";
 
-    const next =
-      current.slice(0, start) + code + current.slice(end, current.length);
+      const next =
+        current.slice(0, start) + code + current.slice(end, current.length);
 
-    el.value = next;
+      el.value = next;
 
-    const newPos = start + code.length;
-    el.selectionStart = newPos;
-    el.selectionEnd = newPos;
-    el.focus();
+      const newPos = start + code.length;
+      el.selectionStart = newPos;
+      el.selectionEnd = newPos;
+      el.focus();
+      return;
+    }
+
+    // 2) contentEditable div → gebruik execCommand als eenvoudige oplossing
+    if (el instanceof HTMLDivElement && typeof document !== "undefined") {
+      // Zorg dat focus in de editor staat
+      el.focus();
+
+      // Probeer tekst in te voegen op huidige caret
+      try {
+        // insertText werkt in de meeste moderne browsers
+        // (al is execCommand deprecated, het is prima voor interne admin tools)
+        // @ts-ignore
+        if (document.queryCommandSupported?.("insertText")) {
+          document.execCommand("insertText", false, code);
+          return;
+        }
+      } catch {
+        // val terug op range API
+      }
+
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) {
+        el.innerHTML += code;
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(code));
+      // caret achter de ingevoegde tekst zetten
+      sel.collapseToEnd();
+    }
   }
 
   function handlePreviewClick() {
     const el = activeFieldEl;
     if (!el) return;
+
+    // Alleen voor HTML-body editor
     if (
-      el.tagName !== "TEXTAREA" ||
-      el.getAttribute("name") !== "body_html"
+      el instanceof HTMLDivElement &&
+      el.getAttribute("data-editor") === "body_html"
     ) {
-      return;
+      setPreviewHtml(el.innerHTML || "");
     }
-    setPreviewHtml(el.value || "");
+  }
+
+  function applyEditorCommand(cmd: string) {
+    if (typeof document === "undefined") return;
+    try {
+      document.execCommand(cmd, false);
+    } catch {
+      // ignore
+    }
+  }
+
+  function applyLink() {
+    if (typeof document === "undefined") return;
+    const url = window.prompt("Voer een URL in:");
+    if (!url) return;
+    try {
+      document.execCommand("createLink", false, url);
+    } catch {
+      // ignore
+    }
   }
 
   if (!activeGroup) {
@@ -178,8 +238,8 @@ export default function StatusTemplatesTabs({
         })}
       </div>
 
-      {/* Content: links forms, rechts variabelen + preview */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)] gap-6">
+      {/* Content: links forms (breder), rechts variabelen + preview */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.2fr)] gap-6">
         {/* LEFT: forms voor actieve status (per taal) */}
         <div className="space-y-4">
           <div className="text-xs text-gray-500">
@@ -195,7 +255,8 @@ export default function StatusTemplatesTabs({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Eén kolom zodat editor lekker breed is */}
+          <div className="grid grid-cols-1 gap-4">
             {activeGroup.rows.map((tpl) => (
               <form
                 key={`${tpl.key}-${tpl.language}`}
@@ -231,6 +292,7 @@ export default function StatusTemplatesTabs({
                   </span>
                 </div>
 
+                {/* Onderwerp (tekstveld) */}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Onderwerp</span>
                   <input
@@ -247,25 +309,89 @@ export default function StatusTemplatesTabs({
                   </span>
                 </label>
 
+                {/* HTML body editor (contentEditable + hidden textarea) */}
                 <label className="flex flex-col gap-1 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">HTML body</span>
-                    <button
-                      type="button"
-                      onClick={handlePreviewClick}
-                      className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
-                    >
-                      Preview HTML
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => applyEditorCommand("bold")}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyEditorCommand("italic")}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50 italic"
+                      >
+                        i
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyEditorCommand("insertUnorderedList")}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                      >
+                        • lijst
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyEditorCommand("formatBlock")}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                      >
+                        ¶
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyLink}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                      >
+                        Link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePreviewClick}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50 ml-1"
+                      >
+                        Preview HTML
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Hidden textarea voor form submit */}
                   <textarea
                     name="body_html"
                     defaultValue={tpl.body_html ?? ""}
-                    rows={12}
-                    className="bb-input text-xs px-2 py-2 font-mono resize-y min-h-[220px]"
-                    placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
-                    onFocus={(e) => setActiveFieldEl(e.currentTarget)}
+                    className="hidden"
                   />
+
+                  {/* Visuele HTML-editor */}
+                  <div
+                    className="bb-input text-xs px-2 py-2 font-mono min-h-[260px] max-h-[480px] overflow-auto bg-white"
+                    contentEditable
+                    data-editor="body_html"
+                    // init inhoud
+                    dangerouslySetInnerHTML={{
+                      __html: tpl.body_html ?? "",
+                    }}
+                    onFocus={(e) =>
+                      setActiveFieldEl(e.currentTarget as HTMLDivElement)
+                    }
+                    onInput={(e) => {
+                      // sync naar hidden textarea
+                      const container = e.currentTarget;
+                      const form = container.closest("form");
+                      if (!form) return;
+                      const hidden = form.querySelector<HTMLTextAreaElement>(
+                        'textarea[name="body_html"]'
+                      );
+                      if (hidden) {
+                        hidden.value = container.innerHTML;
+                      }
+                    }}
+                  />
+
                   <span className="text-xs text-gray-500">
                     Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
                     <code>{`{{full_name}}`}</code>,{" "}
@@ -342,13 +468,13 @@ export default function StatusTemplatesTabs({
               {previewHtml ? (
                 <div
                   className="text-sm leading-relaxed"
-                  // Admin-omgeving: HTML komt van jou, dus dit is ok hier
+                  // Admin-only: HTML komt van jou, dus ok
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               ) : (
                 <p className="text-xs text-gray-400">
-                  Nog geen preview. Focus een HTML body veld, pas de inhoud
-                  aan en klik op <strong>Preview HTML</strong>.
+                  Nog geen preview. Bewerk de HTML-body en klik op{" "}
+                  <strong>Preview HTML</strong>.
                 </p>
               )}
             </div>
@@ -358,4 +484,3 @@ export default function StatusTemplatesTabs({
     </div>
   );
 }
-
