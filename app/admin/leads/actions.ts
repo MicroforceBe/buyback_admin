@@ -1,9 +1,9 @@
-
 "use server";
 
 import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
-import { sendStatusUpdateMail } from "@/app/api/buyback/email/sendStatusUpdateMail";
+import { sendStatusMail } from "@/lib/email/sendStatusMail";
+import type { BuybackStatus } from "@/lib/email/templates";
 
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
 // in andere een factory-functie. Deze helper vangt beide af.
@@ -12,7 +12,7 @@ function sbClient() {
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-const ALLOWED_STATUSES = [
+const ALLOWED_STATUSES: BuybackStatus[] = [
   "new",
   "received_store",
   "label_created",
@@ -22,7 +22,7 @@ const ALLOWED_STATUSES = [
   "done",
 ] as const;
 
-type Status = (typeof ALLOWED_STATUSES)[number];
+type Status = BuybackStatus;
 
 function isAllowedStatus(v: string): v is Status {
   return ALLOWED_STATUSES.includes(v as any);
@@ -117,9 +117,9 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud een zending + label aan voor deze lead.
- * Retourlabel (klant -> jullie) met correcte FROM/TO.
- */
+* Maakt via Sendcloud een zending + label aan voor deze lead.
+* Retourlabel (klant -> jullie) met correcte FROM/TO.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -435,6 +435,8 @@ export async function updateLeadInlineAction(formData: FormData) {
       "delivery_method",
       "shop_id",
       "shop_location",
+      "language",
+      "created_at",
       "updated_at",
       // trackingvelden
       "tracking_code",
@@ -498,58 +500,20 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
 
-        // 6.b Shopdetails ophalen indien beschikbaar
-        let shop_address1: string | null = null;
-        let shop_zip: string | null = null;
-        let shop_city: string | null = null;
-        let opening_hours: Record<string, string> | null = null;
-
-        if ((after as any).shop_id) {
-          const { data: shop, error: shopErr } = await sb
-            .from("buyback_shops")
-            .select("name, address1, zip, city, opening_hours")
-            .eq("id", (after as any).shop_id)
-            .single();
-
-          if (!shopErr && shop) {
-            shop_address1 = shop.address1 ?? null;
-            shop_zip = shop.zip ?? null;
-            shop_city = shop.city ?? null;
-            opening_hours = (shop.opening_hours as any) ?? null;
-          }
-        }
-
-        // 6.c E-mail versturen met context (incl. tracking/label indien aanwezig)
-        await sendStatusUpdateMail({
-          // ontvanger + basis
-          to: (after as any).email,
+        // 6.c E-mail versturen via templated mails
+        await sendStatusMail({
+          status: newStatus!,
+          language: (after as any).language,
+          customer_email: (after as any).email,
           first_name: (after as any).first_name,
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
-
-          // context
-          status: newStatus!, // template beslist tekst
-          model: (after as any).model,
-          capacity_gb: (after as any).capacity_gb,
-          final_price_cents: (after as any).final_price_cents,
-          wants_voucher: (after as any).wants_voucher ?? null,
-          iban: (after as any).iban ?? null,
-
-          // levering + shop
-          delivery_method: (after as any).delivery_method,
-          shop_location: (after as any).shop_location,
-          shop_address1,
-          shop_zip,
-          shop_city,
-          opening_hours,
-
-          // tracking/label
-          tracking_code: tracking_code ?? undefined,
-          tracking_url: tracking_url ?? undefined,
-          label_pdf_url: label_pdf_url ?? undefined,
-        } as any);
+          created_at: (after as any).created_at,
+          // details_table_html / delivery_block_html / payout_block_html / next_steps_html
+          // kan je later nog opbouwen en hier meegeven
+        });
       } catch (e: any) {
-        console.error("[LEADS][MAIL] sendStatusUpdateMail failed:", e?.message || e);
+        console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
       }
     })();
   }
