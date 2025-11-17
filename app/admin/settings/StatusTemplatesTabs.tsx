@@ -95,11 +95,7 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
   },
 ];
 
-type ActiveField =
-  | HTMLInputElement
-  | HTMLTextAreaElement
-  | HTMLDivElement
-  | null;
+type ActiveField = HTMLInputElement | HTMLTextAreaElement | null;
 
 export default function StatusTemplatesTabs({
   statusTemplates,
@@ -114,7 +110,7 @@ export default function StatusTemplatesTabs({
   const activeGroup =
     statusTemplates.find((g) => g.key === activeKey) ?? statusTemplates[0];
 
-  // Laatst gefocuste input/editor (voor variabele insert & preview)
+  // Laatst gefocuste input/textarea (voor variabele insert & preview)
   const [activeFieldEl, setActiveFieldEl] = useState<ActiveField>(null);
 
   // HTML preview content
@@ -124,85 +120,31 @@ export default function StatusTemplatesTabs({
     const el = activeFieldEl;
     if (!el) return;
 
-    // 1) Input of textarea → klassieke insert op cursorpositie
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-      const start = el.selectionStart ?? el.value.length;
-      const end = el.selectionEnd ?? el.value.length;
-      const current = el.value ?? "";
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const current = el.value ?? "";
 
-      const next =
-        current.slice(0, start) + code + current.slice(end, current.length);
+    const next =
+      current.slice(0, start) + code + current.slice(end, current.length);
 
-      el.value = next;
+    el.value = next;
 
-      const newPos = start + code.length;
-      el.selectionStart = newPos;
-      el.selectionEnd = newPos;
-      el.focus();
-      return;
-    }
-
-    // 2) contentEditable div → gebruik execCommand als eenvoudige oplossing
-    if (el instanceof HTMLDivElement && typeof document !== "undefined") {
-      // Zorg dat focus in de editor staat
-      el.focus();
-
-      // Probeer tekst in te voegen op huidige caret
-      try {
-        // insertText werkt in de meeste moderne browsers
-        // (al is execCommand deprecated, het is prima voor interne admin tools)
-        // @ts-ignore
-        if (document.queryCommandSupported?.("insertText")) {
-          document.execCommand("insertText", false, code);
-          return;
-        }
-      } catch {
-        // val terug op range API
-      }
-
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
-        el.innerHTML += code;
-        return;
-      }
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      range.insertNode(document.createTextNode(code));
-      // caret achter de ingevoegde tekst zetten
-      sel.collapseToEnd();
-    }
+    const newPos = start + code.length;
+    el.selectionStart = newPos;
+    el.selectionEnd = newPos;
+    el.focus();
   }
 
   function handlePreviewClick() {
     const el = activeFieldEl;
     if (!el) return;
 
-    // Alleen voor HTML-body editor
+    // alleen preview uit de HTML body textarea
     if (
-      el instanceof HTMLDivElement &&
-      el.getAttribute("data-editor") === "body_html"
+      el.tagName === "TEXTAREA" &&
+      el.getAttribute("name") === "body_html"
     ) {
-      setPreviewHtml(el.innerHTML || "");
-    }
-  }
-
-  function applyEditorCommand(cmd: string) {
-    if (typeof document === "undefined") return;
-    try {
-      document.execCommand(cmd, false);
-    } catch {
-      // ignore
-    }
-  }
-
-  function applyLink() {
-    if (typeof document === "undefined") return;
-    const url = window.prompt("Voer een URL in:");
-    if (!url) return;
-    try {
-      document.execCommand("createLink", false, url);
-    } catch {
-      // ignore
+      setPreviewHtml(el.value || "");
     }
   }
 
@@ -309,89 +251,26 @@ export default function StatusTemplatesTabs({
                   </span>
                 </label>
 
-                {/* HTML body editor (contentEditable + hidden textarea) */}
+                {/* HTML body textarea (brede editor) */}
                 <label className="flex flex-col gap-1 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">HTML body</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => applyEditorCommand("bold")}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
-                      >
-                        B
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyEditorCommand("italic")}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50 italic"
-                      >
-                        i
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyEditorCommand("insertUnorderedList")}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
-                      >
-                        • lijst
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => applyEditorCommand("formatBlock")}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
-                      >
-                        ¶
-                      </button>
-                      <button
-                        type="button"
-                        onClick={applyLink}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
-                      >
-                        Link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handlePreviewClick}
-                        className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50 ml-1"
-                      >
-                        Preview HTML
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePreviewClick}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                    >
+                      Preview HTML
+                    </button>
                   </div>
-
-                  {/* Hidden textarea voor form submit */}
                   <textarea
                     name="body_html"
                     defaultValue={tpl.body_html ?? ""}
-                    className="hidden"
+                    rows={18}
+                    className="bb-input text-xs px-2 py-2 font-mono resize-y min-h-[260px]"
+                    placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                    onFocus={(e) => setActiveFieldEl(e.currentTarget)}
                   />
-
-                  {/* Visuele HTML-editor */}
-                  <div
-                    className="bb-input text-xs px-2 py-2 font-mono min-h-[260px] max-h-[480px] overflow-auto bg-white"
-                    contentEditable
-                    data-editor="body_html"
-                    // init inhoud
-                    dangerouslySetInnerHTML={{
-                      __html: tpl.body_html ?? "",
-                    }}
-                    onFocus={(e) =>
-                      setActiveFieldEl(e.currentTarget as HTMLDivElement)
-                    }
-                    onInput={(e) => {
-                      // sync naar hidden textarea
-                      const container = e.currentTarget;
-                      const form = container.closest("form");
-                      if (!form) return;
-                      const hidden = form.querySelector<HTMLTextAreaElement>(
-                        'textarea[name="body_html"]'
-                      );
-                      if (hidden) {
-                        hidden.value = container.innerHTML;
-                      }
-                    }}
-                  />
-
                   <span className="text-xs text-gray-500">
                     Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
                     <code>{`{{full_name}}`}</code>,{" "}
