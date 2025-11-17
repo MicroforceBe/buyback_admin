@@ -1,168 +1,217 @@
+// app/admin/settings/StatusTemplatesTabs.tsx
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
-type TemplateRowWithMeta = {
+type TemplateRow = {
   id: number;
   key: string;
   language: string;
   subject: string | null;
   body_html: string | null;
-  body_text: string | null;
   updated_at: string | null;
   _isNew?: boolean;
 };
 
-type StatusWithTemplates = {
+type StatusTemplateGroup = {
   key: string;
   label: string;
   description: string;
-  rows: TemplateRowWithMeta[];
+  rows: TemplateRow[];
 };
 
 type Props = {
-  statusTemplates: StatusWithTemplates[];
-  // Server action doorgegeven als prop
-  actionSaveTemplate: (formData: FormData) => void;
+  statusTemplates: StatusTemplateGroup[];
+  languages: string[];
+  onSaveTemplate: (formData: FormData) => Promise<any>;
 };
 
-// Beschikbare placeholders rechts
-const PLACEHOLDERS: { token: string; label: string; group?: string }[] = [
-  { token: "{{first_name}}", label: "Voornaam", group: "Contact" },
-  { token: "{{last_name}}", label: "Familienaam", group: "Contact" },
-  { token: "{{full_name}}", label: "Volledige naam", group: "Contact" },
-  { token: "{{email}}", label: "E-mailadres", group: "Contact" },
+type VariableDef = {
+  code: string;
+  label: string;
+  description?: string;
+};
 
-  { token: "{{order_code}}", label: "Ordercode", group: "Order" },
-  { token: "{{order_date}}", label: "Orderdatum", group: "Order" },
-  { token: "{{status}}", label: "Orderstatus (leesbaar)", group: "Order" },
-
-  { token: "{{brand_name}}", label: "Merknaam / shopnaam", group: "Branding" },
-  { token: "{{logo_url}}", label: "Logo URL", group: "Branding" },
-
-  { token: "{{details_table}}", label: "Tabel met toesteldetails", group: "Blocks" },
-  { token: "{{delivery_block}}", label: "Blok met verzend-/afleverinfo", group: "Blocks" },
-  { token: "{{payout_block}}", label: "Blok met uitbetalingsinfo", group: "Blocks" },
-  { token: "{{next_steps}}", label: "Volgende stappen (tekstblok)", group: "Blocks" },
-  { token: "{{disclaimer_html}}", label: "Disclaimer (HTML)", group: "Blocks" },
+const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
+  {
+    title: "Klant & order",
+    vars: [
+      { code: "{{first_name}}", label: "Voornaam" },
+      { code: "{{last_name}}", label: "Achternaam" },
+      { code: "{{full_name}}", label: "Volledige naam" },
+      { code: "{{order_code}}", label: "Ordercode" },
+      { code: "{{email}}", label: "E-mailadres klant" },
+    ],
+  },
+  {
+    title: "Merk & branding",
+    vars: [
+      { code: "{{brand_name}}", label: "Merknaam" },
+      { code: "{{brand_color}}", label: "Merk-kleur (hex)" },
+      { code: "{{logo_url}}", label: "Logo URL" },
+      { code: "{{disclaimer_html}}", label: "Disclaimer (HTML)" },
+    ],
+  },
+  {
+    title: "Toestel & details",
+    vars: [
+      { code: "{{model}}", label: "Modelnaam" },
+      { code: "{{capacity_gb}}", label: "Opslag (GB)" },
+      {
+        code: "{{details_table}}",
+        label: "Detailtabel",
+        description: "HTML-tabel met toestel + richtprijs.",
+      },
+    ],
+  },
+  {
+    title: "Levering & tracking",
+    vars: [
+      {
+        code: "{{delivery_block}}",
+        label: "Leveringsblok",
+        description: "Tekstblok over verzending / inleveren in winkel.",
+      },
+      { code: "{{tracking_code}}", label: "Tracking code" },
+      { code: "{{tracking_url}}", label: "Tracking URL" },
+      { code: "{{label_pdf_url}}", label: "Label PDF URL" },
+    ],
+  },
+  {
+    title: "Uitbetaling & vervolg",
+    vars: [
+      {
+        code: "{{payout_block}}",
+        label: "Uitbetalingsblok",
+        description: "Tekstblok met info over voucher / overschrijving.",
+      },
+      {
+        code: "{{next_steps}}",
+        label: "Volgende stappen",
+        description: "Tekstblok met wat de klant kan verwachten.",
+      },
+      { code: "{{iban}}", label: "Rekeningnummer IBAN" },
+    ],
+  },
 ];
 
 export default function StatusTemplatesTabs({
   statusTemplates,
-  actionSaveTemplate,
+  languages,
+  onSaveTemplate,
 }: Props) {
-  const [activeKey, setActiveKey] = useState(
+  const [activeKey, setActiveKey] = useState<string>(
     statusTemplates[0]?.key ?? ""
   );
 
-  const active =
-    statusTemplates.find((s) => s.key === activeKey) ?? statusTemplates[0];
+  // Huidig actieve statusgroep
+  const activeGroup =
+    statusTemplates.find((g) => g.key === activeKey) ?? statusTemplates[0];
 
-  // Houd bij in welk veld de gebruiker het laatst aan het typen was
-  const lastFocusedRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(
-    null
-  );
+  // Laatst gefocuste input/textarea (voor variabele insert)
+  const [activeFieldEl, setActiveFieldEl] =
+    useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
-  if (!active) {
-    return null;
-  }
+  // HTML preview content
+  const [previewHtml, setPreviewHtml] = useState<string>("");
 
-  function handleFieldFocus(
-    e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) {
-    lastFocusedRef.current = e.target;
-  }
+  function handleVariableClick(code: string) {
+    const el = activeFieldEl;
+    if (!el) return;
 
-  function insertToken(token: string) {
-    const el = lastFocusedRef.current;
-    if (!el) {
-      return;
-    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const current = el.value ?? "";
 
-    const value = el.value ?? "";
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
+    const next =
+      current.slice(0, start) + code + current.slice(end, current.length);
 
-    const newValue = value.slice(0, start) + token + value.slice(end);
+    el.value = next;
 
-    el.value = newValue;
-
-    // cursor na de ingevoegde token plaatsen
-    const cursorPos = start + token.length;
-    el.selectionStart = cursorPos;
-    el.selectionEnd = cursorPos;
-
-    // Voor React/uncontrolled forms is dit genoeg; om zeker te zijn dat
-    // eventuele listeners ook getriggerd worden, dispatchen we een input event.
-    const event = new Event("input", { bubbles: true });
-    el.dispatchEvent(event);
+    const newPos = start + code.length;
+    el.selectionStart = newPos;
+    el.selectionEnd = newPos;
     el.focus();
   }
 
-  // Groepeer placeholders per group voor wat meer structuur
-  const groupedPlaceholders = PLACEHOLDERS.reduce<
-    Record<string, { token: string; label: string }[]>
-  >((acc, ph) => {
-    const group = ph.group ?? "Overig";
-    if (!acc[group]) acc[group] = [];
-    acc[group].push({ token: ph.token, label: ph.label });
-    return acc;
-  }, {});
+  function handlePreviewClick() {
+    const el = activeFieldEl;
+    if (!el) return;
+    if (
+      el.tagName !== "TEXTAREA" ||
+      el.getAttribute("name") !== "body_html"
+    ) {
+      return;
+    }
+    setPreviewHtml(el.value || "");
+  }
+
+  if (!activeGroup) {
+    return (
+      <p className="text-sm text-gray-500">
+        Geen status-templates gevonden om te bewerken.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {/* Tabs header */}
-      <div className="border-b border-gray-200">
-        <div className="flex flex-wrap gap-1">
-          {statusTemplates.map((status) => {
-            const isActive = status.key === activeKey;
-            return (
-              <button
-                key={status.key}
-                type="button"
-                onClick={() => setActiveKey(status.key)}
-                className={
-                  "px-3 py-1.5 text-xs md:text-sm rounded-t border-b-2 -mb-px transition-colors" +
-                  (isActive
-                    ? " border-sky-500 text-sky-700 bg-white"
-                    : " border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300")
-                }
-              >
-                {/* Enkel de orderstatus-naam, geen DB-key */}
-                {status.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Tabs */}
+      <div className="border-b border-gray-200 flex flex-wrap gap-2">
+        {statusTemplates.map((status) => {
+          const isActive = status.key === activeKey;
+          return (
+            <button
+              key={status.key}
+              type="button"
+              onClick={() => setActiveKey(status.key)}
+              className={[
+                "px-3 py-1.5 text-sm rounded-t-md border-b-2",
+                isActive
+                  ? "border-sky-500 text-sky-600 font-medium bg-sky-50"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50",
+              ].join(" ")}
+            >
+              {status.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Actieve tab inhoud */}
-      <div className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <div>
-            <div className="text-sm font-medium flex items-center gap-2">
-              <span>{active.label}</span>
-              {/* Key laten we nog zien voor jou als dev; mag weg als je wil */}
-              <code className="text-xs text-gray-500">{active.key}</code>
-            </div>
-            <p className="text-xs text-gray-500">{active.description}</p>
+      {/* Content: links forms, rechts variabelen + preview */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)] gap-6">
+        {/* LEFT: forms voor actieve status (per taal) */}
+        <div className="space-y-4">
+          <div className="text-xs text-gray-500">
+            <p>{activeGroup.description}</p>
+            <p className="mt-1">
+              1 template per taal. Actieve talen:{" "}
+              {languages.map((lang, idx) => (
+                <span key={lang}>
+                  {idx > 0 ? ", " : ""}
+                  <code>{lang}</code>
+                </span>
+              ))}
+            </p>
           </div>
-        </div>
 
-        {/* Linkerkolom: forms, rechterkolom: placeholders */}
-        <div className="flex flex-col lg:flex-row gap-4 items-start">
-          {/* LEFT: forms per taal */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {active.rows.map((tpl) => (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {activeGroup.rows.map((tpl) => (
               <form
                 key={`${tpl.key}-${tpl.language}`}
-                action={actionSaveTemplate}
+                action={onSaveTemplate}
                 className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
               >
-                {!tpl._isNew && tpl.id ? (
-                  <input type="hidden" name="template_id" value={tpl.id} />
-                ) : null}
-                <input type="hidden" name="template_key" value={tpl.key} />
+                <input
+                  type="hidden"
+                  name="template_id"
+                  value={tpl.id ?? 0}
+                />
+                <input
+                  type="hidden"
+                  name="template_key"
+                  value={tpl.key}
+                />
                 <input
                   type="hidden"
                   name="template_language"
@@ -171,7 +220,7 @@ export default function StatusTemplatesTabs({
 
                 <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
                   <span>
-                    Status-key: <code>{tpl.key}</code> • Taal:{" "}
+                    Key: <code>{tpl.key}</code> • Taal:{" "}
                     <code>{tpl.language}</code>
                   </span>
                   <span>
@@ -188,26 +237,34 @@ export default function StatusTemplatesTabs({
                     name="subject"
                     defaultValue={tpl.subject ?? ""}
                     className="bb-input h-9 text-sm px-2"
-                    placeholder="bv. [{{brand_name}}] Update over je buyback-order {{order_code}}"
-                    onFocus={handleFieldFocus}
+                    placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                    onFocus={(e) => setActiveFieldEl(e.currentTarget)}
                   />
                   <span className="text-xs text-gray-500">
-                    Je kan placeholders gebruiken zoals{" "}
-                    <code>{`{{first_name}}`}</code>,{" "}
+                    Placeholders: <code>{`{{first_name}}`}</code>,{" "}
                     <code>{`{{order_code}}`}</code>,{" "}
                     <code>{`{{brand_name}}`}</code>…
                   </span>
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">HTML body</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">HTML body</span>
+                    <button
+                      type="button"
+                      onClick={handlePreviewClick}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                    >
+                      Preview HTML
+                    </button>
+                  </div>
                   <textarea
                     name="body_html"
                     defaultValue={tpl.body_html ?? ""}
-                    rows={8}
-                    className="bb-input text-xs px-2 py-2 font-mono"
-                    placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}, {{payout_block}}…"
-                    onFocus={handleFieldFocus}
+                    rows={12}
+                    className="bb-input text-xs px-2 py-2 font-mono resize-y min-h-[220px]"
+                    placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
+                    onFocus={(e) => setActiveFieldEl(e.currentTarget)}
                   />
                   <span className="text-xs text-gray-500">
                     Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
@@ -218,22 +275,6 @@ export default function StatusTemplatesTabs({
                     <code>{`{{payout_block}}`}</code>,{" "}
                     <code>{`{{next_steps}}`}</code>,{" "}
                     <code>{`{{disclaimer_html}}`}</code>.
-                  </span>
-                </label>
-
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Tekstversie (optional)</span>
-                  <textarea
-                    name="body_text"
-                    defaultValue={tpl.body_text ?? ""}
-                    rows={5}
-                    className="bb-input text-xs px-2 py-2 font-mono"
-                    placeholder="Platte tekst (fallback). Je kan dezelfde placeholders gebruiken als in de HTML body."
-                    onFocus={handleFieldFocus}
-                  />
-                  <span className="text-xs text-gray-500">
-                    Wordt gebruikt als tekst-only fallback. Laat leeg om de
-                    standaard gegenereerde tekst te gebruiken.
                   </span>
                 </label>
 
@@ -248,45 +289,73 @@ export default function StatusTemplatesTabs({
               </form>
             ))}
           </div>
+        </div>
 
-          {/* RIGHT: placeholder lijst */}
-          <aside className="w-full lg:w-64 border border-dashed border-gray-200 rounded-lg p-3 bg-white/60 text-xs space-y-2">
-            <div>
-              <h4 className="font-semibold text-xs mb-1">
-                Beschikbare variabelen
-              </h4>
-              <p className="text-[11px] text-gray-500 mb-1">
-                Klik om een placeholder in te voegen op de plaats waar je aan
-                het typen bent.
-              </p>
-            </div>
+        {/* RIGHT: variabelen + HTML preview */}
+        <div className="space-y-4">
+          {/* Variabelen */}
+          <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/80">
+            <h3 className="text-sm font-semibold mb-2">
+              Beschikbare variabelen
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Klik op een variabele om de placeholder in te voegen op de
+              huidige cursorpositie in het onderwerp of de HTML body.
+            </p>
 
-            <div className="space-y-2 max-h-80 overflow-auto pr-1">
-              {Object.entries(groupedPlaceholders).map(
-                ([group, items]) => (
-                  <div key={group} className="space-y-1">
-                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                      {group}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {items.map((ph) => (
-                        <button
-                          key={ph.token}
-                          type="button"
-                          onClick={() => insertToken(ph.token)}
-                          className="px-1.5 py-1 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-[11px] font-mono"
-                        >
-                          {ph.token}
-                        </button>
-                      ))}
-                    </div>
+            <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
+              {VARIABLE_GROUPS.map((group) => (
+                <div key={group.title} className="space-y-1.5">
+                  <h4 className="text-xs font-semibold text-gray-600">
+                    {group.title}
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.vars.map((v) => (
+                      <button
+                        key={v.code}
+                        type="button"
+                        onClick={() => handleVariableClick(v.code)}
+                        className="text-[11px] px-2 py-1 rounded border border-gray-300 bg-white hover:bg-sky-50 hover:border-sky-400 whitespace-nowrap"
+                        title={v.description || v.label}
+                      >
+                        {v.label}{" "}
+                        <span className="text-[10px] text-gray-500">
+                          ({v.code})
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                )
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="border border-gray-200 rounded-lg bg-white">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
+              <h3 className="text-sm font-semibold">HTML preview</h3>
+              <span className="text-xs text-gray-400">
+                Gebaseerd op de laatst geklikte <strong>Preview HTML</strong>.
+              </span>
+            </div>
+            <div className="p-3 min-h-[160px] max-h-[320px] overflow-auto bg-white">
+              {previewHtml ? (
+                <div
+                  className="text-sm leading-relaxed"
+                  // Admin-omgeving: HTML komt van jou, dus dit is ok hier
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+                />
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Nog geen preview. Focus een HTML body veld, pas de inhoud
+                  aan en klik op <strong>Preview HTML</strong>.
+                </p>
               )}
             </div>
-          </aside>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
