@@ -442,6 +442,7 @@ export async function updateLeadInlineAction(formData: FormData) {
       "tracking_code",
       "tracking_url",
       "label_pdf_url",
+      "questions_answers_html",
     ].join(", ");
 
   const { data: after, error: updErr } = await sb
@@ -522,25 +523,20 @@ export async function updateLeadInlineAction(formData: FormData) {
         }
 
         // 6.c E-mail versturen met context (incl. tracking/label indien aanwezig)
-        await sendStatusMail({
-          // verplicht voor verzending
+        await sendStatusUpdateMail({
+          // ontvanger + basis
           to: (after as any).email,
-
-          // template- & taalkeuze
-          status: newStatus!,                          // BuybackStatus
-          language: "nl", //voorlopig enkel nl
-
-          // basis
           first_name: (after as any).first_name,
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
-          email: (after as any).email,
 
-          // toestel
+          // context / templatekeuze
+          status: newStatus!, // template beslist tekst
+          language: "nl",
+
+          // toestel & prijs
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
-
-          // prijs / uitbetaling
           final_price_cents: (after as any).final_price_cents,
           wants_voucher: (after as any).wants_voucher ?? null,
           iban: (after as any).iban ?? null,
@@ -553,10 +549,14 @@ export async function updateLeadInlineAction(formData: FormData) {
           shop_city,
           opening_hours,
 
+          // vragen + antwoorden (HTML uit lead)
+          questions_answers_html: (after as any).questions_answers_html ?? null,
+
           // tracking/label
           tracking_code: tracking_code ?? undefined,
           tracking_url: tracking_url ?? undefined,
           label_pdf_url: label_pdf_url ?? undefined,
+
         });
       } catch (e: any) {
         console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
