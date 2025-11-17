@@ -106,11 +106,10 @@ async function loadSettings(): Promise<SettingsRow> {
 
 async function loadEmailTemplates(): Promise<TemplateRow[]> {
   try {
-    // Gebruik select("*") om niet te crashen op kolomnamen
     const { data, error } = await supabaseAdmin
       .from("buyback_email_templates")
       .select("*")
-      .order("key", { ascending: true });
+      .order("id", { ascending: true }); // veiliger dan "key" als die soms niet bestaat
 
     if (error) {
       console.warn("[SETTINGS][email-templates] load error:", error);
@@ -119,24 +118,47 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
     const rows = (data || []) as any[];
 
+    // Helpers om key + language te normaliseren
+    function normalizeKey(rawKey: any, rawType: any): string {
+      const base = (rawKey ?? rawType ?? "").toString().trim();
+      if (!base) return "";
+
+      const lower = base.toLowerCase();
+
+      // Veelvoorkomende oude varianten mappen naar onze status-keys
+      const map: Record<string, string> = {
+        status_new: "new",
+        status_received_store: "received_store",
+        status_label_created: "label_created",
+        status_shipment_received: "shipment_received",
+        status_check_passed: "check_passed",
+        status_check_failed: "check_failed",
+        status_done: "done",
+      };
+
+      return map[lower] ?? base; // als het al "new" is, laten we het gewoon zo
+    }
+
+    function normalizeLanguage(rawLang: any, rawLocale: any, rawLang2: any): string {
+      const base = (rawLang ?? rawLocale ?? rawLang2 ?? "").toString().trim();
+      if (!base) return "nl";
+
+      const lower = base.toLowerCase();
+      if (lower === "nl-be" || lower === "nl_nl" || lower === "dutch") return "nl";
+      if (lower === "fr-be" || lower === "fr_fr" || lower === "french") return "fr";
+
+      return base; // bv. "nl", "fr"
+    }
+
     const out: TemplateRow[] = [];
+
     for (const row of rows) {
       if (!row) continue;
 
-      // key kan 'key' of 'type' zijn
-      const key: string =
-        (row.key as string | undefined) ??
-        (row.type as string | undefined) ??
-        "";
-
+      const key = normalizeKey(row.key, row.type);
       if (!key) continue;
 
-      // language kan 'language', 'locale' of 'lang' zijn
-      const language: string =
-        (row.language as string | undefined) ??
-        (row.locale as string | undefined) ??
-        (row.lang as string | undefined) ??
-        "nl";
+      const language = normalizeLanguage(row.language, row.locale, row.lang);
 
       out.push({
         id: row.id as number,
