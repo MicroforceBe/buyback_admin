@@ -118,23 +118,23 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud Returns API v3 een retour + label aan voor deze lead.
- * Retourlabel (klant -> jullie) met correcte FROM/TO.
- *
- * Endpoint:
- *   POST https://panel.sendcloud.sc/api/v3/returns
- *
- * Auth:
- *   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
- *
- * Let op:
- *   - shipping product / return method kan via accountconfig of (later) via
- *     extra velden in de payload gestuurd worden.
- */
+* Maakt via Sendcloud Returns API v3 een retour + label aan voor deze lead.
+* Retourlabel (klant -> jullie) met correcte FROM/TO.
+*
+* Endpoint:
+*   POST https://panel.sendcloud.sc/api/v3/returns
+*
+* Auth:
+*   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
+*
+* Let op:
+*   - shipping product / return method kan via accountconfig of (later) via
+*     extra velden in de payload gestuurd worden.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
-      console.warn("[SENDCLOUD] ontbrekende API keys; skip label creation");
+      console.warn("[SENDCLOUD][V3 RETURNS] ontbrekende API keys; skip label creation");
       return {};
     }
 
@@ -158,7 +158,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     // TO (jullie) adres uit env
     const { to, missing } = getMerchantToAddress();
     if (missing.length) {
-      console.error("[SENDCLOUD] ontbrekende TO omgevingvariabelen:", missing.join(", "));
+      console.error("[SENDCLOUD][V3 RETURNS] ontbrekende TO omgevingvariabelen:", missing.join(", "));
       return {};
     }
 
@@ -575,10 +575,9 @@ export async function updateLeadInlineAction(formData: FormData) {
           tracking_code: tracking_code ?? undefined,
           tracking_url: tracking_url ?? undefined,
           label_pdf_url: label_pdf_url ?? undefined,
-
         });
       } catch (e: any) {
-        console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
+        console.error("[LEADS][MAIL] sendStatusUpdateMail failed:", e?.message || e);
       }
     })();
   }
