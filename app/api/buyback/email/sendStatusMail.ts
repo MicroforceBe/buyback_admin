@@ -603,11 +603,11 @@ export async function sendStatusMail(input: Input) {
     questions_answers: qaBlock,
   };
 
-  // 🔹 Probeer DB-template 'status_initial' (per taal)
-  const rendered = await renderEmailTemplate("status_initial", language, templateVars);
-
-  const finalSubject = rendered?.subject || baseSubject;
-  const finalHtml = rendered?.html || baseHtml;
+  // 🔹 Probeer DB-template 'new' (per taal; zelfde key als in buyback_email_templates)
+    const rendered = await renderEmailTemplate("new", language, templateVars);
+  
+    const finalSubject = rendered?.subject || baseSubject;
+    const finalHtml = rendered?.html || baseHtml;
 
   // Logging + verzenden
   console.info("[MAIL][sendStatusMail] env check", {
