@@ -20,6 +20,8 @@ export type Input = {
 
   // conditie/antwoorden
   answers?: Record<string, string> | null;
+  // leesbare HTML-versie van vragen/antwoorden (uit lead.questions_answers_html)
+  questions_answers_html?: string | null;
 
   // uitbetaling / levermethode
   iban?: string | null;
@@ -542,6 +544,9 @@ export async function sendStatusMail(input: Input) {
     </p>
   `;
 
+  // Extra blok met vragen/antwoorden-HTML uit de lead (optioneel)
+  const qaBlock = input.questions_answers_html || "";
+
   // HTML fallback body
   const baseHtml = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55;color:#0f172a">
@@ -551,6 +556,8 @@ export async function sendStatusMail(input: Input) {
     <p style="margin:0 0 12px">Bedankt voor je buyback-aanvraag. We hebben je gegevens goed ontvangen.</p>
 
     ${detailsTable}
+
+    ${qaBlock}
 
     ${deliveryBlock}
 
@@ -592,6 +599,8 @@ export async function sendStatusMail(input: Input) {
     disclaimer_html: cfg.email_disclaimer
       ? escapeHtml(cfg.email_disclaimer)
       : `Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.`,
+    // vragen/antwoorden blok als placeholder {{questions_answers}}
+    questions_answers: qaBlock,
   };
 
   // 🔹 Probeer DB-template 'status_initial' (per taal)
