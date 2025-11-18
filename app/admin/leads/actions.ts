@@ -126,10 +126,6 @@ function getMerchantToAddress() {
 *
 * Auth:
 *   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
-*
-* Let op:
-*   - shipping product / return method kan via accountconfig of (later) via
-*     extra velden in de payload gestuurd worden.
 */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
@@ -192,51 +188,44 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // Basis-payload volgens v3 Returns API: vooral `to` en `from_address`
-    // Zie: https://panel.sendcloud.sc/api/v3/returns  (docs via api.sendcloud.dev)
     const externalRef = after.order_code || after.id;
 
+    // ⚠️ V3-returns payload: from_address + to_address + ship_with + weight
     const payload: any = {
-      // Wie stuurt terug? (klant)
       from_address: {
         name: from_name,
         company_name: from_company_name,
         email: from_email,
         telephone: from_phone,
-        address: from_address,
+        address_line_1: from_address,           // v3: address_line_1
         house_number: from_house_number,
         postal_code: from_postal_code,
         city: from_city,
-        country: from_country,
+        country_code: from_country,             // v3: country_code
       },
 
-      // Waar gaat het pakket naartoe? (jullie retouradres)
-      to: {
+      to_address: {
         name: to.name,
         company_name: to.company_name,
         email: to.email,
         telephone: to.telephone,
-        address: [to.address, to.house_number].filter(Boolean).join(" "),
+        address_line_1: [to.address, to.house_number].filter(Boolean).join(" "),
         house_number: to.house_number,
         postal_code: to.postal_code,
         city: to.city,
-        country: to.country,
+        country_code: to.country,
       },
 
-      // Externe referenties – handig voor mapping in jullie systeem
       external_reference: externalRef,
       external_order_id: externalRef,
-
-      // Optioneel: beschrijving/reden, kan je vrij kiezen
       reason: "BUYBACK_RETURN",
 
-      // TODO (optioneel): als Sendcloud vereist dat je een shipping option/product
-      // meegeeft, kun je hier een veld toevoegen, bv.:
-      //
-      // shipping_product: process.env.SENDCLOUD_RETURN_PRODUCT_BE || undefined,
-      //
-      // of een shipping_option_code uit de compat-endpoint:
-      // https://panel.sendcloud.sc/api/v3/compat/shipping-options
+      // verplicht in v3
+      ship_with: "bpost",
+      weight: {
+        value: 0.5,
+        unit: "kilogram",
+      },
     };
 
     const resp = await fetch("https://panel.sendcloud.sc/api/v3/returns", {
@@ -257,19 +246,12 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 
     const data = await resp.json().catch(() => ({} as any));
 
-    // Debug log om de response-structuur eenmalig te inspecteren
     console.info("[SENDCLOUD][V3 RETURNS] create return ok (raw)", {
       id: data?.id,
       status: data?.status,
-      // beperkte logging om GDPR clean te blijven
       has_documents: Array.isArray((data as any)?.documents),
     });
 
-    // === Tracking & label uit de v3-response halen ===
-    // Let op: veldnamen kunnen iets verschillen per versie/carrier.
-    // We proberen een "best effort" mapping; pas aan als je in logs de exacte vorm ziet.
-
-    // 1) Trackingnummer
     const trackingNumber: string | null =
       (data as any)?.tracking_number ??
       (data as any)?.parcel?.tracking_number ??
@@ -279,7 +261,6 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(trackingNumber)}`
       : null;
 
-    // 2) Label-document (zelfde structuur als shipments: documents[] met type 'label')
     let labelPdfUrl: string | null = null;
     const docsArray: any[] =
       (data as any)?.documents ??
@@ -581,7 +562,6 @@ export async function updateLeadInlineAction(formData: FormData) {
       }
     })();
   }
-
 
   // 7) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
   const setKeys = Object.keys(patch).sort();
