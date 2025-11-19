@@ -385,28 +385,57 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       firstParcel?.tracking_number ??
       null;
 
-    const docsArray: any[] =
-      d?.documents ??
-      d?.parcel?.documents ??
-      (firstParcel?.documents as any[]) ??
-      [];
 
-    const trackingUrl: string | null = trackingNumber
-      ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(
-          trackingNumber
-        )}`
-      : null;
+      // Probeer eerst een tracking_url uit de API te halen
+      const trackingUrlFromApi: unknown =
+        d?.tracking_url ??
+        d?.parcel?.tracking_url ??
+        firstParcel?.tracking_url ??
+        null;
+      
+      const trackingUrl: string | null =
+        typeof trackingUrlFromApi === "string" ? trackingUrlFromApi : null;
 
-    let labelPdfUrl: string | null = null;
-
-    if (Array.isArray(docsArray)) {
-      const labelDoc = docsArray.find(
-        (doc) => doc && doc.type === "label" && typeof doc.link === "string"
-      );
-      if (labelDoc) {
-        labelPdfUrl = labelDoc.link;
+      const docsArray: any[] =
+        d?.documents ??
+        d?.parcel?.documents ??
+        (firstParcel?.documents as any[]) ??
+        [];
+      
+      let labelPdfUrl: string | null = null;
+      let parcelIdForLabel: string | null = null;
+      
+      if (Array.isArray(docsArray)) {
+        const labelDoc = docsArray.find(
+          (doc) => doc && doc.type === "label" && typeof doc.link === "string"
+        );
+        if (labelDoc) {
+          // bv. "/api/v3/parcels/574848212/documents/label" of met host
+          const link = String(labelDoc.link);
+      
+          // Parcel ID uit de link halen
+          const m = link.match(/parcels\/(\d+)\/documents\/label/);
+          if (m) {
+            parcelIdForLabel = m[1]; // "574848212"
+          }
+      
+          // desnoods nog bewaren, maar we gaan 'm niet rechtstreeks gebruiken
+          labelPdfUrl = link;
+        }
       }
-    }
+      
+      console.info("[SENDCLOUD][V3 SHIPMENTS] parsed result", {
+        trackingNumber,
+        hasLabelPdf: !!parcelIdForLabel || !!labelPdfUrl,
+      });
+      
+      return {
+        tracking_code: trackingNumber,
+        tracking_url: trackingUrl,
+        // We slaan voortaan de parcel_id op in label_pdf_url (beter: losse kolom, maar zo hoeft de DB niet meteen aangepast)
+        label_pdf_url: parcelIdForLabel ?? labelPdfUrl,
+      };
+
 
     console.info("[SENDCLOUD][V3 SHIPMENTS] parsed result", {
       trackingNumber,
