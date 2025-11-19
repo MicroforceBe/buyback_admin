@@ -320,18 +320,37 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       },
       body: JSON.stringify(payload),
     });
-
+    
+    // Altijd eerst de raw text loggen, dan proberen te parsen.
+    // Zo zien we ALTIJD wat Sendcloud terugstuurt.
+    const rawText = await resp.text().catch(() => "");
+    console.info("[SENDCLOUD][V3 RETURNS] raw response", {
+      status: resp.status,
+      ok: resp.ok,
+      bodySnippet: rawText.slice(0, 1000), // eerste 1000 chars
+    });
+    
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
       console.error(
         "[SENDCLOUD][V3 RETURNS] create return failed",
         resp.status,
-        txt
+        rawText
       );
       return {};
     }
-
-    const data = await resp.json().catch(() => ({} as any));
+    
+    // Probeer JSON te parsen uit de raw text
+    let data: any = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (e: any) {
+      console.error(
+        "[SENDCLOUD][V3 RETURNS] response is not valid JSON:",
+        e?.message || e
+      );
+      // in dat geval kunnen we sowieso geen tracking/label eruit halen
+      return {};
+    }
 
     // Debug log om de response-structuur eenmalig te inspecteren
     console.info("[SENDCLOUD][V3 RETURNS] create return ok (raw)", {
