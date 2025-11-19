@@ -91,8 +91,11 @@ function clean(s: unknown): string | undefined {
 /** Default ship_with configuratie: bpost @home (bpost:athome-bpack24hpro) */
 const DEFAULT_SHIP_WITH = {
   type: "shipping_option_code",
-  shipping_option_code: "bpost:athome-bpack24hpro",
+  properties: {
+    shipping_option_code: "bpost:athome-bpack24hpro",
+  },
 } as const;
+
 
 
 /** Haal jullie (ontvanger) adres uit env; vereist voor retourlabels */
@@ -122,68 +125,73 @@ function getMerchantToAddress() {
   return { to, missing };
 }
 
-/**
- * Haal ship_with-object op uit env.
- * Verwacht een geldige JSON-string in SENDCLOUD_RETURN_SHIP_WITH_JSON, bv:
- *
- * {
- *   "type": "shipping_option_code",
- *   "properties": {
- *     "shipping_option_code": "bpost:athome-bpack24hpro"
- *   }
- * }
- *
- * -> Dit JSON plak je letterlijk in de env-var.
- *
- * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
- */
-function getShipWithObject(): any {
-  const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
-  if (!raw) {
-    console.warn(
-      "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; using default bpost:athome-bpack24hpro"
-    );
-    return DEFAULT_SHIP_WITH;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      console.error(
-        "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object; using default bpost:athome-bpack24hpro"
+  /**
+   * Haal ship_with-object op uit env en normaliseer naar:
+   *
+   * {
+   *   type: "shipping_option_code",
+   *   properties: { shipping_option_code: "..." }
+   * }
+   *
+   * Ondersteunt twee env-vormen:
+   * 1) { "shipping_option_code": "..." }
+   * 2) { "type": "shipping_option_code", "properties": { "shipping_option_code": "..." } }
+   *
+   * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
+   */
+  function getShipWithObject(): any {
+    const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
+    if (!raw) {
+      console.warn(
+        "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; using default bpost:athome-bpack24hpro"
       );
       return DEFAULT_SHIP_WITH;
     }
-
-    // Ondersteun beide vormen:
-    // 1) { shipping_option_code: "..." }
-    // 2) { type: "shipping_option_code", properties: { shipping_option_code: "..." } }
-    const anyParsed: any = parsed;
-    if (anyParsed.shipping_option_code) {
-      return {
-        type: anyParsed.type || "shipping_option_code",
-        shipping_option_code: anyParsed.shipping_option_code,
-      };
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        console.error(
+          "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object; using default bpost:athome-bpack24hpro"
+        );
+        return DEFAULT_SHIP_WITH;
+      }
+  
+      const anyParsed: any = parsed;
+  
+      // Vorm 2: type + properties.shipping_option_code
+      if (anyParsed.properties?.shipping_option_code) {
+        return {
+          type: anyParsed.type || "shipping_option_code",
+          properties: {
+            shipping_option_code: anyParsed.properties.shipping_option_code,
+          },
+        };
+      }
+  
+      // Vorm 1: top-level shipping_option_code
+      if (anyParsed.shipping_option_code) {
+        return {
+          type: anyParsed.type || "shipping_option_code",
+          properties: {
+            shipping_option_code: anyParsed.shipping_option_code,
+          },
+        };
+      }
+  
+      console.error(
+        "[SENDCLOUD][V3 SHIPMENTS] ship_with JSON has no shipping_option_code; using default bpost:athome-bpack24hpro"
+      );
+      return DEFAULT_SHIP_WITH;
+    } catch (e: any) {
+      console.error(
+        "[SENDCLOUD][V3 SHIPMENTS] invalid JSON in SENDCLOUD_RETURN_SHIP_WITH_JSON:",
+        e?.message || e,
+        " -> using default bpost:athome-bpack24hpro"
+      );
+      return DEFAULT_SHIP_WITH;
     }
-    if (anyParsed.properties?.shipping_option_code) {
-      return {
-        type: anyParsed.type || "shipping_option_code",
-        shipping_option_code: anyParsed.properties.shipping_option_code,
-      };
-    }
-
-    console.error(
-      "[SENDCLOUD][V3 RETURNS] ship_with JSON has no shipping_option_code; using default bpost:athome-bpack24hpro"
-    );
-    return DEFAULT_SHIP_WITH;
-  } catch (e: any) {
-    console.error(
-      "[SENDCLOUD][V3 RETURNS] invalid JSON in SENDCLOUD_RETURN_SHIP_WITH_JSON:",
-      e?.message || e,
-      " -> using default bpost:athome-bpack24hpro"
-    );
-    return DEFAULT_SHIP_WITH;
   }
-}
+
 
 /**
  * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
