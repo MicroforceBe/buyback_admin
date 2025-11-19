@@ -321,8 +321,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 
       external_reference: externalRef,
       external_order_id: externalRef,
-      label_notes: "BUYBACK_RETURN",
-    };
+      label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",    };
 
     const resp = await fetch("https://panel.sendcloud.sc/api/v3/shipments/announce", {
       method: "POST",
@@ -352,30 +351,39 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     }
 
     let data: any = {};
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch (e: any) {
-      console.error(
-        "[SENDCLOUD][V3 SHIPMENTS] response is not valid JSON:",
-        e?.message || e
-      );
-      return {};
-    }
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch (e: any) {
+        console.error(
+          "[SENDCLOUD][V3 SHIPMENTS] response is not valid JSON:",
+          e?.message || e
+        );
+        return {};
+      }
+      
+      // Sommige endpoints wrappen onder { data: { ... } }
+      const d: any = (data as any)?.data ?? data;
+      
+      // === Tracking & label uit de shipments v3-response halen ===
+      const firstParcel: any =
+        d?.parcels?.[0] ??
+        d?.parcel ??
+        d?.shipment?.parcels?.[0] ??
+        d?.shipments?.[0]?.parcels?.[0] ??
+        null;
+      
+      const trackingNumber: string | null =
+        d?.tracking_number ??
+        d?.parcel?.tracking_number ??
+        firstParcel?.tracking_number ??
+        null;
+      
+      const docsArray: any[] =
+        d?.documents ??
+        d?.parcel?.documents ??
+        (firstParcel?.documents as any[]) ??
+        [];
 
-    // === Tracking & label uit de shipments v3-response halen ===
-    // Probeer een paar mogelijke structuren (parcels direct, of nested in shipment/shipments)
-    const firstParcel =
-      (data as any)?.parcels?.[0] ??
-      (data as any)?.parcel ??
-      (data as any)?.shipment?.parcels?.[0] ??
-      (data as any)?.shipments?.[0]?.parcels?.[0] ??
-      null;
-
-    const trackingNumber: string | null =
-      (data as any)?.tracking_number ??
-      (data as any)?.parcel?.tracking_number ??
-      (firstParcel as any)?.tracking_number ??
-      null;
 
     const trackingUrl: string | null = trackingNumber
       ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(
