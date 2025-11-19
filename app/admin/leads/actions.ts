@@ -163,6 +163,37 @@ function getShipWithObject(): any {
   }
 }
 
+
+/** Haal jullie (ontvanger) adres uit env; vereist voor labels */
+function getMerchantToAddress() {
+  const to = {
+    name:
+      clean(process.env.SENDCLOUD_TO_NAME) ||
+      clean(process.env.MAIL_BRAND_NAME) ||
+      "Microforce Buyback",
+    company_name:
+      clean(process.env.SENDCLOUD_TO_COMPANY) ||
+      clean(process.env.MAIL_BRAND_NAME) ||
+      "Microforce Buyback",
+    email: clean(process.env.SENDCLOUD_TO_EMAIL),
+    telephone: clean(process.env.SENDCLOUD_TO_PHONE),
+    address: clean(process.env.SENDCLOUD_TO_ADDRESS), // verplicht
+    house_number: clean(process.env.SENDCLOUD_TO_HOUSE_NUMBER), // optioneel
+    postal_code: clean(process.env.SENDCLOUD_TO_POSTAL_CODE), // verplicht
+    city: clean(process.env.SENDCLOUD_TO_CITY), // verplicht
+    country: (clean(process.env.SENDCLOUD_TO_COUNTRY) || "BE")?.toUpperCase(),
+  };
+
+  const missing: string[] = [];
+  if (!to.address) missing.push("SENDCLOUD_TO_ADDRESS");
+  if (!to.postal_code) missing.push("SENDCLOUD_TO_POSTAL_CODE");
+  if (!to.city) missing.push("SENDCLOUD_TO_CITY");
+  if (!to.country) missing.push("SENDCLOUD_TO_COUNTRY");
+
+  return { to, missing };
+}
+
+
 /**
  * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
  * Shipment (klant -> jullie) met correcte FROM/TO.
