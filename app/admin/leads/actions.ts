@@ -391,13 +391,6 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         )}`
       : null;
 
-    let labelPdfUrl: string | null = null;
-    const docsArray: any[] =
-      (data as any)?.documents ??
-      (data as any)?.parcel?.documents ??
-      (firstParcel as any)?.documents ??
-      [];
-
     if (Array.isArray(docsArray)) {
       const labelDoc = docsArray.find(
         (d) => d && d.type === "label" && typeof d.link === "string"
