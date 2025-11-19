@@ -88,6 +88,14 @@ function clean(s: unknown): string | undefined {
   return v ? v : undefined;
 }
 
+/** Default ship_with configuratie: bpost @home (bpost:athome-bpack24hpro) */
+const DEFAULT_SHIP_WITH = {
+  type: "shipping_option_code",
+  properties: {
+    shipping_option_code: "bpost:athome-bpack24hpro",
+  },
+} as const;
+
 /** Haal jullie (ontvanger) adres uit env; vereist voor retourlabels */
 function getMerchantToAddress() {
   const to = {
@@ -122,35 +130,38 @@ function getMerchantToAddress() {
  * {
  *   "type": "shipping_option_code",
  *   "properties": {
- *     "shipping_option_code": "bpost:return/easy_return"
+ *     "shipping_option_code": "bpost:athome-bpack24hpro"
  *   }
  * }
  *
  * -> Dit JSON plak je letterlijk in de env-var.
+ *
+ * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
  */
-function getShipWithObject(): any | null {
+function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
     console.warn(
-      "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; skipping label creation"
+      "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; using default bpost:athome-bpack24hpro"
     );
-    return null;
+    return DEFAULT_SHIP_WITH;
   }
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
       console.error(
-        "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object"
+        "[SENDCLOUD][V3 RETURNS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object; using default bpost:athome-bpack24hpro"
       );
-      return null;
+      return DEFAULT_SHIP_WITH;
     }
     return parsed;
   } catch (e: any) {
     console.error(
       "[SENDCLOUD][V3 RETURNS] invalid JSON in SENDCLOUD_RETURN_SHIP_WITH_JSON:",
-      e?.message || e
+      e?.message || e,
+      " -> using default bpost:athome-bpack24hpro"
     );
-    return null;
+    return DEFAULT_SHIP_WITH;
   }
 }
 
@@ -171,10 +182,11 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // ship_with configuratie uit env (v3 verplicht)
+    // ship_with configuratie (v3 verplicht)
     const shipWith = getShipWithObject();
     if (!shipWith) {
-      // We loggen en skippen, zodat we geen 400-errors blijven genereren.
+      // Met DEFAULT_SHIP_WITH zal dit eigenlijk nooit gebeuren, maar als extra safeguard:
+      console.warn("[SENDCLOUD][V3 RETURNS] no ship_with object; skipping label creation");
       return {};
     }
 
@@ -471,7 +483,8 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   // 4.b Automatisch 'ship' zetten als label wordt aangemaakt
-  if (patch.status === "label_created") {
+  const endingStatus: Status = "label_created";
+  if (patch.status === endingStatus) {
     const currentMethod = (before as any).delivery_method as string | null;
     if (Object.prototype.hasOwnProperty.call(before, "delivery_method")) {
       if (currentMethod !== "ship") {
