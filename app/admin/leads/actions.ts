@@ -185,13 +185,12 @@ function getShipWithObject(): any {
   }
 }
 
-
 /**
- * Maakt via Sendcloud Returns API v3 een retour + label aan voor deze lead.
- * Retourlabel (klant -> jullie) met correcte FROM/TO.
+ * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+ * Shipment (klant -> jullie) met correcte FROM/TO.
  *
  * Endpoint:
- *   POST https://panel.sendcloud.sc/api/v3/returns
+ *   POST https://panel.sendcloud.sc/api/v3/shipments/announce
  *
  * Auth:
  *   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
@@ -203,11 +202,10 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       return {};
     }
 
-    // ship_with configuratie (v3 verplicht)
+    // ship_with configuratie (v3 verplicht) – bevat shipping_option_code
     const shipWith = getShipWithObject();
     if (!shipWith) {
-      // Met DEFAULT_SHIP_WITH zal dit eigenlijk nooit gebeuren, maar als extra safeguard:
-      console.warn("[SENDCLOUD][V3 RETURNS] no ship_with object; skipping label creation");
+      console.warn("[SENDCLOUD][V3 SHIPMENTS] no ship_with object; skipping label creation");
       return {};
     }
 
@@ -233,7 +231,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     const { to, missing } = getMerchantToAddress();
     if (missing.length) {
       console.error(
-        "[SENDCLOUD][V3 RETURNS] ontbrekende TO omgevingvariabelen:",
+        "[SENDCLOUD][V3 SHIPMENTS] ontbrekende TO omgevingvariabelen:",
         missing.join(", ")
       );
       return {};
@@ -254,7 +252,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     if (!to.postal_code) toMissing.push("to_address.postal_code");
     if (!to.country) toMissing.push("to_address.country_code");
 
-    console.info("[SENDCLOUD][V3 RETURNS] create return start", {
+    console.info("[SENDCLOUD][V3 SHIPMENTS] create shipment start", {
       order: after.order_code || after.id,
       to: to.company_name || to.name,
       country: from_country_code,
@@ -265,7 +263,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     });
 
     if (fromMissing.length || toMissing.length) {
-      console.error("[SENDCLOUD][V3 RETURNS] ontbrekende adresvelden:", {
+      console.error("[SENDCLOUD][V3 SHIPMENTS] ontbrekende adresvelden:", {
         fromMissing,
         toMissing,
       });
@@ -274,12 +272,13 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 
     const externalRef = after.order_code || after.id;
 
-    // Gewicht is verplicht in v3 (value + unit)
+    // Gewicht op parcel-niveau (verplicht voor shipment)
     const weight = {
       value: 0.5, // 0.5 kg is ruim voldoende voor 1 toestel
       unit: "kg",
     };
 
+    // Shipments v3 verwacht parcels[] met gewicht, en from/to op shipment-niveau
     const payload: any = {
       from_address: {
         name: from_name,
@@ -303,15 +302,21 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         country_code: to.country,
       },
 
-      ship_with: shipWith,
-      weight,
+      ship_with: shipWith, // bevat type: "shipping_option_code" + shipping_option_code: "bpost:athome-bpack24hpro"
+
+      parcels: [
+        {
+          weight,
+          // eventueel later: dimensions, insurance, etc.
+        },
+      ],
 
       external_reference: externalRef,
       external_order_id: externalRef,
-      reason: "BUYBACK_RETURN",
+      label_notes: "BUYBACK_RETURN",
     };
 
-    const resp = await fetch("https://panel.sendcloud.sc/api/v3/returns", {
+    const resp = await fetch("https://panel.sendcloud.sc/api/v3/shipments/announce", {
       method: "POST",
       headers: {
         Authorization: scAuthHeader(), // Basic pub:sec
@@ -320,49 +325,48 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       },
       body: JSON.stringify(payload),
     });
-    
-    // Altijd eerst de raw text loggen, dan proberen te parsen.
-    // Zo zien we ALTIJD wat Sendcloud terugstuurt.
+
+    // Altijd raw response loggen om structuur te zien
     const rawText = await resp.text().catch(() => "");
-    console.info("[SENDCLOUD][V3 RETURNS] raw response", {
+    console.info("[SENDCLOUD][V3 SHIPMENTS] raw response", {
       status: resp.status,
       ok: resp.ok,
-      bodySnippet: rawText.slice(0, 1000), // eerste 1000 chars
+      bodySnippet: rawText.slice(0, 1000),
     });
-    
+
     if (!resp.ok) {
       console.error(
-        "[SENDCLOUD][V3 RETURNS] create return failed",
+        "[SENDCLOUD][V3 SHIPMENTS] create shipment failed",
         resp.status,
         rawText
       );
       return {};
     }
-    
-    // Probeer JSON te parsen uit de raw text
+
     let data: any = {};
     try {
       data = rawText ? JSON.parse(rawText) : {};
     } catch (e: any) {
       console.error(
-        "[SENDCLOUD][V3 RETURNS] response is not valid JSON:",
+        "[SENDCLOUD][V3 SHIPMENTS] response is not valid JSON:",
         e?.message || e
       );
-      // in dat geval kunnen we sowieso geen tracking/label eruit halen
       return {};
     }
 
-    // Debug log om de response-structuur eenmalig te inspecteren
-    console.info("[SENDCLOUD][V3 RETURNS] create return ok (raw)", {
-      id: (data as any)?.id,
-      status: (data as any)?.status,
-      has_documents: Array.isArray((data as any)?.documents),
-    });
+    // === Tracking & label uit de shipments v3-response halen ===
+    // Probeer een paar mogelijke structuren (parcels direct, of nested in shipment/shipments)
+    const firstParcel =
+      (data as any)?.parcels?.[0] ??
+      (data as any)?.parcel ??
+      (data as any)?.shipment?.parcels?.[0] ??
+      (data as any)?.shipments?.[0]?.parcels?.[0] ??
+      null;
 
-    // === Tracking & label uit de v3-response halen ===
     const trackingNumber: string | null =
       (data as any)?.tracking_number ??
       (data as any)?.parcel?.tracking_number ??
+      (firstParcel as any)?.tracking_number ??
       null;
 
     const trackingUrl: string | null = trackingNumber
@@ -373,7 +377,10 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 
     let labelPdfUrl: string | null = null;
     const docsArray: any[] =
-      (data as any)?.documents ?? (data as any)?.parcel?.documents ?? [];
+      (data as any)?.documents ??
+      (data as any)?.parcel?.documents ??
+      (firstParcel as any)?.documents ??
+      [];
 
     if (Array.isArray(docsArray)) {
       const labelDoc = docsArray.find(
@@ -384,7 +391,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       }
     }
 
-    console.info("[SENDCLOUD][V3 RETURNS] parsed result", {
+    console.info("[SENDCLOUD][V3 SHIPMENTS] parsed result", {
       trackingNumber,
       hasLabelPdf: !!labelPdfUrl,
     });
@@ -396,12 +403,13 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     };
   } catch (e: any) {
     console.error(
-      "[SENDCLOUD][V3 RETURNS] exception",
+      "[SENDCLOUD][V3 SHIPMENTS] exception",
       e?.message || e
     );
     return {};
   }
 }
+
 
 /**
  * Eén action die ALLES kan updaten.
