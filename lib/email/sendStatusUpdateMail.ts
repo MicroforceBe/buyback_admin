@@ -28,14 +28,44 @@ export async function sendStatusUpdateMail(input: StatusMailInput) {
     process.env.MAIL_FROM || "no-reply@microforce-buyback.local";
   const language = input.language || "nl";
 
+  /**
+   * === Label-URL normaliseren ===
+   *
+   * In de DB/flow krijgen we bij label_created meestal een "label_pdf_url"
+   * die in feite een parcel_id is (bv. "574848212").
+   *
+   * Hier maken we daar een publieke URL van naar onze eigen proxy:
+   *   {BASE}/api/admin/sendcloud/label?parcel_id=574848212
+   *
+   * BASE haal je idealiter uit MAIL_PUBLIC_BASE_URL, en anders uit
+   * bv. NEXT_PUBLIC_SITE_URL of een vergelijkbare env.
+   */
+  let normalizedLabelUrl = (input as any).label_pdf_url as string | undefined;
+
+  const baseUrl =
+    process.env.MAIL_PUBLIC_BASE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.MAIL_BRAND_URL;
+
+  if (
+    normalizedLabelUrl &&
+    /^\d+$/.test(normalizedLabelUrl) && // alleen cijfers? => parcel_id
+    baseUrl
+  ) {
+    const trimmedBase = baseUrl.replace(/\/+$/, "");
+    normalizedLabelUrl = `${trimmedBase}/api/admin/sendcloud/label?parcel_id=${normalizedLabelUrl}`;
+  }
+
   // Render subject + html o.b.v. Supabase template
   const { subject, html } = await renderStatusEmail({
     status: input.status,
     language,
     context: {
       ...input,
-      email: input.email || input.to,
-    },
+      email: (input as any).email || input.to,
+      // overschrijf label_pdf_url in de context met de genormaliseerde URL
+      label_pdf_url: normalizedLabelUrl ?? (input as any).label_pdf_url,
+    } as TemplateContext,
   });
 
   if (!resend) {
