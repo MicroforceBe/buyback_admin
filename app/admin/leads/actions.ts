@@ -96,102 +96,72 @@ const DEFAULT_SHIP_WITH = {
   },
 } as const;
 
-
-
-/** Haal jullie (ontvanger) adres uit env; vereist voor retourlabels */
-function getMerchantToAddress() {
-  const to = {
-    name:
-      clean(process.env.SENDCLOUD_TO_NAME) ||
-      clean(process.env.MAIL_BRAND_NAME) ||
-      "Microforce Buyback",
-    company_name:
-      clean(process.env.SENDCLOUD_TO_COMPANY) ||
-      clean(process.env.MAIL_BRAND_NAME) ||
-      "Microforce Buyback",
-    email: clean(process.env.SENDCLOUD_TO_EMAIL),
-    telephone: clean(process.env.SENDCLOUD_TO_PHONE),
-    address: clean(process.env.SENDCLOUD_TO_ADDRESS), // verplicht
-    house_number: clean(process.env.SENDCLOUD_TO_HOUSE_NUMBER), // optioneel
-    postal_code: clean(process.env.SENDCLOUD_TO_POSTAL_CODE), // verplicht
-    city: clean(process.env.SENDCLOUD_TO_CITY), // verplicht
-    country: (clean(process.env.SENDCLOUD_TO_COUNTRY) || "BE")?.toUpperCase(),
-  };
-  const missing: string[] = [];
-  if (!to.address) missing.push("SENDCLOUD_TO_ADDRESS");
-  if (!to.postal_code) missing.push("SENDCLOUD_TO_POSTAL_CODE");
-  if (!to.city) missing.push("SENDCLOUD_TO_CITY");
-  if (!to.country) missing.push("SENDCLOUD_TO_COUNTRY");
-  return { to, missing };
-}
-
-  /**
-   * Haal ship_with-object op uit env en normaliseer naar:
-   *
-   * {
-   *   type: "shipping_option_code",
-   *   properties: { shipping_option_code: "..." }
-   * }
-   *
-   * Ondersteunt twee env-vormen:
-   * 1) { "shipping_option_code": "..." }
-   * 2) { "type": "shipping_option_code", "properties": { "shipping_option_code": "..." } }
-   *
-   * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
-   */
-  function getShipWithObject(): any {
-    const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
-    if (!raw) {
-      console.warn(
-        "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; using default bpost:athome-bpack24hpro"
-      );
-      return DEFAULT_SHIP_WITH;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") {
-        console.error(
-          "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object; using default bpost:athome-bpack24hpro"
-        );
-        return DEFAULT_SHIP_WITH;
-      }
-  
-      const anyParsed: any = parsed;
-  
-      // Vorm 2: type + properties.shipping_option_code
-      if (anyParsed.properties?.shipping_option_code) {
-        return {
-          type: anyParsed.type || "shipping_option_code",
-          properties: {
-            shipping_option_code: anyParsed.properties.shipping_option_code,
-          },
-        };
-      }
-  
-      // Vorm 1: top-level shipping_option_code
-      if (anyParsed.shipping_option_code) {
-        return {
-          type: anyParsed.type || "shipping_option_code",
-          properties: {
-            shipping_option_code: anyParsed.shipping_option_code,
-          },
-        };
-      }
-  
-      console.error(
-        "[SENDCLOUD][V3 SHIPMENTS] ship_with JSON has no shipping_option_code; using default bpost:athome-bpack24hpro"
-      );
-      return DEFAULT_SHIP_WITH;
-    } catch (e: any) {
-      console.error(
-        "[SENDCLOUD][V3 SHIPMENTS] invalid JSON in SENDCLOUD_RETURN_SHIP_WITH_JSON:",
-        e?.message || e,
-        " -> using default bpost:athome-bpack24hpro"
-      );
-      return DEFAULT_SHIP_WITH;
-    }
+/**
+ * Haal ship_with-object op uit env en normaliseer naar:
+ *
+ * {
+ *   type: "shipping_option_code",
+ *   properties: { shipping_option_code: "..." }
+ * }
+ *
+ * Ondersteunt twee env-vormen:
+ * 1) { "shipping_option_code": "..." }
+ * 2) { "type": "shipping_option_code", "properties": { "shipping_option_code": "..." } }
+ *
+ * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
+ */
+function getShipWithObject(): any {
+  const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
+  if (!raw) {
+    console.warn(
+      "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON not set; using default bpost:athome-bpack24hpro"
+    );
+    return DEFAULT_SHIP_WITH;
   }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      console.error(
+        "[SENDCLOUD][V3 SHIPMENTS] SENDCLOUD_RETURN_SHIP_WITH_JSON is not an object; using default bpost:athome-bpack24hpro"
+      );
+      return DEFAULT_SHIP_WITH;
+    }
 
+    const anyParsed: any = parsed;
+
+    // Vorm 2: type + properties.shipping_option_code
+    if (anyParsed.properties?.shipping_option_code) {
+      return {
+        type: anyParsed.type || "shipping_option_code",
+        properties: {
+          shipping_option_code: anyParsed.properties.shipping_option_code,
+        },
+      };
+    }
+
+    // Vorm 1: top-level shipping_option_code
+    if (anyParsed.shipping_option_code) {
+      return {
+        type: anyParsed.type || "shipping_option_code",
+        properties: {
+          shipping_option_code: anyParsed.shipping_option_code,
+        },
+      };
+    }
+
+    console.error(
+      "[SENDCLOUD][V3 SHIPMENTS] ship_with JSON has no shipping_option_code; using default bpost:athome-bpack24hpro"
+    );
+    return DEFAULT_SHIP_WITH;
+  } catch (e: any) {
+    console.error(
+      "[SENDCLOUD][V3 SHIPMENTS] invalid JSON in SENDCLOUD_RETURN_SHIP_WITH_JSON:",
+      e?.message || e,
+      " -> using default bpost:athome-bpack24hpro"
+    );
+    return DEFAULT_SHIP_WITH;
+  }
+}
 
 /**
  * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
@@ -213,7 +183,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     // ship_with configuratie (v3 verplicht) – bevat shipping_option_code
     const shipWith = getShipWithObject();
     if (!shipWith) {
-      console.warn("[SENDCLOUD][V3 SHIPMENTS] no ship_with object; skipping label creation");
+      console.warn(
+        "[SENDCLOUD][V3 SHIPMENTS] no ship_with object; skipping label creation"
+      );
       return {};
     }
 
@@ -310,7 +282,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         country_code: to.country,
       },
 
-      ship_with: shipWith, // bevat type: "shipping_option_code" + shipping_option_code: "bpost:athome-bpack24hpro"
+      ship_with: shipWith, // bevat type + properties.shipping_option_code
 
       parcels: [
         {
@@ -321,17 +293,21 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 
       external_reference: externalRef,
       external_order_id: externalRef,
-      label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",    };
+      label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",
+    };
 
-    const resp = await fetch("https://panel.sendcloud.sc/api/v3/shipments/announce", {
-      method: "POST",
-      headers: {
-        Authorization: scAuthHeader(), // Basic pub:sec
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    const resp = await fetch(
+      "https://panel.sendcloud.sc/api/v3/shipments/announce",
+      {
+        method: "POST",
+        headers: {
+          Authorization: scAuthHeader(), // Basic pub:sec
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
     // Altijd raw response loggen om structuur te zien
     const rawText = await resp.text().catch(() => "");
@@ -351,39 +327,38 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     }
 
     let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch (e: any) {
-        console.error(
-          "[SENDCLOUD][V3 SHIPMENTS] response is not valid JSON:",
-          e?.message || e
-        );
-        return {};
-      }
-      
-      // Sommige endpoints wrappen onder { data: { ... } }
-      const d: any = (data as any)?.data ?? data;
-      
-      // === Tracking & label uit de shipments v3-response halen ===
-      const firstParcel: any =
-        d?.parcels?.[0] ??
-        d?.parcel ??
-        d?.shipment?.parcels?.[0] ??
-        d?.shipments?.[0]?.parcels?.[0] ??
-        null;
-      
-      const trackingNumber: string | null =
-        d?.tracking_number ??
-        d?.parcel?.tracking_number ??
-        firstParcel?.tracking_number ??
-        null;
-      
-      const docsArray: any[] =
-        d?.documents ??
-        d?.parcel?.documents ??
-        (firstParcel?.documents as any[]) ??
-        [];
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (e: any) {
+      console.error(
+        "[SENDCLOUD][V3 SHIPMENTS] response is not valid JSON:",
+        e?.message || e
+      );
+      return {};
+    }
 
+    // Sommige endpoints wrappen onder { data: { ... } }
+    const d: any = (data as any)?.data ?? data;
+
+    // === Tracking & label uit de shipments v3-response halen ===
+    const firstParcel: any =
+      d?.parcels?.[0] ??
+      d?.parcel ??
+      d?.shipment?.parcels?.[0] ??
+      d?.shipments?.[0]?.parcels?.[0] ??
+      null;
+
+    const trackingNumber: string | null =
+      d?.tracking_number ??
+      d?.parcel?.tracking_number ??
+      firstParcel?.tracking_number ??
+      null;
+
+    const docsArray: any[] =
+      d?.documents ??
+      d?.parcel?.documents ??
+      (firstParcel?.documents as any[]) ??
+      [];
 
     const trackingUrl: string | null = trackingNumber
       ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(
@@ -391,9 +366,11 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
         )}`
       : null;
 
+    let labelPdfUrl: string | null = null;
+
     if (Array.isArray(docsArray)) {
       const labelDoc = docsArray.find(
-        (d) => d && d.type === "label" && typeof d.link === "string"
+        (doc) => doc && doc.type === "label" && typeof doc.link === "string"
       );
       if (labelDoc) {
         labelPdfUrl = labelDoc.link;
@@ -411,14 +388,10 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       label_pdf_url: labelPdfUrl,
     };
   } catch (e: any) {
-    console.error(
-      "[SENDCLOUD][V3 SHIPMENTS] exception",
-      e?.message || e
-    );
+    console.error("[SENDCLOUD][V3 SHIPMENTS] exception", e?.message || e);
     return {};
   }
 }
-
 
 /**
  * Eén action die ALLES kan updaten.
