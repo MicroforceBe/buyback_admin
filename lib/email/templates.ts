@@ -20,6 +20,7 @@ export type TemplateContext = {
 
   // toestel
   model?: string | null;
+  variant?: string | null;               // 🔹 NIEUW
   capacity_gb?: number | null;
 
   // prijs / uitbetaling
@@ -188,20 +189,29 @@ function buildBlocks(
   `;
 
   const priceStr = formatCurrency(ctx.final_price_cents ?? null);
+
+  // 🔹 Toestelregel met model + variant + GB
+  let deviceLabel = "";
+  const deviceParts: string[] = [];
+  if (ctx.model) deviceParts.push(ctx.model);
+  if (ctx.variant) deviceParts.push(ctx.variant);
+  deviceLabel = deviceParts.join(" – ");
+  if (ctx.capacity_gb) {
+    deviceLabel = deviceLabel
+      ? `${deviceLabel} (${ctx.capacity_gb} GB)`
+      : `${ctx.capacity_gb} GB`;
+  }
+
   const details_table = `
     <table style="border-collapse:collapse;width:100%;margin:16px 0;font-size:14px;">
       <tbody>
         ${
-          ctx.model
+          deviceLabel
             ? `<tr>
                 <td style="padding:6px 8px;border:1px solid #e5e7eb;width:30%;color:#6b7280;">Toestel</td>
                 <td style="padding:6px 8px;border:1px solid #e5e7eb;">${escapeHtml(
-                  ctx.model
-                )}${
-                ctx.capacity_gb
-                  ? ` (${ctx.capacity_gb} GB)`
-                  : ""
-              }</td>
+                  deviceLabel
+                )}</td>
               </tr>`
             : ""
         }
@@ -354,6 +364,7 @@ function buildBlocks(
     ? nl2br(brand.email_disclaimer)
     : "";
 
+  // HTML blok met vragen/antwoorden uit lead
   const questions_answers = ctx.questions_answers_html || "";
 
   return {
@@ -429,6 +440,7 @@ export async function renderStatusEmail(
     email: ctx.email || "",
     // toestel
     model: ctx.model || "",
+    variant: ctx.variant || "", // 🔹 NIEUW
     capacity_gb: ctx.capacity_gb != null ? String(ctx.capacity_gb) : "",
     // prijs
     final_price: formatCurrency(ctx.final_price_cents ?? null),
@@ -451,7 +463,7 @@ export async function renderStatusEmail(
     iban: ctx.iban || "",
     // vragen + antwoorden (HTML)
     questions_answers: blocks.questions_answers || "",
-    questions_answers_html: blocks.questions_answers || "",
+    questions_answers_html: blocks.questions_answers || "", // 🔹 zowel {{questions_answers}} als {{questions_answers_html}}
   };
 
   const subject = renderWithPlaceholders(subjectTemplate, replacements);
