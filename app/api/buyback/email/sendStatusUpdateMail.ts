@@ -23,6 +23,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplat
 
   // toestel/prijs
   model?: string | null;
+  variant: input.model,
   capacity_gb?: number | null;
   final_price_cents?: number | null;
   wants_voucher?: boolean | null;
