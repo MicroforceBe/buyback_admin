@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
+import { sendStatusUpdateMail } from '@/lib/email/sendStatusUpdateMail';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -236,7 +236,7 @@ export async function POST(req: Request) {
 
   if (error) return j({ error: error.message }, 500);
 
-  // === MAIL: stuur professionele bevestigingsmail (BLOCKING) ===
+  // === MAIL: stuur bevestigingsmail met nieuwe status-template (BLOCKING) ===
   try {
     const to = (data?.email ?? email ?? null) as string | null;
 
@@ -247,47 +247,56 @@ export async function POST(req: Request) {
       delivery_method,
     });
 
-    const mailRes = await sendStatusMail({
-      to,                       // ontvanger
-      first_name,
-      last_name,
-      order_code,
+    if (to) {
+      const finalPriceToSend = wants_voucher
+        ? final_price_with_voucher_cents
+        : final_price_cents;
 
-      // toestel & prijs
-      model,
-      capacity_gb,
-      base_price_cents,
-      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
-      wants_voucher,
+      const mailRes = await sendStatusUpdateMail({
+        // ontvanger + basis
+        to,
+        first_name,
+        last_name,
+        order_code,
 
-      // antwoorden/conditie uit de widget
-      answers,
-      questions_answers_html,   // <== ook meegeven aan template-context
+        // context / templatekeuze
+        status: 'new',
+        language: 'nl', // eventueel later dynamisch
 
-      // uitbetaling
-      iban: wants_voucher ? null : (iban ?? null),
-      delivery_method,
+        // toestel & prijs
+        model,
+        capacity_gb,
+        final_price_cents: finalPriceToSend,
+        wants_voucher,
+        iban: wants_voucher ? null : (iban ?? null),
 
-      // winkel (dropoff)
-      shop_location: resolved_shop_location ?? shop_location ?? null,
-      shop_address1,
-      shop_zip,
-      shop_city,
-      opening_hours,
+        // levering + shop
+        delivery_method,
+        shop_location: resolved_shop_location ?? shop_location ?? null,
+        shop_address1,
+        shop_zip,
+        shop_city,
+        opening_hours,
 
-      // klantadres (ship)
-      street,
-      house_number,
-      postal_code,
-      city,
-      country,
-    });
+        // vragen + antwoorden (HTML uit lead)
+        questions_answers_html,
 
-    console.info('[ADMIN][LEAD][MAIL] sent ok', {
-      id: (mailRes as any)?.id,
-      to,
-      order_code,
-    });
+        // bij nieuw order nog geen tracking / label
+        tracking_code: undefined,
+        tracking_url: undefined,
+        label_pdf_url: undefined,
+      });
+
+      console.info('[ADMIN][LEAD][MAIL] sent ok', {
+        id: (mailRes as any)?.id,
+        to,
+        order_code,
+      });
+    } else {
+      console.warn('[ADMIN][LEAD][MAIL] no recipient email, skipping send', {
+        order_code,
+      });
+    }
   } catch (mailErr: any) {
     console.error('[ADMIN][LEAD][MAIL] send failed', {
       err: mailErr?.message || String(mailErr),
