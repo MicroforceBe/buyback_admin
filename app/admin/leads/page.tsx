@@ -656,7 +656,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <DeviceCell
                   id={lead.id}
                   model={lead.model}
-                  variant={lead.variant}
                   capacity_gb={lead.capacity_gb}
                   sku={lead.sku}
                   imei_sn={lead.imei_sn}
