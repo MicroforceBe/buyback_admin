@@ -2,7 +2,6 @@
 
 import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
-import { sendStatusMail } from "@/lib/email/sendStatusMail";
 import { sendStatusUpdateMail } from "@/lib/email/sendStatusUpdateMail";
 import type { BuybackStatus } from "@/lib/email/templates";
 
@@ -54,7 +53,9 @@ type CreateLabelResult = {
 function normalizeCountryIso2(input?: string | null): string | null {
   if (!input) return null;
   const raw = input.trim().toLowerCase();
-  const ascii = raw.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const ascii = raw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
   const map: Record<string, string> = {
     be: "BE",
     belgium: "BE",
@@ -163,7 +164,6 @@ function getShipWithObject(): any {
   }
 }
 
-
 /** Haal jullie (ontvanger) adres uit env; vereist voor labels */
 function getMerchantToAddress() {
   const to = {
@@ -192,7 +192,6 @@ function getMerchantToAddress() {
 
   return { to, missing };
 }
-
 
 /**
  * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
@@ -263,8 +262,12 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     if (!to.postal_code) toMissing.push("to_address.postal_code");
     if (!to.country) toMissing.push("to_address.country_code");
 
+    const externalRef: string =
+      (after as any).order_code ||
+      String((after as any).orderId || (after as any).id || "");
+
     console.info("[SENDCLOUD][V3 SHIPMENTS] create shipment start", {
-      order: after.order_code || after.id,
+      order_number: externalRef,
       to: to.company_name || to.name,
       country: from_country_code,
       hasKeys:
@@ -280,8 +283,6 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       });
       return {};
     }
-
-    const externalRef = after.order_code || after.id;
 
     // Gewicht op parcel-niveau (verplicht voor shipment)
     const weight = {
@@ -321,9 +322,11 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
           // eventueel later: dimensions, insurance, etc.
         },
       ],
-      order_number: externalRef,        // ← belangrijkste veld
-      external_reference: externalRef,  // ← optioneel maar handig
-      reference: externalRef,           // ← optioneel, sommige carriers tonen dit op label
+
+      // Belangrijk voor ordernummer + label
+      order_number: externalRef,
+      external_reference: externalRef,
+      reference: externalRef,
       external_order_id: externalRef,
       label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",
     };
@@ -386,67 +389,54 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       firstParcel?.tracking_number ??
       null;
 
+    // Probeer eerst een tracking_url uit de API te halen
+    const trackingUrlFromApi: unknown =
+      d?.tracking_url ??
+      d?.parcel?.tracking_url ??
+      firstParcel?.tracking_url ??
+      null;
 
-      // Probeer eerst een tracking_url uit de API te halen
-      const trackingUrlFromApi: unknown =
-        d?.tracking_url ??
-        d?.parcel?.tracking_url ??
-        firstParcel?.tracking_url ??
-        null;
-      
-      const trackingUrl: string | null =
-        typeof trackingUrlFromApi === "string" ? trackingUrlFromApi : null;
+    const trackingUrl: string | null =
+      typeof trackingUrlFromApi === "string" ? trackingUrlFromApi : null;
 
-      const docsArray: any[] =
-        d?.documents ??
-        d?.parcel?.documents ??
-        (firstParcel?.documents as any[]) ??
-        [];
-      
-      let labelPdfUrl: string | null = null;
-      let parcelIdForLabel: string | null = null;
-      
-      if (Array.isArray(docsArray)) {
-        const labelDoc = docsArray.find(
-          (doc) => doc && doc.type === "label" && typeof doc.link === "string"
-        );
-        if (labelDoc) {
-          // bv. "/api/v3/parcels/574848212/documents/label" of met host
-          const link = String(labelDoc.link);
-      
-          // Parcel ID uit de link halen
-          const m = link.match(/parcels\/(\d+)\/documents\/label/);
-          if (m) {
-            parcelIdForLabel = m[1]; // "574848212"
-          }
-      
-          // desnoods nog bewaren, maar we gaan 'm niet rechtstreeks gebruiken
-          labelPdfUrl = link;
+    const docsArray: any[] =
+      d?.documents ??
+      d?.parcel?.documents ??
+      (firstParcel?.documents as any[]) ??
+      [];
+
+    let labelPdfUrl: string | null = null;
+    let parcelIdForLabel: string | null = null;
+
+    if (Array.isArray(docsArray)) {
+      const labelDoc = docsArray.find(
+        (doc) => doc && doc.type === "label" && typeof doc.link === "string"
+      );
+      if (labelDoc) {
+        // bv. "/api/v3/parcels/574848212/documents/label" of met host
+        const link = String(labelDoc.link);
+
+        // Parcel ID uit de link halen
+        const m = link.match(/parcels\/(\d+)\/documents\/label/);
+        if (m) {
+          parcelIdForLabel = m[1]; // "574848212"
         }
-      }
-      
-      console.info("[SENDCLOUD][V3 SHIPMENTS] parsed result", {
-        trackingNumber,
-        hasLabelPdf: !!parcelIdForLabel || !!labelPdfUrl,
-      });
-      
-      return {
-        tracking_code: trackingNumber,
-        tracking_url: trackingUrl,
-        // We slaan voortaan de parcel_id op in label_pdf_url (beter: losse kolom, maar zo hoeft de DB niet meteen aangepast)
-        label_pdf_url: parcelIdForLabel ?? labelPdfUrl,
-      };
 
+        // desnoods nog bewaren, maar we gaan 'm niet rechtstreeks gebruiken
+        labelPdfUrl = link;
+      }
+    }
 
     console.info("[SENDCLOUD][V3 SHIPMENTS] parsed result", {
       trackingNumber,
-      hasLabelPdf: !!labelPdfUrl,
+      hasLabelPdf: !!parcelIdForLabel || !!labelPdfUrl,
     });
 
     return {
       tracking_code: trackingNumber,
       tracking_url: trackingUrl,
-      label_pdf_url: labelPdfUrl,
+      // We slaan voortaan de parcel_id op in label_pdf_url (beter: losse kolom, maar zo hoeft de DB niet meteen aangepast)
+      label_pdf_url: parcelIdForLabel ?? labelPdfUrl,
     };
   } catch (e: any) {
     console.error("[SENDCLOUD][V3 SHIPMENTS] exception", e?.message || e);
@@ -472,9 +462,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (statusRaw) {
     if (!isAllowedStatus(statusRaw)) {
       redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          `invalid_status:${statusRaw}`
-        )}`
+        `/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`
       );
     }
     desired.status = statusRaw;
@@ -488,9 +476,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     const eur = Number(priceRaw);
     if (!Number.isFinite(eur) || eur < 0) {
       redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          `invalid_price:${priceRaw}`
-        )}`
+        `/admin/leads?msg=${encodeURIComponent(`invalid_price:${priceRaw}`)}`
       );
     }
     desired.final_price_cents = Math.round(eur * 100);
