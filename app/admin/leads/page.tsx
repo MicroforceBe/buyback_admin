@@ -684,115 +684,123 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 </td>
 
                 {/* Status (inline editable) + uitklap 'Verzending & label' */}
-                <td className="px-3 py-2 align-top">
-                  {(() => {
-                    const curr = (lead.status ?? 'new') as Status;
-                
-                    // finale statussen: geen dropdown
-                    const isFinal = curr === 'done' || curr === 'cancelled';
-                    const trans = isFinal
-                      ? []
-                      : allowedTransitions(curr, {
-                          customer_number: lead.customer_number,
-                          sku: lead.sku,
-                          imei_sn: lead.imei_sn,
-                        }).filter((t) => t.ok);
-                    const hasChoices = trans.length > 0;
-                
-                    const trackingHref =
-                      lead.tracking_url || fallbackTrackingUrl(lead.tracking_code);
-                    const hasTracking = Boolean(trackingHref);
-                    const labelHref = lead.label_pdf_url || null;
-                
-                    return (
-                      <div className="space-y-1">
-                        {/* Bovenste deel: status / opslaan */}
-                        {isFinal ? (
-                          <div className="text-sm font-medium text-gray-700">
-                            {statusLabel(curr)}
-                          </div>
-                        ) : (
-                          <form
-                            action={updateLeadInlineAction}
-                            className="inline-flex items-center gap-2"
+              <td className="px-3 py-2 align-top">
+                {(() => {
+                  const curr = (lead.status ?? 'new') as Status;
+              
+                  // finale statussen: geen dropdown
+                  const isFinal = curr === 'done' || curr === 'cancelled';
+                  const trans = isFinal
+                    ? []
+                    : allowedTransitions(curr, {
+                        customer_number: lead.customer_number,
+                        sku: lead.sku,
+                        imei_sn: lead.imei_sn,
+                      }).filter((t) => t.ok);
+                  const hasChoices = trans.length > 0;
+              
+                  const trackingHref =
+                    lead.tracking_url || fallbackTrackingUrl(lead.tracking_code);
+                  const hasTracking = Boolean(trackingHref);
+              
+                  // Download label URL in hetzelfde formaat als de mail:
+                  // - als label_pdf_url al een http(s)-URL is → direct gebruiken
+                  // - anders behandelen als parcel_id en via admin-route laten downloaden
+                  let labelHref: string | null = null;
+                  if (lead.label_pdf_url) {
+                    if (/^https?:\/\//i.test(lead.label_pdf_url)) {
+                      labelHref = lead.label_pdf_url;
+                    } else {
+                      labelHref = `/api/admin/sendcloud/label?parcel_id=${encodeURIComponent(
+                        lead.label_pdf_url
+                      )}`;
+                    }
+                  }
+              
+                  return (
+                    <div className="space-y-1">
+                      {/* Bovenste deel: status / opslaan */}
+                      {isFinal ? (
+                        <div className="text-sm font-medium text-gray-700">
+                          {statusLabel(curr)}
+                        </div>
+                      ) : (
+                        <form
+                          action={updateLeadInlineAction}
+                          className="inline-flex items-center gap-2"
+                        >
+                          <input type="hidden" name="id" value={lead.id} />
+                          <select
+                            name="status"
+                            defaultValue={curr}
+                            className="bb-select-sm inline-block pr-8"
+                            title={
+                              hasChoices
+                                ? 'Status wijzigen'
+                                : 'Geen vervolgstatus mogelijk'
+                            }
+                            disabled={!hasChoices}
                           >
-                            <input type="hidden" name="id" value={lead.id} />
-                            <select
-                              name="status"
-                              defaultValue={curr}
-                              className="bb-select-sm inline-block pr-8"
-                              title={
-                                hasChoices
-                                  ? 'Status wijzigen'
-                                  : 'Geen vervolgstatus mogelijk'
-                              }
-                              disabled={!hasChoices}
+                            <option value={curr}>{statusLabel(curr)}</option>
+                            {trans.map((t) => (
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="bb-btn subtle h-8 text-xs px-2"
+                            type="submit"
+                            disabled={!hasChoices}
+                            title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
+                            aria-label="Opslaan"
+                          >
+                            💾
+                          </button>
+                        </form>
+                      )}
+              
+                      {/* Uitklap: Traceer pakket + Download label */}
+                      <details className="mt-1 text-[11px]">
+                        <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                          <span>▸</span>
+                          <span>Verzending &amp; label</span>
+                        </summary>
+              
+                        <div className="pl-4 mt-1 flex flex-col gap-1">
+                          {/* Traceer pakket – zelfde knopstijl als Download label, zonder tracking in de tekst */}
+                          {hasTracking ? (
+                            <a
+                              href={trackingHref!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
                             >
-                              <option value={curr}>{statusLabel(curr)}</option>
-                              {trans.map((t) => (
-                                <option key={t.value} value={t.value}>
-                                  {t.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="bb-btn subtle h-8 text-xs px-2"
-                              type="submit"
-                              disabled={!hasChoices}
-                              title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
-                              aria-label="Opslaan"
+                              Traceer pakket
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 italic">
+                              Nog geen tracking beschikbaar
+                            </span>
+                          )}
+              
+                          {/* Download label – via admin-route als label_pdf_url geen volledige URL is */}
+                          {labelHref && (
+                            <a
+                              href={labelHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
                             >
-                              💾
-                            </button>
-                          </form>
-                        )}
-                
-                        {/* Uitklap: tracking + label (niet standaard zichtbaar) */}
-                        <details className="mt-1 text-[11px]">
-                          <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
-                            <span>▸</span>
-                            <span>Verzending &amp; label</span>
-                          </summary>
-                
-                          <div className="pl-4 mt-1 flex flex-col gap-1">
-                            {/* Traceer pakket */}
-                            {hasTracking ? (
-                              <a
-                                href={trackingHref!}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center rounded border border-sky-500 px-2 py-1 text-[11px] font-medium text-sky-700 hover:bg-sky-50"
-                              >
-                                Traceer pakket
-                                {lead.tracking_code ? (
-                                  <span className="ml-1 text-[10px] text-gray-500">
-                                    ({lead.tracking_code})
-                                  </span>
-                                ) : null}
-                              </a>
-                            ) : (
-                              <span className="text-gray-400 italic">
-                                Nog geen tracking beschikbaar
-                              </span>
-                            )}
-                
-                            {/* Download label (zelfde href als in mail-knop, via label_pdf_url) */}
-                            {labelHref ? (
-                              <a
-                                href={labelHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center rounded bb-btn h-7 px-2 text-[11px] font-medium"
-                              >
-                                Download label
-                              </a>
-                            ) : null}
-                          </div>
-                        </details>
-                      </div>
-                    );
-                  })()}
-                </td>
+                              Download label
+                            </a>
+                          )}
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })()}
+              </td>
 
 
               </tr>
