@@ -96,7 +96,7 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
     title: "Vragen & antwoorden uit widget",
     vars: [
       {
-        code: "{{questions_answers_html}}",
+        code: "{{questions_answers}}",
         label: "Vragen & antwoorden (HTML)",
         description:
           "HTML-tabel met alle vragen en antwoorden uit de buyback-widget.",
@@ -400,7 +400,7 @@ export default function StatusTemplatesTabs({
                     <code>{`{{payout_block}}`}</code>,{" "}
                     <code>{`{{next_steps}}`}</code>,{" "}
                     <code>{`{{disclaimer_html}}`}</code>,{" "}
-                    <code>{`{{questions_answers_html}}`}</code>.
+                    <code>{`{{questions_answers}}`}</code>.
                   </span>
                 </label>
 
