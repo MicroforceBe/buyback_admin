@@ -55,6 +55,7 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
     title: "Toestel & details",
     vars: [
       { code: "{{model}}", label: "Modelnaam" },
+      { code: "{{variant}}", label: "Variant" }, // 🔹 NIEUW
       { code: "{{capacity_gb}}", label: "Opslag (GB)" },
       {
         code: "{{details_table}}",
@@ -96,7 +97,7 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
     title: "Vragen & antwoorden uit widget",
     vars: [
       {
-        code: "{{questions_answers}}",
+        code: "{{questions_answers_html}}",
         label: "Vragen & antwoorden (HTML)",
         description:
           "HTML-tabel met alle vragen en antwoorden uit de buyback-widget.",
@@ -395,12 +396,15 @@ export default function StatusTemplatesTabs({
                     Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
                     <code>{`{{full_name}}`}</code>,{" "}
                     <code>{`{{order_code}}`}</code>,{" "}
+                    <code>{`{{model}}`}</code>,{" "}
+                    <code>{`{{variant}}`}</code>,{" "}
+                    <code>{`{{capacity_gb}}`}</code>,{" "}
                     <code>{`{{details_table}}`}</code>,{" "}
                     <code>{`{{delivery_block}}`}</code>,{" "}
                     <code>{`{{payout_block}}`}</code>,{" "}
                     <code>{`{{next_steps}}`}</code>,{" "}
                     <code>{`{{disclaimer_html}}`}</code>,{" "}
-                    <code>{`{{questions_answers}}`}</code>.
+                    <code>{`{{questions_answers_html}}`}</code>.
                   </span>
                 </label>
 
