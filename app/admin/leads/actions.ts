@@ -321,8 +321,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
           // eventueel later: dimensions, insurance, etc.
         },
       ],
-
-      external_reference: externalRef,
+      order_number: externalRef,        // ← belangrijkste veld
+      external_reference: externalRef,  // ← optioneel maar handig
+      reference: externalRef,           // ← optioneel, sommige carriers tonen dit op label
       external_order_id: externalRef,
       label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",
     };
