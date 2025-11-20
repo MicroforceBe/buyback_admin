@@ -13,6 +13,7 @@ export type Input = {
 
   // toestel & calculatie
   model?: string | null;
+  variant?: string | null; // 🔹 nieuw: variant (bv. WiFi / 5G, kleur, etc.)
   capacity_gb?: number | null;
   base_price_cents?: number | null;
   final_price_cents?: number | null; // mag reeds "met voucher" doorgestuurd worden
@@ -43,6 +44,9 @@ export type Input = {
 
   // taal / locale (optioneel, voor templates)
   language?: string | null;
+
+  // optioneel e-mailadres in context (voor templates)
+  email?: string | null;
 };
 
 // ---------- Helpers
@@ -184,9 +188,12 @@ function renderDetailsRows(input: Input, labels: Record<string, string>) {
     </tr>`);
 
   // Toestel
-  const devLine = input.capacity_gb
-    ? `${input.model ?? "—"} • ${input.capacity_gb} GB`
-    : input.model ?? "—";
+  const devParts: string[] = [];
+  if (input.model) devParts.push(input.model);
+  if (input.variant) devParts.push(`(${input.variant})`);
+  if (input.capacity_gb) devParts.push(`${input.capacity_gb} GB`);
+  const devLine = devParts.length ? devParts.join(" • ") : "—";
+
   rows.push(`
     <tr>
       <td style="padding:8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
@@ -257,7 +264,13 @@ function canonicalDayKey(
   const s = k.toLowerCase().trim().replace(/\./g, "");
   const map: Record<
     string,
-    "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday"
+    | "sunday"
   > = {
     // Maandag
     monday: "monday",
@@ -446,11 +459,16 @@ export async function sendStatusMail(input: Input) {
   textParts.push(`Beste ${name},`);
   textParts.push("");
   textParts.push(`Referentie: ${input.order_code}`);
+
+  const devPartsText: string[] = [];
+  if (input.model) devPartsText.push(input.model);
+  if (input.variant) devPartsText.push(`(${input.variant})`);
+  if (input.capacity_gb) devPartsText.push(`${input.capacity_gb} GB`);
+
   textParts.push(
-    `Toestel: ${input.model ?? "—"}${
-      input.capacity_gb ? ` • ${input.capacity_gb} GB` : ""
-    }`
+    `Toestel: ${devPartsText.length ? devPartsText.join(" • ") : "—"}`
   );
+
   const priceLineText =
     typeof input.final_price_cents === "number"
       ? `${eur(input.final_price_cents)}${
@@ -566,7 +584,7 @@ export async function sendStatusMail(input: Input) {
 
     ${nextStepsHtml}
 
-    <p style="margin:12px 0 0;color:#475569">Vragen?Antwoord gerust op deze e-mail.</p>
+    <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
     <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${cfg.brand_name}</p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
@@ -586,11 +604,31 @@ export async function sendStatusMail(input: Input) {
 
   // 🔹 Variabelen voor template-rendering
   const templateVars: Record<string, string> = {
+    // basis
     first_name: input.first_name ?? "",
     last_name: input.last_name ?? "",
     full_name: name,
     order_code: input.order_code,
+    email: input.email ?? input.to ?? "",
+
+    // toestel
+    model: input.model ?? "",
+    variant: input.variant ?? "",
+    capacity_gb:
+      input.capacity_gb != null ? String(input.capacity_gb) : "",
+
+    // prijs
+    final_price:
+      typeof input.final_price_cents === "number"
+        ? eur(input.final_price_cents)
+        : "",
+
+    // branding
     brand_name: cfg.brand_name,
+    brand_color: cfg.brand_color,
+    logo_url: cfg.logo_url || "",
+
+    // blocks
     header,
     details_table: detailsTable,
     delivery_block: deliveryBlock,
@@ -599,15 +637,17 @@ export async function sendStatusMail(input: Input) {
     disclaimer_html: cfg.email_disclaimer
       ? escapeHtml(cfg.email_disclaimer)
       : `Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.`,
-    // vragen/antwoorden blok als placeholder {{questions_answers}}
+
+    // vragen/antwoorden blok — beide aliassen beschikbaar
+    questions_answers_html: qaBlock,
     questions_answers: qaBlock,
   };
 
   // 🔹 Probeer DB-template 'new' (per taal; zelfde key als in buyback_email_templates)
-    const rendered = await renderEmailTemplate("new", language, templateVars);
-  
-    const finalSubject = rendered?.subject || baseSubject;
-    const finalHtml = rendered?.html || baseHtml;
+  const rendered = await renderEmailTemplate("new", language, templateVars);
+
+  const finalSubject = rendered?.subject || baseSubject;
+  const finalHtml = rendered?.html || baseHtml;
 
   // Logging + verzenden
   console.info("[MAIL][sendStatusMail] env check", {
