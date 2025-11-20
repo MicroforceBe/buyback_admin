@@ -17,9 +17,10 @@ function j(data: any, status = 200) {
 }
 
 /**
- * Eenvoudige helper om van de ruwe `answers` JSON een HTML-tabel te maken.
- * Voor nu gebruiken we gewoon de keys en values; later kan dit uitgebreid
- * worden met labels uit buyback_multipliers_per_category_json.
+ * Fallback helper om van ruwe `answers` JSON een HTML-tabel te maken.
+ * Wordt alleen nog gebruikt als de widget géén `questions_answers_html`
+ * meestuurt. De voorkeur is dat de widget zelf al een mooi HTML-blok
+ * met leesbare vragen + antwoorden aanlevert.
  */
 function buildQuestionsAnswersHtml(rawAnswers: any): string {
   if (!rawAnswers || typeof rawAnswers !== 'object') return '';
@@ -130,6 +131,9 @@ export async function POST(req: Request) {
     base_price_cents,
     final_price_cents,
 
+    // NIEUW: widget kan zelf een kant-en-klaar HTML-blok meesturen
+    questions_answers_html: incomingQuestionsAnswersHtml = null,
+
     // klant
     first_name = null,
     last_name = null,
@@ -159,8 +163,14 @@ export async function POST(req: Request) {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
-  // Hier maken we een eerste leesbare HTML-versie van de vragenset
-  const questions_answers_html = buildQuestionsAnswersHtml(answers);
+  // 1) Bepaal HTML voor vragen/antwoorden:
+  //    - voorkeur: HTML die door de widget werd meegestuurd
+  //    - fallback: generiek blok op basis van ruwe `answers` JSON
+  const questions_answers_html =
+    typeof incomingQuestionsAnswersHtml === 'string' &&
+    incomingQuestionsAnswersHtml.trim()
+      ? incomingQuestionsAnswersHtml
+      : buildQuestionsAnswersHtml(answers);
 
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
@@ -229,7 +239,7 @@ export async function POST(req: Request) {
       wants_voucher,
       order_code,
       idempotency_key,
-      questions_answers_html, // <== NIEUW veld
+      questions_answers_html, // <== nu mooi HTML blok (van widget of fallback)
     }])
     .select('id, order_code, email')
     .single();
@@ -278,7 +288,7 @@ export async function POST(req: Request) {
         shop_city,
         opening_hours,
 
-        // vragen + antwoorden (HTML uit lead)
+        // vragen + antwoorden (HTML uit lead of widget)
         questions_answers_html,
 
         // bij nieuw order nog geen tracking / label
