@@ -238,6 +238,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         "created_at",
         "model",
         "capacity_gb",
+        "variant",
+        "questions_answers_html",
         "base_price_cents",
         "final_price_cents",
         "first_name",
