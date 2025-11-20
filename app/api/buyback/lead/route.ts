@@ -1,3 +1,4 @@
+// app/api/buyback/lead/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
@@ -20,6 +21,9 @@ function j(data: any, status = 200) {
  * Eenvoudige helper om van de ruwe `answers` JSON een HTML-tabel te maken.
  * Voor nu gebruiken we gewoon de keys en values; later kan dit uitgebreid
  * worden met labels uit buyback_multipliers_per_category_json.
+ *
+ * ⚠️ Dit is nu enkel nog een *fallback* als de widget geen
+ * `questions_answers_html` meestuurt.
  */
 function buildQuestionsAnswersHtml(rawAnswers: any): string {
   if (!rawAnswers || typeof rawAnswers !== 'object') return '';
@@ -153,26 +157,21 @@ export async function POST(req: Request) {
 
     // idempotency (optioneel)
     idempotency_key = null,
-
-    // 🔹 nieuw: client-side HTML blok
-    questions_answers_html: questions_answers_html_raw = null,
   } = body || {};
 
   if (!model || !answers || typeof base_price_cents !== 'number' || typeof final_price_cents !== 'number') {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
-  // 🔹 Kies welke HTML we bewaren:
-  // 1) Prefer client-side HTML (met echte labels & tips)
-  // 2) Fallback naar server-side build op basis van answers
+  // 🧠 NIEUW: HTML uit de widget gebruiken als die bestaat
   let questions_answers_html: string | null = null;
-  if (typeof questions_answers_html_raw === 'string' && questions_answers_html_raw.trim()) {
-    questions_answers_html = questions_answers_html_raw;
+  if (typeof body?.questions_answers_html === 'string' && body.questions_answers_html.trim()) {
+    questions_answers_html = body.questions_answers_html;
+    console.info('[ADMIN][LEAD] using questions_answers_html from widget');
   } else {
     questions_answers_html = buildQuestionsAnswersHtml(answers);
+    console.info('[ADMIN][LEAD] using server-side fallback questions_answers_html');
   }
-
-  console.info('[ADMIN][LEAD] Q/A HTML source =', questions_answers_html_raw ? 'client' : 'server');
 
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
@@ -241,7 +240,7 @@ export async function POST(req: Request) {
       wants_voucher,
       order_code,
       idempotency_key,
-      questions_answers_html, // <== nu: client HTML of fallback
+      questions_answers_html, // ⬅️ hier komt nu de widget-HTML terecht
     }])
     .select('id, order_code, email')
     .single();
@@ -272,9 +271,9 @@ export async function POST(req: Request) {
       final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
       wants_voucher,
 
-      // antwoorden/conditie uit de widget
+      // antwoorden/conditie uit de widget (ruw object én HTML)
       answers,
-      questions_answers_html,   // <== ook meegeven aan template-context
+      questions_answers_html: questions_answers_html ?? null,
 
       // uitbetaling
       iban: wants_voucher ? null : (iban ?? null),
