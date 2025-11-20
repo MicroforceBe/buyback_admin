@@ -11,9 +11,9 @@ type Props = {
   capacity_gb: number | null;
   sku: string | null;
   imei_sn: string | null;
-  // 🔹 Nieuw: variant (optioneel)
+
+  // 🔹 Nieuw
   variant?: string | null;
-  // 🔹 Nieuw: HTML met vragen/antwoorden uit lead
   questions_answers_html?: string | null;
 };
 
@@ -23,20 +23,16 @@ const label = 'text-[11px] text-gray-500';
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  // Bovenste regel: model + GB (zoals vroeger)
+  // Bovenste lijn: Model • 128 GB  (zoals vroeger)
   const modelLine =
-    [p.model, p.capacity_gb ? `${p.capacity_gb} GB` : '']
-      .filter(Boolean)
-      .join(' • ') || '—';
+    [p.model, p.capacity_gb ? `${p.capacity_gb} GB` : ''].filter(Boolean).join(' • ') || '—';
 
-  // Subtext-regel: Variant + SKU + IMEI/SN
-  const subLineParts = [
-    p.variant ? `Variant: ${p.variant}` : null,
-    p.sku ? `SKU: ${p.sku}` : 'SKU: —',
-    p.imei_sn ? `IMEI/SN: ${p.imei_sn}` : 'IMEI/SN: —',
-  ].filter(Boolean);
-
-  const subLine = subLineParts.join(' • ');
+  // Tweede lijn (subtext): Variant • SKU • IMEI/SN
+  const metaParts: string[] = [];
+  if (p.variant) metaParts.push(`Variant: ${p.variant}`);
+  metaParts.push(p.sku ? `SKU: ${p.sku}` : 'SKU: —');
+  metaParts.push(p.imei_sn ? `IMEI/SN: ${p.imei_sn}` : 'IMEI/SN: —');
+  const metaLine = metaParts.join(' • ');
 
   return (
     <div className="space-y-1">
@@ -44,7 +40,7 @@ export default function DeviceCell(p: Props) {
         <div className="min-w-0">
           <div className="truncate">{modelLine}</div>
           <div className="text-[11px] text-gray-500 truncate">
-            {subLine}
+            {metaLine}
           </div>
         </div>
 
@@ -83,7 +79,7 @@ export default function DeviceCell(p: Props) {
             />
           </div>
 
-          <div className="pt-1 flex items-center justify-between gap-2">
+          <div className="pt-1">
             <button
               className="bb-btn h-8 text-xs px-3"
               type="submit"
@@ -91,22 +87,21 @@ export default function DeviceCell(p: Props) {
             >
               💾
             </button>
-
-            {/* 🔹 Vragen & antwoorden uit widget – uitklapbaar onder het bewaar-icoon */}
-            {p.questions_answers_html && (
-              <details className="text-left text-[11px]">
-                <summary className="cursor-pointer select-none text-gray-500 hover:text-gray-800 flex items-center gap-1">
-                  <span className="inline-block">▸</span>
-                  <span>Vragen &amp; antwoorden</span>
-                </summary>
-                <div
-                  className="mt-1 rounded border border-gray-200 bg-gray-50 p-2 max-h-52 overflow-auto text-[11px] leading-relaxed"
-                  // HTML komt uit jouw backend (lead.questions_answers_html)
-                  dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
-                />
-              </details>
-            )}
           </div>
+
+          {/* 🔹 Uitklapbare vragen & antwoorden onder het bewaar-icoon */}
+          {p.questions_answers_html ? (
+            <details className="mt-2 text-[11px] text-gray-600">
+              <summary className="cursor-pointer select-none">
+                Vragen &amp; antwoorden tonen
+              </summary>
+              <div
+                className="mt-1 border border-gray-200 rounded p-2 bg-gray-50 text-[11px] leading-snug"
+                // HTML komt uit jouw backend (lead.questions_answers_html)
+                dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
+              />
+            </details>
+          ) : null}
         </form>
       )}
     </div>
