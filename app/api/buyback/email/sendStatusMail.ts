@@ -14,7 +14,7 @@ export type Input = {
   // toestel & calculatie
   model?: string | null;
   capacity_gb?: number | null;
-  variant?: string | null;               // ✅ NIEUW: variant
+  variant?: string | null;               // ✅ variant
   base_price_cents?: number | null;
   final_price_cents?: number | null;     // mag reeds "met voucher" doorgestuurd worden
   wants_voucher?: boolean | null;
@@ -188,7 +188,9 @@ function renderDetailsRows(input: Input, labels: Record<string, string>) {
   const devParts: string[] = [];
   if (input.model) devParts.push(input.model);
   if (input.variant) devParts.push(String(input.variant));
-  if (input.capacity_gb) devParts.push(`${input.capacity_gb} GB`);
+  if (typeof input.capacity_gb === "number" && input.capacity_gb > 0) {
+    devParts.push(`${input.capacity_gb} GB`);
+  }
   const devLine = devParts.length ? devParts.join(" • ") : "—";
 
   rows.push(`
@@ -387,7 +389,7 @@ export async function sendStatusMail(input: Input) {
   const name = customerFullName(input.first_name, input.last_name);
   const baseSubject = `[${cfg.brand_name}] Bevestiging buyback-aanvraag ${input.order_code}`;
 
-  // Leveringsblok (met correcte openingsuren lay-out Ma → Zo, dagen voluit NL)
+  // Leveringsblok
   const deliveryBlock =
     input.delivery_method === "dropoff"
       ? `
@@ -454,7 +456,9 @@ export async function sendStatusMail(input: Input) {
   const deviceTextParts: string[] = [];
   if (input.model) deviceTextParts.push(input.model);
   if (input.variant) deviceTextParts.push(String(input.variant));
-  if (input.capacity_gb) deviceTextParts.push(`${input.capacity_gb} GB`);
+  if (typeof input.capacity_gb === "number" && input.capacity_gb > 0) {
+    deviceTextParts.push(`${input.capacity_gb} GB`);
+  }
   textParts.push(`Toestel: ${deviceTextParts.join(" • ") || "—"}`);
 
   const priceLineText =
@@ -531,7 +535,7 @@ export async function sendStatusMail(input: Input) {
     `
     : `<h2 style="margin:0 0 8px;font-size:18px;color:${cfg.brand_color}">${cfg.brand_name}</h2>`;
 
-  // ÉÉN TABEL met alle toestelinfo (gelijke kolombreedte via <colgroup>)
+  // ÉÉN TABEL met alle toestelinfo
   const detailsTable = `
     <table role="presentation" cellpadding="0" cellspacing="0"
            style="width:100%;border-collapse:collapse;margin:0 0 12px;border:1px solid #e5e7eb">
@@ -597,6 +601,20 @@ export async function sendStatusMail(input: Input) {
     full_name: name,
     order_code: input.order_code,
     brand_name: cfg.brand_name,
+
+    // toestel / prijs
+    model: input.model ?? "",
+    capacity_gb:
+      typeof input.capacity_gb === "number" && input.capacity_gb > 0
+        ? String(input.capacity_gb)
+        : "",
+    variant: input.variant ? String(input.variant) : "",
+    final_price:
+      typeof input.final_price_cents === "number"
+        ? eur(input.final_price_cents)
+        : "",
+
+    // blocks
     header,
     details_table: detailsTable,
     delivery_block: deliveryBlock,
@@ -605,8 +623,10 @@ export async function sendStatusMail(input: Input) {
     disclaimer_html: cfg.email_disclaimer
       ? escapeHtml(cfg.email_disclaimer)
       : `Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.`,
+
+    // vragen/antwoorden blok – beide namen ondersteunen
+    questions_answers_html: qaBlock,
     questions_answers: qaBlock,
-    variant: input.variant ? String(input.variant) : "",   // ✅ placeholder {{variant}}
   };
 
   // 🔹 Probeer DB-template 'new'
