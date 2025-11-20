@@ -13,10 +13,10 @@ export type Input = {
 
   // toestel & calculatie
   model?: string | null;
-  variant?: string | null; // 🔹 nieuw: variant (bv. WiFi / 5G, kleur, etc.)
   capacity_gb?: number | null;
+  variant?: string | null;               // ✅ NIEUW: variant
   base_price_cents?: number | null;
-  final_price_cents?: number | null; // mag reeds "met voucher" doorgestuurd worden
+  final_price_cents?: number | null;     // mag reeds "met voucher" doorgestuurd worden
   wants_voucher?: boolean | null;
 
   // conditie/antwoorden
@@ -44,9 +44,6 @@ export type Input = {
 
   // taal / locale (optioneel, voor templates)
   language?: string | null;
-
-  // optioneel e-mailadres in context (voor templates)
-  email?: string | null;
 };
 
 // ---------- Helpers
@@ -148,7 +145,7 @@ async function loadAnswerLabelsFromDB(): Promise<Record<string, string> | null> 
       return null;
     }
     const map: Record<string, string> = {};
-    for (const row of data || []) {
+    for (const row of (data as any[]) || []) {
       if (row?.key && row?.label) map[row.key] = row.label;
     }
     return Object.keys(map).length ? map : null;
@@ -187,10 +184,10 @@ function renderDetailsRows(input: Input, labels: Record<string, string>) {
       <td style="padding:8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
     </tr>`);
 
-  // Toestel
+  // Toestel (model • variant • GB)
   const devParts: string[] = [];
   if (input.model) devParts.push(input.model);
-  if (input.variant) devParts.push(`(${input.variant})`);
+  if (input.variant) devParts.push(String(input.variant));
   if (input.capacity_gb) devParts.push(`${input.capacity_gb} GB`);
   const devLine = devParts.length ? devParts.join(" • ") : "—";
 
@@ -264,13 +261,7 @@ function canonicalDayKey(
   const s = k.toLowerCase().trim().replace(/\./g, "");
   const map: Record<
     string,
-    | "monday"
-    | "tuesday"
-    | "wednesday"
-    | "thursday"
-    | "friday"
-    | "saturday"
-    | "sunday"
+    "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
   > = {
     // Maandag
     monday: "monday",
@@ -460,14 +451,11 @@ export async function sendStatusMail(input: Input) {
   textParts.push("");
   textParts.push(`Referentie: ${input.order_code}`);
 
-  const devPartsText: string[] = [];
-  if (input.model) devPartsText.push(input.model);
-  if (input.variant) devPartsText.push(`(${input.variant})`);
-  if (input.capacity_gb) devPartsText.push(`${input.capacity_gb} GB`);
-
-  textParts.push(
-    `Toestel: ${devPartsText.length ? devPartsText.join(" • ") : "—"}`
-  );
+  const deviceTextParts: string[] = [];
+  if (input.model) deviceTextParts.push(input.model);
+  if (input.variant) deviceTextParts.push(String(input.variant));
+  if (input.capacity_gb) deviceTextParts.push(`${input.capacity_gb} GB`);
+  textParts.push(`Toestel: ${deviceTextParts.join(" • ") || "—"}`);
 
   const priceLineText =
     typeof input.final_price_cents === "number"
@@ -604,31 +592,11 @@ export async function sendStatusMail(input: Input) {
 
   // 🔹 Variabelen voor template-rendering
   const templateVars: Record<string, string> = {
-    // basis
     first_name: input.first_name ?? "",
     last_name: input.last_name ?? "",
     full_name: name,
     order_code: input.order_code,
-    email: input.email ?? input.to ?? "",
-
-    // toestel
-    model: input.model ?? "",
-    variant: input.variant ?? "",
-    capacity_gb:
-      input.capacity_gb != null ? String(input.capacity_gb) : "",
-
-    // prijs
-    final_price:
-      typeof input.final_price_cents === "number"
-        ? eur(input.final_price_cents)
-        : "",
-
-    // branding
     brand_name: cfg.brand_name,
-    brand_color: cfg.brand_color,
-    logo_url: cfg.logo_url || "",
-
-    // blocks
     header,
     details_table: detailsTable,
     delivery_block: deliveryBlock,
@@ -637,13 +605,11 @@ export async function sendStatusMail(input: Input) {
     disclaimer_html: cfg.email_disclaimer
       ? escapeHtml(cfg.email_disclaimer)
       : `Dit is een automatische bevestigingsmail. Gelieve je referentie <strong>${input.order_code}</strong> te vermelden bij contact.`,
-
-    // vragen/antwoorden blok — beide aliassen beschikbaar
-    questions_answers_html: qaBlock,
     questions_answers: qaBlock,
+    variant: input.variant ? String(input.variant) : "",   // ✅ placeholder {{variant}}
   };
 
-  // 🔹 Probeer DB-template 'new' (per taal; zelfde key als in buyback_email_templates)
+  // 🔹 Probeer DB-template 'new'
   const rendered = await renderEmailTemplate("new", language, templateVars);
 
   const finalSubject = rendered?.subject || baseSubject;
