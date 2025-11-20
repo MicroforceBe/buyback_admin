@@ -8,12 +8,10 @@ import { updateLeadInlineAction } from './actions';
 type Props = {
   id: string;
   model: string | null;
+  variant: string | null;
   capacity_gb: number | null;
   sku: string | null;
   imei_sn: string | null;
-
-  // 🔹 Nieuw
-  variant?: string | null;
   questions_answers_html?: string | null;
 };
 
@@ -23,40 +21,47 @@ const label = 'text-[11px] text-gray-500';
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  // Bovenste lijn: Model • 128 GB  (zoals vroeger)
+  // Bovenste regel: model • variant • 128 GB
   const modelLine =
-    [p.model, p.capacity_gb ? `${p.capacity_gb} GB` : ''].filter(Boolean).join(' • ') || '—';
-
-  // Tweede lijn (subtext): Variant • SKU • IMEI/SN
-  const metaParts: string[] = [];
-  if (p.variant) metaParts.push(`Variant: ${p.variant}`);
-  metaParts.push(p.sku ? `SKU: ${p.sku}` : 'SKU: —');
-  metaParts.push(p.imei_sn ? `IMEI/SN: ${p.imei_sn}` : 'IMEI/SN: —');
-  const metaLine = metaParts.join(' • ');
+    [
+      p.model || undefined,
+      p.variant || undefined,
+      p.capacity_gb ? `${p.capacity_gb} GB` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' • ') || '—';
 
   return (
     <div className="space-y-1">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate">{modelLine}</div>
+          {/* hoofdregel */}
+          <div className="truncate font-medium">{modelLine}</div>
+
+          {/* subregel met SKU / IMEI */}
           <div className="text-[11px] text-gray-500 truncate">
-            {metaLine}
+            {p.sku ? `SKU: ${p.sku}` : 'SKU: —'}{' '}
+            {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : '• IMEI/SN: —'}
           </div>
         </div>
 
+        {/* toggle voor edit / extra info */}
         <button
           type="button"
-          onClick={() => setOpen(o => !o)}
+          onClick={() => setOpen((o) => !o)}
           className="text-xs px-2 h-7 border rounded"
           aria-expanded={open}
-          title={open ? 'Sluiten' : 'Bewerken'}
+          title={open ? 'Sluiten' : 'Bewerken / details'}
         >
           {open ? '▴' : '▾'}
         </button>
       </div>
 
       {open && (
-        <form action={updateLeadInlineAction} className="mt-2 flex flex-col gap-1">
+        <form
+          action={updateLeadInlineAction}
+          className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2"
+        >
           <input type="hidden" name="id" value={p.id} />
 
           <div className="flex flex-col">
@@ -79,7 +84,7 @@ export default function DeviceCell(p: Props) {
             />
           </div>
 
-          <div className="pt-1">
+          <div className="pt-1 flex items-center justify-between gap-2">
             <button
               className="bb-btn h-8 text-xs px-3"
               type="submit"
@@ -89,19 +94,25 @@ export default function DeviceCell(p: Props) {
             </button>
           </div>
 
-          {/* 🔹 Uitklapbare vragen & antwoorden onder het bewaar-icoon */}
+          {/* Vragen & antwoorden uit de widget (HTML uit Supabase) */}
           {p.questions_answers_html ? (
-            <details className="mt-2 text-[11px] text-gray-600">
-              <summary className="cursor-pointer select-none">
+            <details className="mt-2 text-[11px] text-gray-700">
+              <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900">
                 Vragen &amp; antwoorden tonen
               </summary>
-              <div
-                className="mt-1 border border-gray-200 rounded p-2 bg-gray-50 text-[11px] leading-snug"
-                // HTML komt uit jouw backend (lead.questions_answers_html)
-                dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
-              />
+              <div className="mt-1 border border-gray-200 rounded bg-white p-2 max-h-64 overflow-auto">
+                <div
+                  className="prose prose-xs max-w-none"
+                  // HTML komt uit jouw backend (admin-only → ok)
+                  dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
+                />
+              </div>
             </details>
-          ) : null}
+          ) : (
+            <p className="mt-1 text-[11px] text-gray-400">
+              Geen vragen/antwoorden opgeslagen.
+            </p>
+          )}
         </form>
       )}
     </div>
