@@ -129,6 +129,7 @@ export async function POST(req: Request) {
   const {
     source = 'shopify-bb2',
     model,
+    variant = null;
     capacity_gb = null,
     answers,
     base_price_cents,
@@ -229,6 +230,7 @@ export async function POST(req: Request) {
     .from('buyback_leads')
     .insert([{
       source, model, capacity_gb, answers,
+      variant: variant || null,
       base_price_cents, final_price_cents,
       final_price_with_voucher_cents, voucher_bonus_cents,
       first_name, last_name, customer_name,
