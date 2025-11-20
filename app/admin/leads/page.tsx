@@ -41,6 +41,7 @@ type Lead = {
   // toestel
   model: string | null;
   capacity_gb: number | null;
+  variant: string | null;
 
   // prijzen
   base_price_cents: number | null;
@@ -655,6 +656,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 <DeviceCell
                   id={lead.id}
                   model={lead.model}
+                  variant={lead.variant}
                   capacity_gb={lead.capacity_gb}
                   sku={lead.sku}
                   imei_sn={lead.imei_sn}
@@ -728,45 +730,39 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         )}
 
                         {/* Uitklap: trackinglink + label PDF (indien beschikbaar) */}
-                        <details className="mt-1">
-                          <summary className="cursor-pointer select-none text-xs text-gray-600 hover:text-gray-900 flex items-center gap-2">
-                            <span className="inline-block">▸</span>
-                            <span>Meer acties</span>
-                          </summary>
-                          <div className="pl-4 mt-1 space-y-1 text-xs">
-                            {hasTracking ? (
-                              <div>
-                                <span className="text-gray-500">Controleer tracking: </span>
-                                <a
-                                  href={trackingHref!}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline text-blue-700 hover:text-blue-900"
-                                >
-                                  Open tracking
-                                </a>
-                                {lead.tracking_code ? (
-                                  <span className="ml-2 text-gray-500">({lead.tracking_code})</span>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <div className="text-gray-500 italic">Nog geen tracking beschikbaar</div>
-                            )}
-                            {labelHref ? (
-                              <div>
-                                <span className="text-gray-500">Verzendlabel (PDF): </span>
-                                <a
-                                  href={labelHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="underline text-blue-700 hover:text-blue-900"
-                                >
-                                  Download label
-                                </a>
-                              </div>
-                            ) : null}
-                          </div>
-                        </details>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {hasTracking ? (
+                            <a
+                              href={trackingHref!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center rounded border border-sky-500 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-50"
+                            >
+                              Traceer pakket
+                              {lead.tracking_code ? (
+                                <span className="ml-1 text-[10px] text-gray-500">
+                                  ({lead.tracking_code})
+                                </span>
+                              ) : null}
+                            </a>
+                          ) : (
+                            <span className="text-[11px] text-gray-500 italic">
+                              Nog geen tracking beschikbaar
+                            </span>
+                          )}
+                        
+                          {labelHref ? (
+                            <a
+                              href={labelHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center rounded border border-gray-300 px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                              Download label
+                            </a>
+                          ) : null}
+                        </div>
+
                       </div>
                     );
                   })()}
