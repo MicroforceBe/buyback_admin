@@ -660,6 +660,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   capacity_gb={lead.capacity_gb}
                   sku={lead.sku}
                   imei_sn={lead.imei_sn}
+                  questions_answers_html={lead.questions_answers_html}
                 />
                 </td>
 
