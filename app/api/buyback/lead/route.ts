@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendStatusUpdateMail } from '@/lib/email/sendStatusUpdateMail';
+import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,10 +17,9 @@ function j(data: any, status = 200) {
 }
 
 /**
- * Fallback helper om van ruwe `answers` JSON een HTML-tabel te maken.
- * Wordt alleen nog gebruikt als de widget géén `questions_answers_html`
- * meestuurt. De voorkeur is dat de widget zelf al een mooi HTML-blok
- * met leesbare vragen + antwoorden aanlevert.
+ * Eenvoudige helper om van de ruwe `answers` JSON een HTML-tabel te maken.
+ * Voor nu gebruiken we gewoon de keys en values; later kan dit uitgebreid
+ * worden met labels uit buyback_multipliers_per_category_json.
  */
 function buildQuestionsAnswersHtml(rawAnswers: any): string {
   if (!rawAnswers || typeof rawAnswers !== 'object') return '';
@@ -131,9 +130,6 @@ export async function POST(req: Request) {
     base_price_cents,
     final_price_cents,
 
-    // NIEUW: widget kan zelf een kant-en-klaar HTML-blok meesturen
-    questions_answers_html: incomingQuestionsAnswersHtml = null,
-
     // klant
     first_name = null,
     last_name = null,
@@ -157,20 +153,26 @@ export async function POST(req: Request) {
 
     // idempotency (optioneel)
     idempotency_key = null,
+
+    // 🔹 nieuw: client-side HTML blok
+    questions_answers_html: questions_answers_html_raw = null,
   } = body || {};
 
   if (!model || !answers || typeof base_price_cents !== 'number' || typeof final_price_cents !== 'number') {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
-  // 1) Bepaal HTML voor vragen/antwoorden:
-  //    - voorkeur: HTML die door de widget werd meegestuurd
-  //    - fallback: generiek blok op basis van ruwe `answers` JSON
-  const questions_answers_html =
-    typeof incomingQuestionsAnswersHtml === 'string' &&
-    incomingQuestionsAnswersHtml.trim()
-      ? incomingQuestionsAnswersHtml
-      : buildQuestionsAnswersHtml(answers);
+  // 🔹 Kies welke HTML we bewaren:
+  // 1) Prefer client-side HTML (met echte labels & tips)
+  // 2) Fallback naar server-side build op basis van answers
+  let questions_answers_html: string | null = null;
+  if (typeof questions_answers_html_raw === 'string' && questions_answers_html_raw.trim()) {
+    questions_answers_html = questions_answers_html_raw;
+  } else {
+    questions_answers_html = buildQuestionsAnswersHtml(answers);
+  }
+
+  console.info('[ADMIN][LEAD] Q/A HTML source =', questions_answers_html_raw ? 'client' : 'server');
 
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
@@ -239,14 +241,14 @@ export async function POST(req: Request) {
       wants_voucher,
       order_code,
       idempotency_key,
-      questions_answers_html, // <== nu mooi HTML blok (van widget of fallback)
+      questions_answers_html, // <== nu: client HTML of fallback
     }])
     .select('id, order_code, email')
     .single();
 
   if (error) return j({ error: error.message }, 500);
 
-  // === MAIL: stuur bevestigingsmail met nieuwe status-template (BLOCKING) ===
+  // === MAIL: stuur professionele bevestigingsmail (BLOCKING) ===
   try {
     const to = (data?.email ?? email ?? null) as string | null;
 
@@ -257,56 +259,47 @@ export async function POST(req: Request) {
       delivery_method,
     });
 
-    if (to) {
-      const finalPriceToSend = wants_voucher
-        ? final_price_with_voucher_cents
-        : final_price_cents;
+    const mailRes = await sendStatusMail({
+      to,                       // ontvanger
+      first_name,
+      last_name,
+      order_code,
 
-      const mailRes = await sendStatusUpdateMail({
-        // ontvanger + basis
-        to,
-        first_name,
-        last_name,
-        order_code,
+      // toestel & prijs
+      model,
+      capacity_gb,
+      base_price_cents,
+      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+      wants_voucher,
 
-        // context / templatekeuze
-        status: 'new',
-        language: 'nl', // eventueel later dynamisch
+      // antwoorden/conditie uit de widget
+      answers,
+      questions_answers_html,   // <== ook meegeven aan template-context
 
-        // toestel & prijs
-        model,
-        capacity_gb,
-        final_price_cents: finalPriceToSend,
-        wants_voucher,
-        iban: wants_voucher ? null : (iban ?? null),
+      // uitbetaling
+      iban: wants_voucher ? null : (iban ?? null),
+      delivery_method,
 
-        // levering + shop
-        delivery_method,
-        shop_location: resolved_shop_location ?? shop_location ?? null,
-        shop_address1,
-        shop_zip,
-        shop_city,
-        opening_hours,
+      // winkel (dropoff)
+      shop_location: resolved_shop_location ?? shop_location ?? null,
+      shop_address1,
+      shop_zip,
+      shop_city,
+      opening_hours,
 
-        // vragen + antwoorden (HTML uit lead of widget)
-        questions_answers_html,
+      // klantadres (ship)
+      street,
+      house_number,
+      postal_code,
+      city,
+      country,
+    });
 
-        // bij nieuw order nog geen tracking / label
-        tracking_code: undefined,
-        tracking_url: undefined,
-        label_pdf_url: undefined,
-      });
-
-      console.info('[ADMIN][LEAD][MAIL] sent ok', {
-        id: (mailRes as any)?.id,
-        to,
-        order_code,
-      });
-    } else {
-      console.warn('[ADMIN][LEAD][MAIL] no recipient email, skipping send', {
-        order_code,
-      });
-    }
+    console.info('[ADMIN][LEAD][MAIL] sent ok', {
+      id: (mailRes as any)?.id,
+      to,
+      order_code,
+    });
   } catch (mailErr: any) {
     console.error('[ADMIN][LEAD][MAIL] send failed', {
       err: mailErr?.message || String(mailErr),
