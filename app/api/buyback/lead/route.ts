@@ -269,6 +269,7 @@ export async function POST(req: Request) {
       // toestel & prijs
       model,
       capacity_gb,
+      variant: variant || null,   // ⬅️ VARIANT HIER MEEGEVEN
       base_price_cents,
       final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
       wants_voucher,
