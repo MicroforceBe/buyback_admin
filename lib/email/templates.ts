@@ -1,4 +1,3 @@
-// lib/email/templates.ts
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -452,6 +451,7 @@ export async function renderStatusEmail(
     iban: ctx.iban || "",
     // vragen + antwoorden (HTML)
     questions_answers: blocks.questions_answers || "",
+    questions_answers_html: blocks.questions_answers || "",
   };
 
   const subject = renderWithPlaceholders(subjectTemplate, replacements);
