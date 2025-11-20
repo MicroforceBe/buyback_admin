@@ -720,7 +720,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           // toestel & prijs
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
-          variant: lead.variant,
+          variant: (after as any).variant ?? null,
           final_price_cents: (after as any).final_price_cents,
           wants_voucher: (after as any).wants_voucher ?? null,
           iban: (after as any).iban ?? null,
