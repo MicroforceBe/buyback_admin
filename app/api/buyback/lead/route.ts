@@ -129,7 +129,7 @@ export async function POST(req: Request) {
   const {
     source = 'shopify-bb2',
     model,
-    variant = null;
+    variant = null,
     capacity_gb = null,
     answers,
     base_price_cents,
