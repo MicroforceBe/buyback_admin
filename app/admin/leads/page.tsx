@@ -42,7 +42,10 @@ type Lead = {
   model: string | null;
   capacity_gb: number | null;
   variant: string | null;
-
+  questions_answers_html: string | null;
+  sku: string | null;
+  imei_sn: string | null;
+  
   // prijzen
   base_price_cents: number | null;
   final_price_cents: number | null;
@@ -53,8 +56,7 @@ type Lead = {
   email: string | null;
   phone: string | null;
   customer_number: string | null;
-  sku: string | null;
-  imei_sn: string | null;
+
 
   // levering
   delivery_method: "ship" | "dropoff" | null;
