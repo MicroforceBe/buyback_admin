@@ -1,61 +1,106 @@
-import { cookies } from 'next/headers';
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import type { AdminUser, PermissionsMap, isRootAdminEmail } from './adminPermissions';
-import { isRootAdminEmail as isRootAdminEmailFn } from './adminPermissions';
+"use server";
+
+import { cookies } from "next/headers";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type { AdminFeature } from "./adminPermissions";
+
+export type AdminRole = "admin" | "user";
+
+export type AdminPermissions = {
+  [K in AdminFeature]?: {
+    read?: boolean;
+    write?: boolean;
+  };
+};
 
 type RawAdminUserRow = {
   email: string;
-  role: 'admin' | 'user';
-  permissions: PermissionsMap | null;
+  role: AdminRole | null;
+  permissions: any | null;
 };
 
+export type AdminUser = {
+  email: string;
+  role: AdminRole;
+  permissions: AdminPermissions;
+};
+
+const ALL_FEATURES: AdminFeature[] = [
+  "dashboard",
+  "leads",
+  "catalog",
+  "multipliers",
+  "uploads",
+  "settings",
+];
+
+function normalizePermissions(
+  raw: any,
+  role: AdminRole
+): AdminPermissions {
+  const base: AdminPermissions = {};
+
+  // Admins: altijd full access, ongeacht JSON
+  if (role === "admin") {
+    for (const f of ALL_FEATURES) {
+      base[f] = { read: true, write: true };
+    }
+  }
+
+  if (!raw || typeof raw !== "object") return base;
+
+  for (const f of ALL_FEATURES) {
+    const src = raw[f];
+    if (!src || typeof src !== "object") continue;
+
+    const current = base[f] ?? {};
+    base[f] = {
+      read: src.read ?? current.read ?? false,
+      write: src.write ?? current.write ?? false,
+    };
+  }
+
+  return base;
+}
+
+/**
+ * Bepaalt de huidige admin-user op basis van een login-cookie + Supabase-row.
+ * - Cookie: bb_admin_email
+ * - Tabel: buyback_admin_users (email, role, permissions)
+ */
 export async function getCurrentAdminUser(): Promise<AdminUser | null> {
-  const supabase = createServerComponentClient({ cookies });
+  const cookieStore = cookies();
+  const emailCookie = cookieStore.get("bb_admin_email")?.value;
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user || !user.email) {
+  const email = emailCookie?.trim().toLowerCase();
+  if (!email) {
     return null;
   }
 
-  const email = user.email.toLowerCase();
-
-  // Fetch bijhorende rij in buyback_admin_users
-  const { data, error } = await supabase
-    .from('buyback_admin_users')
-    .select('email, role, permissions')
-    .eq('email', email)
+  const { data, error } = await supabaseAdmin
+    .from("buyback_admin_users")
+    .select("email, role, permissions")
+    .eq("email", email)
     .maybeSingle();
 
-  const row = data as RawAdminUserRow | null;
-  
   if (error) {
-    console.error('[getCurrentAdminUser] error', error);
+    console.error("[ADMIN_AUTH] error loading admin user:", error.message);
     return null;
   }
 
-  // Als er een rij is → gebruik die
-  if (data) {
-    return {
-      email: data.email,
-      role: data.role,
-      permissions: (data.permissions ?? {}) as PermissionsMap,
-    };
+  if (!data) {
+    // cookie wijst naar user die niet (meer) bestaat
+    return null;
   }
 
-  // Geen rij in de tabel:
-  // - als dit de root admin is, geef volledige adminrechten
-  if (isRootAdminEmailFn(email)) {
-    return {
-      email,
-      role: 'admin',
-      permissions: {},
-    };
-  }
+  const row = data as RawAdminUserRow;
 
-  // Anders: geen toegang tot admin
-  return null;
+  const role: AdminRole = row.role ?? "user";
+  const permissions = normalizePermissions(row.permissions, role);
+
+  return {
+    email: row.email.toLowerCase(),
+    role,
+    permissions,
+  };
 }
