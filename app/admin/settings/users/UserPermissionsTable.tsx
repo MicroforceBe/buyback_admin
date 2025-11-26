@@ -215,7 +215,7 @@ export default function UserPermissionsTable({
                           e.target.value as AdminRole
                         )
                       }
-                      disabled={root}
+                      disabled={!!root}
                     >
                       <option value="admin">admin</option>
                       <option value="user">user</option>
