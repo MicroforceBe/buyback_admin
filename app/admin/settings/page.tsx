@@ -5,6 +5,7 @@ import Link from "next/link";
 import StatusTemplatesTabs from "./StatusTemplatesTabs";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
+import { redirect } from "next/navigation"; 
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -158,6 +159,11 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
 export default async function SettingsPage() {
   const adminUser = await getCurrentAdminUser();
+
+  if (!adminUser) {
+    redirect("/admin/login");
+  }
+
   const canReadSettings = hasPermission(adminUser, "settings", "read");
   const canWriteSettings = hasPermission(adminUser, "settings", "write");
 
