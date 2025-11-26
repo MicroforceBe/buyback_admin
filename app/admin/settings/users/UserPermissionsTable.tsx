@@ -184,7 +184,7 @@ export default function UserPermissionsTable({
           <input
             type="email"
             className="border rounded px-2 py-1 text-sm"
-            placeholder=user@domein.be
+            placeholder="user@domein.be"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
           />
