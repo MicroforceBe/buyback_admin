@@ -1,3 +1,4 @@
+//app/admin/settings/users/UserPermissionsTable.tsx
 'use client';
 
 import { useState, useTransition } from 'react';
@@ -48,6 +49,11 @@ export default function UserPermissionsTable({
   const [isPending, startTransition] = useTransition();
   const [newEmail, setNewEmail] = useState('');
 
+  // per-user tijdelijke wachtwoordvelden
+  const [passwords, setPasswords] = useState<
+    Record<string, { password: string; confirm: string }>
+  >({});
+
   function updateUser(email: string, updater: (row: UserRow) => UserRow) {
     setUsers((prev) =>
       prev.map((u) => (u.email === email ? updater(u) : u))
@@ -97,13 +103,40 @@ export default function UserPermissionsTable({
     updateUser(email, (row) => ({ ...row, role }));
   }
 
+  function handlePasswordFieldChange(
+    email: string,
+    field: 'password' | 'confirm',
+    value: string
+  ) {
+    setPasswords((prev) => {
+      const existing = prev[email] || { password: '', confirm: '' };
+      return {
+        ...prev,
+        [email]: {
+          password: field === 'password' ? value : existing.password,
+          confirm: field === 'confirm' ? value : existing.confirm,
+        },
+      };
+    });
+  }
+
   function handleSave(user: UserRow) {
+    const pwState = passwords[user.email] || { password: '', confirm: '' };
+
     startTransition(async () => {
       await saveAdminUserAction({
         email: user.email,
         role: user.role,
         permissions: user.permissions,
+        password: pwState.password,
+        password_confirm: pwState.confirm,
       });
+
+      // Na save velden leegmaken
+      setPasswords((prev) => ({
+        ...prev,
+        [user.email]: { password: '', confirm: '' },
+      }));
     });
   }
 
@@ -151,7 +184,7 @@ export default function UserPermissionsTable({
           <input
             type="email"
             className="border rounded px-2 py-1 text-sm"
-            placeholder="user@domein.be"
+            placeholder=user@domein.be
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
           />
@@ -189,6 +222,8 @@ export default function UserPermissionsTable({
             {users.map((u) => {
               const root = isRootAdmin(u.email);
               const me = isMe(u.email);
+              const pwState =
+                passwords[u.email] || { password: '', confirm: '' };
 
               return (
                 <tr key={u.email} className="border-t">
@@ -261,29 +296,73 @@ export default function UserPermissionsTable({
                     );
                   })}
                   <td className="px-2 py-1 align-top text-right space-x-1">
-                    <button
-                      type="button"
-                      onClick={() => handleSave(u)}
-                      className="px-2 py-0.5 border rounded text-xs"
-                      disabled={isPending}
-                    >
-                      Opslaan
-                    </button>
-                    {!isRootAdmin(u.email) && (
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(u)}
-                        className="px-2 py-0.5 border rounded text-xs text-red-600"
-                        disabled={isPending || !!me}
-                        title={
-                          me
-                            ? 'Je kunt jezelf hier niet verwijderen.'
-                            : 'User uit adminrechten verwijderen'
-                        }
-                      >
-                        Verwijderen
-                      </button>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex flex-col items-end gap-1 text-[10px]">
+                        <label className="flex flex-col gap-0.5">
+                          <span className="text-gray-600">
+                            Nieuw wachtwoord
+                          </span>
+                          <input
+                            type="password"
+                            className="border rounded px-2 py-0.5 text-xs"
+                            placeholder="Laat leeg om niet te wijzigen"
+                            value={pwState.password}
+                            onChange={(e) =>
+                              handlePasswordFieldChange(
+                                u.email,
+                                'password',
+                                e.target.value
+                              )
+                            }
+                            autoComplete="new-password"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-0.5">
+                          <span className="text-gray-600">
+                            Herhaal wachtwoord
+                          </span>
+                          <input
+                            type="password"
+                            className="border rounded px-2 py-0.5 text-xs"
+                            placeholder="Herhaal nieuw wachtwoord"
+                            value={pwState.confirm}
+                            onChange={(e) =>
+                              handlePasswordFieldChange(
+                                u.email,
+                                'confirm',
+                                e.target.value
+                              )
+                            }
+                            autoComplete="new-password"
+                          />
+                        </label>
+                      </div>
+                      <div className="space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSave(u)}
+                          className="px-2 py-0.5 border rounded text-xs"
+                          disabled={isPending}
+                        >
+                          Opslaan
+                        </button>
+                        {!isRootAdmin(u.email) && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(u)}
+                            className="px-2 py-0.5 border rounded text-xs text-red-600"
+                            disabled={isPending || !!me}
+                            title={
+                              me
+                                ? 'Je kunt jezelf hier niet verwijderen.'
+                                : 'User uit adminrechten verwijderen'
+                            }
+                          >
+                            Verwijderen
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               );
