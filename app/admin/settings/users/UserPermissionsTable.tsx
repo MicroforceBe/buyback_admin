@@ -235,7 +235,7 @@ export default function UserPermissionsTable({
                           <input
                             type="checkbox"
                             checked={!!perm.read}
-                            disabled={disabled}
+                            disabled={!!disabled}
                             onChange={() =>
                               handleTogglePerm(
                                 u.email,
