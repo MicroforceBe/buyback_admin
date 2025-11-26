@@ -21,9 +21,7 @@ type SettingsRow = {
 async function loadSettings(): Promise<SettingsRow> {
   const { data, error } = await supabaseAdmin
     .from("buyback_settings")
-    .select(
-      "id, brand_name, brand_color, logo_url, email_disclaimer, updated_at"
-    )
+    .select("id, brand_name, brand_color, logo_url, email_disclaimer, updated_at")
     .eq("id", 1)
     .single();
 
@@ -49,17 +47,20 @@ async function loadSettings(): Promise<SettingsRow> {
   };
 }
 
-export default async function SettingsPage() {
-  // 🔐 rechten-check
+export default async function SettingsBrandingPage() {
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
     redirect("/admin/login");
   }
 
-  if (!hasPermission(adminUser, "settings", "read")) {
+  const canRead = hasPermission(adminUser, "settings", "read");
+  const canWrite = hasPermission(adminUser, "settings", "write");
+
+  if (!canRead) {
     return (
       <div className="w-full p-4">
+        <h1 className="text-xl font-semibold mb-2">Instellingen</h1>
         <p className="text-sm text-red-600">
           Je hebt geen rechten om deze pagina te bekijken.
         </p>
@@ -73,10 +74,9 @@ export default async function SettingsPage() {
   async function actionSaveBranding(formData: FormData) {
     "use server";
 
-    // extra write-check
-    const current = await getCurrentAdminUser();
-    if (!current || !hasPermission(current, "settings", "write")) {
-      throw new Error("Je hebt geen schrijfrechten voor instellingen.");
+    const adminUserInner = await getCurrentAdminUser();
+    if (!adminUserInner || !hasPermission(adminUserInner, "settings", "write")) {
+      return { ok: false as const, message: "Je hebt geen rechten om settings te wijzigen." };
     }
 
     const brand_name = (formData.get("brand_name") as string | null) ?? "";
@@ -111,7 +111,7 @@ export default async function SettingsPage() {
   return (
     <div className="w-full p-4 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Instellingen</h1>
+        <h1 className="text-xl font-semibold">Instellingen – Branding</h1>
         <Link href="/admin" className="bb-btn h-9 text-xs px-3">
           ← Terug
         </Link>
@@ -123,8 +123,7 @@ export default async function SettingsPage() {
           <div>
             <h2 className="text-lg font-medium">Branding</h2>
             <p className="text-sm text-gray-500">
-              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails
-              &amp; UI.
+              Logo, merknaam, kleur en e-maildisclaimer voor buyback e-mails &amp; UI.
             </p>
           </div>
           <Link href="/admin/uploads" className="text-sm underline">
@@ -141,6 +140,7 @@ export default async function SettingsPage() {
                 defaultValue={row.brand_name ?? ""}
                 placeholder="bv. Microforce Buyback"
                 className="bb-input h-9 text-sm px-2"
+                disabled={!canWrite}
               />
             </label>
 
@@ -152,6 +152,7 @@ export default async function SettingsPage() {
                   defaultValue={row.brand_color ?? ""}
                   placeholder="#00AEEF"
                   className="bb-input h-9 text-sm px-2 flex-1"
+                  disabled={!canWrite}
                 />
                 <span
                   title="Preview"
@@ -169,8 +170,9 @@ export default async function SettingsPage() {
               <input
                 name="logo_url"
                 defaultValue={row.logo_url ?? ""}
-                placeholder={String("https://.../uploads/logo.png")}
+                placeholder="https://.../uploads/logo.png"
                 className="bb-input h-9 text-sm px-2"
+                disabled={!canWrite}
               />
               <span className="text-xs text-gray-500">
                 Kies een bestand via{" "}
@@ -204,17 +206,26 @@ export default async function SettingsPage() {
               placeholder="Tekst die onderaan in bevestigingsmails verschijnt."
               rows={6}
               className="bb-input text-sm px-2 py-2"
+              disabled={!canWrite}
             />
             <span className="text-xs text-gray-500">
-              Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet
-              nodig.
+              Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet nodig.
             </span>
           </label>
 
           <div className="pt-2">
-            <button type="submit" className="bb-btn primary h-9 text-sm px-4">
+            <button
+              type="submit"
+              className="bb-btn primary h-9 text-sm px-4"
+              disabled={!canWrite}
+            >
               Bewaren
             </button>
+            {!canWrite && (
+              <p className="mt-1 text-xs text-gray-500">
+                Je hebt alleen leesrechten; aanpassen is uitgeschakeld.
+              </p>
+            )}
           </div>
         </form>
 
