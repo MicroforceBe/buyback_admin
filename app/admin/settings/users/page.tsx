@@ -1,3 +1,4 @@
+// app/admin/settings/users/page.tsx
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -19,9 +20,18 @@ async function loadUsers() {
 export default async function UsersSettingsPage() {
   const adminUser = await getCurrentAdminUser();
 
-  if (!adminUser) redirect("/admin/login");
+  if (!adminUser) {
+    redirect("/admin/login");
+  }
+
   if (!hasPermission(adminUser, "settings", "read")) {
-    return <div className="p-4 text-red-600">Geen rechten om deze pagina te bekijken.</div>;
+    return (
+      <div className="w-full p-4">
+        <p className="text-sm text-red-600">
+          Je hebt geen rechten om deze pagina te bekijken.
+        </p>
+      </div>
+    );
   }
 
   const users = await loadUsers();
