@@ -5,6 +5,8 @@ import CustomerCell from './CustomerCell';
 import DeviceCell from './DeviceCell';
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
+import { redirect } from "next/navigation";
+
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -132,8 +134,39 @@ function qsWith(base: Record<string, string>, patch: Record<string, string | nul
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
-  // === permissions ===
+    // 🔐 1) Haal de huidige admin user op
   const adminUser = await getCurrentAdminUser();
+
+  // 🔐 2) Niet ingelogd → altijd naar login
+  if (!adminUser) {
+    redirect("/admin/login?reason=not_logged_in");
+  }
+
+  // 🔐 3) Ingelogd maar geen leesrecht op leads → toon nette fout
+  if (!hasPermission(adminUser, "leads", "read")) {
+    return (
+      <div className="w-full p-6">
+        <h1 className="text-2xl font-semibold mb-4">Leads</h1>
+        <div className="p-3 bg-red-50 border border-red-200 rounded">
+          <div className="text-red-700 font-medium">
+            Je hebt geen rechten om deze pagina te bekijken.
+          </div>
+          <p className="text-xs text-red-600 mt-1">
+            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in de
+            settings &gt; Users.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // === params ===
+  const q = (searchParams.q ?? "").trim();
+  const from = (searchParams.from ?? "").trim();
+  const to = (searchParams.to ?? "").trim();
+
+  
+  // === permissions ===
   const canReadLeads = hasPermission(adminUser, 'leads', 'read');
   const canWriteLeads = hasPermission(adminUser, 'leads', 'write');
 
