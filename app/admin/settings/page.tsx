@@ -164,6 +164,8 @@ export default async function SettingsPage() {
   if (!adminUser) {
     redirect("/admin/login?reason=not_logged_in");
   }
+  const canReadSettings = hasPermission(adminUser, "settings", "read");
+  const canWriteSettings = hasPermission(adminUser, "settings", "write");
 
 // 🔐 2) Geen leesrechten op settings → nette fout
   if (!hasPermission(adminUser, "settings", "read")) {
