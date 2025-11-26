@@ -78,3 +78,32 @@ export function hasPermission(
   const val = featurePerm[mode];
   return !!val;
 }
+
+/**
+ * Bepaalt of een e-mailadres een "root admin" is.
+ * Handig om bv. delete / role-change op de hoofdadmin te blokkeren.
+ *
+ * Gebruik een env-var met komma-gescheiden e-mails, bijvoorbeeld:
+ *   BUYBACK_ROOT_ADMINS="olivier@microforce.be, iemand@anders.be"
+ */
+export function isRootAdminEmail(
+  email: string | null | undefined
+): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const raw =
+    process.env.BUYBACK_ROOT_ADMINS ||
+    process.env.ROOT_ADMIN_EMAIL ||
+    "";
+
+  const list = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (list.length === 0) return false;
+
+  return list.includes(normalized);
+}
