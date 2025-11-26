@@ -274,7 +274,7 @@ export default function UserPermissionsTable({
                         type="button"
                         onClick={() => handleDelete(u)}
                         className="px-2 py-0.5 border rounded text-xs text-red-600"
-                        disabled={isPending || me}
+                        disabled={isPending || !!me}
                         title={
                           me
                             ? 'Je kunt jezelf hier niet verwijderen.'
