@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
 import { sendStatusUpdateMail } from "@/lib/email/sendStatusUpdateMail";
 import type { BuybackStatus } from "@/lib/email/templates";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { hasPermission } from "@/lib/adminPermissions";
 
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
 // in andere een factory-functie. Deze helper vangt beide af.
@@ -98,19 +100,19 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
- * Haal ship_with-object op uit env en normaliseer naar:
- *
- * {
- *   type: "shipping_option_code",
- *   properties: { shipping_option_code: "..." }
- * }
- *
- * Ondersteunt twee env-vormen:
- * 1) { "shipping_option_code": "..." }
- * 2) { "type": "shipping_option_code", "properties": { "shipping_option_code": "..." } }
- *
- * Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
- */
+* Haal ship_with-object op uit env en normaliseer naar:
+*
+* {
+*   type: "shipping_option_code",
+*   properties: { shipping_option_code: "..." }
+* }
+*
+* Ondersteunt twee env-vormen:
+* 1) { "shipping_option_code": "..." }
+* 2) { "type": "shipping_option_code", "properties": { "shipping_option_code": "..." } }
+*
+* Indien niet gezet of ongeldig: fallback naar DEFAULT_SHIP_WITH (bpost @home).
+*/
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -194,15 +196,15 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
- * Shipment (klant -> jullie) met correcte FROM/TO.
- *
- * Endpoint:
- *   POST https://panel.sendcloud.sc/api/v3/shipments/announce
- *
- * Auth:
- *   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
- */
+* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+* Shipment (klant -> jullie) met correcte FROM/TO.
+*
+* Endpoint:
+*   POST https://panel.sendcloud.sc/api/v3/shipments/announce
+*
+* Auth:
+*   Basic auth met SENDCLOUD_PUBLIC_KEY:SENDCLOUD_SECRET_KEY
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -445,12 +447,18 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
- * Eén action die ALLES kan updaten.
- * Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
- * customer_number, iban, first_name, last_name, street, house_number,
- * postal_code, city, country, phone, wants_voucher
- */
+* Eén action die ALLES kan updaten.
+* Velden (optioneel): id (required), status, final_price_eur, sku, imei_sn,
+* customer_number, iban, first_name, last_name, street, house_number,
+* postal_code, city, country, phone, wants_voucher
+*/
 export async function updateLeadInlineAction(formData: FormData) {
+  // permissies: enkel users met leads:write mogen wijzigen
+  const adminUser = await getCurrentAdminUser();
+  if (!hasPermission(adminUser, "leads", "write")) {
+    redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
+  }
+
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
 
@@ -770,6 +778,12 @@ export async function updateLeadInlineAction(formData: FormData) {
 }
 
 export async function deleteLeadAction(formData: FormData) {
+  // permissies: enkel users met leads:write mogen verwijderen
+  const adminUser = await getCurrentAdminUser();
+  if (!hasPermission(adminUser, "leads", "write")) {
+    redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
+  }
+
   const id = String(formData.get("id") || "").trim();
   if (!id)
     redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
