@@ -1,11 +1,14 @@
+// app/admin/settings/email-templates/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { hasPermission } from "@/lib/adminPermissions";
 import StatusTemplatesTabs from "../StatusTemplatesTabs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Zelfde types als eerder
 type TemplateRow = {
   id: number;
   key: string;
@@ -25,147 +28,355 @@ type StatusMeta = {
 
 // Deze keys moeten overeenkomen met de orderstatussen
 const ORDER_STATUS_KEYS: StatusMeta[] = [
-  { key: "new", label: "Nieuw", description: "E-mail wanneer een nieuwe buyback aanvraag wordt aangemaakt." },
-  { key: "received_store", label: "Ontvangen in winkel", description: "E-mail wanneer toestel in winkel is ontvangen." },
-  { key: "label_created", label: "Label aangemaakt", description: "" },
-  { key: "shipment_received", label: "Zending ontvangen", description: "" },
-  { key: "check_passed", label: "Controle OK", description: "" },
-  { key: "check_failed", label: "Controle NOK", description: "" },
-  { key: "done", label: "Afgehandeld", description: "" },
+  {
+    key: "new",
+    label: "Nieuw",
+    description: "E-mail wanneer een nieuwe buyback-aanvraag wordt aangemaakt.",
+  },
+  {
+    key: "received_store",
+    label: "Ontvangen in winkel",
+    description: "E-mail wanneer het toestel in de winkel werd ontvangen.",
+  },
+  {
+    key: "label_created",
+    label: "Label aangemaakt",
+    description: "E-mail wanneer het verzendlabel is aangemaakt.",
+  },
+  {
+    key: "shipment_received",
+    label: "Zending ontvangen",
+    description:
+      "E-mail wanneer de zending is ontvangen in het controlecentrum.",
+  },
+  {
+    key: "check_passed",
+    label: "Controle OK",
+    description: "E-mail wanneer de controle is goedgekeurd.",
+  },
+  {
+    key: "check_failed",
+    label: "Controle NOK",
+    description: "E-mail wanneer de controle niet is goedgekeurd.",
+  },
+  {
+    key: "done",
+    label: "Afgehandeld",
+    description: "Slotsituatie: buyback-order is volledig afgehandeld.",
+  },
 ];
 
-// -------- DATA LOADERS ---------
-
 async function loadEmailTemplates(): Promise<TemplateRow[]> {
-  const { data } = await supabaseAdmin
-    .from("buyback_email_templates")
-    .select("*")
-    .order("id");
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_email_templates")
+      .select("*")
+      .order("id", { ascending: true });
 
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    key: row.key ?? row.type ?? "",
-    language: row.language ?? row.locale ?? row.lang ?? "nl",
-    subject: row.subject ?? "",
-    body_html: row.body_html ?? "",
-    updated_at: row.updated_at ?? null,
-  }));
+    if (error) {
+      console.warn("[SETTINGS][email-templates] load error:", error);
+      return [];
+    }
+
+    const rows = (data || []) as any[];
+
+    const out: TemplateRow[] = [];
+    for (const row of rows) {
+      if (!row) continue;
+
+      const key: string =
+        (row.key as string | undefined) ??
+        (row.type as string | undefined) ??
+        "";
+
+      if (!key) continue;
+
+      const language: string =
+        (row.language as string | undefined) ??
+        (row.locale as string | undefined) ??
+        (row.lang as string | undefined) ??
+        "nl";
+
+      out.push({
+        id: row.id as number,
+        key,
+        language,
+        subject: (row.subject as string | null) ?? "",
+        body_html: (row.body_html as string | null) ?? "",
+        updated_at: (row.updated_at as string | null) ?? null,
+      });
+    }
+
+    return out;
+  } catch (e) {
+    console.warn("[SETTINGS][email-templates] exception:", e);
+    return [];
+  }
 }
 
-// -------- SERVER ACTION ---------
-
+// ---- Server Action e-mailtemplate bewaren ----
 async function actionSaveTemplate(formData: FormData) {
   "use server";
 
-  const idRaw = (formData.get("template_id") as string) || "";
+  const current = await getCurrentAdminUser();
+  if (!current || !hasPermission(current, "settings", "write")) {
+    throw new Error("Je hebt geen schrijfrechten voor e-mailtemplates.");
+  }
+
+  const idRaw = (formData.get("template_id") as string | null) ?? "";
   const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
 
-  const payload = {
-    id,
-    key: (formData.get("template_key") as string).trim(),
-    language: (formData.get("template_language") as string).trim() || "nl",
-    subject: formData.get("subject") as string,
-    body_html: formData.get("body_html") as string,
+  const keyInput =
+    ((formData.get("template_key") as string | null) ?? "").trim();
+  const languageInput =
+    ((formData.get("template_language") as string | null) ?? "nl").trim() ||
+    "nl";
+  const subject = (formData.get("subject") as string | null) ?? "";
+  const body_html = (formData.get("body_html") as string | null) ?? "";
+
+  if (!keyInput) {
+    return { ok: false as const, message: "Template key ontbreekt." };
+  }
+
+  const key = keyInput;
+  const language = languageInput;
+
+  const payload: any = {
+    key,
+    language,
+    subject,
+    body_html,
     updated_at: new Date().toISOString(),
   };
+  if (id && Number.isFinite(id)) {
+    payload.id = id;
+  }
 
-  await supabaseAdmin.from("buyback_email_templates").upsert(payload);
+  try {
+    const { error } = await supabaseAdmin
+      .from("buyback_email_templates")
+      .upsert(payload);
+
+    if (error) {
+      console.error("[SETTINGS][email-templates] upsert error:", error);
+      return { ok: false as const, message: error.message };
+    }
+  } catch (e: any) {
+    console.error(
+      "[SETTINGS][email-templates] upsert exception:",
+      e?.message || e
+    );
+    return {
+      ok: false as const,
+      message: "Onbekende fout bij bewaren van template.",
+    };
+  }
+
   revalidatePath("/admin/settings/email-templates");
-
-  return { ok: true };
+  return { ok: true as const, message: "Template bewaard." };
 }
 
-// -------- PAGE ---------
-
 export default async function EmailTemplatesPage() {
+  // 🔐 rechten-check
+  const adminUser = await getCurrentAdminUser();
+
+  if (!adminUser) {
+    redirect("/admin/login");
+  }
+
+  if (!hasPermission(adminUser, "settings", "read")) {
+    return (
+      <div className="w-full p-4">
+        <p className="text-sm text-red-600">
+          Je hebt geen rechten om deze pagina te bekijken.
+        </p>
+      </div>
+    );
+  }
+
   const templates = await loadEmailTemplates();
 
-  const languages = Array.from(new Set(templates.map((t) => t.language))).sort();
-  const LANGUAGES = languages.length ? languages : ["nl"];
-  const statusKeys = new Set(ORDER_STATUS_KEYS.map((s) => s.key));
+  const languagesFromData = Array.from(
+    new Set(templates.map((t) => t.language))
+  ).sort();
 
-  const statusTemplates = ORDER_STATUS_KEYS.map((status) => ({
-    ...status,
-    rows: LANGUAGES.map((lang) => {
-      const found = templates.find((t) => t.key === status.key && t.language === lang);
-      return (
-        found || {
-          id: 0,
-          key: status.key,
-          language: lang,
-          subject: "",
-          body_html: "",
-          updated_at: null,
-          _isNew: true,
-        }
+  const LANGUAGES = languagesFromData.length > 0 ? languagesFromData : ["nl"];
+
+  const statusKeysSet = new Set(ORDER_STATUS_KEYS.map((s) => s.key));
+
+  const statusTemplates = ORDER_STATUS_KEYS.map((status) => {
+    const rows: TemplateRowWithMeta[] = LANGUAGES.map((lang) => {
+      const existing = templates.find(
+        (t) => t.key === status.key && t.language === lang
       );
-    }),
-  }));
+      if (existing) {
+        return existing as TemplateRowWithMeta;
+      }
+      return {
+        id: 0,
+        key: status.key,
+        language: lang,
+        subject: "",
+        body_html: "",
+        updated_at: null,
+        _isNew: true,
+      };
+    });
+    return { ...status, rows };
+  });
 
   const templatesByKey = templates.reduce<Record<string, TemplateRow[]>>(
     (acc, t) => {
-      if (!statusKeys.has(t.key)) {
-        acc[t.key] = acc[t.key] || [];
-        acc[t.key].push(t);
-      }
+      if (statusKeysSet.has(t.key)) return acc;
+      if (!acc[t.key]) acc[t.key] = [];
+      acc[t.key].push(t);
       return acc;
     },
     {}
   );
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-lg font-semibold">Email Templates</h2>
+    <div className="w-full p-4 space-y-6">
+      <header>
+        <h1 className="text-xl font-semibold">E-mailtemplates</h1>
+        <p className="text-sm text-gray-500">
+          Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt
+          dynamisch uit deze templates gehaald, per <code>key</code> en taal.
+        </p>
+        <p className="text-xs text-gray-400">
+          Verwachte tabel: <code>buyback_email_templates</code> met minimaal{" "}
+          <code>id</code>, <code>key</code>, <code>language</code>,{" "}
+          <code>subject</code>, <code>body_html</code>, <code>updated_at</code>.
+        </p>
+      </header>
 
-      <StatusTemplatesTabs
-        statusTemplates={statusTemplates}
-        languages={LANGUAGES}
-        onSaveTemplate={actionSaveTemplate}
-      />
+      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <StatusTemplatesTabs
+          statusTemplates={statusTemplates}
+          languages={LANGUAGES}
+          onSaveTemplate={actionSaveTemplate}
+        />
 
-      {/* overige templates */}
-      <section className="pt-6">
-        <h3 className="font-semibold mb-2">Overige templates</h3>
-        {Object.keys(templatesByKey).length === 0 && (
-          <p className="text-sm text-gray-500">Geen extra templates.</p>
-        )}
+        {/* OVERIGE / GEVANCEERDE TEMPLATES */}
+        <div className="pt-6 space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-md font-semibold">
+              Overige e-mailtemplates (geavanceerd)
+            </h3>
+            <span className="text-xs text-gray-500">
+              Templates waarvan de <code>key</code> geen orderstatus is.
+            </span>
+          </div>
 
-        {Object.entries(templatesByKey).map(([key, list]) => (
-          <div key={key} className="space-y-3">
-            <h4 className="font-medium">Key: {key}</h4>
+          {Object.keys(templatesByKey).length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Er zijn momenteel geen extra e-mailtemplates buiten de
+              orderstatussen.
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {Object.entries(templatesByKey).map(([key, list]) => (
+                <div key={key} className="space-y-3">
+                  <div className="flex items-baseline justify-between">
+                    <h4 className="text-sm font-semibold">
+                      Template key: <code>{key}</code>
+                    </h4>
+                    <span className="text-xs text-gray-400">
+                      {list.length} taal/varianten
+                    </span>
+                  </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {list.map((tpl) => (
-                <form key={tpl.id} action={actionSaveTemplate} className="p-3 border rounded bg-gray-50 space-y-3">
-                  <input type="hidden" name="template_id" value={tpl.id} />
-                  <input type="hidden" name="template_key" value={tpl.key} />
-                  <input type="hidden" name="template_language" value={tpl.language} />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {list.map((tpl) => (
+                      <form
+                        key={tpl.id}
+                        action={actionSaveTemplate}
+                        className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
+                      >
+                        <input
+                          type="hidden"
+                          name="template_id"
+                          value={tpl.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="template_key"
+                          value={tpl.key}
+                        />
+                        <input
+                          type="hidden"
+                          name="template_language"
+                          value={tpl.language}
+                        />
 
-                  <label className="block text-sm">
-                    Onderwerp
-                    <input
-                      className="bb-input h-9 text-sm mt-1"
-                      name="subject"
-                      defaultValue={tpl.subject ?? ""}
-                    />
-                  </label>
+                        <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                          <span>
+                            Key: <code>{tpl.key}</code> • Taal:{" "}
+                            <code>{tpl.language}</code>
+                          </span>
+                          <span>
+                            Laatst bijgewerkt:{" "}
+                            {tpl.updated_at
+                              ? new Date(tpl.updated_at).toLocaleString(
+                                  "nl-BE"
+                                )
+                              : "—"}
+                          </span>
+                        </div>
 
-                  <label className="block text-sm">
-                    HTML Body
-                    <textarea
-                      name="body_html"
-                      defaultValue={tpl.body_html ?? ""}
-                      rows={6}
-                      className="bb-input text-sm mt-1"
-                    />
-                  </label>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">Onderwerp</span>
+                          <input
+                            name="subject"
+                            defaultValue={tpl.subject ?? ""}
+                            className="bb-input h-9 text-sm px-2"
+                            placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                          />
+                          <span className="text-xs text-gray-500">
+                            Je kan placeholders gebruiken zoals{" "}
+                            <code>{`{{first_name}}`}</code>,{" "}
+                            <code>{`{{order_code}}`}</code>,{" "}
+                            <code>{`{{brand_name}}`}</code>…
+                          </span>
+                        </label>
 
-                  <button className="bb-btn primary h-8 text-xs px-3">Opslaan</button>
-                </form>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium">HTML body</span>
+                          <textarea
+                            name="body_html"
+                            defaultValue={tpl.body_html ?? ""}
+                            rows={8}
+                            className="bb-input text-xs px-2 py-2 font-mono"
+                            placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}…"
+                          />
+                          <span className="text-xs text-gray-500">
+                            Volledige HTML-template. Beschikbare variabelen
+                            o.a.: <code>{`{{full_name}}`}</code>,{" "}
+                            <code>{`{{order_code}}`}</code>,{" "}
+                            <code>{`{{details_table}}`}</code>,{" "}
+                            <code>{`{{delivery_block}}`}</code>,{" "}
+                            <code>{`{{payout_block}}`}</code>,{" "}
+                            <code>{`{{next_steps}}`}</code>,{" "}
+                            <code>{`{{disclaimer_html}}`}</code>.
+                          </span>
+                        </label>
+
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            type="submit"
+                            className="bb-btn primary h-8 text-xs px-3"
+                          >
+                            Template bewaren
+                          </button>
+                        </div>
+                      </form>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        ))}
+          )}
+        </div>
       </section>
     </div>
   );
