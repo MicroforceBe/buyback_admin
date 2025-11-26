@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import StatusTemplatesTabs from "./StatusTemplatesTabs";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { hasPermission } from "@/lib/adminPermissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -155,12 +157,40 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 }
 
 export default async function SettingsPage() {
+  const adminUser = await getCurrentAdminUser();
+  const canReadSettings = hasPermission(adminUser, "settings", "read");
+  const canWriteSettings = hasPermission(adminUser, "settings", "write");
+
+  if (!canReadSettings) {
+    return (
+      <div className="w-full p-4 space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Instellingen</h1>
+          <Link href="/admin" className="bb-btn h-9 text-xs px-3">
+            ← Terug
+          </Link>
+        </div>
+        <p className="text-sm text-gray-700">
+          Je hebt geen rechten om deze pagina te bekijken.
+        </p>
+      </div>
+    );
+  }
+
   const row = await loadSettings();
   const templates = await loadEmailTemplates();
 
   // ---- Server Action branding (inline) ----
   async function actionSaveBranding(formData: FormData) {
     "use server";
+
+    const adminUser = await getCurrentAdminUser();
+    if (!hasPermission(adminUser, "settings", "write")) {
+      return {
+        ok: false as const,
+        message: "Je hebt geen rechten om instellingen te wijzigen.",
+      };
+    }
 
     const brand_name = (formData.get("brand_name") as string | null) ?? "";
     const brand_color = (formData.get("brand_color") as string | null) ?? "";
@@ -194,6 +224,14 @@ export default async function SettingsPage() {
   // ---- Server Action e-mailtemplate bewaren (rechtstreeks hier) ----
   async function actionSaveTemplate(formData: FormData) {
     "use server";
+
+    const adminUser = await getCurrentAdminUser();
+    if (!hasPermission(adminUser, "settings", "write")) {
+      return {
+        ok: false as const,
+        message: "Je hebt geen rechten om e-mailtemplates te wijzigen.",
+      };
+    }
 
     const idRaw = (formData.get("template_id") as string | null) ?? "";
     const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
@@ -324,6 +362,7 @@ export default async function SettingsPage() {
                 defaultValue={row.brand_name ?? ""}
                 placeholder="bv. Microforce Buyback"
                 className="bb-input h-9 text-sm px-2"
+                disabled={!canWriteSettings}
               />
             </label>
 
@@ -335,6 +374,7 @@ export default async function SettingsPage() {
                   defaultValue={row.brand_color ?? ""}
                   placeholder="#00AEEF"
                   className="bb-input h-9 text-sm px-2 flex-1"
+                  disabled={!canWriteSettings}
                 />
                 <span
                   title="Preview"
@@ -354,6 +394,7 @@ export default async function SettingsPage() {
                 defaultValue={row.logo_url ?? ""}
                 placeholder="https://.../uploads/logo.png"
                 className="bb-input h-9 text-sm px-2"
+                disabled={!canWriteSettings}
               />
               <span className="text-xs text-gray-500">
                 Kies een bestand via{" "}
@@ -387,6 +428,7 @@ export default async function SettingsPage() {
               placeholder="Tekst die onderaan in bevestigingsmails verschijnt."
               rows={6}
               className="bb-input text-sm px-2 py-2"
+              disabled={!canWriteSettings}
             />
             <span className="text-xs text-gray-500">
               Platte tekst; eenvoudige opmaak (zoals regels) kan, HTML is niet
@@ -395,7 +437,11 @@ export default async function SettingsPage() {
           </label>
 
           <div className="pt-2">
-            <button type="submit" className="bb-btn primary h-9 text-sm px-4">
+            <button
+              type="submit"
+              className="bb-btn primary h-9 text-sm px-4"
+              disabled={!canWriteSettings}
+            >
               Bewaren
             </button>
           </div>
@@ -508,6 +554,7 @@ export default async function SettingsPage() {
                             defaultValue={tpl.subject ?? ""}
                             className="bb-input h-9 text-sm px-2"
                             placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                            disabled={!canWriteSettings}
                           />
                           <span className="text-xs text-gray-500">
                             Je kan placeholders gebruiken zoals{" "}
@@ -525,6 +572,7 @@ export default async function SettingsPage() {
                             rows={8}
                             className="bb-input text-xs px-2 py-2 font-mono"
                             placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}…"
+                            disabled={!canWriteSettings}
                           />
                           <span className="text-xs text-gray-500">
                             Volledige HTML-template. Beschikbare variabelen
@@ -542,6 +590,7 @@ export default async function SettingsPage() {
                           <button
                             type="submit"
                             className="bb-btn primary h-8 text-xs px-3"
+                            disabled={!canWriteSettings}
                           >
                             Template bewaren
                           </button>
