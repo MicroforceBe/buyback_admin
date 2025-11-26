@@ -159,13 +159,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       </div>
     );
   }
-
-  // === params ===
-  const q = (searchParams.q ?? "").trim();
-  const from = (searchParams.from ?? "").trim();
-  const to = (searchParams.to ?? "").trim();
-
-  
+ 
   // === permissions ===
   const canReadLeads = hasPermission(adminUser, 'leads', 'read');
   const canWriteLeads = hasPermission(adminUser, 'leads', 'write');
