@@ -29,9 +29,16 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
 
   // Je mag jezelf niet "downgraden" als je root admin bent
   if (current && isRootAdminEmail(current.email) && current.email === email) {
-    // Root admin blijft admin; permissions kunnen wel genegeerd worden (root admin mag toch alles).
-    input.role = 'admin';
-    input.permissions = {};
+  // Root admin blijft admin; root admin krijgt altijd full rights.
+    input.role = "admin";
+    input.permissions = {
+      dashboard:   { read: true, write: true },
+      leads:       { read: true, write: true },
+      catalog:     { read: true, write: true },
+      multipliers: { read: true, write: true },
+      uploads:     { read: true, write: true },
+      settings:    { read: true, write: true },
+    };
   }
 
   const { error } = await supabaseAdmin
