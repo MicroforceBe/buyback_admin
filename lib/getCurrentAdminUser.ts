@@ -26,10 +26,12 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
   // Fetch bijhorende rij in buyback_admin_users
   const { data, error } = await supabase
     .from('buyback_admin_users')
-    .select<RawAdminUserRow>('email, role, permissions')
+    .select('email, role, permissions')
     .eq('email', email)
     .maybeSingle();
 
+  const row = data as RawAdminUserRow | null;
+  
   if (error) {
     console.error('[getCurrentAdminUser] error', error);
     return null;
