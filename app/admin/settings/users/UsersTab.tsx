@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
-import UserPermissionsTable from './users/UserPermissionsTable';
+import UserPermissionsTable from './UserPermissionsTable';
 
 export default async function UsersTab() {
   const adminUser = await getCurrentAdminUser();
