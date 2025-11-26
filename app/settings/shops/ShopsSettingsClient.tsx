@@ -25,6 +25,10 @@ type FormState = {
   opening_hours: OpeningHours;
 };
 
+type Props = {
+  canEdit: boolean;
+};
+
 const EMPTY_HOURS: OpeningHours = {
   mon: '09:00-18:00',
   tue: '09:00-18:00',
@@ -45,7 +49,7 @@ const emptyForm = (): FormState => ({
   opening_hours: { ...EMPTY_HOURS },
 });
 
-export default function ShopsSettingsClient() {
+export default function ShopsSettingsClient({ canEdit }: Props) {
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
