@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
 import CustomerCell from './CustomerCell';
 import DeviceCell from './DeviceCell';
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { hasPermission } from "@/lib/adminPermissions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -130,6 +132,22 @@ function qsWith(base: Record<string, string>, patch: Record<string, string | nul
 }
 
 export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
+  // === permissions ===
+  const adminUser = await getCurrentAdminUser();
+  const canReadLeads = hasPermission(adminUser, 'leads', 'read');
+  const canWriteLeads = hasPermission(adminUser, 'leads', 'write');
+
+  if (!canReadLeads) {
+    return (
+      <div className="w-full p-6">
+        <h1 className="text-2xl font-semibold mb-4">Leads</h1>
+        <p className="text-sm text-gray-700">
+          Je hebt geen rechten om deze pagina te bekijken.
+        </p>
+      </div>
+    );
+  }
+
   // === params ===
   const q = (searchParams.q ?? "").trim();
   const from = (searchParams.from ?? "").trim();
@@ -668,22 +686,30 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 />
                 </td>
 
-                {/* Prijs (inline editable) */}
+                {/* Prijs (inline editable / read-only) */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  <form action={updateLeadInlineAction} className="flex items-center gap-2">
-                    <input type="hidden" name="id" value={lead.id} />
-                    <input
-                  name="final_price_eur"
-                  defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
-                  className="bb-input h-9 text-xs px-2 py-1 w-24"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                />
-                <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
-                  </form>
+                  {canWriteLeads ? (
+                    <form action={updateLeadInlineAction} className="flex items-center gap-2">
+                      <input type="hidden" name="id" value={lead.id} />
+                      <input
+                        name="final_price_eur"
+                        defaultValue={((lead.final_price_cents ?? 0) / 100).toString()}
+                        className="bb-input h-9 text-xs px-2 py-1 w-24"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                      />
+                      <button className="bb-btn subtle h-9 text-xs px-2" type="submit" title="Opslaan">💾</button>
+                    </form>
+                  ) : (
+                    <div className="text-sm">
+                      {lead.final_price_cents != null
+                        ? (lead.final_price_cents / 100).toFixed(2)
+                        : '—'}
+                    </div>
+                  )}
                 </td>
 
-                {/* Status (inline editable) + uitklap 'Verzending & label' */}
+                {/* Status (inline editable / read-only) + uitklap 'Verzending & label' */}
               <td className="px-3 py-2 align-top">
                 {(() => {
                   const curr = (lead.status ?? 'new') as Status;
@@ -698,6 +724,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                         imei_sn: lead.imei_sn,
                       }).filter((t) => t.ok);
                   const hasChoices = trans.length > 0;
+                  const canEditStatus = canWriteLeads && !isFinal && hasChoices;
               
                   const trackingHref =
                     lead.tracking_url || fallbackTrackingUrl(lead.tracking_code);
@@ -720,7 +747,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   return (
                     <div className="space-y-1">
                       {/* Bovenste deel: status / opslaan */}
-                      {isFinal ? (
+                      {isFinal || !canWriteLeads ? (
                         <div className="text-sm font-medium text-gray-700">
                           {statusLabel(curr)}
                         </div>
@@ -751,8 +778,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                           <button
                             className="bb-btn subtle h-8 text-xs px-2"
                             type="submit"
-                            disabled={!hasChoices}
-                            title={hasChoices ? 'Opslaan' : 'Geen geldige overgang'}
+                            disabled={!canEditStatus}
+                            title={canEditStatus ? 'Opslaan' : 'Geen geldige overgang'}
                             aria-label="Opslaan"
                           >
                             💾
