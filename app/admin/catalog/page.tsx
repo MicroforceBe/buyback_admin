@@ -1,9 +1,11 @@
 // app/admin/catalog/page.tsx
-// app/admin/catalog/page.tsx
 
 import Link from "next/link";
 import { getCategories, getCatalogRows, getCategoryImage } from "./actions";
 import Table from "./table";
+import { redirect } from "next/navigation";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { hasPermission } from "@/lib/adminPermissions";
 
 type Props = {
   searchParams?: {
@@ -15,6 +17,36 @@ type Props = {
 export const revalidate = 0; // altijd vers (admin)
 
 export default async function CatalogPage({ searchParams }: Props) {
+  // 🔐 Auth + rechten
+  const adminUser = await getCurrentAdminUser();
+
+  if (!adminUser) {
+    redirect("/admin/login?reason=not_logged_in");
+  }
+
+  if (!hasPermission(adminUser, "catalog", "read")) {
+    return (
+      <div className="p-4 space-y-6">
+        <header className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Catalogus</h1>
+          <Link href="/admin" className="bb-btn">
+            ← Terug naar admin
+          </Link>
+        </header>
+
+        <div className="p-3 bg-red-50 border border-red-200 rounded">
+          <div className="text-red-700 font-medium">
+            Je hebt geen rechten om deze pagina te bekijken.
+          </div>
+          <p className="text-xs text-red-600 mt-1">
+            Vraag een beheerder om je &quot;catalog&quot;-rechten aan te passen onder
+            Settings &gt; Users.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Query params
   const selected = searchParams?.category ?? "__ALL__";
   const q = (searchParams?.q ?? "").trim();
