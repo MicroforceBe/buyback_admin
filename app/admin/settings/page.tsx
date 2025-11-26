@@ -158,30 +158,31 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 }
 
 export default async function SettingsPage() {
+  // 🔐 1) Auth check
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
-    redirect("/admin/login");
+    redirect("/admin/login?reason=not_logged_in");
   }
 
-  const canReadSettings = hasPermission(adminUser, "settings", "read");
-  const canWriteSettings = hasPermission(adminUser, "settings", "write");
-
-  if (!canReadSettings) {
+// 🔐 2) Geen leesrechten op settings → nette fout
+  if (!hasPermission(adminUser, "settings", "read")) {
     return (
-      <div className="w-full p-4 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Instellingen</h1>
-          <Link href="/admin" className="bb-btn h-9 text-xs px-3">
-            ← Terug
-          </Link>
+      <div className="w-full p-4">
+        <h1 className="text-xl font-semibold mb-4">Instellingen</h1>
+        <div className="p-3 bg-red-50 border border-red-200 rounded">
+          <div className="text-red-700 font-medium">
+            Je hebt geen rechten om deze pagina te bekijken.
+          </div>
+          <p className="text-xs text-red-600 mt-1">
+            Vraag een beheerder om je &quot;settings&quot;-rechten aan te passen onder
+            Settings &gt; Users.
+          </p>
         </div>
-        <p className="text-sm text-gray-700">
-          Je hebt geen rechten om deze pagina te bekijken.
-        </p>
       </div>
     );
   }
+
 
   const row = await loadSettings();
   const templates = await loadEmailTemplates();
