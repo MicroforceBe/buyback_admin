@@ -1,3 +1,5 @@
+
+//app/admin/settings/users/actions.ts
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -9,12 +11,23 @@ import {
   hasPermission,
   isRootAdminEmail,
 } from '@/lib/adminPermissions';
+import bcrypt from 'bcryptjs';
 
 type SaveAdminUserInput = {
   email: string;
   role: AdminRole;
   permissions: PermissionsMap;
+  password?: string;
+  password_confirm?: string;
 };
+
+function isStrongPassword(pw: string): boolean {
+  if (pw.length < 12) return false;
+  if (!/[a-z]/.test(pw)) return false;
+  if (!/[A-Z]/.test(pw)) return false;
+  if (!/[0-9]/.test(pw)) return false;
+  return true;
+}
 
 export async function saveAdminUserAction(input: SaveAdminUserInput) {
   const current = await getCurrentAdminUser();
@@ -29,8 +42,8 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
 
   // Je mag jezelf niet "downgraden" als je root admin bent
   if (current && isRootAdminEmail(current.email) && current.email === email) {
-  // Root admin blijft admin; root admin krijgt altijd full rights.
-    input.role = "admin";
+    // Root admin blijft admin; root admin krijgt altijd full rights.
+    input.role = 'admin';
     input.permissions = {
       dashboard:   { read: true, write: true },
       leads:       { read: true, write: true },
@@ -41,16 +54,36 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
     };
   }
 
+  // Wachtwoordverwerking (optioneel)
+  const rawPassword = (input.password ?? '').trim();
+  const rawConfirm = (input.password_confirm ?? '').trim();
+  let password_hash: string | undefined;
+
+  if (rawPassword || rawConfirm) {
+    if (rawPassword !== rawConfirm) {
+      throw new Error('Wachtwoorden komen niet overeen.');
+    }
+    if (!isStrongPassword(rawPassword)) {
+      throw new Error(
+        'Wachtwoord is te zwak. Minstens 12 tekens, met hoofdletter, kleine letter en cijfer.'
+      );
+    }
+    password_hash = await bcrypt.hash(rawPassword, 12);
+  }
+
+  const payload: any = {
+    email,
+    role: input.role,
+    permissions: input.permissions,
+  };
+
+  if (password_hash) {
+    payload.password_hash = password_hash;
+  }
+
   const { error } = await supabaseAdmin
     .from('buyback_admin_users')
-    .upsert(
-      {
-        email,
-        role: input.role,
-        permissions: input.permissions,
-      },
-      { onConflict: 'email' }
-    );
+    .upsert(payload, { onConflict: 'email' });
 
   if (error) {
     console.error('[saveAdminUserAction] error', error);
