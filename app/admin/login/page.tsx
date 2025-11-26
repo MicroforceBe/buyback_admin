@@ -1,8 +1,9 @@
 // app/admin/login/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,28 +13,74 @@ async function loginAction(formData: FormData) {
 
   const rawEmail = (formData.get("email") as string | null) ?? "";
   const email = rawEmail.trim().toLowerCase();
+  const password = (formData.get("password") as string | null) ?? "";
 
-  if (!email) {
-    redirect("/admin/login?msg=" + encodeURIComponent("email_required"));
+  if (!email || !password) {
+    redirect("/admin/login?msg=" + encodeURIComponent("missing_credentials"));
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data: user, error } = await supabaseAdmin
     .from("buyback_admin_users")
-    .select("email, role")
+    .select("email, role, permissions, password_hash, is_active")
     .eq("email", email)
     .maybeSingle();
 
-  if (error || !data) {
-    console.warn("[ADMIN_LOGIN] invalid email:", email, error?.message);
-    redirect("/admin/login?msg=" + encodeURIComponent("unknown_user"));
+  // Altijd zelfde foutmelding teruggeven → geen user enumeration
+  const invalidRedirect = () =>
+    redirect("/admin/login?msg=" + encodeURIComponent("invalid_login"));
+
+  if (error || !user) {
+    return invalidRedirect();
+  }
+
+  if (user.is_active === false) {
+    return invalidRedirect();
+  }
+
+  const hash = (user as any).password_hash as string | null;
+  if (!hash) {
+    return invalidRedirect();
+  }
+
+  const ok = await bcrypt.compare(password, hash);
+  if (!ok) {
+    return invalidRedirect();
+  }
+
+  // Login OK → sessie aanmaken
+  const sessionToken = crypto.randomUUID();
+  const now = new Date();
+  const expires = new Date(now.getTime() + 1000 * 60 * 60 * 8); // 8u
+
+  const hdrs = headers();
+  const ip =
+    hdrs.get("x-forwarded-for") ||
+    hdrs.get("x-real-ip") ||
+    "unknown";
+  const ua = hdrs.get("user-agent") || "unknown";
+
+  const { error: sessErr } = await supabaseAdmin
+    .from("buyback_admin_sessions")
+    .insert({
+      session_token: sessionToken,
+      user_email: user.email,
+      expires_at: expires.toISOString(),
+      ip,
+      user_agent: ua,
+    });
+
+  if (sessErr) {
+    console.error("[ADMIN_LOGIN] session insert failed:", sessErr.message);
+    return invalidRedirect();
   }
 
   const cookieStore = cookies();
-  cookieStore.set("bb_admin_email", email, {
+  cookieStore.set("bb_admin_session", sessionToken, {
     httpOnly: true,
     sameSite: "lax",
+    secure: true,
     path: "/",
-    maxAge: 60 * 60 * 8, // 8u sessie
+    maxAge: 60 * 60 * 8,
   });
 
   redirect("/admin");
@@ -47,10 +94,10 @@ export default async function LoginPage({
   const msg = searchParams?.msg;
 
   let errorText: string | null = null;
-  if (msg === "email_required") {
-    errorText = "Gelieve een e-mailadres in te geven.";
-  } else if (msg === "unknown_user") {
-    errorText = "Onbekende gebruiker of geen toegang.";
+  if (msg === "missing_credentials") {
+    errorText = "Gelieve e-mailadres en wachtwoord in te geven.";
+  } else if (msg === "invalid_login") {
+    errorText = "Ongeldige login of account niet actief.";
   }
 
   return (
@@ -64,8 +111,7 @@ export default async function LoginPage({
         </div>
 
         <p className="text-sm text-gray-600">
-          Log in met je zakelijk e-mailadres om toegang te krijgen tot de
-          buyback admin.
+          Log in met je beheerdersaccount om toegang te krijgen tot de buyback admin.
         </p>
 
         {errorText && (
@@ -82,7 +128,18 @@ export default async function LoginPage({
               name="email"
               required
               className="bb-input h-9 text-sm px-2"
-              placeholder="jij@bedrijf.be"
+              placeholder="jij@microforce.be"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Wachtwoord</span>
+            <input
+              type="password"
+              name="password"
+              required
+              className="bb-input h-9 text-sm px-2"
+              placeholder="••••••••"
             />
           </label>
 
@@ -95,9 +152,7 @@ export default async function LoginPage({
         </form>
 
         <p className="text-[11px] text-gray-400">
-          Toegang wordt beheerd via de tabel{" "}
-          <code>buyback_admin_users</code>. Voeg daar je e-mailadres toe als{" "}
-          <code>admin</code> om toegang te krijgen.
+          Beheer accounts via de tabel <code>buyback_admin_users</code>.
         </p>
       </div>
     </div>
