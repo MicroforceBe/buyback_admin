@@ -41,6 +41,16 @@ export type PermissionsMap = {
   };
 };
 
+/** Centrale lijst van alle features, handig voor UI-loops e.d. */
+export const ALL_FEATURES: AdminFeature[] = [
+  "dashboard",
+  "leads",
+  "catalog",
+  "multipliers",
+  "uploads",
+  "settings",
+];
+
 /** Minimale shape die `hasPermission` nodig heeft */
 type AnyAdminUser = {
   role: AdminRole;
@@ -68,4 +78,3 @@ export function hasPermission(
   const val = featurePerm[mode];
   return !!val;
 }
-
