@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 
 const tabs = [
   { href: "/admin/settings", label: "Branding", emoji: "🎨", exact: true },
+  { href: "/admin/settings/email-templates", label: "Email templates", emoji: "✉️" },
   { href: "/admin/settings/shops", label: "Shops", emoji: "🏬" },
+  { href: "/admin/settings/users", label: "Users", emoji: "👤" },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -31,7 +33,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
               }`}
               aria-current={active ? "page" : undefined}
             >
-              <span className="mr-1">{t.emoji}</span>{t.label}
+              <span className="mr-1">{t.emoji}</span>
+              {t.label}
             </Link>
           );
         })}
