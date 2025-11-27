@@ -280,8 +280,8 @@ export default async function EmailTemplatesSettingsPage() {
           statusTemplates={statusTemplates}
           languages={LANGUAGES}
           onSaveTemplate={actionSaveTemplate}
-          // optioneel: kun je nog gebruiken in de component om knoppen te disablen
-          canEdit={!canWrite}
+          // canEdit moet TRUE zijn als je mag schrijven
+          canEdit={canWrite}
         />
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
@@ -411,3 +411,4 @@ export default async function EmailTemplatesSettingsPage() {
     </div>
   );
 }
+
