@@ -1,3 +1,4 @@
+//lib/email/templates.ts
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -165,8 +166,8 @@ function formatCurrency(
 }
 
 /**
- * Bouwt reusable HTML-snippers (header, details_table, delivery_block, payout_block, next_steps, disclaimer_html)
- */
+* Bouwt reusable HTML-snippers (header, details_table, delivery_block, payout_block, next_steps, disclaimer_html)
+*/
 function buildBlocks(
   status: BuybackStatus,
   ctx: TemplateContext,
@@ -262,25 +263,34 @@ function buildBlocks(
       }
     `;
   } else if (ctx.delivery_method === "ship") {
+    const labelUrl = ctx.label_pdf_url || "";
+    const trackUrl = ctx.tracking_url || "";
+
     delivery_block = `
-      <h3 style="margin:18px 0 6px;font-size:14px;">Verzending</h3>
-      <p style="margin:0 0 10px;">
-        Je ontvangt (of ontving) een verzendlabel waarmee je je toestel gratis kan opsturen.
-      </p>
+      <div style="margin:20px 0;padding:16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+        <h3 style="margin:0 0 8px;font-size:14px;">Verzending</h3>
+        <p style="margin:0 0 12px;font-size:14px;color:#374151;">
+          Je koos voor <strong>gratis verzending</strong> van jouw toestel naar ons.
+          Hieronder het verzendlabel.
+        </p>
+        ${
+          labelUrl
+            ? `<a href="${labelUrl}"
+                 style="display:inline-block;margin:0 0 10px;padding:10px 14px;background:${brand.brand_color};color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">
+                 Verzendlabel downloaden
+               </a>`
+            : ""
+        }
+        ${
+          trackUrl
+            ? `<a href="${trackUrl}"
+                 style="display:inline-block;padding:10px 14px;background:#111827;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600;">
+                 Jouw pakket volgen
+               </a>`
+            : ""
+        }
+      </div>
     `;
-    if (ctx.tracking_url || ctx.tracking_code || ctx.label_pdf_url) {
-      delivery_block += `<p style="margin:0 0 10px;">`;
-      if (ctx.tracking_url) {
-        delivery_block += `Track &amp; trace: <a href="${ctx.tracking_url}" style="color:#0ea5e9;">${ctx.tracking_url}</a><br/>`;
-      }
-      if (ctx.tracking_code) {
-        delivery_block += `Tracking code: ${escapeHtml(ctx.tracking_code)}<br/>`;
-      }
-      if (ctx.label_pdf_url) {
-        delivery_block += `Label PDF: <a href="${ctx.label_pdf_url}" style="color:#0ea5e9;">download label</a>`;
-      }
-      delivery_block += `</p>`;
-    }
   }
 
   let payout_block = "";
@@ -381,8 +391,8 @@ function buildBlocks(
 }
 
 /**
- * Eenvoudige {{placeholder}} vervanger.
- */
+* Eenvoudige {{placeholder}} vervanger.
+*/
 function renderWithPlaceholders(
   text: string,
   replacements: Record<string, string>
