@@ -1,3 +1,4 @@
+//app/admin/settings/StatusTemplatesTabs.tsx
 "use client";
 
 import { useState } from "react";
@@ -23,6 +24,8 @@ type Props = {
   statusTemplates: StatusTemplateGroup[];
   languages: string[];
   onSaveTemplate: (formData: FormData) => Promise<any>;
+  /** Of de huidige gebruiker de templates mag aanpassen (schrijven) */
+  canEdit?: boolean;
 };
 
 type VariableDef = {
@@ -112,6 +115,7 @@ export default function StatusTemplatesTabs({
   statusTemplates,
   languages,
   onSaveTemplate,
+  canEdit = true,
 }: Props) {
   const [activeKey, setActiveKey] = useState<string>(
     statusTemplates[0]?.key ?? ""
@@ -128,6 +132,7 @@ export default function StatusTemplatesTabs({
   const [previewHtml, setPreviewHtml] = useState<string>("");
 
   function handleVariableClick(code: string) {
+    if (!canEdit) return;
     const el = activeFieldEl;
     if (!el) return;
 
@@ -161,6 +166,7 @@ export default function StatusTemplatesTabs({
 
   /** Eenvoudige “HTML editor”-functie: wrap selectie in een tag */
   function wrapSelection(tag: string, attrs?: string) {
+    if (!canEdit) return;
     const el = activeFieldEl;
     if (!el) return;
     if (
@@ -194,6 +200,7 @@ export default function StatusTemplatesTabs({
   }
 
   function insertSnippet(snippet: string) {
+    if (!canEdit) return;
     const el = activeFieldEl;
     if (!el) return;
     if (
@@ -273,7 +280,7 @@ export default function StatusTemplatesTabs({
             {activeGroup.rows.map((tpl) => (
               <form
                 key={`${tpl.key}-${tpl.language}`}
-                action={onSaveTemplate}
+                action={canEdit ? onSaveTemplate : undefined}
                 className="border border-gray-200 rounded-lg p-3 space-y-3 bg-gray-50/60"
               >
                 <input type="hidden" name="template_id" value={tpl.id ?? 0} />
@@ -306,6 +313,7 @@ export default function StatusTemplatesTabs({
                     className="bb-input h-9 text-sm px-2"
                     placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
                     onFocus={(e) => setActiveFieldEl(e.currentTarget)}
+                    disabled={!canEdit}
                   />
                   <span className="text-xs text-gray-500">
                     Placeholders: <code>{`{{first_name}}`}</code>,{" "}
@@ -324,6 +332,7 @@ export default function StatusTemplatesTabs({
                         type="button"
                         onClick={() => wrapSelection("strong")}
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;strong&gt;
                       </button>
@@ -331,6 +340,7 @@ export default function StatusTemplatesTabs({
                         type="button"
                         onClick={() => wrapSelection("em")}
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;em&gt;
                       </button>
@@ -338,6 +348,7 @@ export default function StatusTemplatesTabs({
                         type="button"
                         onClick={() => wrapSelection("h2")}
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;h2&gt;
                       </button>
@@ -345,6 +356,7 @@ export default function StatusTemplatesTabs({
                         type="button"
                         onClick={() => wrapSelection("p")}
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;p&gt;
                       </button>
@@ -356,12 +368,14 @@ export default function StatusTemplatesTabs({
                           )
                         }
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;ul&gt;
                       </button>
                       <button
                         type="button"
                         onClick={() => {
+                          if (!canEdit) return;
                           const url = window.prompt("URL voor link:");
                           if (!url) return;
                           wrapSelection(
@@ -370,6 +384,7 @@ export default function StatusTemplatesTabs({
                           );
                         }}
                         className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50"
+                        disabled={!canEdit}
                       >
                         &lt;a&gt;
                       </button>
@@ -391,6 +406,7 @@ export default function StatusTemplatesTabs({
                     className="bb-input text-xs px-2 py-2 font-mono resize-y min-h-[260px]"
                     placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}, {{delivery_block}}…"
                     onFocus={(e) => setActiveFieldEl(e.currentTarget)}
+                    disabled={!canEdit}
                   />
                   <span className="text-xs text-gray-500">
                     Volledige HTML-template. Beschikbare variabelen o.a.:{" "}
@@ -412,6 +428,7 @@ export default function StatusTemplatesTabs({
                   <button
                     type="submit"
                     className="bb-btn primary h-8 text-xs px-3"
+                    disabled={!canEdit}
                   >
                     Template bewaren
                   </button>
@@ -468,6 +485,7 @@ export default function StatusTemplatesTabs({
                       onClick={() => handleVariableClick(v.code)}
                       className="text-[11px] px-2 py-1 rounded border border-gray-300 bg-white hover:bg-sky-50 hover:border-sky-400 whitespace-nowrap"
                       title={v.description || v.label}
+                      disabled={!canEdit}
                     >
                       {v.label}{" "}
                       <span className="text-[10px] text-gray-500">
