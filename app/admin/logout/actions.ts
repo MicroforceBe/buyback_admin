@@ -1,17 +1,35 @@
+// app/admin/logout/actions.ts
 'use server';
 
 import { cookies } from 'next/headers';
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs';
 import { redirect } from 'next/navigation';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function logoutAction() {
-  const supabase = createServerActionClient({ cookies });
+  const cookieStore = cookies();
+  const sessionToken = cookieStore.get('bb_admin_session')?.value;
 
-  // Supabase sessie ongeldig maken
-  await supabase.auth.signOut();
+  if (sessionToken) {
+    // Sessierij in DB opruimen
+    const { error } = await supabaseAdmin
+      .from('buyback_admin_sessions')
+      .delete()
+      .eq('session_token', sessionToken);
 
-  // Eventueel cookies opruimen / extra cleanup hier
+    if (error) {
+      console.error('[ADMIN_LOGOUT] failed to delete session:', error.message);
+    }
+  }
 
-  // Terug naar login of home
+  // Cookie wissen
+  cookieStore.set('bb_admin_session', '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: true,
+    path: '/',
+    maxAge: 0,
+  });
+
+  // Terug naar login
   redirect('/admin/login');
 }
