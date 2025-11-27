@@ -1,6 +1,7 @@
 // app/admin/settings/email-templates/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
@@ -26,7 +27,7 @@ type StatusMeta = {
   description: string;
 };
 
-// Deze keys moeten overeenkomen met de orderstatussen
+// Deze keys moeten overeenkomen met de order-statussen in je admin/leads
 const ORDER_STATUS_KEYS: StatusMeta[] = [
   {
     key: "new",
@@ -84,6 +85,7 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
     for (const row of rows) {
       if (!row) continue;
 
+      // key kan 'key' of 'type' zijn
       const key: string =
         (row.key as string | undefined) ??
         (row.type as string | undefined) ??
@@ -91,6 +93,7 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 
       if (!key) continue;
 
+      // language kan 'language', 'locale' of 'lang' zijn
       const language: string =
         (row.language as string | undefined) ??
         (row.locale as string | undefined) ??
@@ -114,79 +117,20 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
   }
 }
 
-// ---- Server Action e-mailtemplate bewaren ----
-async function actionSaveTemplate(formData: FormData) {
-  "use server";
-
-  const current = await getCurrentAdminUser();
-  if (!current || !hasPermission(current, "settings", "write")) {
-    throw new Error("Je hebt geen schrijfrechten voor e-mailtemplates.");
-  }
-
-  const idRaw = (formData.get("template_id") as string | null) ?? "";
-  const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
-
-  const keyInput =
-    ((formData.get("template_key") as string | null) ?? "").trim();
-  const languageInput =
-    ((formData.get("template_language") as string | null) ?? "nl").trim() ||
-    "nl";
-  const subject = (formData.get("subject") as string | null) ?? "";
-  const body_html = (formData.get("body_html") as string | null) ?? "";
-
-  if (!keyInput) {
-    return { ok: false as const, message: "Template key ontbreekt." };
-  }
-
-  const key = keyInput;
-  const language = languageInput;
-
-  const payload: any = {
-    key,
-    language,
-    subject,
-    body_html,
-    updated_at: new Date().toISOString(),
-  };
-  if (id && Number.isFinite(id)) {
-    payload.id = id;
-  }
-
-  try {
-    const { error } = await supabaseAdmin
-      .from("buyback_email_templates")
-      .upsert(payload);
-
-    if (error) {
-      console.error("[SETTINGS][email-templates] upsert error:", error);
-      return { ok: false as const, message: error.message };
-    }
-  } catch (e: any) {
-    console.error(
-      "[SETTINGS][email-templates] upsert exception:",
-      e?.message || e
-    );
-    return {
-      ok: false as const,
-      message: "Onbekende fout bij bewaren van template.",
-    };
-  }
-
-  revalidatePath("/admin/settings/email-templates");
-  return { ok: true as const, message: "Template bewaard." };
-}
-
-export default async function EmailTemplatesPage() {
-  // 🔐 rechten-check
+export default async function EmailTemplatesSettingsPage() {
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
     redirect("/admin/login");
   }
 
-  if (!hasPermission(adminUser, "settings", "read")) {
+  const canRead = hasPermission(adminUser, "settings", "read");
+  const canWrite = hasPermission(adminUser, "settings", "write");
+
+  if (!canRead) {
     return (
       <div className="w-full p-4">
+        <h1 className="text-xl font-semibold mb-2">Instellingen – E-mailtemplates</h1>
         <p className="text-sm text-red-600">
           Je hebt geen rechten om deze pagina te bekijken.
         </p>
@@ -195,6 +139,72 @@ export default async function EmailTemplatesPage() {
   }
 
   const templates = await loadEmailTemplates();
+
+  // ---- Server Action e-mailtemplate bewaren ----
+  async function actionSaveTemplate(formData: FormData) {
+    "use server";
+
+    const adminUserInner = await getCurrentAdminUser();
+    if (!adminUserInner || !hasPermission(adminUserInner, "settings", "write")) {
+      return { ok: false as const, message: "Je hebt geen rechten om templates te wijzigen." };
+    }
+
+    const idRaw = (formData.get("template_id") as string | null) ?? "";
+    const id = idRaw && idRaw !== "0" ? Number(idRaw) : undefined;
+
+    const keyInput =
+      ((formData.get("template_key") as string | null) ?? "").trim();
+    const languageInput =
+      ((formData.get("template_language") as string | null) ?? "nl").trim() ||
+      "nl";
+    const subject = (formData.get("subject") as string | null) ?? "";
+    const body_html = (formData.get("body_html") as string | null) ?? "";
+
+    if (!keyInput) {
+      return { ok: false as const, message: "Template key ontbreekt." };
+    }
+
+    const key = keyInput;
+    const language = languageInput;
+
+    // Alleen kolommen gebruiken die echt in de tabel staan:
+    // id, key, language, subject, body_html, updated_at
+    const payload: any = {
+      key,
+      language,
+      subject,
+      body_html,
+      updated_at: new Date().toISOString(),
+    };
+    if (id && Number.isFinite(id)) {
+      payload.id = id;
+    }
+
+    try {
+      const { error } = await supabaseAdmin
+        .from("buyback_email_templates")
+        .upsert(payload);
+
+      if (error) {
+        console.error("[SETTINGS][email-templates] upsert error:", error);
+        return { ok: false as const, message: error.message };
+      }
+    } catch (e: any) {
+      console.error(
+        "[SETTINGS][email-templates] upsert exception:",
+        e?.message || e
+      );
+      return {
+        ok: false as const,
+        message: "Onbekende fout bij bewaren van template.",
+      };
+    }
+
+    revalidatePath("/admin/settings/email-templates");
+    return { ok: true as const, message: "Template bewaard." };
+  }
+
+  // ====== AFLEIDINGEN VOOR STATUS + TALEN ======
 
   const languagesFromData = Array.from(
     new Set(templates.map((t) => t.language))
@@ -237,24 +247,41 @@ export default async function EmailTemplatesPage() {
 
   return (
     <div className="w-full p-4 space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold">E-mailtemplates</h1>
-        <p className="text-sm text-gray-500">
-          Bevestigings- en statusupdate-mails voor buyback orders. Tekst wordt
-          dynamisch uit deze templates gehaald, per <code>key</code> en taal.
-        </p>
-        <p className="text-xs text-gray-400">
-          Verwachte tabel: <code>buyback_email_templates</code> met minimaal{" "}
-          <code>id</code>, <code>key</code>, <code>language</code>,{" "}
-          <code>subject</code>, <code>body_html</code>, <code>updated_at</code>.
-        </p>
-      </header>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Instellingen – E-mailtemplates</h1>
+        <Link href="/admin" className="bb-btn h-9 text-xs px-3">
+          ← Terug
+        </Link>
+      </div>
 
+      {/* E-MAIL TEMPLATES (statussen met tabs + variabelen + preview) */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <header>
+          <h2 className="text-lg font-medium">E-mailtemplates per orderstatus</h2>
+          <p className="text-sm text-gray-500">
+            Bevestigings- en statusupdate-mails voor buyback orders. Tekst
+            wordt dynamisch uit deze templates gehaald, per <code>key</code> en
+            taal.
+          </p>
+          <p className="text-xs text-gray-400">
+            Verwachte tabel in Supabase:{" "}
+            <code>buyback_email_templates</code> met minimaal <code>id</code>,{" "}
+            <code>key</code>, <code>language</code>, <code>subject</code>,{" "}
+            <code>body_html</code>, <code>updated_at</code>.
+          </p>
+          {!canWrite && (
+            <p className="mt-1 text-xs text-gray-500">
+              Je hebt alleen leesrechten; opslaan is wel beveiligd en zal niets wijzigen.
+            </p>
+          )}
+        </header>
+
         <StatusTemplatesTabs
           statusTemplates={statusTemplates}
           languages={LANGUAGES}
           onSaveTemplate={actionSaveTemplate}
+          // optioneel: kun je nog gebruiken in de component om knoppen te disablen
+          canEdit={canWrite}
         />
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
@@ -331,6 +358,7 @@ export default async function EmailTemplatesPage() {
                             defaultValue={tpl.subject ?? ""}
                             className="bb-input h-9 text-sm px-2"
                             placeholder="bv. [{{brand_name}}] Bevestiging buyback-aanvraag {{order_code}}"
+                            disabled={!canWrite}
                           />
                           <span className="text-xs text-gray-500">
                             Je kan placeholders gebruiken zoals{" "}
@@ -348,6 +376,7 @@ export default async function EmailTemplatesPage() {
                             rows={8}
                             className="bb-input text-xs px-2 py-2 font-mono"
                             placeholder="HTML-template met placeholders zoals {{full_name}}, {{details_table}}…"
+                            disabled={!canWrite}
                           />
                           <span className="text-xs text-gray-500">
                             Volledige HTML-template. Beschikbare variabelen
@@ -365,6 +394,7 @@ export default async function EmailTemplatesPage() {
                           <button
                             type="submit"
                             className="bb-btn primary h-8 text-xs px-3"
+                            disabled={!canWrite}
                           >
                             Template bewaren
                           </button>
