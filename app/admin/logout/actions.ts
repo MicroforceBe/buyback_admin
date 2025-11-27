@@ -2,10 +2,9 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export async function logoutAction() {
+export async function logoutAction(): Promise<{ success: boolean }> {
   const cookieStore = cookies();
   const sessionToken = cookieStore.get('bb_admin_session')?.value;
 
@@ -30,6 +29,6 @@ export async function logoutAction() {
     maxAge: 0,
   });
 
-  // Terug naar login
-  redirect('/admin/login');
+  // Geen redirect hier – die doen we client-side
+  return { success: true };
 }
