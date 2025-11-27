@@ -23,6 +23,7 @@ type Props = {
   initialUsers: UserRow[];
   currentUserEmail: string | null;
   rootAdminEmail: string | null;
+  canEdit: boolean;
 };
 
 const emptyPermissionsForAll: PermissionsMap = ALL_FEATURES.reduce(
@@ -37,6 +38,7 @@ export default function UserPermissionsTable({
   initialUsers,
   currentUserEmail,
   rootAdminEmail,
+  canEdit,
 }: Props) {
   const [users, setUsers] = useState<UserRow[]>(() =>
     initialUsers.map((u) => ({
@@ -79,6 +81,8 @@ export default function UserPermissionsTable({
     feature: FeatureKey,
     mode: 'read' | 'write'
   ) {
+    if (!canEdit) return;
+
     updateUser(email, (row) => {
       const perms = {
         ...emptyPermissionsForAll,
@@ -100,6 +104,7 @@ export default function UserPermissionsTable({
   }
 
   function handleRoleChange(email: string, role: AdminRole) {
+    if (!canEdit) return;
     updateUser(email, (row) => ({ ...row, role }));
   }
 
@@ -108,6 +113,8 @@ export default function UserPermissionsTable({
     field: 'password' | 'confirm',
     value: string
   ) {
+    if (!canEdit) return;
+
     setPasswords((prev) => {
       const existing = prev[email] || { password: '', confirm: '' };
       return {
@@ -121,6 +128,8 @@ export default function UserPermissionsTable({
   }
 
   function handleSave(user: UserRow) {
+    if (!canEdit) return;
+
     const pwState = passwords[user.email] || { password: '', confirm: '' };
 
     startTransition(async () => {
@@ -141,6 +150,8 @@ export default function UserPermissionsTable({
   }
 
   function handleDelete(user: UserRow) {
+    if (!canEdit) return;
+
     if (
       !window.confirm(
         `User ${user.email} verwijderen uit admin rechten?`
@@ -157,6 +168,8 @@ export default function UserPermissionsTable({
   }
 
   function handleAddUser() {
+    if (!canEdit) return;
+
     const email = newEmail.trim().toLowerCase();
     if (!email) return;
     if (users.some((u) => u.email.toLowerCase() === email)) {
@@ -187,12 +200,14 @@ export default function UserPermissionsTable({
             placeholder="user@domein.be"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
+            disabled={!canEdit}
           />
         </div>
         <button
           type="button"
           onClick={handleAddUser}
           className="px-3 py-1 text-sm border rounded"
+          disabled={!canEdit}
         >
           Toevoegen
         </button>
@@ -250,7 +265,7 @@ export default function UserPermissionsTable({
                           e.target.value as AdminRole
                         )
                       }
-                      disabled={!!root}
+                      disabled={!!root || !canEdit}
                     >
                       <option value="admin">admin</option>
                       <option value="user">user</option>
@@ -260,7 +275,7 @@ export default function UserPermissionsTable({
                     const perm =
                       u.permissions[feature] ||
                       emptyPermissionsForAll[feature]!;
-                    const disabled = root; // root admin is in praktijk altijd full access
+                    const disabled = root || !canEdit; // root admin is in praktijk altijd full access, en canEdit moet true zijn
                     return (
                       <td
                         key={feature}
@@ -270,7 +285,7 @@ export default function UserPermissionsTable({
                           <input
                             type="checkbox"
                             checked={!!perm.read}
-                            disabled={!!disabled}
+                            disabled={disabled}
                             onChange={() =>
                               handleTogglePerm(
                                 u.email,
@@ -282,7 +297,7 @@ export default function UserPermissionsTable({
                           <input
                             type="checkbox"
                             checked={!!perm.write}
-                            disabled={!!disabled}
+                            disabled={disabled}
                             onChange={() =>
                               handleTogglePerm(
                                 u.email,
@@ -315,6 +330,7 @@ export default function UserPermissionsTable({
                               )
                             }
                             autoComplete="new-password"
+                            disabled={!canEdit}
                           />
                         </label>
                         <label className="flex flex-col gap-0.5">
@@ -334,6 +350,7 @@ export default function UserPermissionsTable({
                               )
                             }
                             autoComplete="new-password"
+                            disabled={!canEdit}
                           />
                         </label>
                       </div>
@@ -342,7 +359,7 @@ export default function UserPermissionsTable({
                           type="button"
                           onClick={() => handleSave(u)}
                           className="px-2 py-0.5 border rounded text-xs"
-                          disabled={isPending}
+                          disabled={isPending || !canEdit}
                         >
                           Opslaan
                         </button>
@@ -351,7 +368,7 @@ export default function UserPermissionsTable({
                             type="button"
                             onClick={() => handleDelete(u)}
                             className="px-2 py-0.5 border rounded text-xs text-red-600"
-                            disabled={isPending || !!me}
+                            disabled={isPending || !!me || !canEdit}
                             title={
                               me
                                 ? 'Je kunt jezelf hier niet verwijderen.'
@@ -371,7 +388,7 @@ export default function UserPermissionsTable({
         </table>
       </div>
 
-      {isPending && (
+      {isPending && canEdit && (
         <div className="text-xs text-gray-500">
           Bezig met opslaan...
         </div>
