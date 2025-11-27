@@ -69,10 +69,14 @@ function normalizePermissions(
 }
 
 export async function saveAdminUserAction(input: SaveAdminUserInput) {
+  console.log('[saveAdminUserAction] START', JSON.stringify(input, null, 2));
+
   const current = await getCurrentAdminUser();
+  console.log('[saveAdminUserAction] current user', current?.email);
 
   // Alleen iemand met settings:write mag userrechten bijwerken
   if (!hasPermission(current, 'settings', 'write')) {
+    console.error('[saveAdminUserAction] forbidden, no settings:write');
     throw new Error('Forbidden: je hebt geen rechten om users te beheren.');
   }
 
@@ -81,6 +85,7 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
 
   // Je mag jezelf niet "downgraden" als je root admin bent
   if (current && isRootAdminEmail(current.email) && current.email === email) {
+    console.log('[saveAdminUserAction] normalize root admin rights');
     // Root admin blijft admin; root admin krijgt altijd full rights.
     input.role = 'admin';
     input.permissions = {
@@ -95,6 +100,7 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
 
   // Permissions altijd normaliseren naar een volledige PermissionsMap
   const safePermissions = normalizePermissions(input.permissions);
+  console.log('[saveAdminUserAction] safePermissions', safePermissions);
 
   // Wachtwoordverwerking (optioneel)
   const rawPassword = (input.password ?? '').trim();
@@ -102,6 +108,7 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
   let password_hash: string | undefined;
 
   if (rawPassword || rawConfirm) {
+    console.log('[saveAdminUserAction] password flow triggered');
     if (rawPassword !== rawConfirm) {
       throw new Error('Wachtwoorden komen niet overeen.');
     }
@@ -123,15 +130,18 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
     payload.password_hash = password_hash;
   }
 
+  console.log('[saveAdminUserAction] UPSERT payload', payload);
+
   const { error } = await supabaseAdmin
     .from('buyback_admin_users')
     .upsert(payload, { onConflict: 'email' });
 
   if (error) {
-    console.error('[saveAdminUserAction] error', error);
+    console.error('[saveAdminUserAction] supabase error', error);
     throw new Error('Kon userrechten niet opslaan.');
   }
 
+  console.log('[saveAdminUserAction] SUCCESS, revalidating /admin/settings');
   revalidatePath('/admin/settings');
 }
 
