@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import Nav from "./Nav";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import UserBadge from "./UserBadge";
+import IdleLogout from "./IdleLogout";
+import LogoutButton from "./LogoutButton";
 
 export const metadata = {
   title: "Buyback Admin",
@@ -25,7 +27,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
       {/* Main content */}
       <main className="p-4 md:p-6">
-        {/* Topbar in main met user-badge rechtsboven */}
+        {/* Automatische logout na inactiviteit, bv. 15 minuten */}
+        <IdleLogout timeoutMs={15 * 60 * 1000} />
+
+        {/* Topbar in main met user-badge en afmelden-knop rechtsboven */}
         <div className="mb-4 flex items-center justify-between">
           {/* Optioneel: titel voor mobile weergave */}
           <div className="md:hidden">
@@ -33,7 +38,10 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <p className="text-xs text-gray-500">Beheerpanelen</p>
           </div>
 
-          <UserBadge user={currentUser} />
+          <div className="flex items-center gap-3">
+            <UserBadge user={currentUser} />
+            <LogoutButton />
+          </div>
         </div>
 
         {children}
