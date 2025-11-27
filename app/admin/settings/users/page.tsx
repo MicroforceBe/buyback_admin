@@ -1,33 +1,44 @@
 // app/admin/settings/users/page.tsx
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
-import { hasPermission, ROOT_ADMIN_EMAIL } from "@/lib/adminPermissions";
-import { redirect } from "next/navigation";
-import UserPermissionsTable from "./UserPermissionsTable";
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
+import {
+  hasPermission,
+  type AdminRole,
+  type PermissionsMap,
+} from '@/lib/adminPermissions';
+import UserPermissionsTable from './UserPermissionsTable';
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-type RawUserRow = {
+type DbAdminUserRow = {
   email: string;
-  role: "admin" | "user";
-  permissions: any;
+  role: AdminRole;
+  permissions: PermissionsMap | null;
 };
 
-export default async function UsersSettingsPage() {
-  const adminUser = await getCurrentAdminUser();
+export default async function Page() {
+  const current = await getCurrentAdminUser();
 
-  if (!adminUser) {
-    redirect("/admin/login");
+  // Niet ingelogd of geen user gevonden → blokkeren
+  if (!current) {
+    return (
+      <div className="p-4">
+        <h1 className="text-xl font-semibold mb-2">Users</h1>
+        <p className="text-sm text-red-600">
+          Je hebt geen rechten om deze pagina te bekijken (niet ingelogd).
+        </p>
+      </div>
+    );
   }
 
-  const canRead = hasPermission(adminUser, "settings", "read");
-  const canWrite = hasPermission(adminUser, "settings", "write");
+  const canWrite = hasPermission(current, 'settings', 'write');
+  const canRead = hasPermission(current, 'settings', 'read') || canWrite;
 
   if (!canRead) {
     return (
-      <div className="w-full p-4">
-        <h1 className="text-xl font-semibold mb-2">Instellingen – Users</h1>
+      <div className="p-4">
+        <h1 className="text-xl font-semibold mb-2">Users</h1>
         <p className="text-sm text-red-600">
           Je hebt geen rechten om deze pagina te bekijken.
         </p>
@@ -36,39 +47,35 @@ export default async function UsersSettingsPage() {
   }
 
   const { data, error } = await supabaseAdmin
-    .from("buyback_admin_users")
-    .select("email, role, permissions")
-    .order("email", { ascending: true });
+    .from('buyback_admin_users')
+    .select('email, role, permissions')
+    .order('email', { ascending: true });
 
   if (error) {
-    console.error("[UsersSettingsPage] load error", error);
+    console.error('[admin/users] load error', error);
   }
 
-  const rows: RawUserRow[] = (data ?? []) as any[];
+  const rows: DbAdminUserRow[] = (data || []) as any[];
 
   const initialUsers = rows.map((r) => ({
     email: r.email,
-    role: (r.role as "admin" | "user") ?? "user",
-    permissions: (r.permissions as any) ?? {},
+    role: r.role,
+    permissions: (r.permissions as PermissionsMap | null) ?? {},
   }));
 
-  const currentUserEmail = adminUser?.email ?? null;
-  const rootAdminEmail = ROOT_ADMIN_EMAIL ?? null;
+  // Root admin e-mail puur voor UI (tag "(root)" + delete blokkeren in client)
+  const rootAdminEmail = process.env.ROOT_ADMIN_EMAIL ?? null;
 
   return (
-    <div className="w-full p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Instellingen – Users</h1>
-        {!canWrite && (
-          <span className="text-xs text-gray-500">
-            Je hebt alleen leesrechten; wijzigen van rechten is uitgeschakeld.
-          </span>
-        )}
-      </div>
+    <div className="p-4 space-y-4">
+      <h1 className="text-xl font-semibold">Users</h1>
+      <p className="text-sm text-gray-600">
+        Beheer welke e-mailadressen toegang hebben tot de Buyback Admin en welke rechten ze hebben.
+      </p>
 
       <UserPermissionsTable
         initialUsers={initialUsers}
-        currentUserEmail={currentUserEmail}
+        currentUserEmail={current.email}
         rootAdminEmail={rootAdminEmail}
         canEdit={canWrite}
       />
