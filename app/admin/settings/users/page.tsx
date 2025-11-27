@@ -17,6 +17,12 @@ type DbAdminUserRow = {
   permissions: PermissionsMap | null;
 };
 
+type InitialUser = {
+  email: string;
+  role: AdminRole;
+  permissions: PermissionsMap;
+};
+
 export default async function Page() {
   const current = await getCurrentAdminUser();
 
@@ -57,14 +63,14 @@ export default async function Page() {
 
   const rows: DbAdminUserRow[] = (data || []) as any[];
 
-  const initialUsers = rows.map((r) => ({
+  const initialUsers: InitialUser[] = rows.map((r) => ({
     email: r.email,
     role: r.role,
-    permissions: (r.permissions as PermissionsMap | null) ?? {},
+    permissions: (r.permissions ?? {}) as PermissionsMap,
   }));
 
   // Root admin e-mail puur voor UI (tag "(root)" + delete blokkeren in client)
-  const rootAdminEmail = process.env.ROOT_ADMIN_EMAIL ?? null;
+  const rootAdminEmail = process.env.BUYBACK_ROOT_ADMIN_EMAIL ?? null;
 
   return (
     <div className="p-4 space-y-4">
