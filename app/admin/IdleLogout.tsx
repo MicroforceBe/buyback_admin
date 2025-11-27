@@ -1,22 +1,23 @@
+// app/admin/IdleLogout.tsx
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { logoutAction } from './logout/actions';
+import { useEffect, useRef } from 'react'; import { logoutAction } from './logout/actions';
 
 type Props = {
-  timeoutMs: number; // bv. 15 * 60 * 1000 voor 15 minuten
-};
+  timeoutMs: number; // bv. 15 * 60 * 1000 };
 
 export default function IdleLogout({ timeoutMs }: Props) {
-  const timerId = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function resetTimer() {
-    if (timerId.current) {
-      clearTimeout(timerId.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
     }
-    timerId.current = setTimeout(() => {
-      // Bij inactiviteit → uitloggen
-      logoutAction();
+    timerRef.current = setTimeout(async () => {
+      const result = await logoutAction();
+      if (result?.success) {
+        window.location.href = '/admin/login';
+      }
     }, timeoutMs);
   }
 
@@ -26,21 +27,16 @@ export default function IdleLogout({ timeoutMs }: Props) {
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'visibilitychange'];
 
     const handler = () => {
-      // Alleen resetten als tab zichtbaar is
       if (document.visibilityState === 'visible') {
         resetTimer();
       }
     };
 
-    events.forEach((event) => {
-      window.addEventListener(event, handler);
-    });
+    events.forEach((e) => window.addEventListener(e, handler));
 
     return () => {
-      if (timerId.current) clearTimeout(timerId.current);
-      events.forEach((event) => {
-        window.removeEventListener(event, handler);
-      });
+      if (timerRef.current) clearTimeout(timerRef.current);
+      events.forEach((e) => window.removeEventListener(e, handler));
     };
   }, [timeoutMs]);
 
