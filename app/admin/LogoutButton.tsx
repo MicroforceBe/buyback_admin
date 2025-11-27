@@ -1,15 +1,19 @@
+// app/admin/LogoutButton.tsx
 'use client';
 
 import { useTransition } from 'react';
+import { logoutAction } from './logout/actions';
 
 export default function LogoutButton() {
   const [isPending, startTransition] = useTransition();
 
   function handleLogout() {
     startTransition(async () => {
-      // Simpele variant: naar loginpagina sturen.
-      // Later kun je dit vervangen door een echte server action die de sessie ongeldig maakt.
-      window.location.href = '/admin/login';
+      const result = await logoutAction();
+      if (result?.success) {
+        // Na succesvolle logout naar loginpagina
+        window.location.href = '/admin/login';
+      }
     });
   }
 
