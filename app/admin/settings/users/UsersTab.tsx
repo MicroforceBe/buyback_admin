@@ -21,6 +21,8 @@ export default async function UsersTab() {
   }
 
   const rootAdminEmail = process.env.BUYBACK_ROOT_ADMIN_EMAIL ?? null;
+  const isRootAdmin =
+    rootAdminEmail !== null && adminUser.email === rootAdminEmail;
 
   return (
     <div className="p-4 space-y-4">
@@ -32,6 +34,7 @@ export default async function UsersTab() {
         initialUsers={data ?? []}
         currentUserEmail={adminUser.email}
         rootAdminEmail={rootAdminEmail}
+        canEdit={isRootAdmin}
       />
     </div>
   );
