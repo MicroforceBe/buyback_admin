@@ -1,17 +1,39 @@
-'use server';
+'use client';
 
-import { cookies } from 'next/headers';
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs';
-import { redirect } from 'next/navigation';
+import { useTransition } from 'react';
+import { logoutAction } from './logout/actions';
 
-export async function logoutAction() {
-  const supabase = createServerActionClient({ cookies });
+type Props = {
+  currentUserEmail: string | null;
+};
 
-  // Supabase sessie ongeldig maken
-  await supabase.auth.signOut();
+export default function AdminTopbar({ currentUserEmail }: Props) {
+  const [isPending, startTransition] = useTransition();
 
-  // Eventueel cookies opruimen / extra cleanup hier
+  function handleLogout() {
+    startTransition(async () => {
+      await logoutAction();
+    });
+  }
 
-  // Terug naar login of home
-  redirect('/admin/login');
+  return (
+    <header className="flex items-center justify-between px-4 py-2 border-b bg-white">
+      <div className="font-semibold">Buyback Admin</div>
+      <div className="flex items-center gap-3 text-sm">
+        {currentUserEmail && (
+          <span className="text-gray-600">
+            Ingelogd als <strong>{currentUserEmail}</strong>
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={isPending}
+          className="px-3 py-1 border rounded text-sm"
+        >
+          {isPending ? 'Afmelden...' : 'Afmelden'}
+        </button>
+      </div>
+    </header>
+  );
 }
