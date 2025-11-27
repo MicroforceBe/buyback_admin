@@ -1,4 +1,3 @@
-
 //app/admin/settings/users/actions.ts
 'use server';
 
@@ -29,6 +28,46 @@ function isStrongPassword(pw: string): boolean {
   return true;
 }
 
+function normalizePermissions(
+  perms: Partial<PermissionsMap> | PermissionsMap | null | undefined
+): PermissionsMap {
+  const base: PermissionsMap = {
+    dashboard:   { read: false, write: false },
+    leads:       { read: false, write: false },
+    catalog:     { read: false, write: false },
+    multipliers: { read: false, write: false },
+    uploads:     { read: false, write: false },
+    settings:    { read: false, write: false },
+  };
+
+  return {
+    dashboard: {
+      ...base.dashboard,
+      ...(perms?.dashboard ?? {}),
+    },
+    leads: {
+      ...base.leads,
+      ...(perms?.leads ?? {}),
+    },
+    catalog: {
+      ...base.catalog,
+      ...(perms?.catalog ?? {}),
+    },
+    multipliers: {
+      ...base.multipliers,
+      ...(perms?.multipliers ?? {}),
+    },
+    uploads: {
+      ...base.uploads,
+      ...(perms?.uploads ?? {}),
+    },
+    settings: {
+      ...base.settings,
+      ...(perms?.settings ?? {}),
+    },
+  };
+}
+
 export async function saveAdminUserAction(input: SaveAdminUserInput) {
   const current = await getCurrentAdminUser();
 
@@ -54,6 +93,9 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
     };
   }
 
+  // Permissions altijd normaliseren naar een volledige PermissionsMap
+  const safePermissions = normalizePermissions(input.permissions);
+
   // Wachtwoordverwerking (optioneel)
   const rawPassword = (input.password ?? '').trim();
   const rawConfirm = (input.password_confirm ?? '').trim();
@@ -74,7 +116,7 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
   const payload: any = {
     email,
     role: input.role,
-    permissions: input.permissions,
+    permissions: safePermissions,
   };
 
   if (password_hash) {
