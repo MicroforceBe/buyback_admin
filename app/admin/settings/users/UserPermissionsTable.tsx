@@ -50,6 +50,7 @@ export default function UserPermissionsTable({
 
   const [isPending, startTransition] = useTransition();
   const [newEmail, setNewEmail] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // per-user tijdelijke wachtwoordvelden
   const [passwords, setPasswords] = useState<
@@ -132,8 +133,10 @@ export default function UserPermissionsTable({
 
     const pwState = passwords[user.email] || { password: '', confirm: '' };
 
+    setErrorMessage(null);
+
     startTransition(async () => {
-      await saveAdminUserAction({
+      const result = await saveAdminUserAction({
         email: user.email,
         role: user.role,
         permissions: user.permissions,
@@ -141,7 +144,13 @@ export default function UserPermissionsTable({
         password_confirm: pwState.confirm,
       });
 
-      // Na save velden leegmaken
+      if (result && 'error' in result && result.error) {
+        // Toon nette foutmelding (bv. zwak wachtwoord, mismatch, geen rechten, ...)
+        setErrorMessage(result.error);
+        return;
+      }
+
+      // Na succesvolle save velden leegmaken
       setPasswords((prev) => ({
         ...prev,
         [user.email]: { password: '', confirm: '' },
@@ -160,11 +169,20 @@ export default function UserPermissionsTable({
       return;
     }
 
-    startTransition(async () => {
-      await deleteAdminUserAction(user.email);
-    });
+    setErrorMessage(null);
 
-    setUsers((prev) => prev.filter((u) => u.email !== user.email));
+    startTransition(async () => {
+      const result = await deleteAdminUserAction(user.email);
+
+      if (result && 'error' in result && result.error) {
+        // Bv. root admin kan niet verwijderd worden
+        setErrorMessage(result.error);
+        return;
+      }
+
+      // Alleen bij succes uit de lijst halen
+      setUsers((prev) => prev.filter((u) => u.email !== user.email));
+    });
   }
 
   function handleAddUser() {
@@ -387,6 +405,12 @@ export default function UserPermissionsTable({
           </tbody>
         </table>
       </div>
+
+      {errorMessage && (
+        <div className="text-xs text-red-600">
+          {errorMessage}
+        </div>
+      )}
 
       {isPending && canEdit && (
         <div className="text-xs text-gray-500">
