@@ -1,10 +1,12 @@
 // app/admin/IdleLogout.tsx
 'use client';
 
-import { useEffect, useRef } from 'react'; import { logoutAction } from './logout/actions';
+import { useEffect, useRef } from 'react';
+import { logoutAction } from './logout/actions';
 
 type Props = {
-  timeoutMs: number; // bv. 15 * 60 * 1000 };
+  timeoutMs: number; // bv. 15 * 60 * 1000
+};
 
 export default function IdleLogout({ timeoutMs }: Props) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
