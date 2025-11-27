@@ -68,7 +68,13 @@ function normalizePermissions(
   };
 }
 
-export async function saveAdminUserAction(input: SaveAdminUserInput) {
+type SaveAdminUserResult =
+  | { success: true }
+  | { success?: false; error: string; field?: 'email' | 'password' | 'global' };
+
+export async function saveAdminUserAction(
+  input: SaveAdminUserInput
+): Promise<SaveAdminUserResult> {
   console.log('[saveAdminUserAction] START', JSON.stringify(input, null, 2));
 
   const current = await getCurrentAdminUser();
@@ -77,11 +83,16 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
   // Alleen iemand met settings:write mag userrechten bijwerken
   if (!hasPermission(current, 'settings', 'write')) {
     console.error('[saveAdminUserAction] forbidden, no settings:write');
-    throw new Error('Forbidden: je hebt geen rechten om users te beheren.');
+    return {
+      error: 'Je hebt geen rechten om users te beheren.',
+      field: 'global',
+    };
   }
 
   const email = input.email.toLowerCase().trim();
-  if (!email) throw new Error('Email is verplicht.');
+  if (!email) {
+    return { error: 'Email is verplicht.', field: 'email' };
+  }
 
   // Je mag jezelf niet "downgraden" als je root admin bent
   if (current && isRootAdminEmail(current.email) && current.email === email) {
@@ -110,12 +121,17 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
   if (rawPassword || rawConfirm) {
     console.log('[saveAdminUserAction] password flow triggered');
     if (rawPassword !== rawConfirm) {
-      throw new Error('Wachtwoorden komen niet overeen.');
+      return {
+        error: 'Wachtwoorden komen niet overeen.',
+        field: 'password',
+      };
     }
     if (!isStrongPassword(rawPassword)) {
-      throw new Error(
-        'Wachtwoord is te zwak. Minstens 12 tekens, met hoofdletter, kleine letter en cijfer.'
-      );
+      return {
+        error:
+          'Wachtwoord voldoet niet aan de regels: minstens 12 tekens, met hoofdletter, kleine letter en cijfer.',
+        field: 'password',
+      };
     }
     password_hash = await bcrypt.hash(rawPassword, 12);
   }
@@ -138,26 +154,44 @@ export async function saveAdminUserAction(input: SaveAdminUserInput) {
 
   if (error) {
     console.error('[saveAdminUserAction] supabase error', error);
-    throw new Error('Kon userrechten niet opslaan.');
+    return {
+      error: 'Kon userrechten niet opslaan (databasefout).',
+      field: 'global',
+    };
   }
 
   console.log('[saveAdminUserAction] SUCCESS, revalidating /admin/settings');
   revalidatePath('/admin/settings');
+  return { success: true };
 }
 
-export async function deleteAdminUserAction(email: string) {
+type DeleteAdminUserResult =
+  | { success: true }
+  | { success?: false; error: string; field?: 'global' };
+
+export async function deleteAdminUserAction(
+  email: string
+): Promise<DeleteAdminUserResult> {
   const current = await getCurrentAdminUser();
 
   if (!hasPermission(current, 'settings', 'write')) {
-    throw new Error('Forbidden: je hebt geen rechten om users te beheren.');
+    return {
+      error: 'Je hebt geen rechten om users te beheren.',
+      field: 'global',
+    };
   }
 
   const normalized = email.toLowerCase().trim();
-  if (!normalized) return;
+  if (!normalized) {
+    return { success: true };
+  }
 
   // Root admin mag niet verwijderd worden
   if (isRootAdminEmail(normalized)) {
-    throw new Error('Root admin kan niet verwijderd worden.');
+    return {
+      error: 'Root admin kan niet verwijderd worden.',
+      field: 'global',
+    };
   }
 
   const { error } = await supabaseAdmin
@@ -167,8 +201,12 @@ export async function deleteAdminUserAction(email: string) {
 
   if (error) {
     console.error('[deleteAdminUserAction] error', error);
-    throw new Error('Kon user niet verwijderen.');
+    return {
+      error: 'Kon user niet verwijderen.',
+      field: 'global',
+    };
   }
 
   revalidatePath('/admin/settings');
+  return { success: true };
 }
