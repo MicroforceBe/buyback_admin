@@ -677,18 +677,40 @@ export async function updateLeadInlineAction(formData: FormData) {
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
 
-  const NOTIFY_STATUSES: Status[] = [
+  // annuleringsstatus: geen mails, geen sendcloud
+  if (!newStatus || newStatus === "cancelled") {
+    // 7) Diagnose/feedback in de msg: welke keys hebben we geprobeerd te zetten?
+    const setKeys = Object.keys(patch).sort();
+    const ignoredFinal = Object.keys(desired).filter(
+      (k) => !setKeys.includes(k)
+    );
+    const tagIgnored = ignoredFinal.length
+      ? ` • ignored:${ignoredFinal.join(",")}`
+      : "";
+    const msg =
+      `updated:${after?.status ?? "-"}•€${(
+        (after?.final_price_cents ?? 0) / 100
+      ).toFixed(2)}` +
+      (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
+      tagIgnored;
+
+    redirect(`/admin/leads?msg=${encodeURIComponent(msg)}`);
+  }
+
+  // Vanaf hier: newStatus is zeker een BuybackStatus (geen "cancelled" meer)
+  const statusForMail = newStatus as BuybackStatus;
+
+  const NOTIFY_STATUSES: BuybackStatus[] = [
     "received_store",
     "label_created",
     "shipment_received",
     "check_passed",
     "check_failed",
     "done",
-    // géén "cancelled" hier: annulatie hoeft geen statusmail
   ];
 
   const statusChanged =
-    newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus);
+    statusForMail !== prevStatus && NOTIFY_STATUSES.includes(statusForMail);
 
   if (statusChanged && after?.email) {
     (async () => {
@@ -701,7 +723,7 @@ export async function updateLeadInlineAction(formData: FormData) {
         let label_pdf_url: string | null | undefined =
           (after as any).label_pdf_url ?? null;
 
-        if (newStatus === "label_created") {
+        if (statusForMail === "label_created") {
           console.info("[LEADS] attempting Sendcloud label (label_created)");
           const made = await createSendcloudLabel(after);
           if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
@@ -758,7 +780,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           order_code: (after as any).order_code,
 
           // context / templatekeuze
-          status: newStatus!, // template beslist tekst
+          status: statusForMail, // template beslist tekst
           language: "nl",
 
           // toestel & prijs
