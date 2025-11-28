@@ -2,7 +2,6 @@
 "use server";
 
 import { Resend } from "resend";
-import PDFDocument from "pdfkit";
 import type { BuybackStatus } from "./templates";
 
 const resendApiKey = process.env.RESEND_API_KEY || "";
@@ -75,59 +74,42 @@ function formatCurrency(
   }
 }
 
+/**
+ * Eenvoudige PDF-generator (single page, tekst) zonder externe fonts/files.
+ * We bouwen een minimale PDF-structuur in memory.
+ */
 function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 40,
-    });
-
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk) => chunks.push(chunk as Buffer));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", (err) => reject(err));
-
+  return new Promise((resolve) => {
     const brandName = input.brand_name_override || "Microforce Buyback";
     const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ");
     const orderRef = input.order_code || "-";
     const amountStr = formatCurrency(input.final_price_cents ?? null);
 
-    // ===== HEADER =====
-    doc.fontSize(18).text(`${brandName} – Aankoopborderel`, { align: "left" });
-    doc.moveDown(0.5);
-    doc
-      .fontSize(10)
-      .text(`Datum: ${new Date().toLocaleString("nl-BE")}`, { align: "right" });
-    doc.moveDown(0.5);
-    doc
-      .fontSize(11)
-      .text(`Buyback-order: ${orderRef}`, { align: "left" });
+    const lines: string[] = [];
 
-    doc.moveDown(1);
+    // HEADER
+    lines.push(`${brandName} – Aankoopborderel`);
+    lines.push(`Datum: ${new Date().toLocaleString("nl-BE")}`);
+    lines.push(`Buyback-order: ${orderRef}`);
+    lines.push("");
 
-    // ===== KLANTGEGEVENS =====
-    doc.fontSize(12).text("Klantgegevens", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-    if (fullName) doc.text(`Naam: ${fullName}`);
-    if (input.customer_number) doc.text(`Klantnummer: ${input.customer_number}`);
-    if (input.email) doc.text(`E-mail: ${input.email}`);
-    if (input.phone) doc.text(`Telefoon: ${input.phone}`);
-
+    // KLANTGEGEVENS
+    lines.push("Klantgegevens");
+    if (fullName) lines.push(`Naam: ${fullName}`);
+    if (input.customer_number) lines.push(`Klantnummer: ${input.customer_number}`);
+    if (input.email) lines.push(`E-mail: ${input.email}`);
+    if (input.phone) lines.push(`Telefoon: ${input.phone}`);
     if (input.street || input.house_number || input.postal_code || input.city) {
       const addrLine1 = [input.street, input.house_number].filter(Boolean).join(" ");
       const addrLine2 = [input.postal_code, input.city].filter(Boolean).join(" ");
-      if (addrLine1) doc.text(`Adres: ${addrLine1}`);
-      if (addrLine2) doc.text(`        ${addrLine2}`);
+      if (addrLine1) lines.push(`Adres: ${addrLine1}`);
+      if (addrLine2) lines.push(`        ${addrLine2}`);
     }
-    if (input.country) doc.text(`Land: ${input.country}`);
-    doc.moveDown(1);
+    if (input.country) lines.push(`Land: ${input.country}`);
+    lines.push("");
 
-    // ===== TOESTEL =====
-    doc.fontSize(12).text("Toestel", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-
+    // TOESTEL
+    lines.push("Toestel");
     const deviceParts: string[] = [];
     if (input.model) deviceParts.push(input.model);
     if (input.variant) deviceParts.push(input.variant);
@@ -137,93 +119,150 @@ function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
         ? `${deviceLabel} (${input.capacity_gb} GB)`
         : `${input.capacity_gb} GB`;
     }
+    if (deviceLabel) lines.push(`Model: ${deviceLabel}`);
+    if (amountStr) lines.push(`Indicatieve prijs: ${amountStr}`);
+    lines.push("");
 
-    if (deviceLabel) doc.text(`Model: ${deviceLabel}`);
-    doc.text(`Indicatieve prijs: ${amountStr || "-"}`);
-    doc.moveDown(1);
-
-    // ===== UITBETALING =====
-    doc.fontSize(12).text("Uitbetaling", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-
+    // UITBETALING
+    lines.push("Uitbetaling");
     if (input.wants_voucher) {
-      doc.text(
+      lines.push(
         "Methode: Voucher (te gebruiken als korting bij aankoop van een toestel)."
       );
-      if (amountStr) doc.text(`Voucherwaarde: ${amountStr}`);
+      if (amountStr) lines.push(`Voucherwaarde: ${amountStr}`);
     } else {
-      doc.text("Methode: Bankoverschrijving");
-      if (amountStr) doc.text(`Bedrag: ${amountStr}`);
-      if (input.iban) doc.text(`IBAN: ${input.iban}`);
+      lines.push("Methode: Bankoverschrijving");
+      if (amountStr) lines.push(`Bedrag: ${amountStr}`);
+      if (input.iban) lines.push(`IBAN: ${input.iban}`);
     }
-    doc.moveDown(1);
+    lines.push("");
 
-    // ===== LEVERING / INNAME =====
-    doc.fontSize(12).text("Levering / Inname", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-
+    // LEVERING / INNAME
+    lines.push("Levering / Inname");
     const method = input.delivery_method;
     if (method === "ship") {
-      doc.text("Methode: Verzending naar Microforce (gratis verzendlabel).");
+      lines.push("Methode: Verzending naar Microforce (gratis verzendlabel).");
     } else if (method === "dropoff") {
-      doc.text("Methode: Binnenbrengen in de winkel.");
+      lines.push("Methode: Binnenbrengen in de winkel.");
     } else {
-      doc.text("Methode: Onbekend / niet ingevuld.");
+      lines.push("Methode: Onbekend / niet ingevuld.");
     }
 
     if (method === "dropoff" && input.shop_location) {
-      doc.text(`Winkel: ${input.shop_location}`);
+      lines.push(`Winkel: ${input.shop_location}`);
       const shopAddr1 = input.shop_address1;
       const shopAddr2 = [input.shop_zip, input.shop_city]
         .filter(Boolean)
         .join(" ");
-      if (shopAddr1) doc.text(`Adres winkel: ${shopAddr1}`);
-      if (shopAddr2) doc.text(`              ${shopAddr2}`);
+      if (shopAddr1) lines.push(`Adres winkel: ${shopAddr1}`);
+      if (shopAddr2) lines.push(`              ${shopAddr2}`);
     }
+    lines.push("");
 
-    doc.moveDown(1);
-
-    // ===== TRACKING =====
-    doc.fontSize(12).text("Tracking", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-
+    // TRACKING
+    lines.push("Tracking");
     if (input.tracking_code || input.tracking_url || input.label_pdf_url) {
-      if (input.tracking_code) doc.text(`Tracking code: ${input.tracking_code}`);
-      if (input.tracking_url) doc.text(`Tracking URL: ${input.tracking_url}`);
-      if (input.label_pdf_url) doc.text(`Label URL: ${input.label_pdf_url}`);
+      if (input.tracking_code) lines.push(`Tracking code: ${input.tracking_code}`);
+      if (input.tracking_url) lines.push(`Tracking URL: ${input.tracking_url}`);
+      if (input.label_pdf_url) lines.push(`Label URL: ${input.label_pdf_url}`);
     } else {
-      doc.text("Geen trackinginformatie beschikbaar.");
+      lines.push("Geen trackinginformatie beschikbaar.");
     }
+    lines.push("");
 
-    doc.moveDown(1);
-
-    // ===== STATUS =====
-    doc.fontSize(12).text("Status", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(10);
-
+    // STATUS
+    lines.push("Status");
     if (input.status) {
-      doc.text(`Status: ${input.status}`);
+      lines.push(`Status: ${input.status}`);
     } else {
-      doc.text("Status: (niet opgegeven)");
+      lines.push("Status: (niet opgegeven)");
     }
+    lines.push("");
 
-    doc.moveDown(1);
+    // FOOTER
+    lines.push(
+      "Dit document is een aankoopborderel voor een buyback-order."
+    );
+    lines.push(
+      "Gelieve dit document intern te bewaren voor de boekhouding."
+    );
 
-    // Kleine voetnoot
-    doc
-      .fontSize(8)
-      .fillColor("gray")
-      .text(
-        "Dit document is een aankoopborderel voor een buyback-order. " +
-          "Gelieve dit document intern te bewaren voor de boekhouding.",
-        { align: "left" }
+    // ==== PDF STRUCTUUR BOUWEN ====
+
+    // Helper: PDF-string escapen
+    const escapePdfString = (s: string) =>
+      s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+
+    // Content stream: eenvoudige tekstregels met Helvetica 10pt
+    let y = 800;
+    const lineHeight = 14;
+    const contentParts: string[] = [];
+    for (const line of lines) {
+      const safe = escapePdfString(line);
+      contentParts.push(
+        "BT",
+        "/F1 10 Tf",
+        `50 ${y} Td`,
+        `(${safe}) Tj`,
+        "ET"
       );
+      y -= lineHeight;
+      if (y < 50) break; // simpele safeguard: geen tweede pagina
+    }
+    const contentStream = contentParts.join("\n") + "\n";
+    const contentLength = Buffer.byteLength(contentStream, "utf8");
 
-    doc.end();
+    let pdf = "%PDF-1.4\n";
+    const offsets: number[] = [];
+
+    const addObject = (index: number, body: string) => {
+      const offset = Buffer.byteLength(pdf, "utf8");
+      offsets.push(offset);
+      pdf += `${index} 0 obj\n${body}\nendobj\n`;
+    };
+
+    // 1: Catalog
+    addObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
+
+    // 2: Pages
+    addObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+
+    // 3: Page
+    addObject(
+      3,
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] " +
+        "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+    );
+
+    // 4: Font (standaard Helvetica, ingebouwd in PDF viewers)
+    addObject(
+      4,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    );
+
+    // 5: Content stream
+    addObject(
+      5,
+      `<< /Length ${contentLength} >>\nstream\n${contentStream}endstream`
+    );
+
+    // xref + trailer
+    const xrefOffset = Buffer.byteLength(pdf, "utf8");
+    let xref = `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`;
+    for (let i = 0; i < offsets.length; i++) {
+      const off = offsets[i].toString().padStart(10, "0");
+      xref += `${off} 00000 n \n`;
+    }
+    xref +=
+      "trailer\n" +
+      `<< /Size ${offsets.length + 1} /Root 1 0 R >>\n` +
+      "startxref\n" +
+      `${xrefOffset}\n` +
+      "%%EOF";
+
+    pdf += xref;
+
+    resolve(Buffer.from(pdf, "utf8"));
   });
 }
 
@@ -255,10 +294,10 @@ export async function sendFinanceBorderelMail(
     console.warn(
       "[FINANCE][borderel] RESEND_API_KEY missing – mail wordt niet echt verstuurd"
     );
-    console.info(
-      "[FINANCE][borderel] would send:",
-      { to, subject: `[${brandName}] Aankoopborderel buyback-order ${orderRef}` }
-    );
+    console.info("[FINANCE][borderel] would send:", {
+      to,
+      subject: `[${brandName}] Aankoopborderel buyback-order ${orderRef}`,
+    });
     return;
   }
 
