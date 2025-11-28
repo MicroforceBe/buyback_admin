@@ -106,13 +106,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
- * Haal ship_with-object op uit env en normaliseer naar:
- *
- * {
- *   type: "shipping_option_code",
- *   properties: { shipping_option_code: "..." }
- * }
- */
+* Haal ship_with-object op uit env en normaliseer naar:
+*
+* {
+*   type: "shipping_option_code",
+*   properties: { shipping_option_code: "..." }
+* }
+*/
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -196,8 +196,8 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
- */
+* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -318,7 +318,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     };
 
     const resp = await fetch(
-      "https://panel.sendcloud.sc/api/v3/shipments/announce",
+      https://panel.sendcloud.sc/api/v3/shipments/announce,
       {
         method: "POST",
         headers: {
@@ -421,9 +421,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
- * Server action om opnieuw een label + tracking op te halen
- * en opnieuw de statusmail voor 'label_created' te sturen.
- */
+* Server action om opnieuw een label + tracking op te halen
+* en opnieuw de statusmail voor 'label_created' te sturen.
+*/
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -550,8 +550,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
- * Eén action die ALLES kan updaten.
- */
+* Eén action die ALLES kan updaten.
+*/
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -779,7 +779,9 @@ export async function updateLeadInlineAction(formData: FormData) {
   ];
 
   const statusChanged =
-    newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
+    newStatus &&
+    newStatus !== prevStatus &&
+    NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
 
   if (statusChanged && after?.email) {
     (async () => {
@@ -871,68 +873,72 @@ export async function updateLeadInlineAction(formData: FormData) {
           e?.message || e
         );
       }
-              //Finance-mail met aankoopborderel (bij geslaagde controle)
-        const FINANCE_TRIGGER_STATUSES: Status[] = ["check_passed"];
-        if (newStatus && FINANCE_TRIGGER_STATUSES.includes(newStatus)) {
-          const { finance_email, brand_name } = await getNotificationSettings();
-          if (finance_email) {
-            try {
-              await sendFinanceBorderelMail({
-                to: finance_email,
-                status: newStatus,
-                // basis + identificatie
-                first_name: (after as any).first_name,
-                last_name: (after as any).last_name,
-                order_code: (after as any).order_code,
-                email: (after as any).email,
-                // toestel
-                model: (after as any).model,
-                capacity_gb: (after as any).capacity_gb,
-                variant: (after as any).variant ?? null,
-                sku: (after as any).sku ?? null,
-                imei_sn: (after as any).imei_sn ?? null,
-                // prijs / uitbetaling
-                final_price_cents: (after as any).final_price_cents,
-                wants_voucher: (after as any).wants_voucher ?? null,
-                iban: (after as any).iban ?? null,
-                // klant & adres
-                street: (after as any).street ?? null,
-                house_number: (after as any).house_number ?? null,
-                postal_code: (after as any).postal_code ?? null,
-                city: (after as any).city ?? null,
-                country: (after as any).country ?? null,
-                phone: (after as any).phone ?? null,
-                // levering / shop
-                delivery_method: (after as any).delivery_method,
-                shop_location: (after as any).shop_location,
-                shop_address1: shop_address1,
-                shop_zip,
-                shop_city,
-                opening_hours,
-                // tracking
-                tracking_code: tracking_code ?? undefined,
-                tracking_url: tracking_url ?? undefined,
-                label_pdf_url: label_pdf_url ?? undefined,
-                // extra voor finance
-                customer_number: (after as any).customer_number ?? null,
-                brand_name_override: brand_name,
-                // vragen/antwoorden hoeven niet in borderel, maar mogen
-                questions_answers_html:
-                  (after as any).questions_answers_html ?? null,
-              });
-            } catch (e: any) {
-              console.error(
-                "[LEADS][FINANCE] borderel mail failed:",
-                e?.message || e
-              );
-            }
-          } else {
-            console.warn(
-              "[LEADS][FINANCE] finance_email not configured; skipping borderel"
+
+      // Finance-mail met aankoopborderel (bij geslaagde controle)
+      const FINANCE_TRIGGER_STATUSES: BuybackStatus[] = ["check_passed"];
+
+      if (
+        newStatus &&
+        FINANCE_TRIGGER_STATUSES.includes(newStatus as BuybackStatus)
+      ) {
+        const { finance_email, brand_name } = await getNotificationSettings();
+        if (finance_email) {
+          try {
+            await sendFinanceBorderelMail({
+              to: finance_email,
+              status: newStatus as BuybackStatus,
+              // basis + identificatie
+              first_name: (after as any).first_name,
+              last_name: (after as any).last_name,
+              order_code: (after as any).order_code,
+              email: (after as any).email,
+              // toestel
+              model: (after as any).model,
+              capacity_gb: (after as any).capacity_gb,
+              variant: (after as any).variant ?? null,
+              sku: (after as any).sku ?? null,
+              imei_sn: (after as any).imei_sn ?? null,
+              // prijs / uitbetaling
+              final_price_cents: (after as any).final_price_cents,
+              wants_voucher: (after as any).wants_voucher ?? null,
+              iban: (after as any).iban ?? null,
+              // klant & adres
+              street: (after as any).street ?? null,
+              house_number: (after as any).house_number ?? null,
+              postal_code: (after as any).postal_code ?? null,
+              city: (after as any).city ?? null,
+              country: (after as any).country ?? null,
+              phone: (after as any).phone ?? null,
+              // levering / shop
+              delivery_method: (after as any).delivery_method,
+              shop_location: (after as any).shop_location,
+              shop_address1: shop_address1,
+              shop_zip,
+              shop_city,
+              opening_hours,
+              // tracking
+              tracking_code: tracking_code ?? undefined,
+              tracking_url: tracking_url ?? undefined,
+              label_pdf_url: label_pdf_url ?? undefined,
+              // extra voor finance
+              customer_number: (after as any).customer_number ?? null,
+              brand_name_override: brand_name,
+              // vragen/antwoorden (optioneel) in borderel
+              questions_answers_html:
+                (after as any).questions_answers_html ?? null,
+            });
+          } catch (e: any) {
+            console.error(
+              "[LEADS][FINANCE] borderel mail failed:",
+              e?.message || e
             );
           }
+        } else {
+          console.warn(
+            "[LEADS][FINANCE] finance_email not configured; skipping borderel"
+          );
         }
-
+      }
     })();
   }
 
@@ -974,4 +980,3 @@ export async function deleteLeadAction(formData: FormData) {
     );
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
-
