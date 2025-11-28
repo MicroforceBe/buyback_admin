@@ -21,6 +21,8 @@ export type FinanceBorderelInput = {
   model?: string | null;
   capacity_gb?: number | null;
   variant?: string | null;
+  sku?: string | null;
+  imei_sn?: string | null;
 
   // prijs / uitbetaling
   final_price_cents?: number | null;
@@ -56,22 +58,11 @@ export type FinanceBorderelInput = {
   questions_answers_html?: string | null;
 };
 
-function formatCurrency(
-  cents?: number | null,
-  locale: string = "nl-BE",
-  currency: string = "EUR"
-): string {
+function formatCurrency(cents?: number | null): string {
   if (cents == null) return "";
   const eur = cents / 100;
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-    }).format(eur);
-  } catch {
-    return `${eur.toFixed(2)} €`;
-  }
+  // Simpel houden om rare symbolen te vermijden
+  return `${eur.toFixed(2)} EUR`;
 }
 
 /**
@@ -88,7 +79,7 @@ function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
     const lines: string[] = [];
 
     // HEADER
-    lines.push(`${brandName} – Aankoopborderel`);
+    lines.push(`${brandName} - Aankoopborderel`);
     lines.push(`Datum: ${new Date().toLocaleString("nl-BE")}`);
     lines.push(`Buyback-order: ${orderRef}`);
     lines.push("");
@@ -113,14 +104,16 @@ function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
     const deviceParts: string[] = [];
     if (input.model) deviceParts.push(input.model);
     if (input.variant) deviceParts.push(input.variant);
-    let deviceLabel = deviceParts.join(" – ");
+    let deviceLabel = deviceParts.join(" - ");
     if (input.capacity_gb) {
       deviceLabel = deviceLabel
         ? `${deviceLabel} (${input.capacity_gb} GB)`
         : `${input.capacity_gb} GB`;
     }
     if (deviceLabel) lines.push(`Model: ${deviceLabel}`);
-    if (amountStr) lines.push(`Indicatieve prijs: ${amountStr}`);
+    if (input.sku) lines.push(`SKU: ${input.sku}`);
+    if (input.imei_sn) lines.push(`IMEI/SN: ${input.imei_sn}`);
+    if (amountStr) lines.push(`Overnameprijs: ${amountStr}`);
     lines.push("");
 
     // UITBETALING
@@ -207,7 +200,7 @@ function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
         "ET"
       );
       y -= lineHeight;
-      if (y < 50) break; // simpele safeguard: geen tweede pagina
+      if (y < 50) break; // één pagina is genoeg
     }
     const contentStream = contentParts.join("\n") + "\n";
     const contentLength = Buffer.byteLength(contentStream, "utf8");
@@ -266,6 +259,14 @@ function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
   });
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export async function sendFinanceBorderelMail(
   input: FinanceBorderelInput
 ): Promise<void> {
@@ -277,6 +278,7 @@ export async function sendFinanceBorderelMail(
 
   const brandName = input.brand_name_override || "Microforce Buyback";
   const orderRef = input.order_code || "-";
+  const amountStr = formatCurrency(input.final_price_cents ?? null);
 
   // PDF bouwen
   let pdfBuffer: Buffer;
@@ -304,13 +306,38 @@ export async function sendFinanceBorderelMail(
   const fromAddress =
     process.env.MAIL_FROM || "no-reply@microforce-buyback.local";
 
+  const safeOrder = escapeHtml(orderRef);
+  const safeModel = escapeHtml(
+    [input.model, input.variant].filter(Boolean).join(" - ") ||
+      "(model onbekend)"
+  );
+  const safeSku = input.sku ? escapeHtml(input.sku) : "(geen SKU)";
+  const safeImei = input.imei_sn ? escapeHtml(input.imei_sn) : "(geen IMEI/SN)";
+  const safeAmount = amountStr ? escapeHtml(amountStr) : "(geen prijs)";
+  const safeCustomer =
+    input.customer_number && input.customer_number.trim()
+      ? escapeHtml(input.customer_number)
+      : "(geen klantnummer)";
+
+  const html = `
+    <p>In de bijlage vind je de aankoopborderel van deze buyback-order als PDF.</p>
+    <p><strong>Samenvatting:</strong></p>
+    <ul>
+      <li>Klantnummer: ${safeCustomer}</li>
+      <li>Ordernummer: ${safeOrder}</li>
+      <li>Model: ${safeModel}</li>
+      <li>SKU: ${safeSku}</li>
+      <li>IMEI/SN: ${safeImei}</li>
+      <li>Overnameprijs: ${safeAmount}</li>
+    </ul>
+  `;
+
   try {
     await resend.emails.send({
       from: fromAddress,
       to,
       subject: `[${brandName}] Aankoopborderel buyback-order ${orderRef}`,
-      html:
-        "<p>In de bijlage vind je de aankoopborderel van deze buyback-order als PDF.</p>",
+      html,
       attachments: [
         {
           filename: `Aankoopborderel_${orderRef || "buyback"}.pdf`,
