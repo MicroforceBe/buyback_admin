@@ -19,7 +19,7 @@
   "zod": "3.23.8",
   "resend" : "4.0.0",
   "date-fns" : "3.6.0",
-  "pdfkit": "^0.15.0"
+  "pdfkit": "^0.15.0",
   "pdflib": "^1.17.1"
   },
   "devDependencies": {
