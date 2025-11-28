@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
 import StatusTemplatesTabs from "../StatusTemplatesTabs";
+import { getNotificationSettings } from "@/lib/buybackSettings";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -138,7 +139,65 @@ export default async function EmailTemplatesSettingsPage() {
     );
   }
 
-  const templates = await loadEmailTemplates();
+  // Notificatie-instellingen + templates parallel laden
+  const [notificationSettings, templates] = await Promise.all([
+    getNotificationSettings(),
+    loadEmailTemplates(),
+  ]);
+
+  // ---- Server Action notificatie e-mailadressen bewaren ----
+  async function actionSaveNotificationSettings(formData: FormData) {
+    "use server";
+
+    const adminUserInner = await getCurrentAdminUser();
+    if (
+      !adminUserInner ||
+      !hasPermission(adminUserInner, "settings", "write")
+    ) {
+      return {
+        ok: false as const,
+        message: "Je hebt geen rechten om notificatie-instellingen te wijzigen.",
+      };
+    }
+
+    const financeEmailRaw =
+      (formData.get("finance_email") as string | null) ?? "";
+    const newOrderEmailRaw =
+      (formData.get("new_order_email") as string | null) ?? "";
+
+    const finance_email = financeEmailRaw.trim() || null;
+    const new_order_email = newOrderEmailRaw.trim() || null;
+
+    try {
+      const { error } = await supabaseAdmin
+        .from("buyback_settings")
+        .upsert({
+          id: 1,
+          finance_email,
+          new_order_email,
+        });
+
+      if (error) {
+        console.error(
+          "[SETTINGS][notifications] upsert error:",
+          error.message
+        );
+        return { ok: false as const, message: error.message };
+      }
+    } catch (e: any) {
+      console.error(
+        "[SETTINGS][notifications] upsert exception:",
+        e?.message || e
+      );
+      return {
+        ok: false as const,
+        message: "Onbekende fout bij bewaren van notificatie-instellingen.",
+      };
+    }
+
+    revalidatePath("/admin/settings/email-templates");
+    return { ok: true as const, message: "Notificatie-instellingen bewaard." };
+  }
 
   // ---- Server Action e-mailtemplate bewaren ----
   async function actionSaveTemplate(formData: FormData) {
@@ -254,6 +313,71 @@ export default async function EmailTemplatesSettingsPage() {
         </Link>
       </div>
 
+      {/* NOTIFICATIE-E-MAILADRESSEN */}
+      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <header>
+          <h2 className="text-lg font-medium">Notificatie e-mailadressen</h2>
+          <p className="text-sm text-gray-500">
+            Deze adressen worden gebruikt voor interne meldingen, zoals de aankoopborderel
+            richting finance en meldingen bij nieuwe buyback-orders.
+          </p>
+          {!canWrite && (
+            <p className="mt-1 text-xs text-gray-500">
+              Je hebt alleen leesrechten; opslaan is wel beveiligd en zal niets wijzigen.
+            </p>
+          )}
+        </header>
+
+        <form
+          action={actionSaveNotificationSettings}
+          className="space-y-3 max-w-xl"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Finance e-mail</span>
+              <input
+                type="email"
+                name="finance_email"
+                defaultValue={notificationSettings.finance_email || ""}
+                className="bb-input h-9 text-sm px-2"
+                placeholder="bv. finance@jouwdomein.be"
+                disabled={!canWrite}
+              />
+              <span className="text-xs text-gray-500">
+                Hier wordt de PDF aankoopborderel na succesvolle controle
+                (status <code>check_passed</code> of <code>done</code>, afhankelijk van je logica)
+                naartoe gestuurd.
+              </span>
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Nieuwe orders e-mail</span>
+              <input
+                type="email"
+                name="new_order_email"
+                defaultValue={notificationSettings.new_order_email || ""}
+                className="bb-input h-9 text-sm px-2"
+                placeholder="bv. sales@jouwdomein.be"
+                disabled={!canWrite}
+              />
+              <span className="text-xs text-gray-500">
+                Meldingen voor <strong>nieuwe buyback-orders</strong> worden naar dit adres gestuurd.
+              </span>
+            </label>
+          </div>
+
+          <div className="pt-1">
+            <button
+              type="submit"
+              className="bb-btn primary h-8 text-xs px-4"
+              disabled={!canWrite}
+            >
+              Notificatie-instellingen bewaren
+            </button>
+          </div>
+        </form>
+      </section>
+
       {/* E-MAIL TEMPLATES (statussen met tabs + variabelen + preview) */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header>
@@ -280,8 +404,8 @@ export default async function EmailTemplatesSettingsPage() {
           statusTemplates={statusTemplates}
           languages={LANGUAGES}
           onSaveTemplate={actionSaveTemplate}
-          // canEdit moet TRUE zijn als je mag schrijven
-          canEdit={canWrite}
+          // optioneel: kun je nog gebruiken in de component om knoppen te disablen
+          canEdit={!canWrite}
         />
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
@@ -411,4 +535,3 @@ export default async function EmailTemplatesSettingsPage() {
     </div>
   );
 }
-
