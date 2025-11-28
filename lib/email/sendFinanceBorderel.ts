@@ -2,8 +2,8 @@
 "use server";
 
 import { Resend } from "resend";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { BuybackStatus } from "./templates";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
@@ -55,188 +55,204 @@ export type FinanceBorderelInput = {
   customer_number?: string | null;
   brand_name_override?: string | null;
 
-  // datums
-  created_at?: string | null;
-  finished_at?: string | null;
-
   // optioneel: Q&A
   questions_answers_html?: string | null;
+
+  // datums
+  created_at?: string | null;
+  done_at?: string | null;
 };
 
-function formatCurrency(
-  cents?: number | null,
-  locale: string = "nl-BE",
-  currency: string = "EUR"
-): string {
+function formatCurrencyPlain(cents?: number | null): string {
   if (cents == null) return "";
   const eur = cents / 100;
+  // Bewust zonder € symbool om vreemde blokjes te vermijden
+  return eur.toFixed(2).replace(".", ",") + " EUR";
+}
+
+function fmtDateTime(input?: string | null): string {
+  if (!input) return "-";
   try {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-    }).format(eur);
+    const d = new Date(input);
+    return d.toLocaleString("nl-BE", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
   } catch {
-    return `${eur.toFixed(2)} €`;
+    return input;
   }
 }
 
-function safeDateString(raw?: string | null): string | null {
-  if (!raw) return null;
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return null;
-  return d.toLocaleString("nl-BE");
-}
-
-async function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
+async function buildBorderelPdf(input: FinanceBorderelInput): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage();
 
+  const width = page.getWidth();
+  const height = page.getHeight();
+
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const baseFontSize = 10;
-  const lineHeight = baseFontSize * 1.4;
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  const { width, height } = page.getSize();
-  const marginLeft = 40;
-  let y = height - 40;
-
-  function line(text: string = "", fontSize: number = baseFontSize) {
-    if (text) {
-      page.drawText(text, {
-        x: marginLeft,
-        y,
-        size: fontSize,
-        font,
-      });
-    }
-    y -= lineHeight;
-  }
-
-  function sectionTitle(title: string) {
-    line(title, 12);
-  }
+  const margin = 40;
+  let cursorY = height - margin;
 
   const brandName = input.brand_name_override || "Microforce Buyback";
   const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ");
   const orderRef = input.order_code || "-";
-  const amountStr = formatCurrency(input.final_price_cents ?? null);
+  const amountStr = formatCurrencyPlain(input.final_price_cents ?? null);
+  const createdStr = fmtDateTime(input.created_at);
+  const doneStr = fmtDateTime(input.done_at);
 
-  const createdStr = safeDateString(input.created_at);
-  const finishedStr = safeDateString(input.finished_at);
+  const lineHeight = 14;
+
+  const drawLine = (text: string, opts?: { bold?: boolean }) => {
+    const f = opts?.bold ? fontBold : font;
+    page.drawText(text, {
+      x: margin,
+      y: cursorY,
+      size: 10,
+      font: f,
+      color: rgb(0, 0, 0),
+    });
+    cursorY -= lineHeight;
+  };
+
+  const drawTitle = (text: string) => {
+    page.drawText(text, {
+      x: margin,
+      y: cursorY,
+      size: 16,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
+    cursorY -= lineHeight * 1.8;
+  };
+
+  const drawSectionHeader = (text: string) => {
+    page.drawText(text, {
+      x: margin,
+      y: cursorY,
+      size: 12,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
+    cursorY -= lineHeight * 1.2;
+  };
+
+  const moveDown = (lines = 1) => {
+    cursorY -= lineHeight * lines;
+  };
 
   // ===== HEADER =====
-  line(`${brandName} - Aankoopborderel`, 18);
-  line(`Datum document: ${new Date().toLocaleString("nl-BE")}`, 10);
-  line(`Buyback-order: ${orderRef}`, 11);
-  line(); // lege regel
+  drawTitle(`${brandName} – Aankoopborderel`);
+  drawLine(`Buyback-order: ${orderRef}`);
+  drawLine(`Datum borderel: ${fmtDateTime(new Date().toISOString())}`);
+  drawLine(`Datum aanvraag: ${createdStr}`);
+  drawLine(`Datum afgewerkt: ${doneStr}`);
+  moveDown(1);
 
   // ===== KLANTGEGEVENS =====
-  sectionTitle("Klantgegevens");
-  if (fullName) line(`Naam: ${fullName}`);
-  if (input.customer_number) line(`Klantnummer: ${input.customer_number}`);
-  if (input.email) line(`E-mail: ${input.email}`);
-  if (input.phone) line(`Telefoon: ${input.phone}`);
+  drawSectionHeader("Klantgegevens");
+  if (fullName) drawLine(`Naam: ${fullName}`);
+  if (input.customer_number) drawLine(`Klantnummer: ${input.customer_number}`);
+  if (input.email) drawLine(`E-mail: ${input.email}`);
+  if (input.phone) drawLine(`Telefoon: ${input.phone}`);
 
   if (input.street || input.house_number || input.postal_code || input.city) {
     const addrLine1 = [input.street, input.house_number].filter(Boolean).join(" ");
     const addrLine2 = [input.postal_code, input.city].filter(Boolean).join(" ");
-    if (addrLine1) line(`Adres: ${addrLine1}`);
-    if (addrLine2) line(`       ${addrLine2}`);
+    if (addrLine1) drawLine(`Adres: ${addrLine1}`);
+    if (addrLine2) drawLine(`       ${addrLine2}`);
   }
-  if (input.country) line(`Land: ${input.country}`);
-
-  if (createdStr || finishedStr) {
-    line();
-    sectionTitle("Datums");
-    if (createdStr) line(`Datum aanvraag: ${createdStr}`);
-    if (finishedStr) line(`Datum afgewerkt: ${finishedStr}`);
-  }
-
-  line();
+  if (input.country) drawLine(`Land: ${input.country}`);
+  moveDown(1);
 
   // ===== TOESTEL =====
-  sectionTitle("Toestel");
+  drawSectionHeader("Toestel");
+
   const deviceParts: string[] = [];
   if (input.model) deviceParts.push(input.model);
   if (input.variant) deviceParts.push(input.variant);
-  let deviceLabel = deviceParts.join(" - ");
+  let deviceLabel = deviceParts.join(" – ");
   if (input.capacity_gb) {
     deviceLabel = deviceLabel
       ? `${deviceLabel} (${input.capacity_gb} GB)`
       : `${input.capacity_gb} GB`;
   }
-
-  if (deviceLabel) line(`Model: ${deviceLabel}`);
-  if (input.sku) line(`SKU: ${input.sku}`);
-  if (input.imei_sn) line(`IMEI/SN: ${input.imei_sn}`);
-  if (amountStr) line(`Overnameprijs: ${amountStr}`);
-  line();
+  if (deviceLabel) drawLine(`Model: ${deviceLabel}`);
+  if (input.sku) drawLine(`SKU: ${input.sku}`);
+  if (input.imei_sn) drawLine(`IMEI/SN: ${input.imei_sn}`);
+  drawLine(`Overnameprijs (indicatief): ${amountStr || "-"}`);
+  moveDown(1);
 
   // ===== UITBETALING =====
-  sectionTitle("Uitbetaling");
+  drawSectionHeader("Uitbetaling");
   if (input.wants_voucher) {
-    line(
-      "Methode: Voucher (te gebruiken als korting bij aankoop van een toestel)."
-    );
-    if (amountStr) line(`Voucherwaarde: ${amountStr}`);
+    drawLine("Methode: Voucher (korting bij aankoop van een toestel).");
+    if (amountStr) drawLine(`Voucherwaarde: ${amountStr}`);
   } else {
-    line("Methode: Bankoverschrijving");
-    if (amountStr) line(`Bedrag: ${amountStr}`);
-    if (input.iban) line(`IBAN: ${input.iban}`);
+    drawLine("Methode: Bankoverschrijving.");
+    if (amountStr) drawLine(`Bedrag: ${amountStr}`);
+    if (input.iban) drawLine(`IBAN: ${input.iban}`);
   }
-  line();
+  moveDown(1);
 
   // ===== LEVERING / INNAME =====
-  sectionTitle("Levering / Inname");
+  drawSectionHeader("Levering / Inname");
   const method = input.delivery_method;
   if (method === "ship") {
-    line("Methode: Verzending naar Microforce (gratis verzendlabel).");
+    drawLine("Methode: Verzending naar Microforce (gratis verzendlabel).");
   } else if (method === "dropoff") {
-    line("Methode: Binnenbrengen in de winkel.");
+    drawLine("Methode: Binnenbrengen in de winkel.");
   } else {
-    line("Methode: Onbekend / niet ingevuld.");
+    drawLine("Methode: Onbekend / niet ingevuld.");
   }
 
   if (method === "dropoff" && input.shop_location) {
-    line(`Winkel: ${input.shop_location}`);
+    drawLine(`Winkel: ${input.shop_location}`);
     const shopAddr1 = input.shop_address1;
-    const shopAddr2 = [input.shop_zip, input.shop_city]
-      .filter(Boolean)
-      .join(" ");
-    if (shopAddr1) line(`Adres winkel: ${shopAddr1}`);
-    if (shopAddr2) line(`             ${shopAddr2}`);
+    const shopAddr2 = [input.shop_zip, input.shop_city].filter(Boolean).join(" ");
+    if (shopAddr1) drawLine(`Adres winkel: ${shopAddr1}`);
+    if (shopAddr2) drawLine(`              ${shopAddr2}`);
   }
-
-  line();
+  moveDown(1);
 
   // ===== TRACKING =====
-  sectionTitle("Tracking");
+  drawSectionHeader("Tracking");
   if (input.tracking_code || input.tracking_url || input.label_pdf_url) {
-    if (input.tracking_code) line(`Tracking code: ${input.tracking_code}`);
-    if (input.tracking_url) line(`Tracking URL: ${input.tracking_url}`);
-    if (input.label_pdf_url) line(`Label URL: ${input.label_pdf_url}`);
+    if (input.tracking_code) drawLine(`Tracking code: ${input.tracking_code}`);
+    if (input.tracking_url) drawLine(`Tracking URL: ${input.tracking_url}`);
+    if (input.label_pdf_url) drawLine(`Label URL: ${input.label_pdf_url}`);
   } else {
-    line("Geen trackinginformatie beschikbaar.");
+    drawLine("Geen trackinginformatie beschikbaar.");
   }
-
-  line();
+  moveDown(1);
 
   // ===== STATUS =====
-  sectionTitle("Status");
+  drawSectionHeader("Status");
   if (input.status) {
-    line(`Status: ${input.status}`);
+    drawLine(`Status: ${input.status}`);
   } else {
-    line("Status: (niet opgegeven)");
+    drawLine("Status: (niet opgegeven)");
   }
+  moveDown(1);
 
-  line();
-  line(
-    "Dit document is een aankoopborderel voor een buyback-order. Gelieve dit document intern te bewaren voor de boekhouding.",
-    8
+  // kleine voetnoot
+  page.drawText(
+    "Dit document is een aankoopborderel voor een buyback-order. " +
+      "Gelieve dit document intern te bewaren voor de boekhouding.",
+    {
+      x: margin,
+      y: margin,
+      size: 8,
+      font,
+      color: rgb(0.3, 0.3, 0.3),
+      maxWidth: width - margin * 2,
+    }
   );
 
   const pdfBytes = await pdfDoc.save();
-  return Buffer.from(pdfBytes);
+  return pdfBytes;
 }
 
 export async function sendFinanceBorderelMail(
@@ -250,11 +266,21 @@ export async function sendFinanceBorderelMail(
 
   const brandName = input.brand_name_override || "Microforce Buyback";
   const orderRef = input.order_code || "-";
+  const amountStr = formatCurrencyPlain(input.final_price_cents ?? null);
 
-  // PDF bouwen
-  let pdfBuffer: Buffer;
+  const modelParts: string[] = [];
+  if (input.model) modelParts.push(input.model);
+  if (input.variant) modelParts.push(input.variant);
+  if (input.capacity_gb) modelParts.push(`${input.capacity_gb} GB`);
+  const modelLabel = modelParts.join(" – ");
+
+  const createdStr = fmtDateTime(input.created_at);
+  const doneStr = fmtDateTime(input.done_at);
+
+  // PDF bouwen (pdf-lib, geen pdfkit/Helvetica.afm meer)
+  let pdfBytes: Uint8Array;
   try {
-    pdfBuffer = await buildBorderelPdf(input);
+    pdfBytes = await buildBorderelPdf(input);
   } catch (e: any) {
     console.error(
       "[FINANCE][borderel] failed to build PDF:",
@@ -262,6 +288,8 @@ export async function sendFinanceBorderelMail(
     );
     return;
   }
+
+  const pdfBase64 = Buffer.from(pdfBytes).toString("base64");
 
   if (!resend) {
     console.warn(
@@ -277,44 +305,38 @@ export async function sendFinanceBorderelMail(
   const fromAddress =
     process.env.MAIL_FROM || "no-reply@microforce-buyback.local";
 
-  const safeCustomer = input.customer_number || "-";
-  const safeOrder = orderRef;
-  const safeModel =
-    [input.model, input.variant, input.capacity_gb ? `${input.capacity_gb} GB` : null]
-      .filter(Boolean)
-      .join(" - ") || "-";
-  const safeSku = input.sku || "-";
-  const safeImei = input.imei_sn || "-";
-  const safeAmount = formatCurrency(input.final_price_cents ?? null) || "-";
-  const createdStr = safeDateString(input.created_at) || "(geen datum)";
-  const finishedStr =
-    safeDateString(input.finished_at) || "(nog niet afgewerkt)";
+  const htmlSummaryParts: string[] = [];
+  if (input.customer_number)
+    htmlSummaryParts.push(`<strong>Klantnr</strong>: ${input.customer_number}`);
+  htmlSummaryParts.push(`<strong>Order</strong>: ${orderRef}`);
+  if (modelLabel) htmlSummaryParts.push(`<strong>Model</strong>: ${modelLabel}`);
+  if (input.sku) htmlSummaryParts.push(`<strong>SKU</strong>: ${input.sku}`);
+  if (input.imei_sn)
+    htmlSummaryParts.push(`<strong>IMEI/SN</strong>: ${input.imei_sn}`);
+  if (amountStr)
+    htmlSummaryParts.push(
+      `<strong>Overnameprijs</strong>: ${amountStr}`
+    );
+  htmlSummaryParts.push(`<strong>Datum aanvraag</strong>: ${createdStr}`);
+  htmlSummaryParts.push(`<strong>Datum afgewerkt</strong>: ${doneStr}`);
 
-  const html = `
-    <p>In de bijlage vind je de aankoopborderel van deze buyback-order als PDF.</p>
-    <p><strong>Samenvatting:</strong></p>
-    <ul>
-      <li>Klantnummer: ${safeCustomer}</li>
-      <li>Ordernummer: ${safeOrder}</li>
-      <li>Model: ${safeModel}</li>
-      <li>SKU: ${safeSku}</li>
-      <li>IMEI/SN: ${safeImei}</li>
-      <li>Overnameprijs: ${safeAmount}</li>
-      <li>Datum aanvraag: ${createdStr}</li>
-      <li>Datum afgewerkt: ${finishedStr}</li>
-    </ul>
-  `;
+  const htmlSummary =
+    "<p>Overzicht van deze buyback-order:</p><ul>" +
+    htmlSummaryParts.map((p) => `<li>${p}</li>`).join("") +
+    "</ul>";
 
   try {
     await resend.emails.send({
       from: fromAddress,
       to,
       subject: `[${brandName}] Aankoopborderel buyback-order ${orderRef}`,
-      html,
+      html:
+        htmlSummary +
+        "<p>In de bijlage vind je de aankoopborderel van deze buyback-order als PDF.</p>",
       attachments: [
         {
           filename: `Aankoopborderel_${orderRef || "buyback"}.pdf`,
-          content: pdfBuffer.toString("base64"),
+          content: pdfBase64,
           contentType: "application/pdf",
         },
       ],
