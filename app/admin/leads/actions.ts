@@ -8,6 +8,9 @@ import { sendStatusUpdateMail } from "@/lib/email/sendStatusUpdateMail";
 import type { BuybackStatus } from "@/lib/email/templates";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
+import { getNotificationSettings } from "@/lib/buybackSettings";
+import { sendFinanceBorderelMail } from "@/lib/email/sendFinanceBorderel";
+
 
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
 // in andere een factory-functie. Deze helper vangt beide af.
