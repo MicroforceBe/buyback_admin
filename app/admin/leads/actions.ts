@@ -16,8 +16,11 @@ function sbClient() {
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-// Zorg dat deze union overeenkomt met BuybackStatus (incl. 'cancelled')
-const ALLOWED_STATUSES: BuybackStatus[] = [
+// Status in de leads: alle mailbare statussen + 'cancelled'
+type Status = BuybackStatus | "cancelled";
+
+// Toegestane statussen in de UI
+const ALLOWED_STATUSES: Status[] = [
   "new",
   "received_store",
   "label_created",
@@ -26,12 +29,10 @@ const ALLOWED_STATUSES: BuybackStatus[] = [
   "check_failed",
   "done",
   "cancelled",
-] as const;
-
-type Status = BuybackStatus;
+];
 
 function isAllowedStatus(v: string): v is Status {
-  return ALLOWED_STATUSES.includes(v as any);
+  return ALLOWED_STATUSES.includes(v as Status);
 }
 
 // === Helper: converteer form-waarden naar boolean/null (voorkomt "Boolean('false')" valkuil) ===
@@ -764,18 +765,18 @@ export async function updateLeadInlineAction(formData: FormData) {
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
 
-  const NOTIFY_STATUSES: Status[] = [
+  // Alleen deze statussen sturen mails (géén mail bij 'cancelled')
+  const NOTIFY_STATUSES: BuybackStatus[] = [
     "received_store",
     "label_created",
     "shipment_received",
     "check_passed",
     "check_failed",
     "done",
-    // 'cancelled' stuurt géén mail
   ];
 
   const statusChanged =
-    newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus);
+    newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
 
   if (statusChanged && after?.email) {
     (async () => {
@@ -841,7 +842,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           first_name: (after as any).first_name,
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
-          status: newStatus!,
+          status: newStatus as BuybackStatus, // hier casten we: 'cancelled' komt hier nooit
           language: "nl",
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
@@ -908,3 +909,4 @@ export async function deleteLeadAction(formData: FormData) {
     );
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
+
