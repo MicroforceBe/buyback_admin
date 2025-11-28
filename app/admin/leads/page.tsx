@@ -849,6 +849,24 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                               Download label
                             </a>
                           )}
+
+                           {/* Resync knop – opnieuw label/tracking ophalen en (indien nodig) mail versturen */}
+                        {canWriteLeads && lead.status === "label_created" && (
+                          <form
+                            action={resyncSendcloudLabelAction}
+                            className="mt-1"
+                          >
+                            <input type="hidden" name="id" value={lead.id} />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                              title="Label & tracking opnieuw ophalen via Sendcloud"
+                            >
+                              🔄 Label resync
+                            </button>
+                          </form>
+                        )}
+                          
                         </div>
                       </details>
                     </div>
