@@ -11,7 +11,6 @@ import { hasPermission } from "@/lib/adminPermissions";
 import { getNotificationSettings } from "@/lib/buybackSettings";
 import { sendFinanceBorderelMail } from "@/lib/email/sendFinanceBorderel";
 
-
 // In sommige projecten exporteert lib/supabaseAdmin een KLAAR client object,
 // in andere een factory-functie. Deze helper vangt beide af.
 function sbClient() {
@@ -106,13 +105,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
-* Haal ship_with-object op uit env en normaliseer naar:
-*
-* {
-*   type: "shipping_option_code",
-*   properties: { shipping_option_code: "..." }
-* }
-*/
+ * Haal ship_with-object op uit env en normaliseer naar:
+ *
+ * {
+ *   type: "shipping_option_code",
+ *   properties: { shipping_option_code: "..." }
+ * }
+ */
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -196,8 +195,8 @@ function getMerchantToAddress() {
 }
 
 /**
-* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
-*/
+ * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+ */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -421,9 +420,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
-* Server action om opnieuw een label + tracking op te halen
-* en opnieuw de statusmail voor 'label_created' te sturen.
-*/
+ * Server action om opnieuw een label + tracking op te halen
+ * en opnieuw de statusmail voor 'label_created' te sturen.
+ */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -550,8 +549,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
-* Eén action die ALLES kan updaten.
-*/
+ * Eén action die ALLES kan updaten.
+ */
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -785,15 +784,21 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   if (statusChanged && after?.email) {
     (async () => {
+      // gedeelde variabelen voor statusmail + finance-mail
+      let tracking_code: string | null | undefined =
+        (after as any).tracking_code ?? null;
+      let tracking_url: string | null | undefined =
+        (after as any).tracking_url ?? null;
+      let label_pdf_url: string | null | undefined =
+        (after as any).label_pdf_url ?? null;
+
+      let shop_address1: string | null = null;
+      let shop_zip: string | null = null;
+      let shop_city: string | null = null;
+      let opening_hours: Record<string, string> | null = null;
+
       try {
         // Bij 'label_created' → maak verzendlabel + tracking via Sendcloud
-        let tracking_code: string | null | undefined =
-          (after as any).tracking_code ?? null;
-        let tracking_url: string | null | undefined =
-          (after as any).tracking_url ?? null;
-        let label_pdf_url: string | null | undefined =
-          (after as any).label_pdf_url ?? null;
-
         if (newStatus === "label_created") {
           console.info("[LEADS] attempting Sendcloud label (label_created)");
           const made = await createSendcloudLabel(after);
@@ -822,11 +827,6 @@ export async function updateLeadInlineAction(formData: FormData) {
         }
 
         // Shopdetails ophalen indien beschikbaar
-        let shop_address1: string | null = null;
-        let shop_zip: string | null = null;
-        let shop_city: string | null = null;
-        let opening_hours: Record<string, string> | null = null;
-
         if ((after as any).shop_id) {
           const { data: shop, error: shopErr } = await sb
             .from("buyback_shops")
@@ -842,6 +842,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
 
+        // statusmail naar klant
         await sendStatusUpdateMail({
           to: (after as any).email,
           first_name: (after as any).first_name,
@@ -912,7 +913,7 @@ export async function updateLeadInlineAction(formData: FormData) {
               // levering / shop
               delivery_method: (after as any).delivery_method,
               shop_location: (after as any).shop_location,
-              shop_address1: shop_address1,
+              shop_address1,
               shop_zip,
               shop_city,
               opening_hours,
