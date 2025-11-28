@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-// Eén centrale status-union die matcht met je DB
+// Eén centrale status-union die matcht met je DB + UI
 type Status =
   | "new"
   | "received_store"
@@ -84,6 +84,9 @@ type Lead = {
   tracking_url?: string | null;
   label_pdf_url?: string | null;
 
+  // annulatie
+  cancel_reason?: string | null;
+
   // NB: answers zit wél in de tabel, maar we selecteren het niet om lijstweergave licht te houden.
 };
 
@@ -138,11 +141,7 @@ function qsWith(
   return `?${sp.toString()}`;
 }
 
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
+export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
   // 🔐 1) Haal de huidige admin user op
   const adminUser = await getCurrentAdminUser();
 
@@ -161,8 +160,8 @@ export default async function LeadsPage({
             Je hebt geen rechten om deze pagina te bekijken.
           </div>
           <p className="text-xs text-red-600 mt-1">
-            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
-            de settings &gt; Users.
+            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in de
+            settings &gt; Users.
           </p>
         </div>
       </div>
@@ -194,10 +193,7 @@ export default async function LeadsPage({
   const modelF = (searchParams.model ?? "").trim();
   const variant = (searchParams.variant ?? "").trim();
   const statusF = (searchParams.status ?? "").trim();
-  const method = (searchParams.method ?? "").trim() as
-    | "ship"
-    | "dropoff"
-    | "";
+  const method = (searchParams.method ?? "").trim() as "ship" | "dropoff" | "";
   const priceMin = (searchParams.price_min ?? "").trim();
   const priceMax = (searchParams.price_max ?? "").trim();
   const cityF = (searchParams.city ?? "").trim();
@@ -242,7 +238,7 @@ export default async function LeadsPage({
       case "done":
         return "Afgewerkt";
       case "cancelled":
-        return "Cancel";
+        return "Geannuleerd";
       default:
         return "—";
     }
@@ -252,11 +248,7 @@ export default async function LeadsPage({
 
   function allowedTransitions(
     curr: Status | null | undefined,
-    f: {
-      customer_number?: string | null;
-      sku?: string | null;
-      imei_sn?: string | null;
-    }
+    f: { customer_number?: string | null; sku?: string | null; imei_sn?: string | null }
   ): Transition[] {
     const hasCust = Boolean((f.customer_number ?? "").trim());
     const hasSKU = Boolean((f.sku ?? "").trim());
@@ -277,7 +269,11 @@ export default async function LeadsPage({
             ok: hasCust,
             reason: "Klantnummer vereist",
           },
-          { value: "cancelled", label: "Cancel", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "received_store":
         return [
@@ -293,6 +289,11 @@ export default async function LeadsPage({
             ok: hasIMEI,
             reason: "IMEI/SN vereist",
           },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "label_created":
         return [
@@ -301,7 +302,11 @@ export default async function LeadsPage({
             label: "Zending ontvangen",
             ok: true,
           },
-          { value: "cancelled", label: "Cancel", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "shipment_received":
         return [
@@ -317,7 +322,11 @@ export default async function LeadsPage({
             ok: hasIMEI,
             reason: "IMEI/SN vereist",
           },
-          { value: "cancelled", label: "Cancel", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "check_failed":
         return [
@@ -327,12 +336,24 @@ export default async function LeadsPage({
             ok: hasSKU && hasIMEI,
             reason: "SKU + IMEI/SN vereist",
           },
-          { value: "cancelled", label: "Cancel", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "check_passed":
         return [
-          { value: "done", label: "Afgewerkt", ok: true },
-          { value: "cancelled", label: "Cancel", ok: true },
+          {
+            value: "done",
+            label: "Afgewerkt",
+            ok: true,
+          },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
       case "done":
       case "cancelled":
@@ -378,6 +399,8 @@ export default async function LeadsPage({
         "tracking_code",
         "tracking_url",
         "label_pdf_url",
+        // annulatie-reden
+        "cancel_reason",
       ].join(","),
       { count: "exact" }
     );
@@ -423,18 +446,12 @@ export default async function LeadsPage({
   if (method === "ship" || method === "dropoff")
     query = query.eq("delivery_method", method);
   if (priceMin) {
-    const cents = Math.round(
-      parseFloat(priceMin.replace(",", ".")) * 100
-    );
-    if (!Number.isNaN(cents))
-      query = query.gte("final_price_cents", cents);
+    const cents = Math.round(parseFloat(priceMin.replace(",", ".")) * 100);
+    if (!Number.isNaN(cents)) query = query.gte("final_price_cents", cents);
   }
   if (priceMax) {
-    const cents = Math.round(
-      parseFloat(priceMax.replace(",", ".")) * 100
-    );
-    if (!Number.isNaN(cents))
-      query = query.lte("final_price_cents", cents);
+    const cents = Math.round(parseFloat(priceMax.replace(",", ".")) * 100);
+    if (!Number.isNaN(cents)) query = query.lte("final_price_cents", cents);
   }
   if (cityF) query = query.ilike("city", `%${cityF}%`);
 
@@ -570,16 +587,8 @@ export default async function LeadsPage({
   const btnCls = "bb-btn h-9 text-xs px-3";
 
   // Chips voor actieve filters
-  const chipItems: {
-    label: string;
-    param: keyof SearchParams;
-    value: string;
-  }[] = [];
-  const pushChip = (
-    label: string,
-    param: keyof SearchParams,
-    value?: string
-  ) => {
+  const chipItems: { label: string; param: keyof SearchParams; value: string }[] = [];
+  const pushChip = (label: string, param: keyof SearchParams, value?: string) => {
     if (value && value !== "") chipItems.push({ label, param, value });
   };
   pushChip(`Zoek: ${q}`, "q", q);
@@ -639,7 +648,7 @@ export default async function LeadsPage({
   return (
     <div className="w-full p-4 space-y-3">
       {/* Kop */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify_between">
         <h1 className="text-xl font-semibold">Leads</h1>
         <Link href="/admin" className={btnCls}>
           ← Terug
@@ -758,6 +767,7 @@ export default async function LeadsPage({
                 <option value="check_passed">Controle succesvol</option>
                 <option value="check_failed">Controle gefaald</option>
                 <option value="done">Afgewerkt</option>
+                <option value="cancelled">Geannuleerd</option>
               </select>
 
               <select
@@ -930,9 +940,7 @@ export default async function LeadsPage({
                     </summary>
                     <div className="mt-2 text-xs leading-5 space-y-1">
                       <div>
-                        <span className="text-gray-500">
-                          Aangemaakt op:{" "}
-                        </span>
+                        <span className="text-gray-500">Aangemaakt op: </span>
                         {fmtDate(lead.created_at)}
                       </div>
                       <div>
@@ -944,9 +952,7 @@ export default async function LeadsPage({
                       <div>
                         <span className="text-gray-500">Model: </span>
                         {lead.model ?? "—"}{" "}
-                        {lead.capacity_gb
-                          ? `• ${lead.capacity_gb} GB`
-                          : ""}
+                        {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
                       </div>
                       <div className="text-xs text-gray-500">
                         {lead.delivery_method === "dropoff"
@@ -1048,8 +1054,7 @@ export default async function LeadsPage({
                           imei_sn: lead.imei_sn,
                         }).filter((t) => t.ok);
                     const hasChoices = trans.length > 0;
-                    const canEditStatus =
-                      canWriteLeads && !isFinal && hasChoices;
+                    const canEditStatus = canWriteLeads && !isFinal && hasChoices;
 
                     const trackingHref =
                       lead.tracking_url ||
@@ -1076,50 +1081,85 @@ export default async function LeadsPage({
                         {isFinal || !canWriteLeads ? (
                           <div className="text-sm font-medium text-gray-700">
                             {statusLabel(curr)}
+                            {curr === "cancelled" && lead.cancel_reason && (
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                Reden: {lead.cancel_reason}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <form
                             action={updateLeadInlineAction}
-                            className="inline-flex items-center gap-2"
+                            className="inline-flex flex-col items-start gap-1"
                           >
-                            <input type="hidden" name="id" value={lead.id} />
-                            <select
-                              name="status"
-                              defaultValue={curr}
-                              className="bb-select-sm inline-block pr-8"
-                              title={
-                                hasChoices
-                                  ? "Status wijzigen"
-                                  : "Geen vervolgstatus mogelijk"
-                              }
-                              disabled={!hasChoices}
-                            >
-                              <option value={curr}>
-                                {statusLabel(curr)}
-                              </option>
-                              {trans.map((t) => (
-                                <option key={t.value} value={t.value}>
-                                  {t.label}
+                            <div className="inline-flex items-center gap-2">
+                              <input type="hidden" name="id" value={lead.id} />
+                              <select
+                                name="status"
+                                defaultValue={curr}
+                                className="bb-select-sm inline-block pr-8"
+                                title={
+                                  hasChoices
+                                    ? "Status wijzigen"
+                                    : "Geen vervolgstatus mogelijk"
+                                }
+                                disabled={!hasChoices}
+                              >
+                                <option value={curr}>
+                                  {statusLabel(curr)}
                                 </option>
-                              ))}
-                            </select>
-                            <button
-                              className="bb-btn subtle h-8 text-xs px-2"
-                              type="submit"
-                              disabled={!canEditStatus}
-                              title={
-                                canEditStatus
-                                  ? "Opslaan"
-                                  : "Geen geldige overgang"
-                              }
-                              aria-label="Opslaan"
-                            >
-                              💾
-                            </button>
+                                {trans.map((t) => (
+                                  <option key={t.value} value={t.value}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                className="bb-btn subtle h-8 text-xs px-2"
+                                type="submit"
+                                disabled={!canEditStatus}
+                                title={
+                                  canEditStatus
+                                    ? "Opslaan"
+                                    : "Geen geldige overgang"
+                                }
+                                aria-label="Opslaan"
+                              >
+                                💾
+                              </button>
+                            </div>
+
+                            {/* Reden annulatie (dropdown) */}
+                            <div className="text-[11px] text-gray-600 flex flex-col">
+                              <span>Reden annulatie (bij Geannuleerd)</span>
+                              <select
+                                name="cancel_reason"
+                                defaultValue={lead.cancel_reason ?? ""}
+                                className="bb-select-sm mt-0.5 max-w-[220px]"
+                              >
+                                <option value="">
+                                  — kies reden (bij cancel) —
+                                </option>
+                                <option value="Fake order">Fake order</option>
+                                <option value="Technische problemen met toestel">
+                                  Technische problemen met toestel
+                                </option>
+                                <option value="Klant heeft zich bedacht">
+                                  Klant heeft zich bedacht
+                                </option>
+                                <option value="Klant niet akkoord met nieuwe prijs">
+                                  Klant niet akkoord met nieuwe prijs
+                                </option>
+                                <option value="Klant vindt dat het te lang duurt">
+                                  Klant vindt dat het te lang duurt
+                                </option>
+                                <option value="Test Order">Test Order</option>
+                              </select>
+                            </div>
                           </form>
                         )}
 
-                        {/* Uitklap: Traceer pakket + Download label + Resync */}
+                        {/* Uitklap: Verzending & label + resync */}
                         <details className="mt-1 text-[11px]">
                           <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
                             <span>▸</span>
@@ -1155,27 +1195,26 @@ export default async function LeadsPage({
                               </a>
                             )}
 
-                            {/* Resync knop – opnieuw label/tracking ophalen en (indien nodig) mail versturen */}
-                            {canWriteLeads &&
-                              lead.status === "label_created" && (
-                                <form
-                                  action={resyncSendcloudLabelAction}
-                                  className="mt-1"
+                            {/* Resync label / tracking vanuit Sendcloud */}
+                            {canWriteLeads && lead.status === "label_created" && (
+                              <form
+                                action={resyncSendcloudLabelAction}
+                                className="mt-1"
+                              >
+                                <input
+                                  type="hidden"
+                                  name="id"
+                                  value={lead.id}
+                                />
+                                <button
+                                  type="submit"
+                                  className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                  title="Label & tracking opnieuw ophalen via Sendcloud"
                                 >
-                                  <input
-                                    type="hidden"
-                                    name="id"
-                                    value={lead.id}
-                                  />
-                                  <button
-                                    type="submit"
-                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                                    title="Label & tracking opnieuw ophalen via Sendcloud"
-                                  >
-                                    🔄 Label resync
-                                  </button>
-                                </form>
-                              )}
+                                  🔄 Label resync
+                                </button>
+                              </form>
+                            )}
                           </div>
                         </details>
                       </div>
