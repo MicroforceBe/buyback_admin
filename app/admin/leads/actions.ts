@@ -815,3 +815,189 @@ export async function deleteLeadAction(formData: FormData) {
     );
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
+
+export async function resyncSendcloudLabelAction(formData: FormData) {
+  // permissies: enkel users met leads:write mogen wijzigen
+  const adminUser = await getCurrentAdminUser();
+  if (!hasPermission(adminUser, "leads", "write")) {
+    redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
+  }
+
+  const id = String(formData.get("id") || "").trim();
+  if (!id) {
+    redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
+  }
+
+  const sb = sbClient();
+
+  // Lead ophalen (met alle kolommen, zodat we context hebben voor e-mail)
+  const { data: lead, error: selErr } = await sb
+    .from("buyback_leads")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (selErr) {
+    redirect(
+      `/admin/leads?msg=${encodeURIComponent(
+        `resync_select_error:${selErr.message}`
+      )}`
+    );
+  }
+  if (!lead) {
+    redirect(`/admin/leads?msg=${encodeURIComponent("resync_not_found")}`);
+  }
+
+  // Alleen nuttig bij status 'label_created' (anders duidelijk maken in msg)
+  if ((lead as any).status !== "label_created") {
+    redirect(
+      `/admin/leads?msg=${encodeURIComponent(
+        "resync_only_for_label_created"
+      )}`
+    );
+  }
+
+  const hadLabelBefore = !!(lead as any).label_pdf_url;
+  const hadTrackingBefore = !!(lead as any).tracking_url;
+
+  console.info("[LEADS][RESYNC] start resync for lead", {
+    id,
+    status: (lead as any).status,
+    hadLabelBefore,
+    hadTrackingBefore,
+  });
+
+  // Opnieuw label/trackingsinfo aanmaken via Sendcloud
+  const made = await createSendcloudLabel(lead);
+
+  if (!made.tracking_code && !made.tracking_url && !made.label_pdf_url) {
+    console.warn(
+      "[LEADS][RESYNC] no tracking/label returned from Sendcloud on resync"
+    );
+    redirect(`/admin/leads?msg=${encodeURIComponent("resync_no_label")}`);
+  }
+
+  const tracking_code =
+    made.tracking_code ?? (lead as any).tracking_code ?? null;
+  const tracking_url =
+    made.tracking_url ?? (lead as any).tracking_url ?? null;
+  const label_pdf_url =
+    made.label_pdf_url ?? (lead as any).label_pdf_url ?? null;
+
+  const { error: updErr } = await sb
+    .from("buyback_leads")
+    .update({ tracking_code, tracking_url, label_pdf_url })
+    .eq("id", id);
+
+  if (updErr) {
+    console.error("[LEADS][RESYNC] update failed:", updErr.message);
+    redirect(
+      `/admin/leads?msg=${encodeURIComponent(
+        `resync_update_error:${updErr.message}`
+      )}`
+    );
+  }
+
+  console.info("[LEADS][RESYNC] tracking stored OK after resync", {
+    id,
+    tracking_code,
+    tracking_url,
+    label_pdf_url,
+  });
+
+  /**
+   * ✉️ E-MAIL opnieuw sturen?
+   *
+   * We sturen de statusmail opnieuw ALS:
+   * - er een e-mailadres is
+   * - status = 'label_created'
+   * - en er voordien GEEN tracking/label was
+   *
+   * → Zo krijgt de klant toch een label-mail als het initieel misliep,
+   *   maar voorkomen we dubbele mails als alles al goed stond.
+   */
+  const shouldSendMail =
+    (lead as any).email &&
+    (lead as any).status === "label_created" &&
+    (!hadLabelBefore || !hadTrackingBefore);
+
+  if (shouldSendMail) {
+    try {
+      let shop_address1: string | null = null;
+      let shop_zip: string | null = null;
+      let shop_city: string | null = null;
+      let opening_hours: Record<string, string> | null = null;
+
+      if ((lead as any).shop_id) {
+        const { data: shop, error: shopErr } = await sb
+          .from("buyback_shops")
+          .select("name, address1, zip, city, opening_hours")
+          .eq("id", (lead as any).shop_id)
+          .single();
+
+        if (!shopErr && shop) {
+          shop_address1 = shop.address1 ?? null;
+          shop_zip = shop.zip ?? null;
+          shop_city = shop.city ?? null;
+          opening_hours = (shop.opening_hours as any) ?? null;
+        }
+      }
+
+      await sendStatusUpdateMail({
+        // ontvanger + basis
+        to: (lead as any).email,
+        first_name: (lead as any).first_name,
+        last_name: (lead as any).last_name,
+        order_code: (lead as any).order_code,
+
+        // context / templatekeuze
+        status: "label_created",
+        language: "nl",
+
+        // toestel & prijs
+        model: (lead as any).model,
+        capacity_gb: (lead as any).capacity_gb,
+        variant: (lead as any).variant ?? null,
+        final_price_cents: (lead as any).final_price_cents,
+        wants_voucher: (lead as any).wants_voucher ?? null,
+        iban: (lead as any).iban ?? null,
+
+        // levering + shop
+        delivery_method: (lead as any).delivery_method,
+        shop_location: (lead as any).shop_location,
+        shop_address1,
+        shop_zip,
+        shop_city,
+        opening_hours,
+
+        // vragen + antwoorden (HTML uit lead)
+        questions_answers_html: (lead as any).questions_answers_html ?? null,
+
+        // tracking/label (nieuwe waarden)
+        tracking_code: tracking_code ?? undefined,
+        tracking_url: tracking_url ?? undefined,
+        label_pdf_url: label_pdf_url ?? undefined,
+      });
+
+      console.info("[LEADS][RESYNC][MAIL] label mail resent OK", {
+        id,
+        to: (lead as any).email,
+      });
+    } catch (e: any) {
+      console.error(
+        "[LEADS][RESYNC][MAIL] sendStatusMail failed:",
+        e?.message || e
+      );
+    }
+  } else {
+    console.info("[LEADS][RESYNC] mail not resent", {
+      id,
+      hasEmail: !!(lead as any).email,
+      status: (lead as any).status,
+      hadLabelBefore,
+      hadTrackingBefore,
+    });
+  }
+
+  redirect(`/admin/leads?msg=${encodeURIComponent("resynced_label")}`);
+}
