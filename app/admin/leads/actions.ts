@@ -884,7 +884,7 @@ export async function updateLeadInlineAction(formData: FormData) {
         const { finance_email, brand_name } = await getNotificationSettings();
         if (finance_email) {
           try {
-            await sendFinanceBorderelMail({
+            const financePayload: any = {
               to: finance_email,
               status: newStatus as BuybackStatus,
               // basis + identificatie
@@ -926,7 +926,9 @@ export async function updateLeadInlineAction(formData: FormData) {
               // vragen/antwoorden (optioneel) in borderel
               questions_answers_html:
                 (after as any).questions_answers_html ?? null,
-            });
+            };
+
+            await sendFinanceBorderelMail(financePayload);
           } catch (e: any) {
             console.error(
               "[LEADS][FINANCE] borderel mail failed:",
