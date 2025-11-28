@@ -318,7 +318,7 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
     };
 
     const resp = await fetch(
-      https://panel.sendcloud.sc/api/v3/shipments/announce,
+      "https://panel.sendcloud.sc/api/v3/shipments/announce",
       {
         method: "POST",
         headers: {
@@ -847,7 +847,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           first_name: (after as any).first_name,
           last_name: (after as any).last_name,
           order_code: (after as any).order_code,
-          status: newStatus as BuybackStatus, // hier casten we: 'cancelled' komt hier nooit
+          status: newStatus as BuybackStatus, // 'cancelled' komt hier nooit
           language: "nl",
           model: (after as any).model,
           capacity_gb: (after as any).capacity_gb,
@@ -980,3 +980,4 @@ export async function deleteLeadAction(formData: FormData) {
     );
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
+
