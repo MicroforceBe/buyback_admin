@@ -105,13 +105,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
- * Haal ship_with-object op uit env en normaliseer naar:
- *
- * {
- *   type: "shipping_option_code",
- *   properties: { shipping_option_code: "..." }
- * }
- */
+* Haal ship_with-object op uit env en normaliseer naar:
+*
+* {
+*   type: "shipping_option_code",
+*   properties: { shipping_option_code: "..." }
+* }
+*/
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -195,8 +195,8 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
- */
+* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -420,9 +420,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
- * Server action om opnieuw een label + tracking op te halen
- * en opnieuw de statusmail voor 'label_created' te sturen.
- */
+* Server action om opnieuw een label + tracking op te halen
+* en opnieuw de statusmail voor 'label_created' te sturen.
+*/
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -549,8 +549,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
- * Eén action die ALLES kan updaten.
- */
+* Eén action die ALLES kan updaten.
+*/
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -867,7 +867,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           label_pdf_url: label_pdf_url ?? undefined,
         });
 
-        // Finance-mail met aankoopborderel (bij geslaagde controle)
+        // Finance-mail met aankoopborderel (bij geslaagde controle / done)
         const shouldSendFinance =
           newStatus === "check_passed" || newStatus === "done";
         if (shouldSendFinance) {
@@ -918,7 +918,7 @@ export async function updateLeadInlineAction(formData: FormData) {
                 brand_name_override: brand_name,
                 // datums
                 created_at: (after as any).created_at ?? null,
-                finished_at: (after as any).updated_at ?? null,
+                done_at: (after as any).updated_at ?? null,
                 // vragen/antwoorden (optioneel)
                 questions_answers_html:
                   (after as any).questions_answers_html ?? null,
