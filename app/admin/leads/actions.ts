@@ -1,4 +1,3 @@
-//app/admin/leads/actions.ts
 "use server";
 
 import { redirect } from "next/navigation";
@@ -15,7 +14,13 @@ function sbClient() {
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-const ALLOWED_STATUSES = [
+// ==== STATUS-TYPES ====
+
+// BuybackStatus bevat de “normale” statussen (new, received_store, …)
+// Voor de admin hebben we daarbovenop ook "cancelled".
+type Status = BuybackStatus | "cancelled";
+
+const ALLOWED_STATUSES: Status[] = [
   "new",
   "received_store",
   "label_created",
@@ -25,8 +30,6 @@ const ALLOWED_STATUSES = [
   "done",
   "cancelled",
 ] as const;
-
-type Status = (typeof ALLOWED_STATUSES)[number];
 
 function isAllowedStatus(v: string): v is Status {
   return ALLOWED_STATUSES.includes(v as any);
@@ -512,7 +515,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "phone",
     "sku",
     "imei_sn",
-    "cancel_reason", // 🔹 nieuw veld voor annulatie-reden
+    "cancel_reason", // ⬅️ nieuw veld voor annulatie-redenen
   ] as const;
 
   for (const k of FIELDS) {
@@ -543,6 +546,15 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent("not_found")}`);
   }
 
+  // ❗ Eens een lead geannuleerd is, mag hij niet meer gewijzigd worden
+  if ((before as any).status === "cancelled") {
+    redirect(
+      `/admin/leads?msg=${encodeURIComponent(
+        "status_cancelled_no_changes"
+      )}`
+    );
+  }
+
   // 3) Beperk patch tot bestaande kolommen
   const patch: Record<string, any> = {};
   const ignoredEarly: string[] = [];
@@ -554,7 +566,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // 4) Gating eindstatus
+  // 4) Gating eindstatus (controle-succes / -failed / done)
   const ending = new Set<Status>(["check_passed", "check_failed", "done"]);
   if (patch.status && ending.has(patch.status)) {
     const need = (key: "customer_number" | "sku" | "imei_sn") =>
@@ -582,20 +594,22 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // 4.c Bij status 'cancelled' is een reden verplicht
-  const effectiveStatus: Status | undefined =
-    (patch.status as Status | undefined) ?? ((before as any).status as Status | undefined);
-  if (effectiveStatus === "cancelled") {
-    const reasonRaw =
-      (patch as any).cancel_reason ??
-      (before as any).cancel_reason ??
-      "";
-    const reason = String(reasonRaw ?? "").trim();
+  // 4.c Als we naar "cancelled" gaan, moet er een cancel_reason zijn
+  if (patch.status === "cancelled") {
+    const reason =
+      (patch.cancel_reason ??
+        (before as any).cancel_reason ??
+        "")?.toString().trim();
+
     if (!reason) {
       redirect(
-        `/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`
+        `/admin/leads?msg=${encodeURIComponent(
+          "cancel_reason_required"
+        )}`
       );
     }
+
+    patch.cancel_reason = reason;
   }
 
   if (Object.keys(patch).length === 0) {
@@ -639,7 +653,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "tracking_url",
     "label_pdf_url",
     "questions_answers_html",
-    // annulatie-reden
+    // reden annulatie
     "cancel_reason",
   ].join(", ");
 
@@ -663,19 +677,18 @@ export async function updateLeadInlineAction(formData: FormData) {
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
 
-  const NOTIFY_STATUSES: BuybackStatus[] = [
+  const NOTIFY_STATUSES: Status[] = [
     "received_store",
     "label_created",
     "shipment_received",
     "check_passed",
     "check_failed",
     "done",
+    // géén "cancelled" hier: annulatie hoeft geen statusmail
   ];
 
   const statusChanged =
-    newStatus &&
-    newStatus !== prevStatus &&
-    NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
+    newStatus && newStatus !== prevStatus && NOTIFY_STATUSES.includes(newStatus);
 
   if (statusChanged && after?.email) {
     (async () => {
@@ -745,7 +758,7 @@ export async function updateLeadInlineAction(formData: FormData) {
           order_code: (after as any).order_code,
 
           // context / templatekeuze
-          status: newStatus as BuybackStatus, // template beslist tekst
+          status: newStatus!, // template beslist tekst
           language: "nl",
 
           // toestel & prijs
@@ -821,157 +834,3 @@ export async function deleteLeadAction(formData: FormData) {
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
 
-/**
- * Extra action: Sendcloud-label & tracking opnieuw ophalen + mail sturen
- * (voor als de eerste call ooit niets teruggaf).
- */
-export async function resyncSendcloudLabelAction(formData: FormData) {
-  const adminUser = await getCurrentAdminUser();
-  if (!hasPermission(adminUser, "leads", "write")) {
-    redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
-  }
-
-  const id = String(formData.get("id") || "").trim();
-  if (!id) {
-    redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
-  }
-
-  const sb = sbClient();
-
-  const { data: lead, error } = await sb
-    .from("buyback_leads")
-    .select(
-      [
-        "id",
-        "status",
-        "email",
-        "first_name",
-        "last_name",
-        "order_code",
-        "model",
-        "capacity_gb",
-        "variant",
-        "final_price_cents",
-        "wants_voucher",
-        "iban",
-        "delivery_method",
-        "shop_location",
-        "shop_id",
-        "tracking_code",
-        "tracking_url",
-        "label_pdf_url",
-        "questions_answers_html",
-        "country",
-        "street",
-        "house_number",
-        "postal_code",
-        "city",
-        "phone",
-      ].join(",")
-    )
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error || !lead) {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent(
-        `resync_not_found:${error?.message || ""}`
-      )}`
-    );
-  }
-
-  // Alleen zinvol voor zendingen met status label_created
-  if ((lead as any).status !== "label_created") {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent("resync_only_label_created")}`
-    );
-  }
-
-  const made = await createSendcloudLabel(lead);
-  if (!made.tracking_code && !made.tracking_url && !made.label_pdf_url) {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent("resync_no_label_data")}`
-    );
-  }
-
-  const tracking_code =
-    made.tracking_code ?? (lead as any).tracking_code ?? null;
-  const tracking_url =
-    made.tracking_url ?? (lead as any).tracking_url ?? null;
-  const label_pdf_url =
-    made.label_pdf_url ?? (lead as any).label_pdf_url ?? null;
-
-  const { error: updErr } = await sb
-    .from("buyback_leads")
-    .update({ tracking_code, tracking_url, label_pdf_url })
-    .eq("id", id);
-
-  if (updErr) {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent(
-        `resync_update_error:${updErr.message}`
-      )}`
-    );
-  }
-
-  // Eventueel opnieuw label-mail sturen
-  if (lead.email) {
-    try {
-      let shop_address1: string | null = null;
-      let shop_zip: string | null = null;
-      let shop_city: string | null = null;
-      let opening_hours: Record<string, string> | null = null;
-
-      if ((lead as any).shop_id) {
-        const { data: shop, error: shopErr } = await sb
-          .from("buyback_shops")
-          .select("name, address1, zip, city, opening_hours")
-          .eq("id", (lead as any).shop_id)
-          .single();
-
-        if (!shopErr && shop) {
-          shop_address1 = shop.address1 ?? null;
-          shop_zip = shop.zip ?? null;
-          shop_city = shop.city ?? null;
-          opening_hours = (shop.opening_hours as any) ?? null;
-        }
-      }
-
-      await sendStatusUpdateMail({
-        to: lead.email,
-        first_name: (lead as any).first_name,
-        last_name: (lead as any).last_name,
-        order_code: (lead as any).order_code,
-        status: "label_created",
-        language: "nl",
-        model: (lead as any).model,
-        capacity_gb: (lead as any).capacity_gb,
-        variant: (lead as any).variant ?? null,
-        final_price_cents: (lead as any).final_price_cents,
-        wants_voucher: (lead as any).wants_voucher ?? null,
-        iban: (lead as any).iban ?? null,
-        delivery_method: (lead as any).delivery_method,
-        shop_location: (lead as any).shop_location,
-        shop_address1,
-        shop_zip,
-        shop_city,
-        opening_hours,
-        questions_answers_html:
-          (lead as any).questions_answers_html ?? null,
-        tracking_code: tracking_code ?? undefined,
-        tracking_url: tracking_url ?? undefined,
-        label_pdf_url: label_pdf_url ?? undefined,
-        email: lead.email,
-      });
-    } catch (e: any) {
-      console.error(
-        "[LEADS][RESYNC_MAIL] send failed:",
-        e?.message || e
-      );
-    }
-  }
-
-  redirect(
-    `/admin/leads?msg=${encodeURIComponent("resync_label_ok")}`
-  );
-}
