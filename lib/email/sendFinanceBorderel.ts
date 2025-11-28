@@ -2,7 +2,7 @@
 "use server";
 
 import { Resend } from "resend";
-import PDFDocument from "pdfkit";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { BuybackStatus } from "./templates";
 
 const resendApiKey = process.env.RESEND_API_KEY || "";
@@ -88,171 +88,155 @@ function safeDateString(raw?: string | null): string | null {
   return d.toLocaleString("nl-BE");
 }
 
-function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 40,
-    });
+async function buildBorderelPdf(input: FinanceBorderelInput): Promise<Buffer> {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage();
 
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk) => chunks.push(chunk as Buffer));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", (err) => reject(err));
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const baseFontSize = 10;
+  const lineHeight = baseFontSize * 1.4;
 
-    const brandName = input.brand_name_override || "Microforce Buyback";
-    const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ");
-    const orderRef = input.order_code || "-";
-    const amountStr = formatCurrency(input.final_price_cents ?? null);
+  const { width, height } = page.getSize();
+  const marginLeft = 40;
+  let y = height - 40;
 
-    const createdStr = safeDateString(input.created_at);
-    const finishedStr = safeDateString(input.finished_at);
-
-    // ===== HEADER =====
-    doc.fontSize(18).text(`${brandName} - Aankoopborderel`, { align: "left" });
-    doc.moveDown(0.5);
-    doc
-      .fontSize(10)
-      .text(`Datum document: ${new Date().toLocaleString("nl-BE")}`, {
-        align: "right",
+  function line(text: string = "", fontSize: number = baseFontSize) {
+    if (text) {
+      page.drawText(text, {
+        x: marginLeft,
+        y,
+        size: fontSize,
+        font,
       });
-    doc.moveDown(0.5);
-    doc.fontSize(11).text(`Buyback-order: ${orderRef}`, { align: "left" });
-
-    doc.moveDown(1);
-
-    // ===== KLANTGEGEVENS =====
-    doc.fontSize(12).text("Klantgegevens");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
-    if (fullName) doc.text(`Naam: ${fullName}`);
-    if (input.customer_number) doc.text(`Klantnummer: ${input.customer_number}`);
-    if (input.email) doc.text(`E-mail: ${input.email}`);
-    if (input.phone) doc.text(`Telefoon: ${input.phone}`);
-
-    if (input.street || input.house_number || input.postal_code || input.city) {
-      const addrLine1 = [input.street, input.house_number].filter(Boolean).join(" ");
-      const addrLine2 = [input.postal_code, input.city].filter(Boolean).join(" ");
-      if (addrLine1) doc.text(`Adres: ${addrLine1}`);
-      if (addrLine2) doc.text(`       ${addrLine2}`);
     }
-    if (input.country) doc.text(`Land: ${input.country}`);
+    y -= lineHeight;
+  }
 
-    // Datums
-    if (createdStr || finishedStr) {
-      doc.moveDown(0.5);
-      doc.fontSize(11).text("Datums");
-      doc.fontSize(10);
-      if (createdStr) doc.text(`Aanvraag: ${createdStr}`);
-      if (finishedStr) doc.text(`Afgewerkt: ${finishedStr}`);
-    }
+  function sectionTitle(title: string) {
+    line(title, 12);
+  }
 
-    doc.moveDown(1);
+  const brandName = input.brand_name_override || "Microforce Buyback";
+  const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ");
+  const orderRef = input.order_code || "-";
+  const amountStr = formatCurrency(input.final_price_cents ?? null);
 
-    // ===== TOESTEL =====
-    doc.fontSize(12).text("Toestel");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
+  const createdStr = safeDateString(input.created_at);
+  const finishedStr = safeDateString(input.finished_at);
 
-    const deviceParts: string[] = [];
-    if (input.model) deviceParts.push(input.model);
-    if (input.variant) deviceParts.push(input.variant);
-    let deviceLabel = deviceParts.join(" - ");
-    if (input.capacity_gb) {
-      deviceLabel = deviceLabel
-        ? `${deviceLabel} (${input.capacity_gb} GB)`
-        : `${input.capacity_gb} GB`;
-    }
+  // ===== HEADER =====
+  line(`${brandName} - Aankoopborderel`, 18);
+  line(`Datum document: ${new Date().toLocaleString("nl-BE")}`, 10);
+  line(`Buyback-order: ${orderRef}`, 11);
+  line(); // lege regel
 
-    if (deviceLabel) doc.text(`Model: ${deviceLabel}`);
-    if (input.sku) doc.text(`SKU: ${input.sku}`);
-    if (input.imei_sn) doc.text(`IMEI/SN: ${input.imei_sn}`);
-    if (amountStr) doc.text(`Overnameprijs: ${amountStr}`);
-    doc.moveDown(1);
+  // ===== KLANTGEGEVENS =====
+  sectionTitle("Klantgegevens");
+  if (fullName) line(`Naam: ${fullName}`);
+  if (input.customer_number) line(`Klantnummer: ${input.customer_number}`);
+  if (input.email) line(`E-mail: ${input.email}`);
+  if (input.phone) line(`Telefoon: ${input.phone}`);
 
-    // ===== UITBETALING =====
-    doc.fontSize(12).text("Uitbetaling");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
+  if (input.street || input.house_number || input.postal_code || input.city) {
+    const addrLine1 = [input.street, input.house_number].filter(Boolean).join(" ");
+    const addrLine2 = [input.postal_code, input.city].filter(Boolean).join(" ");
+    if (addrLine1) line(`Adres: ${addrLine1}`);
+    if (addrLine2) line(`       ${addrLine2}`);
+  }
+  if (input.country) line(`Land: ${input.country}`);
 
-    if (input.wants_voucher) {
-      doc.text(
-        "Methode: Voucher (te gebruiken als korting bij aankoop van een toestel)."
-      );
-      if (amountStr) doc.text(`Voucherwaarde: ${amountStr}`);
-    } else {
-      doc.text("Methode: Bankoverschrijving");
-      if (amountStr) doc.text(`Bedrag: ${amountStr}`);
-      if (input.iban) doc.text(`IBAN: ${input.iban}`);
-    }
-    doc.moveDown(1);
+  if (createdStr || finishedStr) {
+    line();
+    sectionTitle("Datums");
+    if (createdStr) line(`Datum aanvraag: ${createdStr}`);
+    if (finishedStr) line(`Datum afgewerkt: ${finishedStr}`);
+  }
 
-    // ===== LEVERING / INNAME =====
-    doc.fontSize(12).text("Levering / Inname");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
+  line();
 
-    const method = input.delivery_method;
-    if (method === "ship") {
-      doc.text("Methode: Verzending naar Microforce (gratis verzendlabel).");
-    } else if (method === "dropoff") {
-      doc.text("Methode: Binnenbrengen in de winkel.");
-    } else {
-      doc.text("Methode: Onbekend / niet ingevuld.");
-    }
+  // ===== TOESTEL =====
+  sectionTitle("Toestel");
+  const deviceParts: string[] = [];
+  if (input.model) deviceParts.push(input.model);
+  if (input.variant) deviceParts.push(input.variant);
+  let deviceLabel = deviceParts.join(" - ");
+  if (input.capacity_gb) {
+    deviceLabel = deviceLabel
+      ? `${deviceLabel} (${input.capacity_gb} GB)`
+      : `${input.capacity_gb} GB`;
+  }
 
-    if (method === "dropoff" && input.shop_location) {
-      doc.text(`Winkel: ${input.shop_location}`);
-      const shopAddr1 = input.shop_address1;
-      const shopAddr2 = [input.shop_zip, input.shop_city]
-        .filter(Boolean)
-        .join(" ");
-      if (shopAddr1) doc.text(`Adres winkel: ${shopAddr1}`);
-      if (shopAddr2) doc.text(`             ${shopAddr2}`);
-    }
+  if (deviceLabel) line(`Model: ${deviceLabel}`);
+  if (input.sku) line(`SKU: ${input.sku}`);
+  if (input.imei_sn) line(`IMEI/SN: ${input.imei_sn}`);
+  if (amountStr) line(`Overnameprijs: ${amountStr}`);
+  line();
 
-    doc.moveDown(1);
+  // ===== UITBETALING =====
+  sectionTitle("Uitbetaling");
+  if (input.wants_voucher) {
+    line(
+      "Methode: Voucher (te gebruiken als korting bij aankoop van een toestel)."
+    );
+    if (amountStr) line(`Voucherwaarde: ${amountStr}`);
+  } else {
+    line("Methode: Bankoverschrijving");
+    if (amountStr) line(`Bedrag: ${amountStr}`);
+    if (input.iban) line(`IBAN: ${input.iban}`);
+  }
+  line();
 
-    // ===== TRACKING =====
-    doc.fontSize(12).text("Tracking");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
+  // ===== LEVERING / INNAME =====
+  sectionTitle("Levering / Inname");
+  const method = input.delivery_method;
+  if (method === "ship") {
+    line("Methode: Verzending naar Microforce (gratis verzendlabel).");
+  } else if (method === "dropoff") {
+    line("Methode: Binnenbrengen in de winkel.");
+  } else {
+    line("Methode: Onbekend / niet ingevuld.");
+  }
 
-    if (input.tracking_code || input.tracking_url || input.label_pdf_url) {
-      if (input.tracking_code) doc.text(`Tracking code: ${input.tracking_code}`);
-      if (input.tracking_url) doc.text(`Tracking URL: ${input.tracking_url}`);
-      if (input.label_pdf_url) doc.text(`Label URL: ${input.label_pdf_url}`);
-    } else {
-      doc.text("Geen trackinginformatie beschikbaar.");
-    }
+  if (method === "dropoff" && input.shop_location) {
+    line(`Winkel: ${input.shop_location}`);
+    const shopAddr1 = input.shop_address1;
+    const shopAddr2 = [input.shop_zip, input.shop_city]
+      .filter(Boolean)
+      .join(" ");
+    if (shopAddr1) line(`Adres winkel: ${shopAddr1}`);
+    if (shopAddr2) line(`             ${shopAddr2}`);
+  }
 
-    doc.moveDown(1);
+  line();
 
-    // ===== STATUS =====
-    doc.fontSize(12).text("Status");
-    doc.moveDown(0.3);
-    doc.fontSize(10);
+  // ===== TRACKING =====
+  sectionTitle("Tracking");
+  if (input.tracking_code || input.tracking_url || input.label_pdf_url) {
+    if (input.tracking_code) line(`Tracking code: ${input.tracking_code}`);
+    if (input.tracking_url) line(`Tracking URL: ${input.tracking_url}`);
+    if (input.label_pdf_url) line(`Label URL: ${input.label_pdf_url}`);
+  } else {
+    line("Geen trackinginformatie beschikbaar.");
+  }
 
-    if (input.status) {
-      doc.text(`Status: ${input.status}`);
-    } else {
-      doc.text("Status: (niet opgegeven)");
-    }
+  line();
 
-    doc.moveDown(1);
+  // ===== STATUS =====
+  sectionTitle("Status");
+  if (input.status) {
+    line(`Status: ${input.status}`);
+  } else {
+    line("Status: (niet opgegeven)");
+  }
 
-    // Kleine voetnoot
-    doc
-      .fontSize(8)
-      .fillColor("gray")
-      .text(
-        "Dit document is een aankoopborderel voor een buyback-order. " +
-          "Gelieve dit document intern te bewaren voor de boekhouding.",
-        { align: "left" }
-      );
+  line();
+  line(
+    "Dit document is een aankoopborderel voor een buyback-order. Gelieve dit document intern te bewaren voor de boekhouding.",
+    8
+  );
 
-    doc.end();
-  });
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
 
 export async function sendFinanceBorderelMail(
