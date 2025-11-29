@@ -25,12 +25,11 @@ const label = 'text-[11px] text-gray-500';
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  // Init-lijst voor gebruikte onderdelen uit opgeslagen string
+  // Init-lijst voor gebruikte onderdelen uit array
   const initialParts =
-    (p.used_parts_skus || '')
-      .split(/[,\n;]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    Array.isArray(p.used_parts_skus) && p.used_parts_skus.length
+      ? p.used_parts_skus.map((s) => s.trim()).filter(Boolean)
+      : [];
 
   const [parts, setParts] = useState<string[]>(
     initialParts.length ? initialParts : ['']
@@ -78,7 +77,7 @@ export default function DeviceCell(p: Props) {
       {open && (
         <form
           action={updateLeadInlineAction}
-          className="mt-2 flex flex-col gap-1 border-t border-gray-2 00 pt-2"
+          className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2"
         >
           <input type="hidden" name="id" value={p.id} />
 
