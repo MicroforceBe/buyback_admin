@@ -16,7 +16,7 @@ type Props = {
 
   // NIEUW
   battery_percentage: number | null;
-  used_parts_skus: string | null;
+  used_parts_skus: string[] | null;
 };
 
 const input = 'bb-input h-9 text-xs px-2 py-1';
