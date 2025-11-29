@@ -613,30 +613,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     desired.cancel_reason = cancelReason;
   }
 
-  // BATTERIJ (%)
-  const batteryRaw = String(formData.get("battery_percentage") ?? "").trim();
-  if (batteryRaw !== "") {
-    const n = Number(batteryRaw);
-    if (!Number.isFinite(n) || n < 0 || n > 100) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          `invalid_battery:${batteryRaw}`
-        )}`
-      );
-    }
-    desired.battery_percentage = Math.round(n);
-  }
-
-  // GEBRUIKTE ONDERDELEN (hidden veld met CSV → array)
-  const usedPartsRaw = (formData.get("used_parts_skus") as string | null) ?? "";
-  if (typeof usedPartsRaw === "string") {
-    const arr = usedPartsRaw
-      .split(/[,\n;]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    // bij lege lijst → null
-    desired.used_parts_skus = arr.length ? arr : null;
-  }
 
   // overige inline velden (TEXT, geen arrays)
   const TEXT_FIELDS = [
