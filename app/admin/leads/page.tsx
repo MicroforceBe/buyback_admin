@@ -49,6 +49,8 @@ type Lead = {
   questions_answers_html: string | null;
   sku: string | null;
   imei_sn: string | null;
+  battery_percentage: number | null; // NIEUW
+  used_parts_skus: string | null; // NIEUW
 
   // prijzen
   base_price_cents: number | null;
@@ -374,6 +376,8 @@ export default async function LeadsPage({
         "customer_number",
         "sku",
         "imei_sn",
+        "battery_percentage", // NIEUW
+        "used_parts_skus", // NIEUW
         "delivery_method",
         "shop_location",
         "street",
@@ -641,7 +645,7 @@ export default async function LeadsPage({
   return (
     <div className="w-full p-4 space-y-3">
       {/* Kop */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify_between">
         <h1 className="text-xl font-semibold">Leads</h1>
         <Link href="/admin" className={btnCls}>
           ← Terug
@@ -1003,6 +1007,8 @@ export default async function LeadsPage({
                     sku={lead.sku}
                     imei_sn={lead.imei_sn}
                     questions_answers_html={lead.questions_answers_html}
+                    battery_percentage={lead.battery_percentage}
+                    used_parts_skus={lead.used_parts_skus}
                   />
                 </td>
 
