@@ -1,3 +1,4 @@
+// app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { updateLeadInlineAction, deleteLeadAction } from "./actions";
@@ -165,8 +166,8 @@ export default async function LeadsPage({
             Je hebt geen rechten om deze pagina te bekijken.
           </div>
           <p className="text-xs text-red-600 mt-1">
-            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in de
-            settings &gt; Users.
+            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
+            de settings &gt; Users.
           </p>
         </div>
       </div>
@@ -948,9 +949,7 @@ export default async function LeadsPage({
                       <div>
                         <span className="text-gray-500">Model: </span>
                         {lead.model ?? "—"}{" "}
-                        {lead.capacity_gb
-                          ? `• ${lead.capacity_gb} GB`
-                          : ""}
+                        {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
                       </div>
                       <div className="text-xs text-gray-500">
                         {lead.delivery_method === "dropoff"
@@ -996,7 +995,7 @@ export default async function LeadsPage({
                   />
                 </td>
 
-                {/* Model */}
+                {/* Model + device details */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
                   <DeviceCell
                     id={lead.id}
@@ -1005,9 +1004,11 @@ export default async function LeadsPage({
                     capacity_gb={lead.capacity_gb}
                     sku={lead.sku}
                     imei_sn={lead.imei_sn}
+                    questions_answers_html={lead.questions_answers_html}
                     battery_percentage={lead.battery_percentage}
                     used_parts_skus={lead.used_parts_skus}
-                    questions_answers_html={lead.questions_answers_html}
+                    status={lead.status as Status | null}
+                    canEdit={canWriteLeads && lead.status !== "cancelled"}
                   />
                 </td>
 
@@ -1279,7 +1280,7 @@ export default async function LeadsPage({
         )}
       </div>
 
-      {/* Klein inline script: toont/hidet reden-blok en togglet save-knop bij 'cancelled' */}
+      {/* Klein inline script: toont/hidet reden-blok, valideert verplichte velden bij controle en togglet save-knop bij 'cancelled' */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
@@ -1308,10 +1309,50 @@ export default async function LeadsPage({
                   }
                 }
 
+                function validateDeviceFields() {
+                  var status = statusSelect.value;
+                  if (status !== 'check_passed' && status !== 'check_failed') return true;
+
+                  var row = form.closest('tr');
+                  if (!row) return true;
+
+                  var requiredKeys = ['sku','imei_sn','battery_percentage','used_parts_skus'];
+                  var ok = true;
+
+                  requiredKeys.forEach(function(key) {
+                    var warning = row.querySelector('[data-device-warning="' + key + '"]');
+                    if (warning) warning.style.display = 'none';
+
+                    var input;
+                    if (key === 'used_parts_skus') {
+                      input = row.querySelector('input[name="used_parts_skus"]');
+                    } else if (key === 'battery_percentage') {
+                      input = row.querySelector('input[name="battery_percentage"]');
+                    } else {
+                      input = row.querySelector('input[name="' + key + '"]');
+                    }
+
+                    var value = input && (input.value || '').trim();
+                    if (!value) {
+                      ok = false;
+                      if (warning) warning.style.display = 'inline';
+                    }
+                  });
+
+                  return ok;
+                }
+
                 statusSelect.addEventListener('change', sync);
                 if (cancelSelect) {
                   cancelSelect.addEventListener('change', sync);
                 }
+
+                form.addEventListener('submit', function(ev) {
+                  if (!validateDeviceFields()) {
+                    ev.preventDefault();
+                  }
+                });
+
                 sync();
               }
 
