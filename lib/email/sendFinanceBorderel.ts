@@ -61,6 +61,14 @@ export type FinanceBorderelInput = {
   // datums
   created_at?: string | null;
   done_at?: string | null;
+
+  // batterij + onderdelen
+  battery_percentage?: number | null;
+  /**
+   * Gebruikte onderdelen. Kan een array zijn of een enkele string
+   * met komma/semicolon/newline-gescheiden SKU's.
+   */
+  used_parts_skus?: string[] | string | null;
 };
 
 function formatCurrencyPlain(cents?: number | null): string {
@@ -143,6 +151,16 @@ async function buildBorderelPdf(input: FinanceBorderelInput): Promise<Uint8Array
     cursorY -= lineHeight * lines;
   };
 
+  // Normaliseer gebruikte onderdelen naar een array
+  const usedParts: string[] = Array.isArray(input.used_parts_skus)
+    ? input.used_parts_skus
+    : typeof input.used_parts_skus === "string"
+    ? input.used_parts_skus
+        .split(/[,\n;]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
   // ===== HEADER =====
   drawTitle(`${brandName} – Aankoopborderel`);
   drawLine(`Buyback-order: ${orderRef}`);
@@ -184,6 +202,24 @@ async function buildBorderelPdf(input: FinanceBorderelInput): Promise<Uint8Array
   if (input.imei_sn) drawLine(`IMEI/SN: ${input.imei_sn}`);
   drawLine(`Overnameprijs (indicatief): ${amountStr || "-"}`);
   moveDown(1);
+
+  // ===== TECHNISCHE INFO =====
+  if (
+    typeof input.battery_percentage === "number" ||
+    usedParts.length > 0
+  ) {
+    drawSectionHeader("Technische info");
+    if (typeof input.battery_percentage === "number") {
+      drawLine(`Batterij: ${input.battery_percentage}%`);
+    }
+    if (usedParts.length > 0) {
+      drawLine("Gebruikte onderdelen (SKU's):");
+      usedParts.forEach((sku) => {
+        drawLine(`- ${sku}`);
+      });
+    }
+    moveDown(1);
+  }
 
   // ===== UITBETALING =====
   drawSectionHeader("Uitbetaling");
@@ -277,6 +313,16 @@ export async function sendFinanceBorderelMail(
   const createdStr = fmtDateTime(input.created_at);
   const doneStr = fmtDateTime(input.done_at);
 
+  // Normaliseer gebruikte onderdelen naar een array
+  const usedParts: string[] = Array.isArray(input.used_parts_skus)
+    ? input.used_parts_skus
+    : typeof input.used_parts_skus === "string"
+    ? input.used_parts_skus
+        .split(/[,\n;]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
   // PDF bouwen (pdf-lib, geen pdfkit/Helvetica.afm meer)
   let pdfBytes: Uint8Array;
   try {
@@ -319,6 +365,16 @@ export async function sendFinanceBorderelMail(
     );
   htmlSummaryParts.push(`<strong>Datum aanvraag</strong>: ${createdStr}`);
   htmlSummaryParts.push(`<strong>Datum afgewerkt</strong>: ${doneStr}`);
+  if (typeof input.battery_percentage === "number") {
+    htmlSummaryParts.push(
+      `<strong>Batterij</strong>: ${input.battery_percentage}%`
+    );
+  }
+  if (usedParts.length > 0) {
+    htmlSummaryParts.push(
+      `<strong>Gebruikte onderdelen</strong>: ${usedParts.join(", ")}`
+    );
+  }
 
   const htmlSummary =
     "<p>Overzicht van deze buyback-order:</p><ul>" +
