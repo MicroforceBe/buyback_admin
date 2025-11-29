@@ -105,13 +105,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
-* Haal ship_with-object op uit env en normaliseer naar:
-*
-* {
-*   type: "shipping_option_code",
-*   properties: { shipping_option_code: "..." }
-* }
-*/
+ * Haal ship_with-object op uit env en normaliseer naar:
+ *
+ * {
+ *   type: "shipping_option_code",
+ *   properties: { shipping_option_code: "..." }
+ * }
+ */
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -195,8 +195,8 @@ function getMerchantToAddress() {
 }
 
 /**
-* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
-*/
+ * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+ */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -420,9 +420,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
-* Server action om opnieuw een label + tracking op te halen
-* en opnieuw de statusmail voor 'label_created' te sturen.
-*/
+ * Server action om opnieuw een label + tracking op te halen
+ * en opnieuw de statusmail voor 'label_created' te sturen.
+ */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -549,8 +549,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
-* Eén action die ALLES kan updaten.
-*/
+ * Eén action die ALLES kan updaten.
+ */
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -611,6 +611,31 @@ export async function updateLeadInlineAction(formData: FormData) {
   // expliciet: cancel_reason (alleen zetten als er iets is)
   if (cancelReason !== null) {
     desired.cancel_reason = cancelReason;
+  }
+
+  // BATTERIJ (%)
+  const batteryRaw = String(formData.get("battery_percentage") ?? "").trim();
+  if (batteryRaw !== "") {
+    const n = Number(batteryRaw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      redirect(
+        `/admin/leads?msg=${encodeURIComponent(
+          `invalid_battery:${batteryRaw}`
+        )}`
+      );
+    }
+    desired.battery_percentage = Math.round(n);
+  }
+
+  // GEBRUIKTE ONDERDELEN (hidden veld met CSV → array)
+  const usedPartsRaw = (formData.get("used_parts_skus") as string | null) ?? "";
+  if (typeof usedPartsRaw === "string") {
+    const arr = usedPartsRaw
+      .split(/[,\n;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // bij lege lijst → null
+    desired.used_parts_skus = arr.length ? arr : null;
   }
 
   // overige inline velden (TEXT)
@@ -738,6 +763,9 @@ export async function updateLeadInlineAction(formData: FormData) {
     "shop_location",
     "created_at",
     "updated_at",
+    // batterij + onderdelen
+    "battery_percentage",
+    "used_parts_skus",
     // trackingvelden
     "tracking_code",
     "tracking_url",
@@ -918,7 +946,10 @@ export async function updateLeadInlineAction(formData: FormData) {
                 brand_name_override: brand_name,
                 // datums
                 created_at: (after as any).created_at ?? null,
-                done_at: (after as any).updated_at ?? null,
+                finished_at: (after as any).updated_at ?? null,
+                // batterij + onderdelen
+                battery_percentage: (after as any).battery_percentage ?? null,
+                used_parts_skus: (after as any).used_parts_skus ?? null,
                 // vragen/antwoorden (optioneel)
                 questions_answers_html:
                   (after as any).questions_answers_html ?? null,
