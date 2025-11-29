@@ -652,7 +652,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     "phone",
     "sku",
     "imei_sn",
-    "used_parts_skus",
   ] as const;
 
   for (const k of FIELDS) {
@@ -661,6 +660,18 @@ export async function updateLeadInlineAction(formData: FormData) {
       const trimmed = v.trim();
       desired[k] = trimmed === "" ? null : trimmed;
     }
+  }
+
+  // gebruikte onderdelen (SKU's) – als array opslaan
+  const rawUsedParts = formData.get("used_parts_skus");
+  if (typeof rawUsedParts === "string") {
+    const arr = rawUsedParts
+      .split(/[,\n;]/)        // splits op komma, newline of ;
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // Postgres text[] kolom → echte array doorgeven
+    (desired as any).used_parts_skus = arr.length ? arr : null;
   }
 
   const sb = sbClient();
