@@ -946,7 +946,7 @@ export async function updateLeadInlineAction(formData: FormData) {
                 brand_name_override: brand_name,
                 // datums
                 created_at: (after as any).created_at ?? null,
-                finished_at: (after as any).updated_at ?? null,
+                done_at: (after as any).updated_at ?? null,
                 // batterij + onderdelen
                 battery_percentage: (after as any).battery_percentage ?? null,
                 used_parts_skus: (after as any).used_parts_skus ?? null,
