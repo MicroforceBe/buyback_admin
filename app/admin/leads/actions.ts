@@ -638,8 +638,8 @@ export async function updateLeadInlineAction(formData: FormData) {
     desired.used_parts_skus = arr.length ? arr : null;
   }
 
-  // overige inline velden (TEXT)
-  const FIELDS = [
+  // overige inline velden (TEXT, geen arrays)
+  const TEXT_FIELDS = [
     "customer_number",
     "iban",
     "first_name",
@@ -654,7 +654,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "imei_sn",
   ] as const;
 
-  for (const k of FIELDS) {
+  for (const k of TEXT_FIELDS) {
     const v = formData.get(k as string);
     if (typeof v === "string") {
       const trimmed = v.trim();
@@ -662,17 +662,33 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // gebruikte onderdelen (SKU's) – als array opslaan
-  const rawUsedParts = formData.get("used_parts_skus");
-  if (typeof rawUsedParts === "string") {
-    const arr = rawUsedParts
-      .split(/[,\n;]/)        // splits op komma, newline of ;
+  // batterij-percentage (0–100, optioneel)
+  const batteryRaw = formData.get("battery_percentage");
+  if (typeof batteryRaw === "string") {
+    const trimmed = batteryRaw.trim();
+    if (trimmed === "") {
+      // leeg expliciet verstuurd → naar null
+      desired.battery_percentage = null;
+    } else {
+      const n = Number(trimmed.replace(",", "."));
+      desired.battery_percentage =
+        Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n) : null;
+    }
+  }
+
+  // gebruikte onderdelen: komma/enter-gescheiden string → TEXT[]
+  // BELANGRIJK: alleen aanpassen als het veld in het form zit.
+  const usedPartsRaw = formData.get("used_parts_skus");
+  if (typeof usedPartsRaw === "string") {
+    const arr = usedPartsRaw
+      .split(/[,\n;]/)
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // Postgres text[] kolom → echte array doorgeven
-    (desired as any).used_parts_skus = arr.length ? arr : null;
+    // lege string => maak kolom NULL, niet overschrijven bij ontbrekend veld
+    desired.used_parts_skus = arr.length ? arr : null;
   }
+
 
   const sb = sbClient();
 
