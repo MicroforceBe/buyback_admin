@@ -652,6 +652,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "phone",
     "sku",
     "imei_sn",
+    "used_parts_skus",
   ] as const;
 
   for (const k of FIELDS) {
