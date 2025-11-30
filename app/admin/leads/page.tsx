@@ -192,6 +192,8 @@ export default async function LeadsPage({
   // === permissions ===
   const canReadLeads = hasPermission(adminUser, "leads", "read");
   const canWriteLeads = hasPermission(adminUser, "leads", "write");
+  // Extra recht om van 'Controle succesvol' naar 'Afgewerkt/Geannuleerd' te gaan
+  const canFinalizeLeads = hasPermission(adminUser, "leads", "finalize");
 
   if (!canReadLeads) {
     return (
@@ -984,8 +986,8 @@ export default async function LeadsPage({
                                       </>
                                     )}
                                     <span className="text-gray-500"> • </span>
+                                    {/* Alleen de nieuwe status tonen */}
                                     <span>
-                                      {statusLabel(h.from as Status | null)} →{" "}
                                       {statusLabel(h.to as Status | null)}
                                     </span>
                                   </li>
@@ -1046,6 +1048,13 @@ export default async function LeadsPage({
                     country={lead.country}
                     phone={lead.phone}
                     email={lead.email}
+                    // Na 'check_passed' geen edits meer mogelijk
+                    canEdit={
+                      canWriteLeads &&
+                      lead.status !== "cancelled" &&
+                      lead.status !== "check_passed" &&
+                      lead.status !== "done"
+                    }
                   />
                 </td>
 
@@ -1062,6 +1071,7 @@ export default async function LeadsPage({
                     battery_percentage={lead.battery_percentage}
                     used_parts_skus={lead.used_parts_skus}
                     status={lead.status as Status | null}
+                    // Na 'check_passed' geen edits meer mogelijk
                     canEdit={
                       canWriteLeads &&
                       lead.status !== "cancelled" &&
@@ -1073,12 +1083,25 @@ export default async function LeadsPage({
 
                 {/* Prijs (inline editable / read-only) */}
                 <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  {canWriteLeads && lead.status !== "cancelled" ? (
+                  {canWriteLeads &&
+                  lead.status !== "cancelled" &&
+                  lead.status !== "check_passed" ? (
                     <form
                       action={updateLeadInlineAction}
                       className="flex items-center gap-2"
                     >
                       <input type="hidden" name="id" value={lead.id} />
+                      {/* hint voor logging prijswijziging */}
+                      <input
+                        type="hidden"
+                        name="change_type"
+                        value="price"
+                      />
+                      <input
+                        type="hidden"
+                        name="previous_final_price_cents"
+                        value={lead.final_price_cents ?? ""}
+                      />
                       <input
                         name="final_price_eur"
                         defaultValue={(
@@ -1121,8 +1144,15 @@ export default async function LeadsPage({
                           imei_sn: lead.imei_sn,
                         }).filter((t) => t.ok);
                     const hasChoices = trans.length > 0;
+
+                    // Na 'check_passed':
+                    // - alleen gebruikers met finalize-recht mogen naar done/cancelled
+                    // - andere gebruikers kunnen status niet meer aanpassen
                     const canEditStatus =
-                      canWriteLeads && !isFinal && hasChoices;
+                      canWriteLeads &&
+                      !isFinal &&
+                      hasChoices &&
+                      (curr !== "check_passed" || canFinalizeLeads);
 
                     const trackingHref =
                       lead.tracking_url ||
@@ -1172,6 +1202,17 @@ export default async function LeadsPage({
                               name="id"
                               value={lead.id}
                             />
+                            {/* hint voor logging statuswijziging */}
+                            <input
+                              type="hidden"
+                              name="change_type"
+                              value="status"
+                            />
+                            <input
+                              type="hidden"
+                              name="previous_status"
+                              value={lead.status ?? ""}
+                            />
                             <div className="inline-flex items-center gap-2">
                               <select
                                 name="status"
@@ -1182,20 +1223,30 @@ export default async function LeadsPage({
                                     ? "Status wijzigen"
                                     : "Geen vervolgstatus mogelijk"
                                 }
-                                disabled={!hasChoices}
+                                disabled={!canEditStatus}
                                 data-status-select
                               >
                                 <option value={curr}>
                                   {statusLabel(curr)}
                                 </option>
-                                {trans.map((t) => (
-                                  <option
-                                    key={t.value}
-                                    value={t.value}
-                                  >
-                                    {t.label}
-                                  </option>
-                                ))}
+                                {trans.map((t) => {
+                                  const isFinalTarget =
+                                    t.value === "done" ||
+                                    t.value === "cancelled";
+                                  const greyOutFinal =
+                                    curr === "check_passed" &&
+                                    isFinalTarget &&
+                                    !canFinalizeLeads;
+                                  return (
+                                    <option
+                                      key={t.value}
+                                      value={t.value}
+                                      disabled={greyOutFinal}
+                                    >
+                                      {t.label}
+                                    </option>
+                                  );
+                                })}
                               </select>
                               <button
                                 className="bb-btn subtle h-8 text-xs px-2"
