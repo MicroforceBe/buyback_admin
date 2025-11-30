@@ -968,34 +968,48 @@ export default async function LeadsPage({
                       {Array.isArray(lead.status_history) &&
                         lead.status_history.length > 0 && (
                           <div className="mt-1">
-                            <div className="text-gray-500 mb-0.5">
-                              Statuslog:
-                            </div>
+                            <div className="text-gray-500 mb-0.5">Log:</div>
                             <ul className="space-y-0.5">
                               {lead.status_history
-                                .filter((h) => h && h.type === "status")
-                                .map((h, i) => (
-                                  <li
-                                    key={`${lead.id}-hist-${i}`}
-                                    className="text-[11px] text-gray-700"
-                                  >
-                                    <span className="font-mono">
-                                      {fmtDate(h.at ?? undefined)}
-                                    </span>
-                                    {h.by && (
-                                      <>
-                                        {" "}
-                                        <span className="text-gray-500">•</span>{" "}
-                                        <span>{h.by}</span>
-                                      </>
-                                    )}
-                                    <span className="text-gray-500"> • </span>
-                                    {/* Enkel de nieuwe status tonen */}
-                                    <span>
-                                      {statusLabel(h.to as Status | null)}
-                                    </span>
-                                  </li>
-                                ))}
+                                .filter((h) => h)
+                                .map((h, i) => {
+                                  const anyH: any = h;
+                                  const t = anyH.type as string | undefined;
+                      
+                                  let label: string;
+                      
+                                  if (t === "status") {
+                                    // Enkel de nieuwe status tonen
+                                    label = `Status: ${statusLabel(anyH.to as Status | null)}`;
+                                  } else if (t === "price") {
+                                    const to = Number(anyH.to ?? 0);
+                                    label = `Prijs: €${(to / 100).toFixed(2)}`;
+                                  } else if (t === "device") {
+                                    label = "Toestel: gegevens aangepast";
+                                  } else {
+                                    label = t ? `Log (${t})` : "Log";
+                                  }
+                      
+                                  return (
+                                    <li
+                                      key={`${lead.id}-hist-${i}`}
+                                      className="text-[11px] text-gray-700"
+                                    >
+                                      <span className="font-mono">
+                                        {fmtDate(anyH.at ?? undefined)}
+                                      </span>
+                                      {anyH.by && (
+                                        <>
+                                          {" "}
+                                          <span className="text-gray-500">•</span>{" "}
+                                          <span>{anyH.by}</span>
+                                        </>
+                                      )}
+                                      <span className="text-gray-500"> • </span>
+                                      <span>{label}</span>
+                                    </li>
+                                  );
+                                })}
                             </ul>
                           </div>
                         )}
