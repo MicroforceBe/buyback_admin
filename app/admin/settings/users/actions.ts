@@ -34,6 +34,7 @@ function normalizePermissions(
   const base: PermissionsMap = {
     dashboard:   { read: false, write: false },
     leads:       { read: false, write: false },
+    leads_finalize:       { read: false, write: false },
     catalog:     { read: false, write: false },
     multipliers: { read: false, write: false },
     uploads:     { read: false, write: false },
@@ -102,6 +103,7 @@ export async function saveAdminUserAction(
     input.permissions = {
       dashboard:   { read: true, write: true },
       leads:       { read: true, write: true },
+      leads_finalize:       { read: true, write: true }, 
       catalog:     { read: true, write: true },
       multipliers: { read: true, write: true },
       uploads:     { read: true, write: true },
