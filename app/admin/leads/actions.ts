@@ -105,13 +105,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
- * Haal ship_with-object op uit env en normaliseer naar:
- *
- * {
- *   type: "shipping_option_code",
- *   properties: { shipping_option_code: "..." }
- * }
- */
+* Haal ship_with-object op uit env en normaliseer naar:
+*
+* {
+*   type: "shipping_option_code",
+*   properties: { shipping_option_code: "..." }
+* }
+*/
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -195,8 +195,8 @@ function getMerchantToAddress() {
 }
 
 /**
- * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
- */
+* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+*/
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -420,9 +420,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
- * Server action om opnieuw een label + tracking op te halen
- * en opnieuw de statusmail voor 'label_created' te sturen.
- */
+* Server action om opnieuw een label + tracking op te halen
+* en opnieuw de statusmail voor 'label_created' te sturen.
+*/
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -549,8 +549,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
- * Eén action die ALLES kan updaten.
- */
+* Eén action die ALLES kan updaten.
+*/
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -613,7 +613,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     desired.cancel_reason = cancelReason;
   }
 
-
   // overige inline velden (TEXT, geen arrays)
   const TEXT_FIELDS = [
     "customer_number",
@@ -664,7 +663,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     // lege string => maak kolom NULL, niet overschrijven bij ontbrekend veld
     desired.used_parts_skus = arr.length ? arr : null;
   }
-
 
   const sb = sbClient();
 
@@ -739,6 +737,71 @@ export async function updateLeadInlineAction(formData: FormData) {
     );
   }
 
+  // === 5.c HISTORY LOG (status, prijs, SKU/IMEI) ===
+  const nowIso = new Date().toISOString();
+  const actor =
+    (adminUser as any)?.email ||
+    (adminUser as any)?.id ||
+    "unknown";
+
+  const existingHistory: any[] = Array.isArray((before as any).status_history)
+    ? ((before as any).status_history as any[])
+    : [];
+
+  const historyToAppend: any[] = [];
+
+  // 1) Statuswijziging loggen
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "status") &&
+    patch.status !== (before as any).status
+  ) {
+    historyToAppend.push({
+      type: "status",
+      at: nowIso,
+      by: actor,
+      from: (before as any).status ?? null,
+      to: patch.status ?? null,
+    });
+  }
+
+  // 2) Prijswijziging loggen (final_price_cents)
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "final_price_cents") &&
+    patch.final_price_cents !== (before as any).final_price_cents
+  ) {
+    historyToAppend.push({
+      type: "price",
+      at: nowIso,
+      by: actor,
+      from: (before as any).final_price_cents ?? null,
+      to: patch.final_price_cents ?? null,
+    });
+  }
+
+  // 3) Wijziging in SKU of IMEI loggen
+  const skuChanged =
+    Object.prototype.hasOwnProperty.call(patch, "sku") &&
+    patch.sku !== (before as any).sku;
+  const imeiChanged =
+    Object.prototype.hasOwnProperty.call(patch, "imei_sn") &&
+    patch.imei_sn !== (before as any).imei_sn;
+
+  if (skuChanged || imeiChanged) {
+    historyToAppend.push({
+      type: "device",
+      at: nowIso,
+      by: actor,
+      from_sku: (before as any).sku ?? null,
+      to_sku: (patch.sku ?? (before as any).sku) ?? null,
+      from_imei_sn: (before as any).imei_sn ?? null,
+      to_imei_sn: (patch.imei_sn ?? (before as any).imei_sn) ?? null,
+    });
+  }
+
+  if (historyToAppend.length > 0) {
+    patch.status_history = [...existingHistory, ...historyToAppend];
+  }
+
   // 6) Update uitvoeren
   const returningCols = [
     "id",
@@ -777,6 +840,8 @@ export async function updateLeadInlineAction(formData: FormData) {
     "questions_answers_html",
     // reden annulatie
     "cancel_reason",
+    // history
+    "status_history",
   ].join(", ");
 
   const { data: after, error: updErr } = await sb
