@@ -1144,7 +1144,7 @@ export default async function LeadsPage({
                     return (
                       <div className="space-y-1">
                         {/* Bovenste deel: status / opslaan */}
-                        isFinal || !canWriteLeads ? (
+                        {isFinal || !canWriteLeads ? (
                           <div className="text-sm font-medium text-gray-700">
                             {curr === "cancelled" ? (
                               <div className="space-y-0.5">
