@@ -193,7 +193,11 @@ export default async function LeadsPage({
   const canReadLeads = hasPermission(adminUser, "leads", "read");
   const canWriteLeads = hasPermission(adminUser, "leads", "write");
   // Extra recht om van 'Controle succesvol' naar 'Afgewerkt/Geannuleerd' te gaan
-  const canFinalizeLeads = hasPermission(adminUser, "leads_finalize", "write");
+  const canFinalizeLeads = hasPermission(
+    adminUser,
+    "leads_finalize",
+    "write"
+  );
 
   if (!canReadLeads) {
     return (
@@ -986,7 +990,7 @@ export default async function LeadsPage({
                                       </>
                                     )}
                                     <span className="text-gray-500"> • </span>
-                                    {/* Alleen de nieuwe status tonen */}
+                                    {/* Enkel de nieuwe status tonen */}
                                     <span>
                                       {statusLabel(h.to as Status | null)}
                                     </span>
@@ -1071,13 +1075,12 @@ export default async function LeadsPage({
                     battery_percentage={lead.battery_percentage}
                     used_parts_skus={lead.used_parts_skus}
                     status={lead.status as Status | null}
-                    // Na 'check_passed' geen edits meer mogelijk
-                    canEdit(
+                    canEdit={
                       canWriteLeads &&
                       lead.status !== "cancelled" &&
                       lead.status !== "check_passed" &&
                       lead.status !== "done"
-                    )
+                    }
                   />
                 </td>
 
@@ -1092,11 +1095,7 @@ export default async function LeadsPage({
                     >
                       <input type="hidden" name="id" value={lead.id} />
                       {/* hint voor logging prijswijziging */}
-                      <input
-                        type="hidden"
-                        name="change_type"
-                        value="price"
-                      />
+                      <input type="hidden" name="change_type" value="price" />
                       <input
                         type="hidden"
                         name="previous_final_price_cents"
@@ -1133,7 +1132,6 @@ export default async function LeadsPage({
                   {(() => {
                     const curr = (lead.status ?? "new") as Status;
 
-                    // finale statussen: geen dropdown
                     const isFinal =
                       curr === "done" || curr === "cancelled";
                     const trans = isFinal
@@ -1144,15 +1142,6 @@ export default async function LeadsPage({
                           imei_sn: lead.imei_sn,
                         }).filter((t) => t.ok);
                     const hasChoices = trans.length > 0;
-
-                    // Na 'check_passed':
-                    // - alleen gebruikers met finalize-recht mogen naar done/cancelled
-                    // - andere gebruikers kunnen status niet meer aanpassen
-                    const canEditStatus =
-                      canWriteLeads &&
-                      !isFinal &&
-                      hasChoices &&
-                      (curr !== "check_passed" || canFinalizeLeads);
 
                     const trackingHref =
                       lead.tracking_url ||
@@ -1170,6 +1159,15 @@ export default async function LeadsPage({
                         )}`;
                       }
                     }
+
+                    // basis: mag de user überhaupt status saven?
+                    const canEditStatusBase =
+                      canWriteLeads && !isFinal && hasChoices;
+
+                    // extra: na 'check_passed' enkel finaliseren als hij dat recht heeft
+                    const saveDisabled =
+                      !canEditStatusBase ||
+                      (curr === "check_passed" && !canFinalizeLeads);
 
                     return (
                       <div className="space-y-1">
@@ -1223,7 +1221,7 @@ export default async function LeadsPage({
                                     ? "Status wijzigen"
                                     : "Geen vervolgstatus mogelijk"
                                 }
-                                disabled={!canEditStatus}
+                                disabled={!hasChoices}
                                 data-status-select
                               >
                                 <option value={curr}>
@@ -1233,7 +1231,7 @@ export default async function LeadsPage({
                                   const isFinalTarget =
                                     t.value === "done" ||
                                     t.value === "cancelled";
-                                  const greyOutFinal =
+                                  const optionDisabled =
                                     curr === "check_passed" &&
                                     isFinalTarget &&
                                     !canFinalizeLeads;
@@ -1241,7 +1239,7 @@ export default async function LeadsPage({
                                     <option
                                       key={t.value}
                                       value={t.value}
-                                      disabled={greyOutFinal}
+                                      disabled={optionDisabled}
                                     >
                                       {t.label}
                                     </option>
@@ -1251,11 +1249,11 @@ export default async function LeadsPage({
                               <button
                                 className="bb-btn subtle h-8 text-xs px-2"
                                 type="submit"
-                                disabled={!canEditStatus}
+                                disabled={saveDisabled}
                                 title={
-                                  canEditStatus
-                                    ? "Opslaan"
-                                    : "Geen geldige overgang"
+                                  saveDisabled
+                                    ? "Geen geldige overgang"
+                                    : "Opslaan"
                                 }
                                 aria-label="Opslaan"
                                 data-save-button
@@ -1409,13 +1407,22 @@ export default async function LeadsPage({
                     cancelBlock.style.display = 'block';
                     if (cancelSelect) {
                       var hasReason = (cancelSelect.value || '').trim().length > 0;
-                      saveBtn.disabled = !hasReason;
+                      // let de disabled-toestand door permissies bepalen *en* reden
+                      if (saveBtn._disabledByPerm === true) {
+                        saveBtn.disabled = true;
+                      } else {
+                        saveBtn.disabled = !hasReason;
+                      }
                     } else {
                       saveBtn.disabled = true;
                     }
                   } else {
                     cancelBlock.style.display = 'none';
-                    saveBtn.disabled = false;
+                    if (saveBtn._disabledByPerm === true) {
+                      saveBtn.disabled = true;
+                    } else {
+                      saveBtn.disabled = false;
+                    }
                   }
                 }
 
@@ -1450,6 +1457,11 @@ export default async function LeadsPage({
                   });
 
                   return ok;
+                }
+
+                // markeer initiële disabled (vb. door finalize-rechten) zodat sync() die respecteert
+                if (saveBtn.disabled) {
+                  saveBtn._disabledByPerm = true;
                 }
 
                 statusSelect.addEventListener('change', sync);
