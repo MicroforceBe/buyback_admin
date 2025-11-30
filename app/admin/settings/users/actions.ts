@@ -1,4 +1,4 @@
-//app/admin/settings/users/actions.ts
+// app/admin/settings/users/actions.ts
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -32,13 +32,13 @@ function normalizePermissions(
   perms: Partial<PermissionsMap> | PermissionsMap | null | undefined
 ): PermissionsMap {
   const base: PermissionsMap = {
-    dashboard:   { read: false, write: false },
-    leads:       { read: false, write: false },
-    leads_finalize:       { read: false, write: false },
-    catalog:     { read: false, write: false },
-    multipliers: { read: false, write: false },
-    uploads:     { read: false, write: false },
-    settings:    { read: false, write: false },
+    dashboard:     { read: false, write: false },
+    leads:         { read: false, write: false },
+    leads_finalize:{ read: false, write: false },
+    catalog:       { read: false, write: false },
+    multipliers:   { read: false, write: false },
+    uploads:       { read: false, write: false },
+    settings:      { read: false, write: false },
   };
 
   return {
@@ -49,6 +49,10 @@ function normalizePermissions(
     leads: {
       ...base.leads,
       ...(perms?.leads ?? {}),
+    },
+    leads_finalize: {
+      ...base.leads_finalize,
+      ...(perms?.leads_finalize ?? {}),
     },
     catalog: {
       ...base.catalog,
@@ -101,13 +105,13 @@ export async function saveAdminUserAction(
     // Root admin blijft admin; root admin krijgt altijd full rights.
     input.role = 'admin';
     input.permissions = {
-      dashboard:   { read: true, write: true },
-      leads:       { read: true, write: true },
-      leads_finalize:       { read: true, write: true }, 
-      catalog:     { read: true, write: true },
-      multipliers: { read: true, write: true },
-      uploads:     { read: true, write: true },
-      settings:    { read: true, write: true },
+      dashboard:     { read: true, write: true },
+      leads:         { read: true, write: true },
+      leads_finalize:{ read: true, write: true },
+      catalog:       { read: true, write: true },
+      multipliers:   { read: true, write: true },
+      uploads:       { read: true, write: true },
+      settings:      { read: true, write: true },
     };
   }
 
