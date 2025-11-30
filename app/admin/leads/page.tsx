@@ -37,6 +37,18 @@ async function getLeads(): Promise<Lead[]> {
   return (data ?? []) as Lead[];
 }
 
+type StatusHistoryEntry = {
+  type?: string;
+  at?: string;
+  by?: string | null;
+  from?: any;
+  to?: any;
+  from_sku?: string | null;
+  to_sku?: string | null;
+  from_imei_sn?: string | null;
+  to_imei_sn?: string | null;
+};
+
 type Lead = {
   id: string;
   order_code: string | null;
@@ -88,6 +100,9 @@ type Lead = {
 
   // reden annulatie
   cancel_reason?: string | null;
+
+  // status-history (JSONB)
+  status_history?: StatusHistoryEntry[] | null;
 
   // NB: answers zit wél in de tabel, maar we selecteren het niet om lijstweergave licht te houden.
 };
@@ -396,6 +411,8 @@ export default async function LeadsPage({
         "label_pdf_url",
         // annulatie
         "cancel_reason",
+        // status history
+        "status_history",
       ].join(","),
       { count: "exact" }
     );
@@ -940,6 +957,43 @@ export default async function LeadsPage({
                         <span className="text-gray-500">Aangemaakt op: </span>
                         {fmtDate(lead.created_at)}
                       </div>
+
+                      {/* STATUS LOG */}
+                      {Array.isArray(lead.status_history) &&
+                        lead.status_history.length > 0 && (
+                          <div className="mt-1">
+                            <div className="text-gray-500 mb-0.5">
+                              Statuslog:
+                            </div>
+                            <ul className="space-y-0.5">
+                              {lead.status_history
+                                .filter((h) => h && h.type === "status")
+                                .map((h, i) => (
+                                  <li
+                                    key={`${lead.id}-hist-${i}`}
+                                    className="text-[11px] text-gray-700"
+                                  >
+                                    <span className="font-mono">
+                                      {fmtDate(h.at ?? undefined)}
+                                    </span>
+                                    {h.by && (
+                                      <>
+                                        {" "}
+                                        <span className="text-gray-500">•</span>{" "}
+                                        <span>{h.by}</span>
+                                      </>
+                                    )}
+                                    <span className="text-gray-500"> • </span>
+                                    <span>
+                                      {statusLabel(h.from as Status | null)} →{" "}
+                                      {statusLabel(h.to as Status | null)}
+                                    </span>
+                                  </li>
+                                ))}
+                            </ul>
+                          </div>
+                        )}
+
                       <div>
                         <span className="text-gray-500">
                           Laatst gewijzigd op:{" "}
@@ -1008,7 +1062,12 @@ export default async function LeadsPage({
                     battery_percentage={lead.battery_percentage}
                     used_parts_skus={lead.used_parts_skus}
                     status={lead.status as Status | null}
-                    canEdit={canWriteLeads && lead.status !== "cancelled"}
+                    canEdit={
+                      canWriteLeads &&
+                      lead.status !== "cancelled" &&
+                      lead.status !== "check_passed" &&
+                      lead.status !== "done"
+                    }
                   />
                 </td>
 
@@ -1085,7 +1144,7 @@ export default async function LeadsPage({
                     return (
                       <div className="space-y-1">
                         {/* Bovenste deel: status / opslaan */}
-                        {isFinal || !canWriteLeads ? (
+                        isFinal || !canWriteLeads ? (
                           <div className="text-sm font-medium text-gray-700">
                             {curr === "cancelled" ? (
                               <div className="space-y-0.5">
