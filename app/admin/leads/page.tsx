@@ -193,7 +193,7 @@ export default async function LeadsPage({
   const canReadLeads = hasPermission(adminUser, "leads", "read");
   const canWriteLeads = hasPermission(adminUser, "leads", "write");
   // Extra recht om van 'Controle succesvol' naar 'Afgewerkt/Geannuleerd' te gaan
-  const canFinalizeLeads = hasPermission(adminUser, "leads", "finalize");
+  const canFinalizeLeads = hasPermission(adminUser, "leads_finalize", "write");
 
   if (!canReadLeads) {
     return (
@@ -1072,12 +1072,12 @@ export default async function LeadsPage({
                     used_parts_skus={lead.used_parts_skus}
                     status={lead.status as Status | null}
                     // Na 'check_passed' geen edits meer mogelijk
-                    canEdit={
+                    canEdit(
                       canWriteLeads &&
                       lead.status !== "cancelled" &&
                       lead.status !== "check_passed" &&
                       lead.status !== "done"
-                    }
+                    )
                   />
                 </td>
 
