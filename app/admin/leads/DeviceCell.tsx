@@ -5,6 +5,16 @@
 import { useState } from 'react';
 import { updateLeadInlineAction } from './actions';
 
+type Status =
+  | 'new'
+  | 'received_store'
+  | 'label_created'
+  | 'shipment_received'
+  | 'check_passed'
+  | 'check_failed'
+  | 'done'
+  | 'cancelled';
+
 type Props = {
   id: string;
   model: string | null;
@@ -29,13 +39,16 @@ const label = 'text-[11px] text-gray-500';
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  // locked zodra controle afgerond is
-  const isLockedByStatus =
-    p.status === 'check_passed' ||
-    p.status === 'check_failed' ||
-    p.status === 'done';
+  const status: Status = (p.status ?? 'new') as Status;
+  const isEditable = !!p.canEdit;
 
-  const isEditable = !!p.canEdit && !isLockedByStatus;
+  // Model/details pas vanaf "shipment_received" tonen
+  const afterShipment =
+    status === 'shipment_received' ||
+    status === 'check_passed' ||
+    status === 'check_failed' ||
+    status === 'done' ||
+    status === 'cancelled';
 
   // Init-lijst voor gebruikte onderdelen uit array
   const initialParts = Array.isArray(p.used_parts_skus)
@@ -56,7 +69,7 @@ export default function DeviceCell(p: Props) {
       .filter(Boolean)
       .join(' • ') || '—';
 
-  // Helper voor weergave van gebruikte onderdelen
+  // Helper voor weergave van gebruikte onderdelen (read-only blok)
   const partsDisplay =
     parts
       .map((s) => s.trim())
@@ -87,13 +100,17 @@ export default function DeviceCell(p: Props) {
           className="text-xs px-2 h-7 border rounded"
           aria-expanded={open}
           title={
-            isLockedByStatus
+            !afterShipment
               ? open
                 ? 'Sluiten'
-                : 'Toon details (alleen lezen)'
+                : 'Toon info'
+              : isEditable
+              ? open
+                ? 'Sluiten'
+                : 'Bewerken / details'
               : open
               ? 'Sluiten'
-              : 'Bewerken / details'
+              : 'Toon details (alleen lezen)'
           }
         >
           {open ? '▴' : '▾'}
@@ -102,8 +119,13 @@ export default function DeviceCell(p: Props) {
 
       {open && (
         <>
-          {isEditable ? (
-            // ====== BEWERKBARE MODE ======
+          {/* Voor de zending is ontvangen: enkel melding tonen */}
+          {!afterShipment ? (
+            <div className="mt-1 text-[11px] text-gray-500">
+              Eenmaal het toestel ontvangen is kan je details toevoegen.
+            </div>
+          ) : isEditable ? (
+            // ====== BEWERKBARE MODE (shipment_received / check_failed) ======
             <form
               action={updateLeadInlineAction}
               className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2"
@@ -246,7 +268,9 @@ export default function DeviceCell(p: Props) {
                     <div
                       className="prose prose-xs max-w-none"
                       // HTML komt uit jouw backend (admin-only → ok)
-                      dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
+                      dangerouslySetInnerHTML={{
+                        __html: p.questions_answers_html,
+                      }}
                     />
                   </div>
                 </details>
@@ -257,7 +281,7 @@ export default function DeviceCell(p: Props) {
               )}
             </form>
           ) : (
-            // ====== READ-ONLY MODE (na controle) ======
+            // ====== READ-ONLY MODE (bv. na check_passed/done) ======
             <div className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2 text-xs text-gray-700">
               <div>
                 <span className="font-semibold">SKU:</span> {p.sku || '—'}
@@ -284,7 +308,9 @@ export default function DeviceCell(p: Props) {
                   <div className="mt-1 border border-gray-200 rounded bg-white p-2 max-h-64 overflow-auto">
                     <div
                       className="prose prose-xs max-w-none"
-                      dangerouslySetInnerHTML={{ __html: p.questions_answers_html }}
+                      dangerouslySetInnerHTML={{
+                        __html: p.questions_answers_html,
+                      }}
                     />
                   </div>
                 </details>
@@ -300,4 +326,3 @@ export default function DeviceCell(p: Props) {
     </div>
   );
 }
-
