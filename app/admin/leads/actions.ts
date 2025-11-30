@@ -778,15 +778,22 @@ export async function updateLeadInlineAction(formData: FormData) {
     });
   }
 
-  // 3) Wijziging in SKU of IMEI loggen
+// 3) Wijziging in toestelgegevens (SKU / IMEI / batterij / onderdelen) loggen
   const skuChanged =
     Object.prototype.hasOwnProperty.call(patch, "sku") &&
     patch.sku !== (before as any).sku;
   const imeiChanged =
     Object.prototype.hasOwnProperty.call(patch, "imei_sn") &&
     patch.imei_sn !== (before as any).imei_sn;
+  const batteryChanged =
+    Object.prototype.hasOwnProperty.call(patch, "battery_percentage") &&
+    patch.battery_percentage !== (before as any).battery_percentage;
+  const usedPartsChanged =
+    Object.prototype.hasOwnProperty.call(patch, "used_parts_skus") &&
+    JSON.stringify(patch.used_parts_skus ?? null) !==
+      JSON.stringify((before as any).used_parts_skus ?? null);
 
-  if (skuChanged || imeiChanged) {
+  if (skuChanged || imeiChanged || batteryChanged || usedPartsChanged) {
     historyToAppend.push({
       type: "device",
       at: nowIso,
@@ -795,8 +802,16 @@ export async function updateLeadInlineAction(formData: FormData) {
       to_sku: (patch.sku ?? (before as any).sku) ?? null,
       from_imei_sn: (before as any).imei_sn ?? null,
       to_imei_sn: (patch.imei_sn ?? (before as any).imei_sn) ?? null,
+      from_battery_percentage: (before as any).battery_percentage ?? null,
+      to_battery_percentage:
+        (patch.battery_percentage ?? (before as any).battery_percentage) ??
+        null,
+      from_used_parts_skus: (before as any).used_parts_skus ?? null,
+      to_used_parts_skus:
+        (patch.used_parts_skus ?? (before as any).used_parts_skus) ?? null,
     });
   }
+
 
   if (historyToAppend.length > 0) {
     patch.status_history = [...existingHistory, ...historyToAppend];
