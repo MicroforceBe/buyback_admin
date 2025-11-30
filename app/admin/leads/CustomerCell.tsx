@@ -17,6 +17,7 @@ type Props = {
   country: string | null;
   phone: string | null;
   email: string | null; // read-only
+  canEdit?: boolean;
 };
 
 const input = 'bb-input h-9 text-xs px-2 py-1';
