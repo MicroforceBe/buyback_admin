@@ -7,6 +7,7 @@ export type AdminRole = "admin" | "user";
 export type AdminFeature =
   | "dashboard"
   | "leads"
+  | "leads_finalize"
   | "catalog"
   | "multipliers"
   | "uploads"
