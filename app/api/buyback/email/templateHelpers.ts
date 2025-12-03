@@ -6,9 +6,23 @@ type TemplateRow = {
   body_html: string;
 };
 
+/** Basic HTML escaping voor gewone tekst-placeholders */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
  * Haal template op uit buyback_email_templates, op basis van key + language,
  * en vervang {{placeholders}} met de meegegeven vars.
+ *
+ * Regels:
+ * - alle variabelen worden ge-escaped
+ * - behalve variabelen die eindigen op `_html` → die worden als raw HTML ingevoegd
  */
 export async function renderEmailTemplate(
   key: string,
@@ -31,8 +45,16 @@ export async function renderEmailTemplate(
 
   const replace = (input: string): string =>
     input.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_m, name) => {
-      const v = vars[name] ?? "";
-      return v;
+      const raw = vars[name];
+      if (raw == null) return "";
+
+      // 🔹 Variabelen die eindigen op `_html` zijn al HTML en worden NIET ge-escaped
+      if (name.endsWith("_html")) {
+        return String(raw);
+      }
+
+      // 🔹 Alle andere variabelen netjes escapen
+      return escapeHtml(String(raw));
     });
 
   return {
