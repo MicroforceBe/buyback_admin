@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff !important;
+  color: #0f172a;
+  /* Zorg dat de browser niet in "dark" UI-mode springt */
+  color-scheme: light;
+}
+
 :root { scroll-behavior: smooth; }
 *:focus { outline: none; }
 :focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
