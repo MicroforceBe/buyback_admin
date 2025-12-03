@@ -405,7 +405,7 @@ export default async function EmailTemplatesSettingsPage() {
           languages={LANGUAGES}
           onSaveTemplate={actionSaveTemplate}
           // optioneel: kun je nog gebruiken in de component om knoppen te disablen
-          canEdit={!canWrite}
+          canEdit={canWrite}
         />
 
         {/* OVERIGE / GEVANCEERDE TEMPLATES */}
