@@ -875,7 +875,8 @@ export default async function LeadsPage({
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
+              {/* left nav kolom iets smaller */}
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[200px]">
                 <a
                   href={makeSortHref("created_at")}
                   className="font-semibold hover:underline"
@@ -897,6 +898,7 @@ export default async function LeadsPage({
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <span className="font-semibold">Klant</span>
               </th>
+              {/* model-kolom mag wrappen, dus geen harde minimum voor prijs wegkap */}
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <a
                   href={makeSortHref("model")}
@@ -905,7 +907,8 @@ export default async function LeadsPage({
                   Model
                 </a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px]">
+              {/* prijs-kolom: min-w + geen wrapping zodat prijs nooit afgekapt wordt */}
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px] min-w-[130px] text-right">
                 <a
                   href={makeSortHref("final_price_cents")}
                   className="font-semibold hover:underline"
@@ -975,21 +978,25 @@ export default async function LeadsPage({
                                 .map((h, i) => {
                                   const anyH: any = h;
                                   const t = anyH.type as string | undefined;
-                      
+
                                   let label: string;
-                      
+
                                   if (t === "status") {
                                     // Enkel de nieuwe status tonen
-                                    label = `Status: ${statusLabel(anyH.to as Status | null)}`;
+                                    label = `Status: ${statusLabel(
+                                      anyH.to as Status | null
+                                    )}`;
                                   } else if (t === "price") {
                                     const to = Number(anyH.to ?? 0);
-                                    label = `Prijs: €${(to / 100).toFixed(2)}`;
+                                    label = `Prijs: €${(
+                                      to / 100
+                                    ).toFixed(2)}`;
                                   } else if (t === "device") {
                                     label = "Toestel: gegevens aangepast";
                                   } else {
                                     label = t ? `Log (${t})` : "Log";
                                   }
-                      
+
                                   return (
                                     <li
                                       key={`${lead.id}-hist-${i}`}
@@ -1001,7 +1008,9 @@ export default async function LeadsPage({
                                       {anyH.by && (
                                         <>
                                           {" "}
-                                          <span className="text-gray-500">•</span>{" "}
+                                          <span className="text-gray-500">
+                                            •
+                                          </span>{" "}
                                           <span>{anyH.by}</span>
                                         </>
                                       )}
@@ -1077,7 +1086,7 @@ export default async function LeadsPage({
                 </td>
 
                 {/* Model + device details */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
                   <DeviceCell
                     id={lead.id}
                     model={lead.model}
@@ -1098,14 +1107,14 @@ export default async function LeadsPage({
                   />
                 </td>
 
-                {/* Prijs (inline editable / read-only) */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top">
+                {/* Prijs (inline editable / read-only) – nooit afgekapt */}
+                <td className="px-3 py-2 border-r border-gray-200 align-top whitespace-nowrap min-w-[130px]">
                   {canWriteLeads &&
                   lead.status !== "cancelled" &&
                   lead.status !== "check_passed" ? (
                     <form
                       action={updateLeadInlineAction}
-                      className="flex items-center gap-2"
+                      className="flex items-center justify-end gap-2"
                     >
                       <input type="hidden" name="id" value={lead.id} />
                       {/* hint voor logging prijswijziging */}
@@ -1120,7 +1129,7 @@ export default async function LeadsPage({
                         defaultValue={(
                           (lead.final_price_cents ?? 0) / 100
                         ).toString()}
-                        className="bb-input h-9 text-xs px-2 py-1 w-24"
+                        className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
                         inputMode="decimal"
                         placeholder="0.00"
                       />
@@ -1133,7 +1142,7 @@ export default async function LeadsPage({
                       </button>
                     </form>
                   ) : (
-                    <div className="text-sm">
+                    <div className="text-sm text-right">
                       {lead.final_price_cents != null
                         ? (lead.final_price_cents / 100).toFixed(2)
                         : "—"}
