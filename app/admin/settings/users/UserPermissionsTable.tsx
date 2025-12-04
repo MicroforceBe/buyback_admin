@@ -44,7 +44,14 @@ export default function UserPermissionsTable({
     initialUsers.map((u) => ({
       email: u.email,
       role: u.role,
-      permissions: { ...emptyPermissionsForAll, ...(u.permissions || {}) },
+      // 🔧 Deep copy per user, zodat feature-permissions niet gedeeld worden tussen users
+      permissions: ALL_FEATURES.reduce((acc, feature) => {
+        const src =
+          (u.permissions && u.permissions[feature]) ||
+          emptyPermissionsForAll[feature];
+        acc[feature] = { read: !!src?.read, write: !!src?.write };
+        return acc;
+      }, {} as PermissionsMap),
     }))
   );
 
@@ -85,22 +92,30 @@ export default function UserPermissionsTable({
     if (!canEdit) return;
 
     updateUser(email, (row) => {
-      const perms = {
-        ...emptyPermissionsForAll,
-        ...(row.permissions || {}),
+      const currentPerms = row.permissions || {};
+      const currentFeaturePerm =
+        currentPerms[feature] || { read: false, write: false };
+
+      const nextValue = !currentFeaturePerm[mode];
+
+      // Maak altijd een nieuwe feature-perm zodat er geen gedeelde referenties zijn
+      const nextFeaturePerm = {
+        ...currentFeaturePerm,
+        [mode]: nextValue,
       };
-      const featurePerm = perms[feature] ?? { read: false, write: false };
-      const nextValue = !featurePerm[mode];
 
       // Basisregel: write ⇒ read automatisch aan
       if (mode === 'write' && nextValue) {
-        featurePerm.read = true;
+        nextFeaturePerm.read = true;
       }
 
-      featurePerm[mode] = nextValue;
-      perms[feature] = featurePerm;
-
-      return { ...row, permissions: perms };
+      return {
+        ...row,
+        permissions: {
+          ...currentPerms,
+          [feature]: nextFeaturePerm,
+        },
+      };
     });
   }
 
@@ -420,3 +435,4 @@ export default function UserPermissionsTable({
     </div>
   );
 }
+
