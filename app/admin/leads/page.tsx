@@ -290,29 +290,38 @@ export default async function LeadsPage({
       customer_number?: string | null;
       sku?: string | null;
       imei_sn?: string | null;
+      delivery_method?: "ship" | "dropoff" | null;
     }
   ): Transition[] {
     const hasCust = Boolean((f.customer_number ?? "").trim());
     const hasSKU = Boolean((f.sku ?? "").trim());
     const hasIMEI = Boolean((f.imei_sn ?? "").trim());
+    const isDropoff = f.delivery_method === "dropoff";
 
     switch (curr) {
-      case "new":
-        return [
+      case "new": {
+        const base: Transition[] = [
           {
             value: "received_store",
             label: "Ontvangen in winkel",
             ok: hasCust,
             reason: "Klantnummer vereist",
           },
-          {
+        ];
+
+        // ⚠ Geen "Verzendlabel aangemaakt" bij binnenbrengen
+        if (!isDropoff) {
+          base.push({
             value: "label_created",
             label: "Verzendlabel aangemaakt",
             ok: hasCust,
             reason: "Klantnummer vereist",
-          },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
-        ];
+          });
+        }
+
+        base.push({ value: "cancelled", label: "Geannuleerd", ok: true });
+        return base;
+      }
       case "received_store":
         return [
           {
@@ -523,18 +532,6 @@ export default async function LeadsPage({
       </div>
     );
   }
-
-  const leadsForEdit = (data ?? []).map((l) => ({
-    id: l.id,
-    first_name: l.first_name,
-    last_name: l.last_name,
-    email: l.email,
-    phone: l.phone,
-    customer_number: l.customer_number,
-    sku: l.sku,
-    imei_sn: l.imei_sn,
-    status: l.status as Status | null,
-  }));
 
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -1163,6 +1160,7 @@ export default async function LeadsPage({
                           customer_number: lead.customer_number,
                           sku: lead.sku,
                           imei_sn: lead.imei_sn,
+                          delivery_method: lead.delivery_method,
                         }).filter((t) => t.ok);
                     const hasChoices = trans.length > 0;
 
