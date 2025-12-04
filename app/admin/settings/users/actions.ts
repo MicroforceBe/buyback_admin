@@ -9,6 +9,7 @@ import {
   PermissionsMap,
   hasPermission,
   isRootAdminEmail,
+  ALL_FEATURES,
 } from '@/lib/adminPermissions';
 import bcrypt from 'bcryptjs';
 
@@ -31,46 +32,16 @@ function isStrongPassword(pw: string): boolean {
 function normalizePermissions(
   perms: Partial<PermissionsMap> | PermissionsMap | null | undefined
 ): PermissionsMap {
-  const base: PermissionsMap = {
-    dashboard:     { read: false, write: false },
-    leads:         { read: false, write: false },
-    leads_finalize:{ read: false, write: false },
-    catalog:       { read: false, write: false },
-    multipliers:   { read: false, write: false },
-    uploads:       { read: false, write: false },
-    settings:      { read: false, write: false },
-  };
-
-  return {
-    dashboard: {
-      ...base.dashboard,
-      ...(perms?.dashboard ?? {}),
-    },
-    leads: {
-      ...base.leads,
-      ...(perms?.leads ?? {}),
-    },
-    leads_finalize: {
-      ...base.leads_finalize,
-      ...(perms?.leads_finalize ?? {}),
-    },
-    catalog: {
-      ...base.catalog,
-      ...(perms?.catalog ?? {}),
-    },
-    multipliers: {
-      ...base.multipliers,
-      ...(perms?.multipliers ?? {}),
-    },
-    uploads: {
-      ...base.uploads,
-      ...(perms?.uploads ?? {}),
-    },
-    settings: {
-      ...base.settings,
-      ...(perms?.settings ?? {}),
-    },
-  };
+  // 🔧 Dynamisch normaliseren op basis van ALL_FEATURES
+  // => nieuwe features zoals 'leads_finalize' worden automatisch meegenomen.
+  return ALL_FEATURES.reduce((acc, feature) => {
+    const incoming = perms?.[feature] ?? {};
+    acc[feature] = {
+      read: !!(incoming as any).read,
+      write: !!(incoming as any).write,
+    };
+    return acc;
+  }, {} as PermissionsMap);
 }
 
 type SaveAdminUserResult =
@@ -104,15 +75,10 @@ export async function saveAdminUserAction(
     console.log('[saveAdminUserAction] normalize root admin rights');
     // Root admin blijft admin; root admin krijgt altijd full rights.
     input.role = 'admin';
-    input.permissions = {
-      dashboard:     { read: true, write: true },
-      leads:         { read: true, write: true },
-      leads_finalize:{ read: true, write: true },
-      catalog:       { read: true, write: true },
-      multipliers:   { read: true, write: true },
-      uploads:       { read: true, write: true },
-      settings:      { read: true, write: true },
-    };
+    input.permissions = ALL_FEATURES.reduce((acc, feature) => {
+      acc[feature] = { read: true, write: true };
+      return acc;
+    }, {} as PermissionsMap);
   }
 
   // Permissions altijd normaliseren naar een volledige PermissionsMap
