@@ -42,8 +42,12 @@ export default function DeviceCell(p: Props) {
   const status: Status = (p.status ?? 'new') as Status;
   const isEditable = !!p.canEdit;
 
-  // Model/details pas vanaf "shipment_received" tonen
+  // Model/details tonen zodra toestel effectief binnen is:
+  // - Ontvangen in winkel (received_store)
+  // - Zending ontvangen (shipment_received)
+  // - + alle latere statussen
   const afterShipment =
+    status === 'received_store' ||
     status === 'shipment_received' ||
     status === 'check_passed' ||
     status === 'check_failed' ||
@@ -119,13 +123,13 @@ export default function DeviceCell(p: Props) {
 
       {open && (
         <>
-          {/* Voor de zending is ontvangen: enkel melding tonen */}
+          {/* Voor toestel nog niet fysiek binnen: enkel melding tonen */}
           {!afterShipment ? (
             <div className="mt-1 text-[11px] text-gray-500">
               Eenmaal het toestel ontvangen is kan je details toevoegen.
             </div>
           ) : isEditable ? (
-            // ====== BEWERKBARE MODE (shipment_received / check_failed) ======
+            // ====== BEWERKBARE MODE ======
             <form
               action={updateLeadInlineAction}
               className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2"
