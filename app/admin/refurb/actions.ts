@@ -332,19 +332,13 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   revalidatePath("/admin/refurb/suppliers");
 }
 
-/** 🔴 Form state voor nieuwe receptie */
+/** 🔴 Form state type voor nieuwe receptie */
 export type CreateReceptionFormState = {
   success: boolean;
   fieldErrors: {
     reception_number?: string;
   };
   formError: string | null;
-};
-
-export const createReceptionInitialState: CreateReceptionFormState = {
-  success: false,
-  fieldErrors: {},
-  formError: null,
 };
 
 /**
