@@ -1,7 +1,6 @@
 // app/admin/refurb/locations/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
-import RefurbTabs from "../RefurbTabs";
 import {
   createRefurbLocationFromForm,
   deleteRefurbLocationFromForm,
@@ -35,7 +34,6 @@ export default async function RefurbLocationsPage() {
   if (!user || user.role !== "admin") {
     return (
       <div className="p-4">
-        <RefurbTabs active="locations" role={user?.role ?? null} />
         <h1 className="text-lg font-semibold mb-2">Refurb locaties</h1>
         <p className="text-sm text-red-600">
           Je hebt geen toegang tot dit onderdeel (enkel voor admins).
@@ -48,8 +46,6 @@ export default async function RefurbLocationsPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <RefurbTabs active="locations" role={user.role} />
-
       <div>
         <h1 className="text-lg font-semibold">Refurb locaties</h1>
         <p className="text-xs text-slate-500 mt-1">
