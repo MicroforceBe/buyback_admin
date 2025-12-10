@@ -1,6 +1,6 @@
 // app/admin/refurb/new/page.tsx
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
-import NewRefurbReceptionForm from "./NewRefurbReceptionForm";
+import NewRefurbReceptionForm from "../NewRefurbReceptionForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
