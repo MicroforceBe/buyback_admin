@@ -1,8 +1,10 @@
 // app/api/buyback/email/sendStatusUpdateMail.ts
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplate } from "./templateHelpers";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { renderEmailTemplate } from "./templateHelpers";
 
-/** Statussen waarvoor we mails sturen (moet matchen met actions.ts) */ export type Status =
+/** Statussen waarvoor we mails sturen (moet matchen met actions.ts) */
+export type Status =
   | "new" // toegevoegd om typing in actions.ts te dekken (meestal niet verzonden)
   | "received_store"
   | "label_created"
@@ -11,7 +13,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplat
   | "check_failed"
   | "done";
 
-/** Payload van status-update mails (matcht aanroep in actions.ts) */ export type Input = {
+/** Payload van status-update mails (matcht aanroep in actions.ts) */
+export type Input = {
   // ontvanger + basis
   to: string | null;
   first_name?: string | null;
@@ -52,7 +55,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { renderEmailTemplat
 
 function eur(cents?: number | null) {
   const v = typeof cents === "number" ? cents : 0;
-  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" }); }
+  return (v / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
+}
 
 function fullName(first?: string | null, last?: string | null) {
   const s = [first, last].filter(Boolean).join(" ").trim();
@@ -77,24 +81,30 @@ type BrandingCfg = {
   email_reply_to?: string | undefined; // uit ENV
   email_disclaimer?: string | null; // uit DB
   logo_url?: string | null; // uit DB
+
+  // intern notificatie-adres voor nieuwe leads
+  new_order_email?: string | null; // uit DB (kolom "new_order_email")
 };
 
 async function loadBrandingFromDB(): Promise<Partial<BrandingCfg>> {
   try {
     const { data, error } = await supabaseAdmin
       .from("buyback_settings")
-      .select("brand_name, brand_color, logo_url, email_disclaimer")
+      .select("brand_name, brand_color, logo_url, email_disclaimer, new_order_email")
       .eq("id", 1)
       .single();
+
     if (error) {
       console.warn("[MAIL][branding] load error:", error);
       return {};
     }
+
     return {
       brand_name: data?.brand_name ?? undefined,
       brand_color: data?.brand_color ?? undefined,
       logo_url: data?.logo_url ?? undefined,
       email_disclaimer: data?.email_disclaimer ?? undefined,
+      new_order_email: data?.new_order_email ?? undefined,
     };
   } catch (e) {
     console.warn("[MAIL][branding] exception during load:", e);
@@ -110,6 +120,7 @@ function mergeBrandingWithEnv(partial: Partial<BrandingCfg>): BrandingCfg {
     email_reply_to: process.env.MAIL_REPLY_TO || undefined,
     email_disclaimer: partial.email_disclaimer ?? "",
     logo_url: partial.logo_url ?? "",
+    new_order_email: partial.new_order_email ?? null,
   };
 }
 
@@ -124,6 +135,7 @@ const DAY_ORDER = [
   "zaterdag",
   "zondag",
 ];
+
 const DAY_ALIASES: Record<string, string> = {
   ma: "maandag",
   maandag: "maandag",
@@ -351,12 +363,12 @@ export async function sendStatusUpdateMail(input: Input) {
   const leadIn = leadInFor(input.status, name);
   const actionBlock = actionBlockFor(input.status, input);
 
-  // “volgende stappen” vaste tekst (zelfde als in confirm) — met correcte spatie
+  // “volgende stappen” vaste tekst (zelfde als in confirm)
   const nextSteps = `
     <h3 style="margin:18px 0 6px;font-size:14px">Volgende stappen</h3>
     <p style="margin:0 0 12px">
       Bij ontvangst van jouw toestel word je op de hoogte gesteld van het verdere verloop van jouw verkoop.
-      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3werkdagen.
+      Indien alles conform jouw opgave is, wordt jouw aanvraag en uitbetaling verwerkt binnen 1 tot 3 werkdagen.
     </p>
   `;
 
@@ -374,7 +386,7 @@ export async function sendStatusUpdateMail(input: Input) {
       ${actionBlock}
       ${deliveryBlock}
       ${nextSteps}
-      <p style="margin:12px 0 0;color:#475569">Vragen?Antwoord gerust op deze e-mail.</p>
+      <p style="margin:12px 0 0;color:#475569">Vragen? Antwoord gerust op deze e-mail.</p>
       <p style="margin:4px 0 0;color:#475569">Met vriendelijke groeten,<br/>${branding.brand_name}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
       ${disclaimer}
@@ -446,6 +458,7 @@ export async function sendStatusUpdateMail(input: Input) {
   const finalSubject = rendered?.subject || subject;
   const finalHtml = rendered?.html || baseHtml;
 
+  // ------------ 1) MAIL NAAR KLANT ------------
   const res = await resend.emails.send({
     from: branding.email_from,
     to: input.to!,
@@ -465,5 +478,94 @@ export async function sendStatusUpdateMail(input: Input) {
     to: input.to,
     status: input.status,
   });
+
+  // ------------ 2) INTERNE MAIL BIJ NIEUWE LEAD ------------
+  if (branding.new_order_email && input.status === "new") {
+    try {
+      const internalSubject = `New buyback order ${input.order_code}`;
+
+      const internalHtml = `
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#0f172a">
+          <h2 style="margin:0 0 8px;font-size:18px">New buyback order</h2>
+          <p style="margin:0 0 8px">
+            Er werd zojuist een nieuwe buyback order aangemaakt via de widget.
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0"
+                 style="width:100%;border-collapse:collapse;margin:12px 0;border:1px solid #e5e7eb">
+            <tbody>
+              <tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Order</strong></td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb"><code>${input.order_code}</code></td>
+              </tr>
+              <tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Klant</strong></td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb">${fullName(
+                  input.first_name,
+                  input.last_name
+                )} &lt;${input.to}&gt;</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Toestel</strong></td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb">${devLine}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Berekende prijs</strong></td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb">${priceLine}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb;background:#fafafa"><strong>Levering</strong></td>
+                <td style="padding:6px 8px;border:1px solid #e5e7eb">${
+                  input.delivery_method === "dropoff"
+                    ? `Binnenbrengen in winkel (${input.shop_location ?? "onbekend"})`
+                    : input.delivery_method === "ship"
+                    ? "Verzenden per post"
+                    : "Onbekend"
+                }</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="margin:0 0 8px">
+            Bekijk het volledige dossier in de buyback admin.
+          </p>
+        </div>
+      `;
+
+      const internalText = [
+        `New buyback order ${input.order_code}`,
+        "",
+        `Klant: ${fullName(input.first_name, input.last_name)} <${input.to}>`,
+        `Toestel: ${devLine}`,
+        `Berekende prijs: ${priceLine}`,
+        input.delivery_method === "dropoff"
+          ? `Levering: Binnenbrengen in winkel (${input.shop_location ?? "onbekend"})`
+          : input.delivery_method === "ship"
+          ? "Levering: Verzenden per post"
+          : "Levering: Onbekend",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const resInternal = await resend.emails.send({
+        from: branding.email_from,
+        to: branding.new_order_email,
+        subject: internalSubject,
+        html: internalHtml,
+        text: internalText,
+      });
+
+      if ((resInternal as any)?.error) {
+        console.error("[MAIL][statusUpdate][internal] send error:", (resInternal as any).error);
+      } else {
+        console.info("[MAIL][statusUpdate][internal] send ok:", {
+          id: (resInternal as any).id,
+          to: branding.new_order_email,
+          status: input.status,
+        });
+      }
+    } catch (err) {
+      console.error("[MAIL][statusUpdate][internal] exception:", err);
+    }
+  }
+
   return res;
 }
