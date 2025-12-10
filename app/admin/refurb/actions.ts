@@ -3,6 +3,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { redirect } from "next/navigation";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
 
@@ -21,6 +22,13 @@ export type RefurbItem = {
   rma_defect_description: string | null;
   rma: string | null;
   compensation_cents: number | null;
+};
+
+export type RefurbSupplier = {
+  id: string;
+  name: string;
+  vat_number: string | null;
+  contact_email: string | null;
 };
 
 type EditableField =
@@ -237,13 +245,81 @@ export async function pasteIntoRefurbColumn(
 }
 
 /**
+ * Supplier zoeken (type-ahead).
+ * Wordt aangeroepen vanuit SupplierField (client component).
+ */
+export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_suppliers")
+    .select("id, name, vat_number, contact_email")
+    .ilike("name", `%${q}%`)
+    .order("name", { ascending: true })
+    .limit(10);
+
+  if (error) {
+    console.error("[REFURB] searchRefurbSuppliers error", error);
+    return [];
+  }
+
+  return data as RefurbSupplier[];
+}
+
+/**
+ * Supplier aanmaken – enkel voor admin gebruikers.
+ */
+export async function createRefurbSupplier(input: {
+  name: string;
+  vat_number?: string;
+  contact_email?: string;
+}): Promise<RefurbSupplier> {
+  const user = await getCurrentAdminUser();
+  if (!user || user.role !== "admin") {
+    console.warn("[REFURB] createRefurbSupplier forbidden for user", {
+      userId: user?.id,
+      role: user?.role,
+    });
+    throw new Error("Je hebt geen rechten om leveranciers aan te maken.");
+  }
+
+  const name = input.name.trim();
+  const vat_number = input.vat_number?.trim() || null;
+  const contact_email = input.contact_email?.trim() || null;
+
+  if (!name) {
+    throw new Error("Naam leverancier is verplicht.");
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_suppliers")
+    .insert({
+      name,
+      vat_number,
+      contact_email,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select("id, name, vat_number, contact_email")
+    .single();
+
+  if (error) {
+    console.error("[REFURB] createRefurbSupplier error", error);
+    throw new Error("Kon leverancier niet aanmaken.");
+  }
+
+  return data as RefurbSupplier;
+}
+
+/**
  * Nieuwe Refurb Reception aanmaken.
- * Wordt gebruikt door /admin/refurb/new/page.tsx
+ * Leverancier komt nu uit refurb_suppliers via supplier_id.
  */
 export async function createRefurbReception(formData: FormData) {
   const reception_number = (formData.get("reception_number") || "").toString().trim();
   const reception_date = (formData.get("reception_date") || "").toString().trim();
-  const supplier = (formData.get("supplier") || "").toString().trim();
+  const supplier_id = (formData.get("supplier_id") || "").toString().trim();
   const vat_scheme_raw = (formData.get("vat_scheme") || "").toString().trim();
   const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "").toString().trim();
   const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
@@ -251,15 +327,14 @@ export async function createRefurbReception(formData: FormData) {
   const vat_scheme: VatScheme =
     vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
 
-  if (!reception_number || !reception_date || !supplier || !supplier_invoice_nr) {
+  if (!reception_number || !reception_date || !supplier_id || !supplier_invoice_nr) {
     console.warn("[REFURB] createRefurbReception missing required fields", {
       reception_number,
       reception_date,
-      supplier,
+      supplier_id,
       supplier_invoice_nr,
     });
-    // Eenvoudig: gooi error; in de UI kan je nog validatie/toast toevoegen
-    throw new Error("Missing required fields");
+    throw new Error("Verplichte velden ontbreken.");
   }
 
   const { data, error } = await supabaseAdmin
@@ -267,7 +342,7 @@ export async function createRefurbReception(formData: FormData) {
     .insert({
       reception_number,
       reception_date,
-      supplier,
+      supplier_id,
       vat_scheme,
       supplier_invoice_nr,
       internal_invoice_nr: internal_invoice_nr || null,
@@ -289,4 +364,3 @@ export async function createRefurbReception(formData: FormData) {
 
   redirect(`/admin/refurb/${id}`);
 }
-
