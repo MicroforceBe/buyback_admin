@@ -345,18 +345,29 @@ export async function createRefurbReception(formData: FormData) {
   const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
 
   const vat_scheme: VatScheme =
-    vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
+    vat_scheme_raw === "normal" ? "normal" : "margin";
 
   if (!reception_number || !reception_date || !supplier_id || !supplier_invoice_nr) {
-    console.warn("[REFURB] createRefurbReception missing required fields", {
-      reception_number,
-      reception_date,
-      supplier_id,
-      supplier_invoice_nr,
-    });
     throw new Error("Verplichte velden ontbreken.");
   }
 
+  // 🔍 1) Check of receptienummer al bestaat
+  const existing = await supabaseAdmin
+    .from("refurb_receptions")
+    .select("id")
+    .eq("reception_number", reception_number)
+    .limit(1);
+
+  if (existing.error) {
+    console.error("[REFURB] createRefurbReception unique-check error", existing.error);
+    throw new Error("Kon niet controleren of het receptienummer reeds bestaat.");
+  }
+
+  if (existing.data && existing.data.length > 0) {
+    throw new Error(`Receptienummer '${reception_number}' bestaat al.`);
+  }
+
+  // 🔵 2) Insert uitvoeren
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
     .insert({
@@ -373,14 +384,15 @@ export async function createRefurbReception(formData: FormData) {
     .single();
 
   if (error) {
-    console.error("[REFURB] createRefurbReception error", error);
+    console.error("[REFURB] createRefurbReception insert error", error);
     throw new Error(error.message || "Kon receptie niet aanmaken.");
   }
 
-  const id = (data as any)?.id as string;
+  const id = (data as any)?.id;
   if (!id) {
-    throw new Error("Failed to create reception");
+    throw new Error("Kon receptie niet aanmaken (geen ID ontvangen).");
   }
 
   redirect(`/admin/refurb/${id}`);
 }
+
