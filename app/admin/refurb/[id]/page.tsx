@@ -5,6 +5,13 @@ import RefurbReceptionTable from "../RefurbReceptionTable";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type SupplierInfo = {
+  id: string;
+  name: string;
+  vat_number: string | null;
+  contact_email: string | null;
+};
+
 type RefurbReception = {
   id: string;
   reception_number: string;
@@ -12,12 +19,7 @@ type RefurbReception = {
   vat_scheme: "margin" | "normal";
   supplier_invoice_nr: string;
   internal_invoice_nr: string | null;
-  supplier: {
-    id: string;
-    name: string;
-    vat_number: string | null;
-    contact_email: string | null;
-  } | null;
+  supplier: SupplierInfo | null;
 };
 
 type RefurbItemRow = {
@@ -64,7 +66,43 @@ async function getReception(id: string): Promise<RefurbReception | null> {
     return null;
   }
 
-  return data as RefurbReception;
+  // Supabase geeft hier vaak een array terug voor de relatie.
+  const raw = data as any;
+
+  const supplierRel = Array.isArray(raw.supplier)
+    ? raw.supplier[0] ?? null
+    : raw.supplier ?? null;
+
+  const supplier: SupplierInfo | null = supplierRel
+    ? {
+        id: String(supplierRel.id),
+        name: String(supplierRel.name),
+        vat_number:
+          supplierRel.vat_number !== undefined && supplierRel.vat_number !== null
+            ? String(supplierRel.vat_number)
+            : null,
+        contact_email:
+          supplierRel.contact_email !== undefined &&
+          supplierRel.contact_email !== null
+            ? String(supplierRel.contact_email)
+            : null,
+      }
+    : null;
+
+  const reception: RefurbReception = {
+    id: String(raw.id),
+    reception_number: String(raw.reception_number),
+    reception_date: String(raw.reception_date),
+    vat_scheme: raw.vat_scheme === "normal" ? "normal" : "margin",
+    supplier_invoice_nr: String(raw.supplier_invoice_nr),
+    internal_invoice_nr:
+      raw.internal_invoice_nr !== undefined && raw.internal_invoice_nr !== null
+        ? String(raw.internal_invoice_nr)
+        : null,
+    supplier,
+  };
+
+  return reception;
 }
 
 async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
@@ -130,10 +168,7 @@ export default async function RefurbReceptionDetailPage({
           {supplierEmail && (
             <p className="text-[11px] text-slate-500">
               Contact:{" "}
-              <a
-                href={`mailto:${supplierEmail}`}
-                className="underline"
-              >
+              <a href={`mailto:${supplierEmail}`} className="underline">
                 {supplierEmail}
               </a>
             </p>
