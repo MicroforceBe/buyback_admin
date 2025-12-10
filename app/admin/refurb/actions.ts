@@ -248,6 +248,35 @@ export async function pasteIntoRefurbColumn(
 /**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
+export type RefurbSupplier = {
+  id: string;
+  name: string;
+  vat_number: string | null;
+  contact_email: string | null;
+};
+
+type EditableField =
+  | "refurb_status"
+  | "sku"
+  | "used_parts"
+  | "price_cents"
+  | "description"
+  | "supplier_device_errors"
+  | "supplier_grading"
+  | "refurb_diagnostics"
+  | "rma_defect_description"
+  | "rma"
+  | "compensation_cents";
+
+type PasteField = EditableField;
+
+// ... je bestaande LOCK_AFTER_FILL_FIELDS, ALWAYS_EDITABLE_FIELDS,
+// parseMoneyToCents, isCellEmpty, fetchItemsForReception,
+// updateRefurbItemCell en pasteIntoRefurbColumn laat je staan ...
+
+/**
+ * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
+ */
 export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
   const q = query.trim();
   if (!q) return [];
@@ -332,11 +361,33 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   revalidatePath("/admin/refurb/suppliers");
 }
 
+/** 🔴 Form state voor nieuwe receptie */
+export type CreateReceptionFormState = {
+  success: boolean;
+  fieldErrors: {
+    reception_number?: string;
+  };
+  formError: string | null;
+};
+
+export const createReceptionInitialState: CreateReceptionFormState = {
+  success: false,
+  fieldErrors: {},
+  formError: null,
+};
+
 /**
  * Nieuwe Refurb Reception aanmaken.
- * Leverancier komt uit refurb_suppliers via supplier_id.
+ * - Checkt of receptienummer al bestaat.
+ * - Bij duplicate: veldfout op "Receptie nr" met "Nr bestaat reeds".
+ * - Bij succes: redirect naar detailpagina.
+ *
+ * ⚠️ Let op: signature is nu (prevState, formData) i.p.v. alleen formData.
  */
-export async function createRefurbReception(formData: FormData) {
+export async function createRefurbReception(
+  _prevState: CreateReceptionFormState,
+  formData: FormData
+): Promise<CreateReceptionFormState> {
   const reception_number = (formData.get("reception_number") || "").toString().trim();
   const reception_date = (formData.get("reception_date") || "").toString().trim();
   const supplier_id = (formData.get("supplier_id") || "").toString().trim();
@@ -345,13 +396,20 @@ export async function createRefurbReception(formData: FormData) {
   const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
 
   const vat_scheme: VatScheme =
-    vat_scheme_raw === "normal" ? "normal" : "margin";
+    vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
 
+  // Basis-check verplichte velden
   if (!reception_number || !reception_date || !supplier_id || !supplier_invoice_nr) {
-    throw new Error("Verplichte velden ontbreken.");
+    return {
+      success: false,
+      fieldErrors: {
+        reception_number: !reception_number ? "Verplicht veld" : undefined,
+      },
+      formError: "Verplichte velden ontbreken.",
+    };
   }
 
-  // 🔍 1) Check of receptienummer al bestaat
+  // 🔍 1) Unieke check op receptienummer
   const existing = await supabaseAdmin
     .from("refurb_receptions")
     .select("id")
@@ -360,11 +418,22 @@ export async function createRefurbReception(formData: FormData) {
 
   if (existing.error) {
     console.error("[REFURB] createRefurbReception unique-check error", existing.error);
-    throw new Error("Kon niet controleren of het receptienummer reeds bestaat.");
+    return {
+      success: false,
+      fieldErrors: {},
+      formError: "Kon niet controleren of het receptienummer reeds bestaat.",
+    };
   }
 
   if (existing.data && existing.data.length > 0) {
-    throw new Error(`Receptienummer '${reception_number}' bestaat al.`);
+    // → Nr bestaat reeds → veldfout op receptie nr
+    return {
+      success: false,
+      fieldErrors: {
+        reception_number: "Nr bestaat reeds",
+      },
+      formError: null,
+    };
   }
 
   // 🔵 2) Insert uitvoeren
@@ -385,14 +454,23 @@ export async function createRefurbReception(formData: FormData) {
 
   if (error) {
     console.error("[REFURB] createRefurbReception insert error", error);
-    throw new Error(error.message || "Kon receptie niet aanmaken.");
+    return {
+      success: false,
+      fieldErrors: {},
+      formError: error.message || "Kon receptie niet aanmaken.",
+    };
   }
 
   const id = (data as any)?.id;
   if (!id) {
-    throw new Error("Kon receptie niet aanmaken (geen ID ontvangen).");
+    return {
+      success: false,
+      fieldErrors: {},
+      formError: "Kon receptie niet aanmaken (geen ID ontvangen).",
+    };
   }
 
+  // Succes → redirect naar detailpagina (geen state meer nodig)
   redirect(`/admin/refurb/${id}`);
 }
 
