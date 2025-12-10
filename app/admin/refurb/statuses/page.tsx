@@ -38,7 +38,7 @@ export default async function RefurbStatusesPage() {
   if (!user || user.role !== "admin") {
     return (
       <div className="p-4">
-        <RefurbTabs active="statuses" />
+        <RefurbTabs active="statuses" role={user?.role ?? null} />
         <h1 className="text-lg font-semibold mb-2">Refurb statussen</h1>
         <p className="text-sm text-red-600">
           Je hebt geen toegang tot dit onderdeel (enkel voor admins).
@@ -51,7 +51,7 @@ export default async function RefurbStatusesPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <RefurbTabs active="statuses" />
+      <RefurbTabs active="statuses" role={user.role} />
 
       <div>
         <h1 className="text-lg font-semibold">Refurb statussen</h1>
@@ -138,18 +138,7 @@ export default async function RefurbStatusesPage() {
                   )}
                 </td>
                 <td className="px-2 py-1 border text-right">
-                  <form
-                    action={deleteRefurbStatusFromForm}
-                    onSubmit={(e) => {
-                      if (
-                        !confirm(
-                          `Status "${st.label}" verwijderen? Dit kan niet ongedaan gemaakt worden.`
-                        )
-                      ) {
-                        e.preventDefault();
-                      }
-                    }}
-                  >
+                  <form action={deleteRefurbStatusFromForm}>
                     <input type="hidden" name="id" value={st.id} />
                     <button
                       type="submit"
