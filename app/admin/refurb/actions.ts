@@ -278,7 +278,8 @@ export async function createRefurbSupplier(input: {
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     console.warn("[REFURB] createRefurbSupplier forbidden for user", {
-      userId: user?.id,
+      // we loggen hier alleen veilige, bestaande properties
+      email: user?.email,
       role: user?.role,
     });
     throw new Error("Je hebt geen rechten om leveranciers aan te maken.");
@@ -311,6 +312,7 @@ export async function createRefurbSupplier(input: {
 
   return data as RefurbSupplier;
 }
+
 
 /**
  * Nieuwe Refurb Reception aanmaken.
