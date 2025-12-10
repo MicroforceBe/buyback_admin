@@ -401,13 +401,30 @@ export async function createRefurbReception(
     };
   }
 
-  // 🔵 2) Insert uitvoeren
+  // 🔎 2) Leveranciersnaam ophalen voor oude 'supplier' kolom (NOT NULL)
+  let supplierName = "";
+  const supplierRes = await supabaseAdmin
+    .from("refurb_suppliers")
+    .select("name")
+    .eq("id", supplier_id)
+    .limit(1)
+    .single();
+
+  if (supplierRes.error) {
+    console.warn("[REFURB] could not fetch supplier name", supplierRes.error);
+    // we laten supplierName gewoon leeg, maar NIET null
+  } else if (supplierRes.data?.name) {
+    supplierName = supplierRes.data.name;
+  }
+
+  // 🔵 3) Insert uitvoeren (zowel supplier_id als supplier invullen)
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
     .insert({
       reception_number,
       reception_date,
       supplier_id,
+      supplier: supplierName || "", // ← belangrijk: geen NULL
       vat_scheme,
       supplier_invoice_nr,
       internal_invoice_nr: internal_invoice_nr || null,
@@ -435,6 +452,6 @@ export async function createRefurbReception(
     };
   }
 
-  // Succes → redirect naar detailpagina (geen state meer nodig)
+  // Succes → redirect naar detailpagina
   redirect(`/admin/refurb/${id}`);
 }
