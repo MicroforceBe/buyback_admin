@@ -3,6 +3,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
@@ -57,7 +58,6 @@ const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
 ];
 
 // Kolommen die altijd overschrijfbaar zijn (interne refurb workflow)
-// (nu nog niet expliciet gebruikt in de logica, maar semantisch nuttig)
 const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
@@ -142,7 +142,7 @@ export async function updateRefurbItemCell(
  * Multi-line paste in één kolom (Excel-stijl).
  *
  * - Voor LOCK_AFTER_FILL_FIELDS: alleen invullen als cel nog leeg is.
- * - Voor andere kolommen: bestaande waarde mag overschreven worden.
+ * - Voor ALWAYS_EDITABLE_FIELDS: bestaande waarde mag overschreven worden.
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  */
@@ -268,7 +268,8 @@ export async function searchRefurbSuppliers(query: string): Promise<RefurbSuppli
 }
 
 /**
- * Supplier aanmaken – enkel voor admin gebruikers.
+ * Supplier aanmaken – basisactie (wordt gebruikt door client componenten).
+ * Enkel voor admin users.
  */
 export async function createRefurbSupplier(input: {
   name: string;
@@ -310,6 +311,25 @@ export async function createRefurbSupplier(input: {
   }
 
   return data as RefurbSupplier;
+}
+
+/**
+ * Supplier aanmaken vanuit een form action in de Leveranciers-tab.
+ * Gebruikt de basisactie hierboven + revalidatePath.
+ */
+export async function createRefurbSupplierFromForm(formData: FormData) {
+  const name = (formData.get("name") || "").toString().trim();
+  const vat_number = (formData.get("vat_number") || "").toString().trim();
+  const contact_email = (formData.get("contact_email") || "").toString().trim();
+
+  await createRefurbSupplier({
+    name,
+    vat_number,
+    contact_email,
+  });
+
+  // lijst opnieuw inladen op de leverancierspagina
+  revalidatePath("/admin/refurb/suppliers");
 }
 
 /**
