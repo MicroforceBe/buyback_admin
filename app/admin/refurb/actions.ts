@@ -57,6 +57,7 @@ const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
 ];
 
 // Kolommen die altijd overschrijfbaar zijn (interne refurb workflow)
+// (nu nog niet expliciet gebruikt in de logica, maar semantisch nuttig)
 const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
@@ -141,7 +142,7 @@ export async function updateRefurbItemCell(
  * Multi-line paste in één kolom (Excel-stijl).
  *
  * - Voor LOCK_AFTER_FILL_FIELDS: alleen invullen als cel nog leeg is.
- * - Voor ALWAYS_EDITABLE_FIELDS: bestaande waarde mag overschreven worden.
+ * - Voor andere kolommen: bestaande waarde mag overschreven worden.
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  */
@@ -245,8 +246,7 @@ export async function pasteIntoRefurbColumn(
 }
 
 /**
- * Supplier zoeken (type-ahead).
- * Wordt aangeroepen vanuit SupplierField (client component).
+ * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
 export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
   const q = query.trim();
@@ -261,7 +261,7 @@ export async function searchRefurbSuppliers(query: string): Promise<RefurbSuppli
 
   if (error) {
     console.error("[REFURB] searchRefurbSuppliers error", error);
-    return [];
+    throw new Error(error.message || "Zoeken naar leveranciers mislukt.");
   }
 
   return data as RefurbSupplier[];
@@ -278,7 +278,6 @@ export async function createRefurbSupplier(input: {
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     console.warn("[REFURB] createRefurbSupplier forbidden for user", {
-      // we loggen hier alleen veilige, bestaande properties
       email: user?.email,
       role: user?.role,
     });
@@ -307,16 +306,15 @@ export async function createRefurbSupplier(input: {
 
   if (error) {
     console.error("[REFURB] createRefurbSupplier error", error);
-    throw new Error("Kon leverancier niet aanmaken.");
+    throw new Error(error.message || "Kon leverancier niet aanmaken.");
   }
 
   return data as RefurbSupplier;
 }
 
-
 /**
  * Nieuwe Refurb Reception aanmaken.
- * Leverancier komt nu uit refurb_suppliers via supplier_id.
+ * Leverancier komt uit refurb_suppliers via supplier_id.
  */
 export async function createRefurbReception(formData: FormData) {
   const reception_number = (formData.get("reception_number") || "").toString().trim();
@@ -356,7 +354,7 @@ export async function createRefurbReception(formData: FormData) {
 
   if (error) {
     console.error("[REFURB] createRefurbReception error", error);
-    throw error;
+    throw new Error(error.message || "Kon receptie niet aanmaken.");
   }
 
   const id = (data as any)?.id as string;
