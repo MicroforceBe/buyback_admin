@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { createRefurbSupplierFromForm } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,12 +40,10 @@ export default async function RefurbSuppliersPage() {
   // Alleen admins mogen leveranciers beheren
   if (user.role !== "admin") {
     return (
-      <div className="p-4">
-        <h1 className="text-lg font-semibold mb-2">Refurb leveranciers</h1>
+      <div className="p-4 space-y-4">
+        <h2 className="text-base font-semibold">Leveranciers</h2>
         <div className="p-3 bg-red-50 border border-red-200 rounded text-sm">
-          <div className="text-red-700 font-medium mb-1">
-            Geen toegang
-          </div>
+          <div className="text-red-700 font-medium mb-1">Geen toegang</div>
           <p className="text-xs text-red-700">
             Enkel admin gebruikers mogen leveranciers bekijken en beheren.
           </p>
@@ -56,16 +55,72 @@ export default async function RefurbSuppliersPage() {
   const suppliers = await getSuppliers();
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Refurb leveranciers</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Overzicht van alle leveranciers die je kunt koppelen aan Refurb receptions.
-          </p>
-        </div>
+    <div className="space-y-4">
+      {/* Nieuwe leverancier formulier */}
+      <div className="border rounded-md bg-white p-3 text-sm">
+        <h2 className="text-sm font-semibold mb-2">Nieuwe leverancier</h2>
+        <form action={createRefurbSupplierFromForm} className="grid gap-3 md:grid-cols-3">
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="name"
+              className="text-[11px] font-medium text-slate-600 uppercase"
+            >
+              Naam
+            </label>
+            <input
+              id="name"
+              name="name"
+              type="text"
+              required
+              className="bb-input h-8 text-xs px-2"
+              placeholder="Naam leverancier"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="vat_number"
+              className="text-[11px] font-medium text-slate-600 uppercase"
+            >
+              BTW-nummer
+            </label>
+            <input
+              id="vat_number"
+              name="vat_number"
+              type="text"
+              className="bb-input h-8 text-xs px-2"
+              placeholder="BE0..."
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="contact_email"
+              className="text-[11px] font-medium text-slate-600 uppercase"
+            >
+              E-mail
+            </label>
+            <input
+              id="contact_email"
+              name="contact_email"
+              type="email"
+              className="bb-input h-8 text-xs px-2"
+              placeholder="contact@leverancier.be"
+            />
+          </div>
+
+          <div className="md:col-span-3 flex justify-end mt-1">
+            <button
+              type="submit"
+              className="bb-btn bb-btn-primary h-8 px-4 text-xs"
+            >
+              Opslaan
+            </button>
+          </div>
+        </form>
       </div>
 
+      {/* Overzicht bestaande leveranciers */}
       <div className="border rounded-md bg-white overflow-hidden text-sm">
         <table className="w-full border-collapse">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -85,10 +140,8 @@ export default async function RefurbSuppliersPage() {
                   colSpan={4}
                   className="px-3 py-3 text-xs text-slate-500 text-center"
                 >
-                  Nog geen leveranciers gevonden. Je kunt een leverancier
-                  aanmaken via de knop{" "}
-                  <span className="font-medium">“Nieuwe leverancier”</span> in
-                  het receptie-formulier.
+                  Nog geen leveranciers gevonden. Voeg de eerste leverancier toe
+                  via het formulier hierboven.
                 </td>
               </tr>
             )}
