@@ -35,7 +35,7 @@ export default async function RefurbLocationsPage() {
   if (!user || user.role !== "admin") {
     return (
       <div className="p-4">
-        <RefurbTabs active="locations" />
+        <RefurbTabs active="locations" role={user?.role ?? null} />
         <h1 className="text-lg font-semibold mb-2">Refurb locaties</h1>
         <p className="text-sm text-red-600">
           Je hebt geen toegang tot dit onderdeel (enkel voor admins).
@@ -48,7 +48,7 @@ export default async function RefurbLocationsPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <RefurbTabs active="locations" />
+      <RefurbTabs active="locations" role={user.role} />
 
       <div>
         <h1 className="text-lg font-semibold">Refurb locaties</h1>
@@ -108,18 +108,7 @@ export default async function RefurbLocationsPage() {
                   )}
                 </td>
                 <td className="px-2 py-1 border text-right">
-                  <form
-                    action={deleteRefurbLocationFromForm}
-                    onSubmit={(e) => {
-                      if (
-                        !confirm(
-                          `Locatie "${loc.name}" verwijderen? Dit kan niet ongedaan gemaakt worden.`
-                        )
-                      ) {
-                        e.preventDefault();
-                      }
-                    }}
-                  >
+                  <form action={deleteRefurbLocationFromForm}>
                     <input type="hidden" name="id" value={loc.id} />
                     <button
                       type="submit"
