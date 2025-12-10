@@ -8,9 +8,21 @@ import {
   pasteIntoRefurbColumn,
 } from "./actions";
 
+type RefurbStatusOption = {
+  value: string;
+  label: string;
+};
+
+type RefurbLocationOption = {
+  value: string;
+  label: string;
+};
+
 type Props = {
   receptionId: string;
   initialItems: RefurbItem[];
+  statusOptions: RefurbStatusOption[];
+  locationOptions: RefurbLocationOption[];
 };
 
 const LOCK_AFTER_FILL_FIELDS = new Set<
@@ -46,12 +58,23 @@ function parseMoneyToCents(raw: string): number | null {
   return Math.round(n * 100);
 }
 
+const BASE_COL_COUNT = 10; // status + IMEI/SN + SN + SKU + used + price + desc + supp err + supp grading + location
+const ADVANCED_COL_COUNT = 4; // refurb diagnostics + rma defect + rma + compensation
+
 export default function RefurbReceptionTable({
   receptionId,
   initialItems,
+  statusOptions,
+  locationOptions,
 }: Props) {
   const [items, setItems] = useState<RefurbItem[]>(initialItems);
   const [isPasting, setIsPasting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const hasItems = items.length > 0;
+  const colSpan = showAdvanced
+    ? BASE_COL_COUNT + ADVANCED_COL_COUNT
+    : BASE_COL_COUNT;
 
   async function handleCellChange(
     itemId: string,
@@ -66,7 +89,10 @@ export default function RefurbReceptionTable({
       | "refurb_diagnostics"
       | "rma_defect_description"
       | "rma"
-      | "compensation_cents",
+      | "compensation_cents"
+      | "imei_sn"
+      | "manual_sn"
+      | "location",
     value: string
   ) {
     // optimistic update
@@ -83,13 +109,14 @@ export default function RefurbReceptionTable({
 
         return {
           ...it,
+          // extra velden (imei_sn, manual_sn, location) zitten via any op het item
           [field]: value || null,
         } as RefurbItem;
       })
     );
 
     try {
-      await updateRefurbItemCell(itemId, field, value);
+      await updateRefurbItemCell(itemId, field as any, value);
     } catch (e) {
       console.error("[REFURB] updateCell client error", e);
     }
@@ -110,6 +137,9 @@ export default function RefurbReceptionTable({
       | "rma_defect_description"
       | "rma"
       | "compensation_cents"
+      | "imei_sn"
+      | "manual_sn"
+      | "location"
   ) {
     const text = e.clipboardData.getData("text");
     if (!text || !text.includes("\n")) {
@@ -124,7 +154,7 @@ export default function RefurbReceptionTable({
       const updated = await pasteIntoRefurbColumn(
         receptionId,
         startRowIndex,
-        field,
+        field as any,
         lines
       );
       setItems(updated);
@@ -154,34 +184,54 @@ export default function RefurbReceptionTable({
     return value !== null && value !== undefined && value !== "";
   }
 
-  const hasItems = items.length > 0;
-
   return (
     <div className="border rounded-md overflow-x-auto text-xs mt-4">
       <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
         <span className="font-medium text-[11px] uppercase tracking-wide">
           Refurb Reception items
         </span>
-        {isPasting && (
-          <span className="text-[11px] text-slate-500">
-            Gegevens plakken...
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {isPasting && (
+            <span className="text-[11px] text-slate-500">
+              Gegevens plakken...
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+          >
+            <span
+              className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+              aria-hidden="true"
+            >
+              {showAdvanced ? "▲" : "▼"}
+            </span>
+            <span>{showAdvanced ? "Minder kolommen" : "Meer details"}</span>
+          </button>
+        </div>
       </div>
       <table className="min-w-full border-collapse">
         <thead className="bg-slate-50 text-[11px] uppercase">
           <tr>
             <th className="px-2 py-1 border">Refurb Status</th>
+            <th className="px-2 py-1 border">IMEI/SN</th>
+            <th className="px-2 py-1 border">SN (handmatig)</th>
             <th className="px-2 py-1 border">SKU</th>
             <th className="px-2 py-1 border">Used parts</th>
             <th className="px-2 py-1 border">Price</th>
             <th className="px-2 py-1 border">Description</th>
             <th className="px-2 py-1 border">Supplier Device Errors</th>
             <th className="px-2 py-1 border">Supplier Grading</th>
-            <th className="px-2 py-1 border">Refurb Diagnostics</th>
-            <th className="px-2 py-1 border">RMA Defect Description</th>
-            <th className="px-2 py-1 border">RMA</th>
-            <th className="px-2 py-1 border">Compensation</th>
+            <th className="px-2 py-1 border">Location</th>
+            {showAdvanced && (
+              <>
+                <th className="px-2 py-1 border">Refurb Diagnostics</th>
+                <th className="px-2 py-1 border">RMA Defect Description</th>
+                <th className="px-2 py-1 border">RMA</th>
+                <th className="px-2 py-1 border">Compensation</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -201,18 +251,66 @@ export default function RefurbReceptionTable({
                 "supplier_grading"
               );
 
+              const imeiSn = (it as any).imei_sn ?? "";
+              const manualSn = (it as any).manual_sn ?? "";
+              const locationValue = (it as any).location ?? "";
+
               return (
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                  {/* Refurb Status (altijd bewerkbaar) */}
+                  {/* Refurb Status (dropdown) */}
+                  <td className="px-1 py-0.5 border">
+                    <select
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.refurb_status ?? ""}
+                      onChange={(e) =>
+                        handleCellChange(
+                          it.id,
+                          "refurb_status",
+                          e.target.value
+                        )
+                      }
+                    >
+                      <option value="">(geen)</option>
+                      {statusOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  {/* IMEI/SN (uit import) */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.refurb_status}
+                      defaultValue={imeiSn}
                       onBlur={(e) =>
-                        handleCellChange(it.id, "refurb_status", e.target.value)
+                        handleCellChange(
+                          it.id,
+                          "imei_sn",
+                          e.target.value.trim()
+                        )
                       }
                       onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "refurb_status")
+                        handlePasteToColumn(e, idx, "imei_sn")
+                      }
+                    />
+                  </td>
+
+                  {/* SN manueel */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={manualSn}
+                      onBlur={(e) =>
+                        handleCellChange(
+                          it.id,
+                          "manual_sn",
+                          e.target.value.trim()
+                        )
+                      }
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, idx, "manual_sn")
                       }
                     />
                   </td>
@@ -372,76 +470,116 @@ export default function RefurbReceptionTable({
                     )}
                   </td>
 
-                  {/* Refurb Diagnostics */}
+                  {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                    <input
+                    <select
                       className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.refurb_diagnostics ?? ""}
-                      onBlur={(e) =>
+                      defaultValue={locationValue}
+                      onChange={(e) =>
                         handleCellChange(
                           it.id,
-                          "refurb_diagnostics",
+                          "location",
                           e.target.value
                         )
                       }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "refurb_diagnostics")
-                      }
-                    />
+                    >
+                      <option value="">(geen)</option>
+                      {locationOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
 
-                  {/* RMA Defect Description */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.rma_defect_description ?? ""}
-                      onBlur={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "rma_defect_description",
-                          e.target.value
-                        )
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "rma_defect_description")
-                      }
-                    />
-                  </td>
+                  {showAdvanced && (
+                    <>
+                      {/* Refurb Diagnostics */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          defaultValue={it.refurb_diagnostics ?? ""}
+                          onBlur={(e) =>
+                            handleCellChange(
+                              it.id,
+                              "refurb_diagnostics",
+                              e.target.value
+                            )
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(
+                              e,
+                              idx,
+                              "refurb_diagnostics"
+                            )
+                          }
+                        />
+                      </td>
 
-                  {/* RMA */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.rma ?? ""}
-                      onBlur={(e) =>
-                        handleCellChange(it.id, "rma", e.target.value)
-                      }
-                      onPaste={(e) => handlePasteToColumn(e, idx, "rma")}
-                    />
-                  </td>
+                      {/* RMA Defect Description */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          defaultValue={it.rma_defect_description ?? ""}
+                          onBlur={(e) =>
+                            handleCellChange(
+                              it.id,
+                              "rma_defect_description",
+                              e.target.value
+                            )
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(
+                              e,
+                              idx,
+                              "rma_defect_description"
+                            )
+                          }
+                        />
+                      </td>
 
-                  {/* Compensation */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                      defaultValue={
-                        typeof it.compensation_cents === "number"
-                          ? (it.compensation_cents / 100).toString()
-                          : ""
-                      }
-                      placeholder="0,00"
-                      onBlur={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "compensation_cents",
-                          e.target.value
-                        )
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "compensation_cents")
-                      }
-                    />
-                  </td>
+                      {/* RMA */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          defaultValue={it.rma ?? ""}
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "rma", e.target.value)
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, idx, "rma")
+                          }
+                        />
+                      </td>
+
+                      {/* Compensation */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                          defaultValue={
+                            typeof it.compensation_cents === "number"
+                              ? (it.compensation_cents / 100).toString()
+                              : ""
+                          }
+                          placeholder="0,00"
+                          onBlur={(e) =>
+                            handleCellChange(
+                              it.id,
+                              "compensation_cents",
+                              e.target.value
+                            )
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(
+                              e,
+                              idx,
+                              "compensation_cents"
+                            )
+                          }
+                        />
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}
@@ -449,12 +587,30 @@ export default function RefurbReceptionTable({
           {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
           {!hasItems && (
             <tr className="border-t">
-              {/* Refurb Status */}
+              {/* Refurb Status (start: paste mogelijk) */}
               <td className="px-1 py-0.5 border">
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak hier om te starten"
+                  placeholder="Plak refurb status hier"
                   onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
+                />
+              </td>
+
+              {/* IMEI/SN */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak IMEI/SN kolom hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
+                />
+              </td>
+
+              {/* SN manueel */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak SN kolom hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
                 />
               </td>
 
@@ -516,47 +672,60 @@ export default function RefurbReceptionTable({
                 />
               </td>
 
-              {/* Refurb Diagnostics */}
+              {/* Location */}
               <td className="px-1 py-0.5 border">
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak refurb diagnostics hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "refurb_diagnostics")
-                  }
+                  placeholder="Plak locaties hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "location")}
                 />
               </td>
 
-              {/* RMA Defect Description */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak RMA defect beschrijving hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "rma_defect_description")
-                  }
-                />
-              </td>
+              {showAdvanced && (
+                <>
+                  {/* Refurb Diagnostics */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak refurb diagnostics hier"
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, 0, "refurb_diagnostics")
+                      }
+                    />
+                  </td>
 
-              {/* RMA */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak RMA-codes hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
-                />
-              </td>
+                  {/* RMA Defect Description */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak RMA defect beschrijving hier"
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, 0, "rma_defect_description")
+                      }
+                    />
+                  </td>
 
-              {/* Compensation */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                  placeholder="Plak compensaties hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "compensation_cents")
-                  }
-                />
-              </td>
+                  {/* RMA */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak RMA-codes hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
+                    />
+                  </td>
+
+                  {/* Compensation */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      placeholder="Plak compensaties hier"
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, 0, "compensation_cents")
+                      }
+                    />
+                  </td>
+                </>
+              )}
             </tr>
           )}
 
@@ -564,11 +733,11 @@ export default function RefurbReceptionTable({
             <tr>
               <td
                 className="px-2 py-3 border text-[11px] text-slate-500"
-                colSpan={11}
+                colSpan={colSpan}
               >
                 Nog geen toestellen in deze receptie. Plak een kolom uit Excel in
-                één van de velden hierboven (bv. SKU, Description, Price...) om
-                rijen aan te maken.
+                één van de velden hierboven (bv. IMEI/SN, SKU, Description,
+                Price...) om rijen aan te maken.
               </td>
             </tr>
           )}
