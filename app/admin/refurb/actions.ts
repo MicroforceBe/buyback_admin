@@ -248,35 +248,6 @@ export async function pasteIntoRefurbColumn(
 /**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
-export type RefurbSupplier = {
-  id: string;
-  name: string;
-  vat_number: string | null;
-  contact_email: string | null;
-};
-
-type EditableField =
-  | "refurb_status"
-  | "sku"
-  | "used_parts"
-  | "price_cents"
-  | "description"
-  | "supplier_device_errors"
-  | "supplier_grading"
-  | "refurb_diagnostics"
-  | "rma_defect_description"
-  | "rma"
-  | "compensation_cents";
-
-type PasteField = EditableField;
-
-// ... je bestaande LOCK_AFTER_FILL_FIELDS, ALWAYS_EDITABLE_FIELDS,
-// parseMoneyToCents, isCellEmpty, fetchItemsForReception,
-// updateRefurbItemCell en pasteIntoRefurbColumn laat je staan ...
-
-/**
- * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
- */
 export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
   const q = query.trim();
   if (!q) return [];
@@ -382,7 +353,7 @@ export const createReceptionInitialState: CreateReceptionFormState = {
  * - Bij duplicate: veldfout op "Receptie nr" met "Nr bestaat reeds".
  * - Bij succes: redirect naar detailpagina.
  *
- * ⚠️ Let op: signature is nu (prevState, formData) i.p.v. alleen formData.
+ * ⚠️ Signature: (prevState, formData) voor useFormState.
  */
 export async function createRefurbReception(
   _prevState: CreateReceptionFormState,
@@ -473,4 +444,3 @@ export async function createRefurbReception(
   // Succes → redirect naar detailpagina (geen state meer nodig)
   redirect(`/admin/refurb/${id}`);
 }
-
