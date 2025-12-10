@@ -60,14 +60,14 @@ export default function RefurbReceptionTable({
       | "compensation_cents",
     value: string
   ) {
-    // optimistic update in UI
+    // optimistic update
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
         if (field === "price_cents" || field === "compensation_cents") {
           return {
             ...it,
-            [field]: value ? null : null, // wordt server-side juist gezet; hier alleen trigger re-render
+            [field]: value ? null : null, // server zet echte cents-waarde
           } as RefurbItem;
         }
         return {
@@ -79,11 +79,8 @@ export default function RefurbReceptionTable({
 
     try {
       await updateRefurbItemCell(itemId, field, value);
-      // Na save kunnen we eigenlijk best refetchen, maar
-      // in deze versie laten we de optimistic state staan.
     } catch (e) {
       console.error("[REFURB] updateCell client error", e);
-      // In een latere iteratie eventueel toast + refetch
     }
   }
 
@@ -105,8 +102,7 @@ export default function RefurbReceptionTable({
   ) {
     const text = e.clipboardData.getData("text");
     if (!text || !text.includes("\n")) {
-      // één enkele waarde laten we gewoon in de input plakken
-      return;
+      return; // enkele waarde → default gedrag
     }
 
     e.preventDefault();
@@ -128,7 +124,6 @@ export default function RefurbReceptionTable({
     }
   }
 
-  // helper om te bepalen of een supplier-kolom al "locked" is
   function isLockedSupplierCell(
     item: RefurbItem,
     field:
@@ -193,7 +188,7 @@ export default function RefurbReceptionTable({
 
             return (
               <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                {/* Refurb Status (ALTIJD bewerkbaar) */}
+                {/* Refurb Status (altijd bewerkbaar) */}
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
@@ -207,7 +202,7 @@ export default function RefurbReceptionTable({
                   />
                 </td>
 
-                {/* SKU (supplier: lock na invullen) */}
+                {/* SKU */}
                 <td className="px-1 py-0.5 border">
                   {lockedSku ? (
                     <span
@@ -228,7 +223,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Used parts (supplier: lock na invullen) */}
+                {/* Used parts */}
                 <td className="px-1 py-0.5 border">
                   {lockedUsedParts ? (
                     <span
@@ -251,7 +246,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Price (supplier: lock na invullen) */}
+                {/* Price */}
                 <td className="px-1 py-0.5 border">
                   {lockedPrice ? (
                     <span>{money(it.price_cents)}</span>
@@ -274,7 +269,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Description (supplier: lock na invullen) */}
+                {/* Description */}
                 <td className="px-1 py-0.5 border">
                   {lockedDesc ? (
                     <span
@@ -297,7 +292,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Supplier Device Errors (supplier: lock na invullen) */}
+                {/* Supplier Device Errors */}
                 <td className="px-1 py-0.5 border">
                   {lockedSuppErr ? (
                     <span
@@ -324,7 +319,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Supplier Grading (supplier: lock na invullen) */}
+                {/* Supplier Grading */}
                 <td className="px-1 py-0.5 border">
                   {lockedSuppGrad ? (
                     <span>{it.supplier_grading}</span>
@@ -346,7 +341,7 @@ export default function RefurbReceptionTable({
                   )}
                 </td>
 
-                {/* Refurb Diagnostics (ALTIJD bewerkbaar) */}
+                {/* Refurb Diagnostics */}
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
@@ -364,7 +359,7 @@ export default function RefurbReceptionTable({
                   />
                 </td>
 
-                {/* RMA Defect Description (ALTIJD bewerkbaar) */}
+                {/* RMA Defect Description */}
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
@@ -382,7 +377,7 @@ export default function RefurbReceptionTable({
                   />
                 </td>
 
-                {/* RMA (ALTIJD bewerkbaar) */}
+                {/* RMA */}
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
@@ -394,7 +389,7 @@ export default function RefurbReceptionTable({
                   />
                 </td>
 
-                {/* Compensation (ALTIJD bewerkbaar bedrag) */}
+                {/* Compensation */}
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full text-right"
