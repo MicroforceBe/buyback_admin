@@ -37,6 +37,21 @@ type RefurbItemRow = {
   rma_defect_description: string | null;
   rma: string | null;
   compensation_cents: number | null;
+
+  // nieuwe kolommen
+  imei_sn: string | null;
+  manual_sn: string | null;
+  location: string | null;
+};
+
+type RefurbStatusOption = {
+  value: string;
+  label: string;
+};
+
+type RefurbLocationOption = {
+  value: string;
+  label: string;
 };
 
 async function getReception(id: string): Promise<RefurbReception | null> {
@@ -109,7 +124,25 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
-      "id, reception_id, row_index, refurb_status, sku, used_parts, price_cents, description, supplier_device_errors, supplier_grading, refurb_diagnostics, rma_defect_description, rma, compensation_cents"
+      `
+      id,
+      reception_id,
+      row_index,
+      refurb_status,
+      sku,
+      used_parts,
+      price_cents,
+      description,
+      supplier_device_errors,
+      supplier_grading,
+      refurb_diagnostics,
+      rma_defect_description,
+      rma,
+      compensation_cents,
+      imei_sn,
+      manual_sn,
+      location
+    `
     )
     .eq("reception_id", id)
     .order("row_index", { ascending: true });
@@ -120,6 +153,42 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
   }
 
   return data as RefurbItemRow[];
+}
+
+async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
+  const { data, error } = await supabaseAdmin
+    .from("refurb_statuses")
+    .select("code, label, active, sort_order")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    console.error("[REFURB] getRefurbStatusOptions error", error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    value: String(row.code),
+    label: String(row.label || row.code),
+  }));
+}
+
+async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]> {
+  const { data, error } = await supabaseAdmin
+    .from("refurb_locations")
+    .select("id, name, active")
+    .eq("active", true)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("[REFURB] getRefurbLocationOptions error", error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    value: String(row.name), // we bewaren de naam in de 'location' kolom
+    label: String(row.name),
+  }));
 }
 
 export default async function RefurbReceptionDetailPage({
@@ -140,7 +209,11 @@ export default async function RefurbReceptionDetailPage({
     );
   }
 
-  const items = await getReceptionItems(reception.id);
+  const [items, statusOptions, locationOptions] = await Promise.all([
+    getReceptionItems(reception.id),
+    getRefurbStatusOptions(),
+    getRefurbLocationOptions(),
+  ]);
 
   const vatLabel =
     reception.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT";
@@ -241,6 +314,8 @@ export default async function RefurbReceptionDetailPage({
       <RefurbReceptionTable
         receptionId={reception.id}
         initialItems={items}
+        statusOptions={statusOptions}
+        locationOptions={locationOptions}
       />
     </div>
   );
