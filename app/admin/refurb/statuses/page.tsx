@@ -1,7 +1,6 @@
 // app/admin/refurb/statuses/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
-import RefurbTabs from "../RefurbTabs";
 import {
   createRefurbStatusFromForm,
   deleteRefurbStatusFromForm,
@@ -38,7 +37,6 @@ export default async function RefurbStatusesPage() {
   if (!user || user.role !== "admin") {
     return (
       <div className="p-4">
-        <RefurbTabs active="statuses" role={user?.role ?? null} />
         <h1 className="text-lg font-semibold mb-2">Refurb statussen</h1>
         <p className="text-sm text-red-600">
           Je hebt geen toegang tot dit onderdeel (enkel voor admins).
@@ -51,8 +49,6 @@ export default async function RefurbStatusesPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <RefurbTabs active="statuses" role={user.role} />
-
       <div>
         <h1 className="text-lg font-semibold">Refurb statussen</h1>
         <p className="text-xs text-slate-500 mt-1">
@@ -63,7 +59,10 @@ export default async function RefurbStatusesPage() {
       {/* Nieuwe status aanmaken */}
       <div className="border rounded-md bg-white p-3 text-xs space-y-2">
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
-        <form action={createRefurbStatusFromForm} className="flex flex-wrap gap-2 items-end">
+        <form
+          action={createRefurbStatusFromForm}
+          className="flex flex-wrap gap-2 items-end"
+        >
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Code*</label>
             <input
@@ -83,9 +82,7 @@ export default async function RefurbStatusesPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-slate-600">
-              Sort order
-            </label>
+            <label className="text-[11px] text-slate-600">Sort order</label>
             <input
               type="number"
               name="sort_order"
