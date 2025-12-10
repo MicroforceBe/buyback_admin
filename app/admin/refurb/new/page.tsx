@@ -1,17 +1,24 @@
 // app/admin/refurb/new/page.tsx
 import { createRefurbReception } from "../actions";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import SupplierField from "../SupplierField";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default function NewRefurbReceptionPage() {
+export default async function NewRefurbReceptionPage() {
+  const user = await getCurrentAdminUser();
+
+  // simpele admin-check; pas aan naar je echte rol/permissie model indien nodig
+  const canCreateSupplier = user?.role === "admin";
+
   return (
     <div className="p-4 max-w-xl space-y-4">
       <div>
         <h1 className="text-lg font-semibold">Nieuwe Refurb reception</h1>
         <p className="text-xs text-slate-500 mt-1">
-          Maak een nieuwe receptie aan voor een leverancier. Daarna kun je in de
-          tabel toestellen plakken of importeren.
+          Maak een nieuwe receptie aan voor een leverancier. Daarna kun je in de tabel
+          toestellen plakken of importeren.
         </p>
       </div>
 
@@ -52,23 +59,8 @@ export default function NewRefurbReceptionPage() {
             />
           </div>
 
-          {/* Leverancier */}
-          <div className="flex flex-col gap-1">
-            <label
-              htmlFor="supplier"
-              className="text-[11px] font-medium text-slate-600 uppercase"
-            >
-              Leverancier
-            </label>
-            <input
-              id="supplier"
-              name="supplier"
-              type="text"
-              required
-              className="bb-input h-9 text-sm px-2"
-              placeholder="Naam leverancier"
-            />
-          </div>
+          {/* Leverancier (via SupplierField) */}
+          <SupplierField canCreate={!!canCreateSupplier} />
 
           {/* BTW-regeling */}
           <div className="flex flex-col gap-1">
