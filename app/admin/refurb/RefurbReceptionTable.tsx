@@ -37,6 +37,15 @@ function money(cents: number | null) {
   });
 }
 
+// eenvoudige client-side parse naar cents (zelfde idee als server)
+function parseMoneyToCents(raw: string): number | null {
+  const v = raw.replace(",", ".").trim();
+  if (!v) return null;
+  const n = Number.parseFloat(v);
+  if (Number.isNaN(n)) return null;
+  return Math.round(n * 100);
+}
+
 export default function RefurbReceptionTable({
   receptionId,
   initialItems,
@@ -64,12 +73,14 @@ export default function RefurbReceptionTable({
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
+
         if (field === "price_cents" || field === "compensation_cents") {
           return {
             ...it,
-            [field]: value ? null : null, // server zet echte cents-waarde
+            [field]: value ? parseMoneyToCents(value) : null,
           } as RefurbItem;
         }
+
         return {
           ...it,
           [field]: value || null,
@@ -143,6 +154,8 @@ export default function RefurbReceptionTable({
     return value !== null && value !== undefined && value !== "";
   }
 
+  const hasItems = items.length > 0;
+
   return (
     <div className="border rounded-md overflow-x-auto text-xs mt-4">
       <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
@@ -172,256 +185,390 @@ export default function RefurbReceptionTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((it, idx) => {
-            const lockedSku = isLockedSupplierCell(it, "sku");
-            const lockedUsedParts = isLockedSupplierCell(it, "used_parts");
-            const lockedPrice = isLockedSupplierCell(it, "price_cents");
-            const lockedDesc = isLockedSupplierCell(it, "description");
-            const lockedSuppErr = isLockedSupplierCell(
-              it,
-              "supplier_device_errors"
-            );
-            const lockedSuppGrad = isLockedSupplierCell(
-              it,
-              "supplier_grading"
-            );
+          {/* ⬇️ Normale rijen uit de DB */}
+          {hasItems &&
+            items.map((it, idx) => {
+              const lockedSku = isLockedSupplierCell(it, "sku");
+              const lockedUsedParts = isLockedSupplierCell(it, "used_parts");
+              const lockedPrice = isLockedSupplierCell(it, "price_cents");
+              const lockedDesc = isLockedSupplierCell(it, "description");
+              const lockedSuppErr = isLockedSupplierCell(
+                it,
+                "supplier_device_errors"
+              );
+              const lockedSuppGrad = isLockedSupplierCell(
+                it,
+                "supplier_grading"
+              );
 
-            return (
-              <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                {/* Refurb Status (altijd bewerkbaar) */}
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    defaultValue={it.refurb_status}
-                    onBlur={(e) =>
-                      handleCellChange(it.id, "refurb_status", e.target.value)
-                    }
-                    onPaste={(e) =>
-                      handlePasteToColumn(e, idx, "refurb_status")
-                    }
-                  />
-                </td>
-
-                {/* SKU */}
-                <td className="px-1 py-0.5 border">
-                  {lockedSku ? (
-                    <span
-                      className="block truncate max-w-[200px]"
-                      title={it.sku ?? ""}
-                    >
-                      {it.sku}
-                    </span>
-                  ) : (
+              return (
+                <tr key={it.id} className="border-t hover:bg-slate-50/50">
+                  {/* Refurb Status (altijd bewerkbaar) */}
+                  <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.sku ?? ""}
+                      defaultValue={it.refurb_status}
                       onBlur={(e) =>
-                        handleCellChange(it.id, "sku", e.target.value)
-                      }
-                      onPaste={(e) => handlePasteToColumn(e, idx, "sku")}
-                    />
-                  )}
-                </td>
-
-                {/* Used parts */}
-                <td className="px-1 py-0.5 border">
-                  {lockedUsedParts ? (
-                    <span
-                      className="block truncate max-w-[200px]"
-                      title={it.used_parts ?? ""}
-                    >
-                      {it.used_parts}
-                    </span>
-                  ) : (
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.used_parts ?? ""}
-                      onBlur={(e) =>
-                        handleCellChange(it.id, "used_parts", e.target.value)
+                        handleCellChange(it.id, "refurb_status", e.target.value)
                       }
                       onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "used_parts")
+                        handlePasteToColumn(e, idx, "refurb_status")
                       }
                     />
-                  )}
-                </td>
+                  </td>
 
-                {/* Price */}
-                <td className="px-1 py-0.5 border">
-                  {lockedPrice ? (
-                    <span>{money(it.price_cents)}</span>
-                  ) : (
+                  {/* SKU */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedSku ? (
+                      <span
+                        className="block truncate max-w-[200px]"
+                        title={it.sku ?? ""}
+                      >
+                        {it.sku}
+                      </span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        defaultValue={it.sku ?? ""}
+                        onBlur={(e) =>
+                          handleCellChange(it.id, "sku", e.target.value)
+                        }
+                        onPaste={(e) => handlePasteToColumn(e, idx, "sku")}
+                      />
+                    )}
+                  </td>
+
+                  {/* Used parts */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedUsedParts ? (
+                      <span
+                        className="block truncate max-w-[200px]"
+                        title={it.used_parts ?? ""}
+                      >
+                        {it.used_parts}
+                      </span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        defaultValue={it.used_parts ?? ""}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "used_parts",
+                            e.target.value
+                          )
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "used_parts")
+                        }
+                      />
+                    )}
+                  </td>
+
+                  {/* Price */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedPrice ? (
+                      <span>{money(it.price_cents)}</span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                        defaultValue={
+                          typeof it.price_cents === "number"
+                            ? (it.price_cents / 100).toString()
+                            : ""
+                        }
+                        placeholder="0,00"
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "price_cents",
+                            e.target.value
+                          )
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "price_cents")
+                        }
+                      />
+                    )}
+                  </td>
+
+                  {/* Description */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedDesc ? (
+                      <span
+                        className="block truncate max-w-[260px]"
+                        title={it.description ?? ""}
+                      >
+                        {it.description}
+                      </span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        defaultValue={it.description ?? ""}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "description",
+                            e.target.value
+                          )
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "description")
+                        }
+                      />
+                    )}
+                  </td>
+
+                  {/* Supplier Device Errors */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedSuppErr ? (
+                      <span
+                        className="block truncate max-w-[260px]"
+                        title={it.supplier_device_errors ?? ""}
+                      >
+                        {it.supplier_device_errors}
+                      </span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        defaultValue={it.supplier_device_errors ?? ""}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "supplier_device_errors",
+                            e.target.value
+                          )
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(
+                            e,
+                            idx,
+                            "supplier_device_errors"
+                          )
+                        }
+                      />
+                    )}
+                  </td>
+
+                  {/* Supplier Grading */}
+                  <td className="px-1 py-0.5 border">
+                    {lockedSuppGrad ? (
+                      <span>{it.supplier_grading}</span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        defaultValue={it.supplier_grading ?? ""}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "supplier_grading",
+                            e.target.value
+                          )
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "supplier_grading")
+                        }
+                      />
+                    )}
+                  </td>
+
+                  {/* Refurb Diagnostics */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.refurb_diagnostics ?? ""}
+                      onBlur={(e) =>
+                        handleCellChange(
+                          it.id,
+                          "refurb_diagnostics",
+                          e.target.value
+                        )
+                      }
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, idx, "refurb_diagnostics")
+                      }
+                    />
+                  </td>
+
+                  {/* RMA Defect Description */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.rma_defect_description ?? ""}
+                      onBlur={(e) =>
+                        handleCellChange(
+                          it.id,
+                          "rma_defect_description",
+                          e.target.value
+                        )
+                      }
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, idx, "rma_defect_description")
+                      }
+                    />
+                  </td>
+
+                  {/* RMA */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.rma ?? ""}
+                      onBlur={(e) =>
+                        handleCellChange(it.id, "rma", e.target.value)
+                      }
+                      onPaste={(e) => handlePasteToColumn(e, idx, "rma")}
+                    />
+                  </td>
+
+                  {/* Compensation */}
+                  <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
                       defaultValue={
-                        typeof it.price_cents === "number"
-                          ? (it.price_cents / 100).toString()
+                        typeof it.compensation_cents === "number"
+                          ? (it.compensation_cents / 100).toString()
                           : ""
                       }
                       placeholder="0,00"
                       onBlur={(e) =>
-                        handleCellChange(it.id, "price_cents", e.target.value)
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "price_cents")
-                      }
-                    />
-                  )}
-                </td>
-
-                {/* Description */}
-                <td className="px-1 py-0.5 border">
-                  {lockedDesc ? (
-                    <span
-                      className="block truncate max-w-[260px]"
-                      title={it.description ?? ""}
-                    >
-                      {it.description}
-                    </span>
-                  ) : (
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.description ?? ""}
-                      onBlur={(e) =>
-                        handleCellChange(it.id, "description", e.target.value)
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "description")
-                      }
-                    />
-                  )}
-                </td>
-
-                {/* Supplier Device Errors */}
-                <td className="px-1 py-0.5 border">
-                  {lockedSuppErr ? (
-                    <span
-                      className="block truncate max-w-[260px]"
-                      title={it.supplier_device_errors ?? ""}
-                    >
-                      {it.supplier_device_errors}
-                    </span>
-                  ) : (
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.supplier_device_errors ?? ""}
-                      onBlur={(e) =>
                         handleCellChange(
                           it.id,
-                          "supplier_device_errors",
+                          "compensation_cents",
                           e.target.value
                         )
                       }
                       onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "supplier_device_errors")
+                        handlePasteToColumn(e, idx, "compensation_cents")
                       }
                     />
-                  )}
-                </td>
+                  </td>
+                </tr>
+              );
+            })}
 
-                {/* Supplier Grading */}
-                <td className="px-1 py-0.5 border">
-                  {lockedSuppGrad ? (
-                    <span>{it.supplier_grading}</span>
-                  ) : (
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      defaultValue={it.supplier_grading ?? ""}
-                      onBlur={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "supplier_grading",
-                          e.target.value
-                        )
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "supplier_grading")
-                      }
-                    />
-                  )}
-                </td>
+          {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
+          {!hasItems && (
+            <tr className="border-t">
+              {/* Refurb Status */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak hier om te starten"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
+                />
+              </td>
 
-                {/* Refurb Diagnostics */}
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    defaultValue={it.refurb_diagnostics ?? ""}
-                    onBlur={(e) =>
-                      handleCellChange(
-                        it.id,
-                        "refurb_diagnostics",
-                        e.target.value
-                      )
-                    }
-                    onPaste={(e) =>
-                      handlePasteToColumn(e, idx, "refurb_diagnostics")
-                    }
-                  />
-                </td>
+              {/* SKU */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak SKU-kolom hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
+                />
+              </td>
 
-                {/* RMA Defect Description */}
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    defaultValue={it.rma_defect_description ?? ""}
-                    onBlur={(e) =>
-                      handleCellChange(
-                        it.id,
-                        "rma_defect_description",
-                        e.target.value
-                      )
-                    }
-                    onPaste={(e) =>
-                      handlePasteToColumn(e, idx, "rma_defect_description")
-                    }
-                  />
-                </td>
+              {/* Used parts */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak Used parts-kolom hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
+                />
+              </td>
 
-                {/* RMA */}
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    defaultValue={it.rma ?? ""}
-                    onBlur={(e) =>
-                      handleCellChange(it.id, "rma", e.target.value)
-                    }
-                    onPaste={(e) => handlePasteToColumn(e, idx, "rma")}
-                  />
-                </td>
+              {/* Price */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                  placeholder="Plak prijzen hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
+                />
+              </td>
 
-                {/* Compensation */}
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                    defaultValue={
-                      typeof it.compensation_cents === "number"
-                        ? (it.compensation_cents / 100).toString()
-                        : ""
-                    }
-                    placeholder="0,00"
-                    onBlur={(e) =>
-                      handleCellChange(
-                        it.id,
-                        "compensation_cents",
-                        e.target.value
-                      )
-                    }
-                    onPaste={(e) =>
-                      handlePasteToColumn(e, idx, "compensation_cents")
-                    }
-                  />
-                </td>
-              </tr>
-            );
-          })}
-          {items.length === 0 && (
+              {/* Description */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak Description-kolom hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "description")}
+                />
+              </td>
+
+              {/* Supplier Device Errors */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak Supplier errors hier"
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, 0, "supplier_device_errors")
+                  }
+                />
+              </td>
+
+              {/* Supplier Grading */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak grading hier"
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, 0, "supplier_grading")
+                  }
+                />
+              </td>
+
+              {/* Refurb Diagnostics */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak refurb diagnostics hier"
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, 0, "refurb_diagnostics")
+                  }
+                />
+              </td>
+
+              {/* RMA Defect Description */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak RMA defect beschrijving hier"
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, 0, "rma_defect_description")
+                  }
+                />
+              </td>
+
+              {/* RMA */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full"
+                  placeholder="Plak RMA-codes hier"
+                  onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
+                />
+              </td>
+
+              {/* Compensation */}
+              <td className="px-1 py-0.5 border">
+                <input
+                  className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                  placeholder="Plak compensaties hier"
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, 0, "compensation_cents")
+                  }
+                />
+              </td>
+            </tr>
+          )}
+
+          {!hasItems && (
             <tr>
               <td
                 className="px-2 py-3 border text-[11px] text-slate-500"
                 colSpan={11}
               >
                 Nog geen toestellen in deze receptie. Plak een kolom uit Excel in
-                een lege kolom (bv. SKU, Description, Price...) om te starten.
+                één van de velden hierboven (bv. SKU, Description, Price...) om
+                rijen aan te maken.
               </td>
             </tr>
           )}
