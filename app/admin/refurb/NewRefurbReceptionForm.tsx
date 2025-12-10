@@ -2,10 +2,7 @@
 "use client";
 
 import { useFormState, useFormStatus } from "react-dom";
-import {
-  createRefurbReception,
-  createReceptionInitialState,
-} from "./actions";
+import { createRefurbReception, type CreateReceptionFormState } from "./actions";
 import SupplierField from "./SupplierField";
 
 function SubmitButton() {
@@ -21,15 +18,18 @@ function SubmitButton() {
   );
 }
 
+const initialState: CreateReceptionFormState = {
+  success: false,
+  fieldErrors: {},
+  formError: null,
+};
+
 export default function NewRefurbReceptionForm({
   canCreateSupplier,
 }: {
   canCreateSupplier: boolean;
 }) {
-  const [state, formAction] = useFormState(
-    createRefurbReception,
-    createReceptionInitialState
-  );
+  const [state, formAction] = useFormState(createRefurbReception, initialState);
 
   const receptionNrError = state.fieldErrors.reception_number;
 
