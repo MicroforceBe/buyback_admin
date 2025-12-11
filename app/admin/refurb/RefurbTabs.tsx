@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type TabKey = "receptions" | "suppliers" | "statuses" | "locations";
+type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models";
 
 type Props = {
   /**
