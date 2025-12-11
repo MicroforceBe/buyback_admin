@@ -8,13 +8,10 @@ import {
   updateRefurbItemCell,
   pasteIntoRefurbColumn,
 } from "./actions";
-import type { RefurbLocationOption} from "./settingsActions";
-
-type RefurbStatusOption = {
-  value: string;
-  label: string;
-};
-
+import type {
+  RefurbStatusOption,
+  RefurbLocationOption,
+} from "./settingsActions";
 
 type Props = {
   receptionId: string;
@@ -92,17 +89,17 @@ function UsedPartsCell({
 
   if (locked) {
     return (
-      <span
-        className="block truncate max-w-[200px]"
-        title={rawValue ?? ""}
-      >
+      <span className="block truncate max-w-[200px]" title={rawValue ?? ""}>
         {rawValue}
       </span>
     );
   }
 
   const commit = () => {
-    const raw = parts.map((p) => p.trim()).filter(Boolean).join(", ");
+    const raw = parts
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(", ");
     onChange(raw);
   };
 
@@ -122,7 +119,10 @@ function UsedPartsCell({
     setParts((prev) => {
       const next = [...prev];
       next.splice(index, 1);
-      const raw = next.map((p) => p.trim()).filter(Boolean).join(", ");
+      const raw = next
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .join(", ");
       onChange(raw);
       return next;
     });
@@ -387,9 +387,13 @@ export default function RefurbReceptionTable({
                   {/* Status (dropdown) */}
                   <td className="px-1 py-0.5 border">
                     <select
-                      value={row.refurb_status ?? ""}
+                      value={it.refurb_status ?? ""}
                       onChange={(e) =>
-                        onUpdateCell(row.id, "refurb_status", e.target.value)
+                        handleCellChange(
+                          it.id,
+                          "refurb_status",
+                          e.target.value
+                        )
                       }
                       className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
                     >
@@ -401,25 +405,25 @@ export default function RefurbReceptionTable({
                         </option>
                       ))}
                     </select>
-
                   </td>
 
                   {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                  <select
-                    value={row.location ?? ""}
-                    onChange={(e) => onUpdateCell(row.id, "location", e.target.value)}
-                    className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
-                  >
-                    <option value="">— kies locatie —</option>
-                    {locationOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                        {opt.is_default ? " (default)" : ""}
-                      </option>
-                    ))}
-                  </select>
-
+                    <select
+                      value={locationValue}
+                      onChange={(e) =>
+                        handleCellChange(it.id, "location", e.target.value)
+                      }
+                      className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
+                    >
+                      <option value="">— kies locatie —</option>
+                      {locationOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                          {opt.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
                   </td>
 
                   {/* IMEI/SN (uit import, na invullen niet meer editable) */}
@@ -810,7 +814,11 @@ export default function RefurbReceptionTable({
                   className="bb-input h-7 text-[11px] px-1 w-full"
                   placeholder="Plak Supplier remarks hier"
                   onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "supplier_device_errors")
+                    handlePasteToColumn(
+                      e,
+                      0,
+                      "supplier_device_errors"
+                    )
                   }
                 />
               </td>
