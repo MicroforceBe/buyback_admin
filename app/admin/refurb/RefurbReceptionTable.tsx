@@ -389,48 +389,47 @@ export default function RefurbReceptionTable({
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
                   {/* Status (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                    <select
-                      className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
-                      value={it.refurb_status ?? ""}
-                      onChange={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "refurb_status",
-                          e.target.value
-                        )
-                      }
-                    >
-                      <option value="">(geen)</option>
-                      <option value="default">default</option>
-                      {statusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                  <select
+                    className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
+                    value={it.refurb_status ?? ""}
+                    onChange={(e) =>
+                      handleCellChange(
+                        it.id,
+                        "refurb_status",
+                        e.target.value
+                      )
+                    }
+                  >
+                    <option value="">(geen)</option>
+                    {statusOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                   </td>
 
                   {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                    <select
-                      className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
-                      value={locationValue}
-                      onChange={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "location",
-                          e.target.value
-                        )
-                      }
-                    >
-                      <option value="">(geen)</option>
-                      <option value="default">default</option>
-                      {locationOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                  <select
+                    className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
+                    value={locationValue}
+                    onChange={(e) =>
+                      handleCellChange(
+                        it.id,
+                        "location",
+                        e.target.value
+                      )
+                    }
+                  >
+                    <option value="">(geen)</option>
+                    {locationOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                        {opt.is_default ? " (default)" : ""}
+                      </option>
+                    ))}
+                  </select>
                   </td>
 
                   {/* IMEI/SN (uit import, na invullen niet meer editable) */}
