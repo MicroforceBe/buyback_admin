@@ -8,7 +8,7 @@ import {
   saveRefurbLocationRow,
   deleteRefurbLocationRow,
   setDefaultRefurbLocation,
-} from "./settings/settingsActions";
+} from "./settingsActions";
 
 type Props = {
   initialStatuses: RefurbStatusOption[];
