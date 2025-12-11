@@ -85,7 +85,9 @@ function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
 }
 
 // Helper: alle items voor een receptie ophalen
-async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
+async function fetchItemsForReception(
+  receptionId: string
+): Promise<RefurbItem[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
@@ -248,7 +250,9 @@ export async function pasteIntoRefurbColumn(
 /**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
-export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
+export async function searchRefurbSuppliers(
+  query: string
+): Promise<RefurbSupplier[]> {
   const q = query.trim();
   if (!q) return [];
 
@@ -353,12 +357,26 @@ export async function createRefurbReception(
   _prevState: CreateReceptionFormState,
   formData: FormData
 ): Promise<CreateReceptionFormState> {
-  const reception_number = (formData.get("reception_number") || "").toString().trim();
-  const reception_date = (formData.get("reception_date") || "").toString().trim();
+  const reception_number = (
+    formData.get("reception_number") || ""
+  ).toString().trim();
+  const reception_date = (formData.get("reception_date") || "")
+    .toString()
+    .trim();
   const supplier_id = (formData.get("supplier_id") || "").toString().trim();
-  const vat_scheme_raw = (formData.get("vat_scheme") || "").toString().trim();
-  const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "").toString().trim();
-  const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
+  const vat_scheme_raw = (formData.get("vat_scheme") || "")
+    .toString()
+    .trim();
+  const supplier_invoice_nr = (
+    formData.get("supplier_invoice_nr") || ""
+  )
+    .toString()
+    .trim();
+  const internal_invoice_nr = (
+    formData.get("internal_invoice_nr") || ""
+  )
+    .toString()
+    .trim();
 
   const vat_scheme: VatScheme =
     vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
@@ -382,11 +400,15 @@ export async function createRefurbReception(
     .limit(1);
 
   if (existing.error) {
-    console.error("[REFURB] createRefurbReception unique-check error", existing.error);
+    console.error(
+      "[REFURB] createRefurbReception unique-check error",
+      existing.error
+    );
     return {
       success: false,
       fieldErrors: {},
-      formError: "Kon niet controleren of het receptienummer reeds bestaat.",
+      formError:
+        "Kon niet controleren of het receptienummer reeds bestaat.",
     };
   }
 
@@ -411,7 +433,10 @@ export async function createRefurbReception(
     .single();
 
   if (supplierRes.error) {
-    console.warn("[REFURB] could not fetch supplier name", supplierRes.error);
+    console.warn(
+      "[REFURB] could not fetch supplier name",
+      supplierRes.error
+    );
     // we laten supplierName gewoon leeg, maar NIET null
   } else if (supplierRes.data?.name) {
     supplierName = supplierRes.data.name;
@@ -454,102 +479,4 @@ export async function createRefurbReception(
 
   // Succes → redirect naar detailpagina
   redirect(`/admin/refurb/${id}`);
-}
-export async function createRefurbStatusFromForm(formData: FormData) {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Geen rechten om refurb statussen te beheren.");
-  }
-
-  const code = (formData.get("code") || "").toString().trim();
-  const label = (formData.get("label") || "").toString().trim();
-  const sortOrderRaw = (formData.get("sort_order") || "").toString().trim();
-
-  if (!code || !label) {
-    throw new Error("Code en label zijn verplicht.");
-  }
-
-  const sort_order = sortOrderRaw ? Number.parseInt(sortOrderRaw, 10) : null;
-
-  const { error } = await supabaseAdmin.from("refurb_statuses").insert({
-    code,
-    label,
-    sort_order,
-    active: true,
-  });
-
-  if (error) {
-    console.error("[REFURB] createRefurbStatus error", error);
-    throw new Error(error.message || "Kon refurb status niet aanmaken.");
-  }
-
-  revalidatePath("/admin/refurb/statuses");
-}
-
-export async function deleteRefurbStatusFromForm(formData: FormData) {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Geen rechten om refurb statussen te beheren.");
-  }
-
-  const id = (formData.get("id") || "").toString().trim();
-  if (!id) return;
-
-  const { error } = await supabaseAdmin
-    .from("refurb_statuses")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    console.error("[REFURB] deleteRefurbStatus error", error);
-    throw new Error(error.message || "Kon refurb status niet verwijderen.");
-  }
-
-  revalidatePath("/admin/refurb/statuses");
-}
-
-export async function createRefurbLocationFromForm(formData: FormData) {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Geen rechten om refurb locaties te beheren.");
-  }
-
-  const name = (formData.get("name") || "").toString().trim();
-  if (!name) {
-    throw new Error("Naam is verplicht.");
-  }
-
-  const { error } = await supabaseAdmin.from("refurb_locations").insert({
-    name,
-    active: true,
-  });
-
-  if (error) {
-    console.error("[REFURB] createRefurbLocation error", error);
-    throw new Error(error.message || "Kon refurb locatie niet aanmaken.");
-  }
-
-  revalidatePath("/admin/refurb/locations");
-}
-
-export async function deleteRefurbLocationFromForm(formData: FormData) {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Geen rechten om refurb locaties te beheren.");
-  }
-
-  const id = (formData.get("id") || "").toString().trim();
-  if (!id) return;
-
-  const { error } = await supabaseAdmin
-    .from("refurb_locations")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    console.error("[REFURB] deleteRefurbLocation error", error);
-    throw new Error(error.message || "Kon refurb locatie niet verwijderen.");
-  }
-
-  revalidatePath("/admin/refurb/locations");
 }
