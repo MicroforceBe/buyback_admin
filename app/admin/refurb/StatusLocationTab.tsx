@@ -1,6 +1,4 @@
 // app/admin/refurb/StatusLocationTab.tsx
-"use client";
-
 import {
   RefurbStatusOption,
   RefurbLocationOption,
@@ -46,12 +44,13 @@ export default function StatusLocationTab({
             {initialStatuses.map((row) => (
               <tr key={row.id} className="border-t">
                 <td colSpan={5} className="px-2 py-1 border">
-                  {/* Eén form per rij, alles netjes in een grid */}
+                  {/* Eén form per rij, met meerdere server actions via formAction */}
                   <form
                     action={saveRefurbStatusRow}
-                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_80px_auto] gap-2 items-center"
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_70px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
+
                     <input
                       name="label"
                       defaultValue={row.label}
@@ -68,25 +67,22 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full text-center"
                       type="number"
                     />
-                    {/* default-toggling via apart form */}
-                    <form
-                      action={async (formData) => {
-                        "use server";
-                        await setDefaultRefurbStatus(row.id);
-                      }}
+
+                    {/* Default toggle */}
+                    <button
+                      type="submit"
+                      name="default_btn"
+                      formAction={setDefaultRefurbStatus}
+                      className={`inline-flex items-center justify-center h-7 rounded-full text-[10px] ${
+                        row.is_default
+                          ? "bg-emerald-500 text-white px-2"
+                          : "bg-slate-100 text-slate-500 px-2"
+                      }`}
+                      title="Maak deze status default"
                     >
-                      <button
-                        type="submit"
-                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] ${
-                          row.is_default
-                            ? "bg-emerald-500 text-white"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
-                        title="Maak deze status default"
-                      >
-                        {row.is_default ? "✓" : ""}
-                      </button>
-                    </form>
+                      {row.is_default ? "✓ default" : "default"}
+                    </button>
+
                     <div className="flex justify-end gap-1">
                       <button
                         type="submit"
@@ -94,31 +90,25 @@ export default function StatusLocationTab({
                       >
                         Bewaar
                       </button>
-                      <form
-                        action={async () => {
-                          "use server";
-                          await deleteRefurbStatusRow(row.id);
-                        }}
+                      <button
+                        type="submit"
+                        formAction={deleteRefurbStatusRow}
+                        className="bb-btn text-[11px] px-2"
                       >
-                        <button
-                          type="submit"
-                          className="bb-btn text-[11px] px-2"
-                        >
-                          Del
-                        </button>
-                      </form>
+                        Del
+                      </button>
                     </div>
                   </form>
                 </td>
               </tr>
             ))}
 
-            {/* Nieuwe rij */}
+            {/* Nieuwe status */}
             <tr className="border-t bg-slate-50/40">
               <td colSpan={5} className="px-2 py-2">
                 <form
                   action={saveRefurbStatusRow}
-                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-center"
+                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_auto] gap-2 items-center"
                 >
                   <input
                     name="label"
@@ -173,9 +163,10 @@ export default function StatusLocationTab({
                 <td colSpan={5} className="px-2 py-1 border">
                   <form
                     action={saveRefurbLocationRow}
-                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_80px_auto] gap-2 items-center"
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_70px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
+
                     <input
                       name="label"
                       defaultValue={row.label}
@@ -192,24 +183,21 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full text-center"
                       type="number"
                     />
-                    <form
-                      action={async () => {
-                        "use server";
-                        await setDefaultRefurbLocation(row.id);
-                      }}
+
+                    <button
+                      type="submit"
+                      name="default_btn"
+                      formAction={setDefaultRefurbLocation}
+                      className={`inline-flex items-center justify-center h-7 rounded-full text-[10px] ${
+                        row.is_default
+                          ? "bg-emerald-500 text-white px-2"
+                          : "bg-slate-100 text-slate-500 px-2"
+                      }`}
+                      title="Maak deze locatie default"
                     >
-                      <button
-                        type="submit"
-                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] ${
-                          row.is_default
-                            ? "bg-emerald-500 text-white"
-                            : "bg-slate-100 text-slate-500"
-                        }`}
-                        title="Maak deze locatie default"
-                      >
-                        {row.is_default ? "✓" : ""}
-                      </button>
-                    </form>
+                      {row.is_default ? "✓ default" : "default"}
+                    </button>
+
                     <div className="flex justify-end gap-1">
                       <button
                         type="submit"
@@ -217,31 +205,25 @@ export default function StatusLocationTab({
                       >
                         Bewaar
                       </button>
-                      <form
-                        action={async () => {
-                          "use server";
-                          await deleteRefurbLocationRow(row.id);
-                        }}
+                      <button
+                        type="submit"
+                        formAction={deleteRefurbLocationRow}
+                        className="bb-btn text-[11px] px-2"
                       >
-                        <button
-                          type="submit"
-                          className="bb-btn text-[11px] px-2"
-                        >
-                          Del
-                        </button>
-                      </form>
+                        Del
+                      </button>
                     </div>
                   </form>
                 </td>
               </tr>
             ))}
 
-            {/* Nieuwe location */}
+            {/* Nieuwe locatie */}
             <tr className="border-t bg-slate-50/40">
               <td colSpan={5} className="px-2 py-2">
                 <form
                   action={saveRefurbLocationRow}
-                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-center"
+                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_auto] gap-2 items-center"
                 >
                   <input
                     name="label"
