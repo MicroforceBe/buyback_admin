@@ -147,6 +147,10 @@ export async function updateRefurbItemCell(
  * - Voor ALWAYS_EDITABLE_FIELDS: bestaande waarde mag overschreven worden.
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
+ *
+ * Lege rijen in de bron (lege cellen) worden *niet* meer weggefilterd zodat
+ * de rijen onderaan correct in lijn blijven. Een lege waarde zorgt dus gewoon
+ * voor een "no-op" op die rij.
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
@@ -154,10 +158,10 @@ export async function pasteIntoRefurbColumn(
   field: PasteField,
   rawLines: string[]
 ): Promise<RefurbItem[]> {
-  const lines = rawLines
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  // We strippen enkel carriage returns, maar bewaren lege lijnen
+  const lines = rawLines.map((l) => l.replace(/\r/g, ""));
 
+  // Als er echt niets is (bijv. volledig lege clipboard), gewoon huidige items teruggeven
   if (!lines.length) {
     return fetchItemsForReception(receptionId);
   }
@@ -171,11 +175,17 @@ export async function pasteIntoRefurbColumn(
 
   for (let i = 0; i < lines.length; i++) {
     const rowIndex = startRowIndex + i;
-    const line = lines[i];
+    const raw = lines[i] ?? "";
+    const trimmed = raw.trim();
 
-    let value: any = line;
+    // Lege broncel: we doen niets op deze rij, maar rowIndex schuift wél door
+    if (trimmed === "") {
+      continue;
+    }
+
+    let value: any = trimmed;
     if (field === "price_cents" || field === "compensation_cents") {
-      value = parseMoneyToCents(line);
+      value = parseMoneyToCents(trimmed);
     }
 
     const existingItem = existing.find((it) => it.row_index === rowIndex);
