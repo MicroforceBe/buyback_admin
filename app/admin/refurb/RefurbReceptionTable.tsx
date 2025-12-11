@@ -8,16 +8,13 @@ import {
   updateRefurbItemCell,
   pasteIntoRefurbColumn,
 } from "./actions";
+import type { RefurbLocationOption} from "./settings//settingsActions";
 
 type RefurbStatusOption = {
   value: string;
   label: string;
 };
 
-type RefurbLocationOption = {
-  value: string;
-  label: string;
-};
 
 type Props = {
   receptionId: string;
