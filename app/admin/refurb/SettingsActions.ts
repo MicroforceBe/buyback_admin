@@ -19,10 +19,11 @@ export type RefurbLocationOption = {
   sort_order: number;
 };
 
+// Optioneel: helpers om lijsten op te halen (handig voor andere plekken)
 export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_status_options")
-    .select("*")
+    .select("id, value, label, is_default, sort_order")
     .order("sort_order", { ascending: true })
     .order("label", { ascending: true });
 
@@ -37,7 +38,7 @@ export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
 export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_location_options")
-    .select("*")
+    .select("id, value, label, is_default, sort_order")
     .order("sort_order", { ascending: true })
     .order("label", { ascending: true });
 
@@ -49,10 +50,9 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
   return data as RefurbLocationOption[];
 }
 
-// STATUS opslaan/verwijderen + default
-
+/** STATUS: create/update via form */
 export async function saveRefurbStatusRow(formData: FormData) {
-  const id = formData.get("id") as string | null;
+  const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
   const label = (formData.get("label") as string | null)?.trim() ?? "";
   const sortOrderRaw = formData.get("sort_order") as string | null;
@@ -62,29 +62,27 @@ export async function saveRefurbStatusRow(formData: FormData) {
     throw new Error("Value en label zijn verplicht.");
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("refurb_status_options")
-    .upsert(
-      {
-        id: id || undefined,
-        value,
-        label,
-        sort_order,
-      },
-      { onConflict: "id" }
-    )
-    .select("*")
-    .single();
+  const { error } = await supabaseAdmin.from("refurb_status_options").upsert(
+    {
+      id: id || undefined,
+      value,
+      label,
+      sort_order,
+    },
+    { onConflict: "id" }
+  );
 
   if (error) {
     console.error("[REFURB] saveRefurbStatusRow error", error);
     throw error;
   }
-
-  return data;
 }
 
-export async function deleteRefurbStatusRow(id: string) {
+/** STATUS: delete via form */
+export async function deleteRefurbStatusRow(formData: FormData) {
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
   const { error } = await supabaseAdmin
     .from("refurb_status_options")
     .delete()
@@ -96,11 +94,20 @@ export async function deleteRefurbStatusRow(id: string) {
   }
 }
 
-export async function setDefaultRefurbStatus(id: string) {
-  await supabaseAdmin
+/** STATUS: set default via form */
+export async function setDefaultRefurbStatus(formData: FormData) {
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
+  // alle defaults uit
+  const { error: clearErr } = await supabaseAdmin
     .from("refurb_status_options")
     .update({ is_default: false })
     .eq("is_default", true);
+
+  if (clearErr) {
+    console.error("[REFURB] clear default status error", clearErr);
+  }
 
   const { error } = await supabaseAdmin
     .from("refurb_status_options")
@@ -113,10 +120,9 @@ export async function setDefaultRefurbStatus(id: string) {
   }
 }
 
-// LOCATION opslaan/verwijderen + default
-
+/** LOCATION: create/update via form */
 export async function saveRefurbLocationRow(formData: FormData) {
-  const id = formData.get("id") as string | null;
+  const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
   const label = (formData.get("label") as string | null)?.trim() ?? "";
   const sortOrderRaw = formData.get("sort_order") as string | null;
@@ -126,29 +132,27 @@ export async function saveRefurbLocationRow(formData: FormData) {
     throw new Error("Value en label zijn verplicht.");
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("refurb_location_options")
-    .upsert(
-      {
-        id: id || undefined,
-        value,
-        label,
-        sort_order,
-      },
-      { onConflict: "id" }
-    )
-    .select("*")
-    .single();
+  const { error } = await supabaseAdmin.from("refurb_location_options").upsert(
+    {
+      id: id || undefined,
+      value,
+      label,
+      sort_order,
+    },
+    { onConflict: "id" }
+  );
 
   if (error) {
     console.error("[REFURB] saveRefurbLocationRow error", error);
     throw error;
   }
-
-  return data;
 }
 
-export async function deleteRefurbLocationRow(id: string) {
+/** LOCATION: delete via form */
+export async function deleteRefurbLocationRow(formData: FormData) {
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
   const { error } = await supabaseAdmin
     .from("refurb_location_options")
     .delete()
@@ -160,11 +164,19 @@ export async function deleteRefurbLocationRow(id: string) {
   }
 }
 
-export async function setDefaultRefurbLocation(id: string) {
-  await supabaseAdmin
+/** LOCATION: set default via form */
+export async function setDefaultRefurbLocation(formData: FormData) {
+  const id = formData.get("id") as string | null;
+  if (!id) return;
+
+  const { error: clearErr } = await supabaseAdmin
     .from("refurb_location_options")
     .update({ is_default: false })
     .eq("is_default", true);
+
+  if (clearErr) {
+    console.error("[REFURB] clear default location error", clearErr);
+  }
 
   const { error } = await supabaseAdmin
     .from("refurb_location_options")
