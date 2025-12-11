@@ -324,7 +324,9 @@ export async function createRefurbSupplier(input: {
 export async function createRefurbSupplierFromForm(formData: FormData) {
   const name = (formData.get("name") || "").toString().trim();
   const vat_number = (formData.get("vat_number") || "").toString().trim();
-  const contact_email = (formData.get("contact_email") || "").toString().trim();
+  const contact_email = (formData.get("contact_email") || "")
+    .toString()
+    .trim();
 
   await createRefurbSupplier({
     name,
@@ -377,12 +379,20 @@ export async function createRefurbReception(
   )
     .toString()
     .trim();
+  const rma_expiry_date = (formData.get("rma_expiry_date") || "")
+    .toString()
+    .trim();
 
   const vat_scheme: VatScheme =
     vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
 
   // Basis-check verplichte velden
-  if (!reception_number || !reception_date || !supplier_id || !supplier_invoice_nr) {
+  if (
+    !reception_number ||
+    !reception_date ||
+    !supplier_id ||
+    !supplier_invoice_nr
+  ) {
     return {
       success: false,
       fieldErrors: {
@@ -453,6 +463,7 @@ export async function createRefurbReception(
       vat_scheme,
       supplier_invoice_nr,
       internal_invoice_nr: internal_invoice_nr || null,
+      rma_expiry_date: rma_expiry_date || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
