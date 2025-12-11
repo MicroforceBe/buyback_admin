@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   RefurbItem,
   updateRefurbItemCell,
@@ -58,8 +59,9 @@ function parseMoneyToCents(raw: string): number | null {
   return Math.round(n * 100);
 }
 
-// status + location + IMEI/SN + SN + SKU + used + price + desc + supp err + supp grading
-const BASE_COL_COUNT = 10;
+// status + location + IMEI/SN + SKU + used + price + desc + supp remarks + supp grading
+const BASE_COL_COUNT = 9;
+const EXTRA_SN_COL_COUNT = 1; // optionele SN kolom
 const ADVANCED_COL_COUNT = 4; // refurb diagnostics + rma defect + rma + compensation
 
 function parseUsedParts(raw: string | null): string[] {
@@ -155,15 +157,17 @@ function UsedPartsCell({
               –
             </button>
           )}
+          {i === rows.length - 1 && (
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2"
+              onClick={addPart}
+            >
+              +
+            </button>
+          )}
         </div>
       ))}
-      <button
-        type="button"
-        className="bb-btn text-[11px] px-2 self-start"
-        onClick={addPart}
-      >
-        + SKU
-      </button>
     </div>
   );
 }
@@ -174,14 +178,17 @@ export default function RefurbReceptionTable({
   statusOptions,
   locationOptions,
 }: Props) {
+  const router = useRouter();
   const [items, setItems] = useState<RefurbItem[]>(initialItems);
   const [isPasting, setIsPasting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showExtraSn, setShowExtraSn] = useState(false);
 
   const hasItems = items.length > 0;
-  const colSpan = showAdvanced
-    ? BASE_COL_COUNT + ADVANCED_COL_COUNT
-    : BASE_COL_COUNT;
+  const colSpan =
+    BASE_COL_COUNT +
+    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
+    (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
   async function handleCellChange(
     itemId: string,
@@ -265,6 +272,8 @@ export default function RefurbReceptionTable({
         lines
       );
       setItems(updated);
+      // receptie refreshen zodat alle geplakte data zichtbaar is
+      router.refresh();
     } catch (err) {
       console.error("[REFURB] pasteToColumn client error", err);
     } finally {
@@ -305,6 +314,19 @@ export default function RefurbReceptionTable({
           )}
           <button
             type="button"
+            onClick={() => setShowExtraSn((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+          >
+            <span
+              className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+              aria-hidden="true"
+            >
+              {showExtraSn ? "▲" : "▼"}
+            </span>
+            <span>Extra SN</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setShowAdvanced((v) => !v)}
             className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
           >
@@ -324,12 +346,12 @@ export default function RefurbReceptionTable({
             <th className="px-2 py-1 border">Status</th>
             <th className="px-2 py-1 border">Location</th>
             <th className="px-2 py-1 border">IMEI/SN</th>
-            <th className="px-2 py-1 border">SN</th>
+            {showExtraSn && <th className="px-2 py-1 border">SN</th>}
             <th className="px-2 py-1 border">SKU</th>
             <th className="px-2 py-1 border">Used parts</th>
             <th className="px-2 py-1 border">Price</th>
             <th className="px-2 py-1 border">Description</th>
-            <th className="px-2 py-1 border">Supplier Device Errors</th>
+            <th className="px-2 py-1 border">Supplier remarks</th>
             <th className="px-2 py-1 border">Supplier Grading</th>
             {showAdvanced && (
               <>
@@ -361,13 +383,14 @@ export default function RefurbReceptionTable({
               const imeiSn = (it as any).imei_sn ?? "";
               const manualSn = (it as any).manual_sn ?? "";
               const locationValue = (it as any).location ?? "";
+              const imeiLocked = !!imeiSn; // eenmaal data aanwezig → niet meer editable
 
               return (
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
                   {/* Status (dropdown) */}
                   <td className="px-1 py-0.5 border">
                     <select
-                      className="bb-input h-7 text-[11px] px-1 w-full text-gray-900 bg-white"
+                      className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
                       value={it.refurb_status ?? ""}
                       onChange={(e) =>
                         handleCellChange(
@@ -378,6 +401,7 @@ export default function RefurbReceptionTable({
                       }
                     >
                       <option value="">(geen)</option>
+                      <option value="default">default</option>
                       {statusOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
@@ -389,7 +413,7 @@ export default function RefurbReceptionTable({
                   {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
                     <select
-                      className="bb-input h-7 text-[11px] px-1 w-full text-gray-900 bg-white"
+                      className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
                       value={locationValue}
                       onChange={(e) =>
                         handleCellChange(
@@ -400,6 +424,7 @@ export default function RefurbReceptionTable({
                       }
                     >
                       <option value="">(geen)</option>
+                      <option value="default">default</option>
                       {locationOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
@@ -408,61 +433,72 @@ export default function RefurbReceptionTable({
                     </select>
                   </td>
 
-                  {/* IMEI/SN (uit import) */}
+                  {/* IMEI/SN (uit import, na invullen niet meer editable) */}
                   <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      value={imeiSn}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setItems((prev) =>
-                          prev.map((row) =>
-                            row.id === it.id
-                              ? ({ ...row, imei_sn: val } as any)
-                              : row
+                    {imeiLocked ? (
+                      <span
+                        className="block truncate max-w-[200px]"
+                        title={imeiSn}
+                      >
+                        {imeiSn}
+                      </span>
+                    ) : (
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        value={imeiSn}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setItems((prev) =>
+                            prev.map((row) =>
+                              row.id === it.id
+                                ? ({ ...row, imei_sn: val } as any)
+                                : row
+                            )
+                          );
+                        }}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "imei_sn",
+                            e.target.value.trim()
                           )
-                        );
-                      }}
-                      onBlur={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "imei_sn",
-                          e.target.value.trim()
-                        )
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "imei_sn")
-                      }
-                    />
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "imei_sn")
+                        }
+                      />
+                    )}
                   </td>
 
-                  {/* SN */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      value={manualSn}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setItems((prev) =>
-                          prev.map((row) =>
-                            row.id === it.id
-                              ? ({ ...row, manual_sn: val } as any)
-                              : row
+                  {/* SN (manueel) */}
+                  {showExtraSn && (
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        value={manualSn}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setItems((prev) =>
+                            prev.map((row) =>
+                              row.id === it.id
+                                ? ({ ...row, manual_sn: val } as any)
+                                : row
+                            )
+                          );
+                        }}
+                        onBlur={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "manual_sn",
+                            e.target.value.trim()
                           )
-                        );
-                      }}
-                      onBlur={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "manual_sn",
-                          e.target.value.trim()
-                        )
-                      }
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, idx, "manual_sn")
-                      }
-                    />
-                  </td>
+                        }
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, idx, "manual_sn")
+                        }
+                      />
+                    </td>
+                  )}
 
                   {/* SKU */}
                   <td className="px-1 py-0.5 border">
@@ -553,7 +589,7 @@ export default function RefurbReceptionTable({
                     )}
                   </td>
 
-                  {/* Supplier Device Errors */}
+                  {/* Supplier remarks (voorheen Supplier Device Errors) */}
                   <td className="px-1 py-0.5 border">
                     {lockedSuppErr ? (
                       <span
@@ -728,14 +764,16 @@ export default function RefurbReceptionTable({
                 />
               </td>
 
-              {/* SN */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak SN kolom hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
-                />
-              </td>
+              {/* SN (alleen tonen als Extra SN actief is) */}
+              {showExtraSn && (
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak SN kolom hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
+                  />
+                </td>
+              )}
 
               {/* SKU */}
               <td className="px-1 py-0.5 border">
@@ -777,11 +815,11 @@ export default function RefurbReceptionTable({
                 />
               </td>
 
-              {/* Supplier Device Errors */}
+              {/* Supplier remarks */}
               <td className="px-1 py-0.5 border">
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak Supplier errors hier"
+                  placeholder="Plak Supplier remarks hier"
                   onPaste={(e) =>
                     handlePasteToColumn(e, 0, "supplier_device_errors")
                   }
@@ -865,7 +903,8 @@ export default function RefurbReceptionTable({
               >
                 Nog geen toestellen in deze receptie. Plak een kolom uit Excel
                 in één van de velden hierboven (bv. IMEI/SN, SKU, Description,
-                Price...) om rijen aan te maken.
+                Price...) om rijen aan te maken. Status en Location gebruiken
+                hun ingestelde default-waarde bij het importeren.
               </td>
             </tr>
           )}
