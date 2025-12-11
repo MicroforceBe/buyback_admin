@@ -55,7 +55,6 @@ type RefurbModel = {
   id: string;
   name: string;
   search_keywords: string | null;
-  active: boolean;
 };
 
 async function getReception(id: string): Promise<RefurbReception | null> {
@@ -169,8 +168,7 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
 async function getRefurbModels(): Promise<RefurbModel[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_models")
-    .select("id, name, search_keywords, active")
-    .eq("active", true)
+    .select("id, name, search_keywords")
     .order("name", { ascending: true });
 
   if (error) {
@@ -181,23 +179,20 @@ async function getRefurbModels(): Promise<RefurbModel[]> {
   return (data || []) as RefurbModel[];
 }
 
+/**
+ * Bepaal model van een toestel:
+ * - Alleen op basis van description.
+ * - Als één van de comma-gescheiden search_keywords in description voorkomt,
+ *   dan is het model = model.name.
+ */
 function determineModelForItem(
   item: RefurbItemRow,
   models: RefurbModel[]
 ): RefurbModel | null {
   if (!models.length) return null;
 
-  const haystack = [
-    item.sku,
-    item.description,
-    item.supplier_device_errors,
-    item.supplier_grading,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (!haystack.trim()) return null;
+  const desc = (item.description || "").toLowerCase().trim();
+  if (!desc) return null;
 
   for (const model of models) {
     const rawKeywords = (model.search_keywords || "").toLowerCase();
@@ -210,7 +205,7 @@ function determineModelForItem(
 
     if (!tokens.length) continue;
 
-    const matches = tokens.some((token) => token && haystack.includes(token));
+    const matches = tokens.some((token) => token && desc.includes(token));
     if (matches) {
       return model;
     }
@@ -310,7 +305,7 @@ export default async function RefurbReceptionDetailPage({
     };
   }
 
-  // -------- Model stats op basis van refurb_models + zoekwoorden --------
+  // -------- Model stats op basis van refurb_models + zoekwoorden (description) --------
   type ModelStat = {
     modelId: string;
     name: string;
@@ -500,7 +495,7 @@ export default async function RefurbReceptionDetailPage({
             </div>
           </div>
 
-          {/* Rechts: aantal toestellen per model (op basis van refurb_models) */}
+          {/* Rechts: aantal toestellen per model (op basis van refurb_models + description) */}
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
               Aantal toestellen per model
