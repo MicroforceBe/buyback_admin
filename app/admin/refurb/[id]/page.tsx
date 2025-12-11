@@ -1,6 +1,12 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
+import {
+  getRefurbStatusOptions,
+  getRefurbLocationOptions,
+  type RefurbStatusOption,
+  type RefurbLocationOption,
+} from "../settingsActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,16 +48,6 @@ type RefurbItemRow = {
   imei_sn: string | null;
   manual_sn: string | null;
   location: string | null;
-};
-
-type RefurbStatusOption = {
-  value: string;
-  label: string;
-};
-
-type RefurbLocationOption = {
-  value: string;
-  label: string;
 };
 
 async function getReception(id: string): Promise<RefurbReception | null> {
@@ -155,42 +151,6 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
   return data as RefurbItemRow[];
 }
 
-async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
-  const { data, error } = await supabaseAdmin
-    .from("refurb_statuses")
-    .select("code, label, active, sort_order")
-    .eq("active", true)
-    .order("sort_order", { ascending: true });
-
-  if (error) {
-    console.error("[REFURB] getRefurbStatusOptions error", error);
-    return [];
-  }
-
-  return (data || []).map((row: any) => ({
-    value: String(row.code),
-    label: String(row.label || row.code),
-  }));
-}
-
-async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]> {
-  const { data, error } = await supabaseAdmin
-    .from("refurb_locations")
-    .select("id, name, active")
-    .eq("active", true)
-    .order("name", { ascending: true });
-
-  if (error) {
-    console.error("[REFURB] getRefurbLocationOptions error", error);
-    return [];
-  }
-
-  return (data || []).map((row: any) => ({
-    value: String(row.name), // we bewaren de naam in de 'location' kolom
-    label: String(row.name),
-  }));
-}
-
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -230,8 +190,7 @@ export default async function RefurbReceptionDetailPage({
             Refurb reception {reception.reception_number}
           </h1>
           <p className="text-xs text-slate-500">
-            Leverancier:{" "}
-            <span className="font-medium">{supplierName}</span>
+            Leverancier: <span className="font-medium">{supplierName}</span>
             {supplierVat && (
               <span className="ml-2 text-[11px] text-slate-500">
                 (BTW: {supplierVat})
