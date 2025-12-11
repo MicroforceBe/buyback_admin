@@ -293,7 +293,7 @@ export default async function RefurbReceptionDetailPage({
   );
 
   // conic-gradient style voor donut
-  let donutStyle: React.CSSProperties = {};
+  let donutStyle: Record<string, string> = {};
   if (totalItems > 0 && statusStats.length > 0) {
     let currentAngle = 0;
     const segments: string[] = [];
@@ -521,30 +521,33 @@ export default async function RefurbReceptionDetailPage({
                     key={m.modelId}
                     className="flex items-center gap-2"
                   >
-                    <span className="truncate max-w-[120px]">
+                    {/* Modelnaam rechts uitgelijnd in vaste kolombreedte */}
+                    <span className="truncate text-right w-32 shrink-0">
                       {m.name}
                     </span>
+                    {/* Balk met vaste totale lengte, opgesplitst per status */}
                     <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
-                          {statusStats.map((s) => {
-                            const count = m.perStatus[s.status] ?? 0;
-                            if (!count) return null;
-                          
-                            const pct = m.total > 0 ? (count / m.total) * 100 : 0;
-                          
-                            return (
-                              <div
-                                key={s.status}
-                                className="h-full flex items-center justify-center text-[9px] text-white"
-                                style={{
-                                  width: `${pct}%`,
-                                  backgroundColor: s.color,
-                                }}
-                                title={`${s.label}: ${count}`}
-                              >
-                                {count}
-                              </div>
-                            );
-                          })}
+                      {statusStats.map((s) => {
+                        const count = m.perStatus[s.status] ?? 0;
+                        if (!count) return null;
+
+                        const pct =
+                          m.total > 0 ? (count / m.total) * 100 : 0;
+
+                        return (
+                          <div
+                            key={s.status}
+                            className="h-full flex items-center justify-center text-[9px] text-white"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: s.color,
+                            }}
+                            title={`${s.label}: ${count}`}
+                          >
+                            {count}
+                          </div>
+                        );
+                      })}
                     </div>
                     <span className="tabular-nums text-slate-700 w-6 text-right">
                       {m.total}
