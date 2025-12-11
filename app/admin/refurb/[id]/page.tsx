@@ -6,7 +6,7 @@ import {
   getRefurbLocationOptions,
   type RefurbStatusOption,
   type RefurbLocationOption,
-} from "../settings/settingsActions";
+} from "../settingsActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
