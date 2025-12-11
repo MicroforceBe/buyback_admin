@@ -1,36 +1,15 @@
 // app/admin/refurb/statuses/page.tsx
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
-  createRefurbStatusFromForm,
-  deleteRefurbStatusFromForm,
-} from "../actions";
+  getRefurbStatusOptions,
+  saveRefurbStatusRow,
+  deleteRefurbStatusRow,
+  setDefaultRefurbStatus,
+  type RefurbStatusOption,
+} from "../settingsActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type RefurbStatusRow = {
-  id: string;
-  code: string;
-  label: string;
-  sort_order: number | null;
-  active: boolean;
-};
-
-async function getStatuses(): Promise<RefurbStatusRow[]> {
-  const { data, error } = await supabaseAdmin
-    .from("refurb_statuses")
-    .select("id, code, label, sort_order, active")
-    .order("sort_order", { ascending: true })
-    .order("label", { ascending: true });
-
-  if (error) {
-    console.error("[REFURB] getStatuses error", error);
-    return [];
-  }
-
-  return (data || []) as RefurbStatusRow[];
-}
 
 export default async function RefurbStatusesPage() {
   const user = await getCurrentAdminUser();
@@ -45,14 +24,16 @@ export default async function RefurbStatusesPage() {
     );
   }
 
-  const statuses = await getStatuses();
+  const statuses: RefurbStatusOption[] = await getRefurbStatusOptions();
 
   return (
     <div className="p-4 space-y-4">
       <div>
         <h1 className="text-lg font-semibold">Refurb statussen</h1>
         <p className="text-xs text-slate-500 mt-1">
-          Beheer de mogelijke refurb status waardes voor recepties en toestellen.
+          Beheer de mogelijke refurb status opties voor recepties en toestellen.
+          Je kan één status als <strong>default</strong> aanduiden; die wordt
+          gebruikt wanneer er geen status meegegeven is bij import/paste.
         </p>
       </div>
 
@@ -60,24 +41,24 @@ export default async function RefurbStatusesPage() {
       <div className="border rounded-md bg-white p-3 text-xs space-y-2">
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
         <form
-          action={createRefurbStatusFromForm}
-          className="flex flex-wrap gap-2 items-end"
+          action={saveRefurbStatusRow}
+          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-end"
         >
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-slate-600">Code*</label>
-            <input
-              name="code"
-              className="bb-input h-8 text-xs px-2"
-              placeholder="bv. in_check"
-              required
-            />
-          </div>
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Label*</label>
             <input
               name="label"
               className="bb-input h-8 text-xs px-2"
-              placeholder="bv. In controle"
+              placeholder="bv. Ontvangen in winkel"
+              required
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-600">Value / code*</label>
+            <input
+              name="value"
+              className="bb-input h-8 text-xs px-2"
+              placeholder="bv. received_store"
               required
             />
           </div>
@@ -86,63 +67,90 @@ export default async function RefurbStatusesPage() {
             <input
               type="number"
               name="sort_order"
-              className="bb-input h-8 text-xs px-2 w-24"
+              className="bb-input h-8 text-xs px-2 w-20 text-center"
               placeholder="10"
+              defaultValue="0"
             />
           </div>
           <button
             type="submit"
-            className="bb-btn bb-btn-primary h-8 px-3 text-xs"
+            className="bb-btn bb-btn-primary h-8 px-3 text-xs justify-self-end"
           >
             Toevoegen
           </button>
         </form>
       </div>
 
-      {/* Overzicht */}
+      {/* Overzicht + inline bewerken */}
       <div className="border rounded-md bg-white text-xs overflow-x-auto">
         <table className="min-w-full border-collapse">
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
               <th className="px-2 py-1 border text-left">Label</th>
-              <th className="px-2 py-1 border text-left">Code</th>
-              <th className="px-2 py-1 border text-left">Sort order</th>
-              <th className="px-2 py-1 border text-left">Actief</th>
-              <th className="px-2 py-1 border text-right">Actie</th>
+              <th className="px-2 py-1 border text-left">Value / code</th>
+              <th className="px-2 py-1 border text-center">Sort</th>
+              <th className="px-2 py-1 border text-center">Default</th>
+              <th className="px-2 py-1 border text-right">Acties</th>
             </tr>
           </thead>
           <tbody>
-            {statuses.map((st) => (
-              <tr key={st.id} className="border-t">
-                <td className="px-2 py-1 border">{st.label}</td>
-                <td className="px-2 py-1 border">
-                  <code className="text-[11px] bg-slate-50 px-1 py-0.5 rounded">
-                    {st.code}
-                  </code>
-                </td>
-                <td className="px-2 py-1 border">
-                  {st.sort_order ?? <span className="text-slate-400">—</span>}
-                </td>
-                <td className="px-2 py-1 border">
-                  {st.active ? (
-                    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[10px]">
-                      Actief
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 px-2 py-0.5 text-[10px]">
-                      Inactief
-                    </span>
-                  )}
-                </td>
-                <td className="px-2 py-1 border text-right">
-                  <form action={deleteRefurbStatusFromForm}>
-                    <input type="hidden" name="id" value={st.id} />
+            {statuses.map((row) => (
+              <tr key={row.id} className="border-t">
+                <td colSpan={5} className="px-2 py-1 border">
+                  {/* Eén form per rij, met meerdere server actions via formAction */}
+                  <form
+                    action={saveRefurbStatusRow}
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_90px_auto] gap-2 items-center"
+                  >
+                    <input type="hidden" name="id" value={row.id} />
+
+                    <input
+                      name="label"
+                      defaultValue={row.label}
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                    />
+                    <input
+                      name="value"
+                      defaultValue={row.value}
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                    />
+                    <input
+                      name="sort_order"
+                      defaultValue={row.sort_order.toString()}
+                      className="bb-input h-7 text-[11px] px-1 w-full text-center"
+                      type="number"
+                    />
+
+                    {/* Default toggle */}
                     <button
                       type="submit"
-                      className="text-[11px] text-red-600 hover:text-red-800"
+                      name="default_btn"
+                      formAction={setDefaultRefurbStatus}
+                      className={`inline-flex items-center justify-center h-7 rounded-full text-[10px] ${
+                        row.is_default
+                          ? "bg-emerald-500 text-white px-3"
+                          : "bg-slate-100 text-slate-500 px-3"
+                      }`}
+                      title="Maak deze status default"
                     >
-                      Verwijderen
+                      {row.is_default ? "✓ default" : "default maken"}
                     </button>
+
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="submit"
+                        className="bb-btn text-[11px] px-2"
+                      >
+                        Bewaar
+                      </button>
+                      <button
+                        type="submit"
+                        formAction={deleteRefurbStatusRow}
+                        className="bb-btn text-[11px] px-2"
+                      >
+                        Del
+                      </button>
+                    </div>
                   </form>
                 </td>
               </tr>
@@ -153,7 +161,7 @@ export default async function RefurbStatusesPage() {
                   colSpan={5}
                   className="px-2 py-3 text-[11px] text-slate-500 text-center"
                 >
-                  Nog geen refurb statussen gedefinieerd.
+                  Nog geen refurb status opties gedefinieerd.
                 </td>
               </tr>
             )}
