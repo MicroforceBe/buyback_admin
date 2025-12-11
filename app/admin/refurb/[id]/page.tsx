@@ -273,17 +273,21 @@ export default async function RefurbReceptionDetailPage({
     "#64748B", // slate
   ];
 
+  const statusColorMap: Record<string, string> = {};
+
   const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(
     ([status, count], idx) => {
       const def = statusOptions.find((s) => s.value === status);
       const pct =
         totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+      const color = statusPalette[idx % statusPalette.length];
+      statusColorMap[status] = color;
       return {
         status,
         label: def?.label ?? status,
         count,
         pct,
-        color: statusPalette[idx % statusPalette.length],
+        color,
       };
     }
   );
@@ -309,7 +313,8 @@ export default async function RefurbReceptionDetailPage({
   type ModelStat = {
     modelId: string;
     name: string;
-    count: number;
+    total: number;
+    perStatus: { [status: string]: number };
   };
 
   const modelStatsMap = new Map<string, ModelStat>();
@@ -319,7 +324,8 @@ export default async function RefurbReceptionDetailPage({
     modelStatsMap.set(m.id, {
       modelId: m.id,
       name: m.name,
-      count: 0,
+      total: 0,
+      perStatus: {},
     });
   }
 
@@ -328,14 +334,18 @@ export default async function RefurbReceptionDetailPage({
   for (const it of items) {
     const matchedModel = determineModelForItem(it, models);
     if (matchedModel) {
-      const stat = modelStatsMap.get(matchedModel.id);
-      if (stat) {
-        stat.count += 1;
+      const statusKey = it.refurb_status || "onbekend";
+      const existing = modelStatsMap.get(matchedModel.id);
+      if (existing) {
+        existing.total += 1;
+        existing.perStatus[statusKey] =
+          (existing.perStatus[statusKey] ?? 0) + 1;
       } else {
         modelStatsMap.set(matchedModel.id, {
           modelId: matchedModel.id,
           name: matchedModel.name,
-          count: 1,
+          total: 1,
+          perStatus: { [statusKey]: 1 },
         });
       }
     } else {
@@ -344,8 +354,8 @@ export default async function RefurbReceptionDetailPage({
   }
 
   const modelStats = Array.from(modelStatsMap.values())
-    .filter((m) => m.count > 0)
-    .sort((a, b) => b.count - a.count);
+    .filter((m) => m.total > 0)
+    .sort((a, b) => b.total - a.total);
 
   return (
     <div className="p-4 space-y-4">
@@ -495,7 +505,7 @@ export default async function RefurbReceptionDetailPage({
             </div>
           </div>
 
-          {/* Rechts: aantal toestellen per model (op basis van refurb_models + description) */}
+          {/* Rechts: aantal toestellen per model (met bar per status) */}
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
               Aantal toestellen per model
@@ -505,17 +515,41 @@ export default async function RefurbReceptionDetailPage({
                 Geen toestellen of modellen konden niet worden bepaald.
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {modelStats.map((m) => (
                   <div
                     key={m.modelId}
-                    className="flex items-center justify-between"
+                    className="flex items-center gap-2"
                   >
-                    <span className="truncate max-w-[200px]">
+                    <span className="truncate max-w-[120px]">
                       {m.name}
                     </span>
-                    <span className="tabular-nums text-slate-700">
-                      {m.count}
+                    <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
+                      {statusStats.map((s) => {
+                        const count = m.perStatus[s.status] ?? 0;
+                        if (!count) return null;
+                        const pct =
+                          m.total > 0
+                            ? (count / m.total) * 100
+                            : 0;
+                        return (
+                          <div
+                            key={s.status}
+                            className="h-full flex items-center justify-center text-[9px] text-white"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: s.color,
+                              minWidth: 16,
+                            }}
+                            title={`${s.label}: ${count}`}
+                          >
+                            {count}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span className="tabular-nums text-slate-700 w-6 text-right">
+                      {m.total}
                     </span>
                   </div>
                 ))}
