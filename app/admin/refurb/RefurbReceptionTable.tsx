@@ -89,7 +89,10 @@ function UsedPartsCell({
 
   if (locked) {
     return (
-      <span className="block truncate max-w-[200px]" title={rawValue ?? ""}>
+      <span
+        className="block truncate max-w-[200px]"
+        title={rawValue ?? ""}
+      >
         {rawValue}
       </span>
     );
@@ -220,7 +223,6 @@ export default function RefurbReceptionTable({
 
         return {
           ...it,
-          // extra velden (imei_sn, manual_sn, location) zitten via any op het item
           [field]: value || null,
         } as RefurbItem;
       })
@@ -228,6 +230,11 @@ export default function RefurbReceptionTable({
 
     try {
       await updateRefurbItemCell(itemId, field as any, value);
+
+      // status/location aangepast → herbereken header (grafieken, tellingen)
+      if (field === "refurb_status" || field === "location") {
+        router.refresh();
+      }
     } catch (e) {
       console.error("[REFURB] updateCell client error", e);
     }
@@ -269,7 +276,7 @@ export default function RefurbReceptionTable({
         lines
       );
       setItems(updated);
-      // receptie refreshen zodat alle geplakte data zichtbaar is
+      // receptie refreshen zodat header + grafieken up-to-date zijn
       router.refresh();
     } catch (err) {
       console.error("[REFURB] pasteToColumn client error", err);
@@ -305,9 +312,13 @@ export default function RefurbReceptionTable({
         </span>
         <div className="flex items-center gap-3">
           {isPasting && (
-            <span className="text-[11px] text-slate-500">
-              Gegevens plakken...
-            </span>
+            <div className="flex items-center gap-2 text-[11px] text-slate-600">
+              <span
+                className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
+                aria-hidden="true"
+              />
+              <span>Bezig met plakken...</span>
+            </div>
           )}
           <button
             type="button"
@@ -395,7 +406,7 @@ export default function RefurbReceptionTable({
                           e.target.value
                         )
                       }
-                      className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
+                      className="h-7 text-[11px] px-2 w-full border border-slate-200 rounded bg-white text-slate-900"
                     >
                       <option value="">— kies status —</option>
                       {statusOptions.map((opt) => (
@@ -410,11 +421,11 @@ export default function RefurbReceptionTable({
                   {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
                     <select
-                      value={locationValue}
+                      value={locationValue ?? ""}
                       onChange={(e) =>
                         handleCellChange(it.id, "location", e.target.value)
                       }
-                      className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
+                      className="h-7 text-[11px] px-2 w-full border border-slate-200 rounded bg-white text-slate-900"
                     >
                       <option value="">— kies locatie —</option>
                       {locationOptions.map((opt) => (
@@ -582,7 +593,7 @@ export default function RefurbReceptionTable({
                     )}
                   </td>
 
-                  {/* Supplier remarks (voorheen Supplier Device Errors) */}
+                  {/* Supplier remarks */}
                   <td className="px-1 py-0.5 border">
                     {lockedSuppErr ? (
                       <span
@@ -814,11 +825,7 @@ export default function RefurbReceptionTable({
                   className="bb-input h-7 text-[11px] px-1 w-full"
                   placeholder="Plak Supplier remarks hier"
                   onPaste={(e) =>
-                    handlePasteToColumn(
-                      e,
-                      0,
-                      "supplier_device_errors"
-                    )
+                    handlePasteToColumn(e, 0, "supplier_device_errors")
                   }
                 />
               </td>
@@ -842,7 +849,11 @@ export default function RefurbReceptionTable({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak refurb diagnostics hier"
                       onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "refurb_diagnostics")
+                        handlePasteToColumn(
+                          e,
+                          0,
+                          "refurb_diagnostics"
+                        )
                       }
                     />
                   </td>
