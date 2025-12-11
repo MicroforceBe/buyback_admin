@@ -386,40 +386,32 @@ export default function RefurbReceptionTable({
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
                   {/* Status (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                  <select
-                    className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
-                    value={it.refurb_status ?? ""}
-                    onChange={(e) =>
-                      handleCellChange(
-                        it.id,
-                        "refurb_status",
-                        e.target.value
-                      )
-                    }
-                  >
-                    <option value="">(geen)</option>
-                    {statusOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      value={row.refurb_status ?? ""}
+                      onChange={(e) =>
+                        onUpdateCell(row.id, "refurb_status", e.target.value)
+                      }
+                      className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
+                    >
+                      <option value="">— kies status —</option>
+                      {statusOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                          {opt.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+
                   </td>
 
                   {/* Location (dropdown) */}
                   <td className="px-1 py-0.5 border">
                   <select
-                    className="h-7 text-[11px] px-1 w-full border rounded !text-gray-900 !bg-white"
-                    value={locationValue}
-                    onChange={(e) =>
-                      handleCellChange(
-                        it.id,
-                        "location",
-                        e.target.value
-                      )
-                    }
+                    value={row.location ?? ""}
+                    onChange={(e) => onUpdateCell(row.id, "location", e.target.value)}
+                    className="bb-input h-7 text-[11px] px-2 w-full bg-white text-slate-900"
                   >
-                    <option value="">(geen)</option>
+                    <option value="">— kies locatie —</option>
                     {locationOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
@@ -427,6 +419,7 @@ export default function RefurbReceptionTable({
                       </option>
                     ))}
                   </select>
+
                   </td>
 
                   {/* IMEI/SN (uit import, na invullen niet meer editable) */}
