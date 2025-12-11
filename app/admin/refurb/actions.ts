@@ -23,6 +23,10 @@ export type RefurbItem = {
   rma_defect_description: string | null;
   rma: string | null;
   compensation_cents: number | null;
+  // nieuwe kolommen voor inline/paste
+  imei_sn: string | null;
+  manual_sn: string | null;
+  location: string | null;
 };
 
 export type RefurbSupplier = {
@@ -43,7 +47,10 @@ type EditableField =
   | "refurb_diagnostics"
   | "rma_defect_description"
   | "rma"
-  | "compensation_cents";
+  | "compensation_cents"
+  | "imei_sn"
+  | "manual_sn"
+  | "location";
 
 type PasteField = EditableField;
 
@@ -64,6 +71,9 @@ const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "rma_defect_description",
   "rma",
   "compensation_cents",
+  "imei_sn",
+  "manual_sn",
+  "location",
 ];
 
 function parseMoneyToCents(raw: string): number | null {
@@ -91,7 +101,25 @@ async function fetchItemsForReception(
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
-      "id, reception_id, row_index, refurb_status, sku, used_parts, price_cents, description, supplier_device_errors, supplier_grading, refurb_diagnostics, rma_defect_description, rma, compensation_cents"
+      `
+      id,
+      reception_id,
+      row_index,
+      refurb_status,
+      sku,
+      used_parts,
+      price_cents,
+      description,
+      supplier_device_errors,
+      supplier_grading,
+      refurb_diagnostics,
+      rma_defect_description,
+      rma,
+      compensation_cents,
+      imei_sn,
+      manual_sn,
+      location
+    `
     )
     .eq("reception_id", receptionId)
     .order("row_index", { ascending: true });
@@ -148,8 +176,8 @@ export async function updateRefurbItemCell(
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
- * Lege rijen in de bron (lege cellen) worden *niet* meer weggefilterd zodat
- * de rijen onderaan correct in lijn blijven. Een lege waarde zorgt dus gewoon
+ * Lege rijen in de bron (lege cellen) worden niet meer weggefilterd zodat
+ * de rijen eronder correct in lijn blijven. Een lege waarde zorgt gewoon
  * voor een "no-op" op die rij.
  */
 export async function pasteIntoRefurbColumn(
@@ -158,10 +186,9 @@ export async function pasteIntoRefurbColumn(
   field: PasteField,
   rawLines: string[]
 ): Promise<RefurbItem[]> {
-  // We strippen enkel carriage returns, maar bewaren lege lijnen
+  // we strippen enkel carriage returns, maar bewaren lege lijnen
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
 
-  // Als er echt niets is (bijv. volledig lege clipboard), gewoon huidige items teruggeven
   if (!lines.length) {
     return fetchItemsForReception(receptionId);
   }
@@ -178,7 +205,7 @@ export async function pasteIntoRefurbColumn(
     const raw = lines[i] ?? "";
     const trimmed = raw.trim();
 
-    // Lege broncel: we doen niets op deze rij, maar rowIndex schuift wél door
+    // lege broncel: rowIndex schuift wél door, maar we doen niets op die rij
     if (trimmed === "") {
       continue;
     }
@@ -359,11 +386,6 @@ export type CreateReceptionFormState = {
 
 /**
  * Nieuwe Refurb Reception aanmaken.
- * - Checkt of receptienummer al bestaat.
- * - Bij duplicate: veldfout op "Receptie nr" met "Nr bestaat reeds".
- * - Bij succes: redirect naar detailpagina.
- *
- * ⚠️ Signature: (prevState, formData) voor useFormState.
  */
 export async function createRefurbReception(
   _prevState: CreateReceptionFormState,
@@ -412,7 +434,7 @@ export async function createRefurbReception(
     };
   }
 
-  // 🔍 1) Unieke check op receptienummer
+  // Unieke check op receptienummer
   const existing = await supabaseAdmin
     .from("refurb_receptions")
     .select("id")
@@ -433,7 +455,6 @@ export async function createRefurbReception(
   }
 
   if (existing.data && existing.data.length > 0) {
-    // → Nr bestaat reeds → veldfout op receptie nr
     return {
       success: false,
       fieldErrors: {
@@ -443,7 +464,7 @@ export async function createRefurbReception(
     };
   }
 
-  // 🔎 2) Leveranciersnaam ophalen voor oude 'supplier' kolom (NOT NULL)
+  // Leveranciersnaam ophalen voor oude 'supplier' kolom (NOT NULL)
   let supplierName = "";
   const supplierRes = await supabaseAdmin
     .from("refurb_suppliers")
@@ -457,19 +478,18 @@ export async function createRefurbReception(
       "[REFURB] could not fetch supplier name",
       supplierRes.error
     );
-    // we laten supplierName gewoon leeg, maar NIET null
   } else if (supplierRes.data?.name) {
     supplierName = supplierRes.data.name;
   }
 
-  // 🔵 3) Insert uitvoeren (zowel supplier_id als supplier invullen)
+  // Insert uitvoeren
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
     .insert({
       reception_number,
       reception_date,
       supplier_id,
-      supplier: supplierName || "", // ← belangrijk: geen NULL
+      supplier: supplierName || "",
       vat_scheme,
       supplier_invoice_nr,
       internal_invoice_nr: internal_invoice_nr || null,
@@ -498,6 +518,5 @@ export async function createRefurbReception(
     };
   }
 
-  // Succes → redirect naar detailpagina
   redirect(`/admin/refurb/${id}`);
 }
