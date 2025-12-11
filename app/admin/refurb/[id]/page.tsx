@@ -525,28 +525,26 @@ export default async function RefurbReceptionDetailPage({
                       {m.name}
                     </span>
                     <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
-                      {statusStats.map((s) => {
-                        const count = m.perStatus[s.status] ?? 0;
-                        if (!count) return null;
-                        const pct =
-                          m.total > 0
-                            ? (count / m.total) * 100
-                            : 0;
-                        return (
-                          <div
-                            key={s.status}
-                            className="h-full flex items-center justify-center text-[9px] text-white"
-                            style={{
-                              width: `${pct}%`,
-                              backgroundColor: s.color,
-                              minWidth: 16,
-                            }}
-                            title={`${s.label}: ${count}`}
-                          >
-                            {count}
-                          </div>
-                        );
-                      })}
+                          {statusStats.map((s) => {
+                            const count = m.perStatus[s.status] ?? 0;
+                            if (!count) return null;
+                          
+                            const pct = m.total > 0 ? (count / m.total) * 100 : 0;
+                          
+                            return (
+                              <div
+                                key={s.status}
+                                className="h-full flex items-center justify-center text-[9px] text-white"
+                                style={{
+                                  width: `${pct}%`,
+                                  backgroundColor: s.color,
+                                }}
+                                title={`${s.label}: ${count}`}
+                              >
+                                {count}
+                              </div>
+                            );
+                          })}
                     </div>
                     <span className="tabular-nums text-slate-700 w-6 text-right">
                       {m.total}
