@@ -1,7 +1,6 @@
 // app/admin/refurb/StatusLocationTab.tsx
 "use client";
 
-import { useTransition } from "react";
 import {
   RefurbStatusOption,
   RefurbLocationOption,
@@ -22,8 +21,6 @@ export default function StatusLocationTab({
   initialStatuses,
   initialLocations,
 }: Props) {
-  const [isPending, startTransition] = useTransition();
-
   return (
     <div className="space-y-8 text-xs">
       {/* STATUSSEN */}
@@ -48,12 +45,11 @@ export default function StatusLocationTab({
           <tbody>
             {initialStatuses.map((row) => (
               <tr key={row.id} className="border-t">
-                <td className="px-2 py-1 border">
+                <td colSpan={5} className="px-2 py-1 border">
+                  {/* Eén form per rij, alles netjes in een grid */}
                   <form
-                    action={(fd: FormData) =>
-                      startTransition(() => saveRefurbStatusRow(fd))
-                    }
-                    className="flex gap-1 items-center"
+                    action={saveRefurbStatusRow}
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_80px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
                     <input
@@ -61,49 +57,59 @@ export default function StatusLocationTab({
                       defaultValue={row.label}
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
-                </td>
-
-                <td className="px-2 py-1 border">
                     <input
                       name="value"
                       defaultValue={row.value}
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
-                </td>
-
-                <td className="px-2 py-1 border text-center">
                     <input
                       name="sort_order"
                       defaultValue={row.sort_order.toString()}
-                      className="bb-input h-7 text-[11px] px-1 w-16 text-center"
+                      className="bb-input h-7 text-[11px] px-1 w-full text-center"
                       type="number"
                     />
+                    {/* default-toggling via apart form */}
+                    <form
+                      action={async (formData) => {
+                        "use server";
+                        await setDefaultRefurbStatus(row.id);
+                      }}
+                    >
+                      <button
+                        type="submit"
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] ${
+                          row.is_default
+                            ? "bg-emerald-500 text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                        title="Maak deze status default"
+                      >
+                        {row.is_default ? "✓" : ""}
+                      </button>
+                    </form>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="submit"
+                        className="bb-btn text-[11px] px-2"
+                      >
+                        Bewaar
+                      </button>
+                      <form
+                        action={async () => {
+                          "use server";
+                          await deleteRefurbStatusRow(row.id);
+                        }}
+                      >
+                        <button
+                          type="submit"
+                          className="bb-btn text-[11px] px-2"
+                        >
+                          Del
+                        </button>
+                      </form>
+                    </div>
+                  </form>
                 </td>
-
-                <td className="px-2 py-1 border text-center">
-                  <button
-                    type="button"
-                    className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] ${
-                      row.is_default
-                        ? "bg-emerald-500 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                    onClick={() =>
-                      startTransition(() => setDefaultRefurbStatus(row.id))
-                    }
-                  >
-                    {row.is_default ? "✓" : ""}
-                  </button>
-                </td>
-
-                <td className="px-2 py-1 border text-right">
-                  <div className="flex gap-1 justify-end">
-                    <button type="submit" className="bb-btn text-[11px] px-2">
-                      Bewaar
-                    </button>
-                  </div>
-                </td>
-                  </form> {/* ← FORM CORRECT GESLOTEN */}
               </tr>
             ))}
 
@@ -111,35 +117,31 @@ export default function StatusLocationTab({
             <tr className="border-t bg-slate-50/40">
               <td colSpan={5} className="px-2 py-2">
                 <form
-                  action={(fd: FormData) =>
-                    startTransition(() => saveRefurbStatusRow(fd))
-                  }
-                  className="flex flex-wrap gap-2 items-center"
+                  action={saveRefurbStatusRow}
+                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-center"
                 >
                   <input
                     name="label"
                     placeholder="Nieuwe status label"
-                    className="bb-input h-7 text-[11px] px-1 min-w-[160px]"
+                    className="bb-input h-7 text-[11px] px-1 w-full"
                   />
                   <input
                     name="value"
                     placeholder="waarde (bv. received_store)"
-                    className="bb-input h-7 text-[11px] px-1 min-w-[180px]"
+                    className="bb-input h-7 text-[11px] px-1 w-full"
                   />
                   <input
                     name="sort_order"
                     type="number"
                     defaultValue="0"
-                    className="bb-input h-7 text-[11px] px-1 w-16 text-center"
+                    className="bb-input h-7 text-[11px] px-1 w-full text-center"
                   />
-                  <button type="submit" className="bb-btn text-[11px] px-3">
+                  <button
+                    type="submit"
+                    className="bb-btn text-[11px] px-3 justify-self-end"
+                  >
                     + Status
                   </button>
-                  {isPending && (
-                    <span className="text-[11px] text-slate-500">
-                      Aan het opslaan...
-                    </span>
-                  )}
                 </form>
               </td>
             </tr>
@@ -168,12 +170,10 @@ export default function StatusLocationTab({
           <tbody>
             {initialLocations.map((row) => (
               <tr key={row.id} className="border-t">
-                <td className="px-2 py-1 border">
+                <td colSpan={5} className="px-2 py-1 border">
                   <form
-                    action={(fd: FormData) =>
-                      startTransition(() => saveRefurbLocationRow(fd))
-                    }
-                    className="flex gap-1 items-center"
+                    action={saveRefurbLocationRow}
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_80px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
                     <input
@@ -181,85 +181,90 @@ export default function StatusLocationTab({
                       defaultValue={row.label}
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
-                </td>
-
-                <td className="px-2 py-1 border">
                     <input
                       name="value"
                       defaultValue={row.value}
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
-                </td>
-
-                <td className="px-2 py-1 border text-center">
                     <input
                       name="sort_order"
                       defaultValue={row.sort_order.toString()}
-                      className="bb-input h-7 text-[11px] px-1 w-16 text-center"
+                      className="bb-input h-7 text-[11px] px-1 w-full text-center"
                       type="number"
                     />
+                    <form
+                      action={async () => {
+                        "use server";
+                        await setDefaultRefurbLocation(row.id);
+                      }}
+                    >
+                      <button
+                        type="submit"
+                        className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] ${
+                          row.is_default
+                            ? "bg-emerald-500 text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                        title="Maak deze locatie default"
+                      >
+                        {row.is_default ? "✓" : ""}
+                      </button>
+                    </form>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="submit"
+                        className="bb-btn text-[11px] px-2"
+                      >
+                        Bewaar
+                      </button>
+                      <form
+                        action={async () => {
+                          "use server";
+                          await deleteRefurbLocationRow(row.id);
+                        }}
+                      >
+                        <button
+                          type="submit"
+                          className="bb-btn text-[11px] px-2"
+                        >
+                          Del
+                        </button>
+                      </form>
+                    </div>
+                  </form>
                 </td>
-
-                <td className="px-2 py-1 border text-center">
-                  <button
-                    type="button"
-                    className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] ${
-                      row.is_default
-                        ? "bg-emerald-500 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                    onClick={() =>
-                      startTransition(() => setDefaultRefurbLocation(row.id))
-                    }
-                  >
-                    {row.is_default ? "✓" : ""}
-                  </button>
-                </td>
-
-                <td className="px-2 py-1 border text-right">
-                  <div className="flex gap-1 justify-end">
-                    <button type="submit" className="bb-btn text-[11px] px-2">
-                      Bewaar
-                    </button>
-                  </div>
-                </td>
-                  </form> {/* ← FORM CORRECT GESLOTEN */}
               </tr>
             ))}
 
-            {/* Nieuwe rij */}
+            {/* Nieuwe location */}
             <tr className="border-t bg-slate-50/40">
               <td colSpan={5} className="px-2 py-2">
                 <form
-                  action={(fd: FormData) =>
-                    startTransition(() => saveRefurbLocationRow(fd))
-                  }
-                  className="flex flex-wrap gap-2 items-center"
+                  action={saveRefurbLocationRow}
+                  className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-center"
                 >
                   <input
                     name="label"
                     placeholder="Nieuwe location label"
-                    className="bb-input h-7 text-[11px] px-1 min-w-[160px]"
+                    className="bb-input h-7 text-[11px] px-1 w-full"
                   />
                   <input
                     name="value"
                     placeholder="waarde (bv. warehouse_1)"
-                    className="bb-input h-7 text-[11px] px-1 min-w-[180px]"
+                    className="bb-input h-7 text-[11px] px-1 w-full"
                   />
                   <input
                     name="sort_order"
                     type="number"
                     defaultValue="0"
-                    className="bb-input h-7 text-[11px] px-1 w-16 text-center"
+                    className="bb-input h-7 text-[11px] px-1 w-full text-center"
                   />
-                  <button type="submit" className="bb-btn text-[11px] px-3">
+                  <button
+                    type="submit"
+                    className="bb-btn text-[11px] px-3 justify-self-end"
+                  >
                     + Location
                   </button>
-                  {isPending && (
-                    <span className="text-[11px] text-slate-500">
-                      Aan het opslaan...
-                    </span>
-                  )}
                 </form>
               </td>
             </tr>
