@@ -37,6 +37,7 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     { key: "suppliers", href: "/admin/refurb/suppliers", label: "Leveranciers", adminOnly: true },
     { key: "statuses", href: "/admin/refurb/statuses", label: "Statussen", adminOnly: true },
     { key: "locations", href: "/admin/refurb/locations", label: "Locaties", adminOnly: true },
+    { key: "models", href: "/admin/refurb/models", label: "Modellen", adminOnly: true },
   ];
 
   return (
