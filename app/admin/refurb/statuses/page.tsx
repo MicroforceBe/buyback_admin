@@ -1,4 +1,5 @@
 // app/admin/refurb/statuses/page.tsx
+import { revalidatePath } from "next/cache";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
   getRefurbStatusOptions,
@@ -10,6 +11,25 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+// Wrappers rond de settingsActions zodat de pagina direct ververst
+async function saveStatusRowAction(formData: FormData) {
+  "use server";
+  await saveRefurbStatusRow(formData);
+  revalidatePath("/admin/refurb/statuses");
+}
+
+async function deleteStatusRowAction(formData: FormData) {
+  "use server";
+  await deleteRefurbStatusRow(formData);
+  revalidatePath("/admin/refurb/statuses");
+}
+
+async function setDefaultStatusAction(formData: FormData) {
+  "use server";
+  await setDefaultRefurbStatus(formData);
+  revalidatePath("/admin/refurb/statuses");
+}
 
 export default async function RefurbStatusesPage() {
   const user = await getCurrentAdminUser();
@@ -41,7 +61,7 @@ export default async function RefurbStatusesPage() {
       <div className="border rounded-md bg-white p-3 text-xs space-y-2">
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
         <form
-          action={saveRefurbStatusRow}
+          action={saveStatusRowAction}
           className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_80px_auto] gap-2 items-end"
         >
           <div className="flex flex-col gap-1">
@@ -86,20 +106,24 @@ export default async function RefurbStatusesPage() {
         <table className="min-w-full border-collapse">
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
-              <th className="px-2 py-1 border text-left">Label</th>
-              <th className="px-2 py-1 border text-left">Value / code</th>
-              <th className="px-2 py-1 border text-center">Sort</th>
-              <th className="px-2 py-1 border text-center">Default</th>
-              <th className="px-2 py-1 border text-right">Acties</th>
+              <th className="px-2 py-1 border text-left" colSpan={5}>
+                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_90px_auto] gap-2 items-center">
+                  <span>Label</span>
+                  <span>Value / code</span>
+                  <span className="text-center">Sort</span>
+                  <span className="text-center">Default</span>
+                  <span className="text-right">Acties</span>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
             {statuses.map((row) => (
               <tr key={row.id} className="border-t">
-                <td colSpan={5} className="px-2 py-1 border">
+                <td className="px-2 py-1 border" colSpan={5}>
                   {/* Eén form per rij, met meerdere server actions via formAction */}
                   <form
-                    action={saveRefurbStatusRow}
+                    action={saveStatusRowAction}
                     className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_70px_90px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
@@ -125,7 +149,7 @@ export default async function RefurbStatusesPage() {
                     <button
                       type="submit"
                       name="default_btn"
-                      formAction={setDefaultRefurbStatus}
+                      formAction={setDefaultStatusAction}
                       className={`inline-flex items-center justify-center h-7 rounded-full text-[10px] ${
                         row.is_default
                           ? "bg-emerald-500 text-white px-3"
@@ -145,7 +169,7 @@ export default async function RefurbStatusesPage() {
                       </button>
                       <button
                         type="submit"
-                        formAction={deleteRefurbStatusRow}
+                        formAction={deleteStatusRowAction}
                         className="bb-btn text-[11px] px-2"
                       >
                         Del
@@ -171,3 +195,4 @@ export default async function RefurbStatusesPage() {
     </div>
   );
 }
+
