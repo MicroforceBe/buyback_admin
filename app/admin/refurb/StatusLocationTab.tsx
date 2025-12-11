@@ -62,6 +62,7 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
                 </td>
+
                 <td className="px-2 py-1 border">
                     <input
                       name="value"
@@ -69,6 +70,7 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
                 </td>
+
                 <td className="px-2 py-1 border text-center">
                     <input
                       name="sort_order"
@@ -77,6 +79,7 @@ export default function StatusLocationTab({
                       type="number"
                     />
                 </td>
+
                 <td className="px-2 py-1 border text-center">
                   <button
                     type="button"
@@ -88,34 +91,19 @@ export default function StatusLocationTab({
                     onClick={() =>
                       startTransition(() => setDefaultRefurbStatus(row.id))
                     }
-                    title="Maak deze status default"
                   >
                     {row.is_default ? "✓" : ""}
                   </button>
                 </td>
+
                 <td className="px-2 py-1 border text-right">
                   <div className="flex gap-1 justify-end">
-                    <button
-                      type="submit"
-                      className="bb-btn text-[11px] px-2"
-                    >
+                    <button type="submit" className="bb-btn text-[11px] px-2">
                       Bewaar
                     </button>
-                  </form>
-                    <form
-                      action={() =>
-                        startTransition(() => deleteRefurbStatusRow(row.id))
-                      }
-                    >
-                      <button
-                        type="submit"
-                        className="bb-btn text-[11px] px-2"
-                      >
-                        Del
-                      </button>
-                    </form>
                   </div>
                 </td>
+                  </form> {/* ← FORM CORRECT GESLOTEN */}
               </tr>
             ))}
 
@@ -144,10 +132,7 @@ export default function StatusLocationTab({
                     defaultValue="0"
                     className="bb-input h-7 text-[11px] px-1 w-16 text-center"
                   />
-                  <button
-                    type="submit"
-                    className="bb-btn text-[11px] px-3"
-                  >
+                  <button type="submit" className="bb-btn text-[11px] px-3">
                     + Status
                   </button>
                   {isPending && (
@@ -197,6 +182,7 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
                 </td>
+
                 <td className="px-2 py-1 border">
                     <input
                       name="value"
@@ -204,6 +190,7 @@ export default function StatusLocationTab({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
                 </td>
+
                 <td className="px-2 py-1 border text-center">
                     <input
                       name="sort_order"
@@ -212,6 +199,7 @@ export default function StatusLocationTab({
                       type="number"
                     />
                 </td>
+
                 <td className="px-2 py-1 border text-center">
                   <button
                     type="button"
@@ -223,34 +211,19 @@ export default function StatusLocationTab({
                     onClick={() =>
                       startTransition(() => setDefaultRefurbLocation(row.id))
                     }
-                    title="Maak deze locatie default"
                   >
                     {row.is_default ? "✓" : ""}
                   </button>
                 </td>
+
                 <td className="px-2 py-1 border text-right">
                   <div className="flex gap-1 justify-end">
-                    <button
-                      type="submit"
-                      className="bb-btn text-[11px] px-2"
-                    >
+                    <button type="submit" className="bb-btn text-[11px] px-2">
                       Bewaar
                     </button>
-                  </form>
-                    <form
-                      action={() =>
-                        startTransition(() => deleteRefurbLocationRow(row.id))
-                      }
-                    >
-                      <button
-                        type="submit"
-                        className="bb-btn text-[11px] px-2"
-                      >
-                        Del
-                      </button>
-                    </form>
                   </div>
                 </td>
+                  </form> {/* ← FORM CORRECT GESLOTEN */}
               </tr>
             ))}
 
@@ -279,10 +252,7 @@ export default function StatusLocationTab({
                     defaultValue="0"
                     className="bb-input h-7 text-[11px] px-1 w-16 text-center"
                   />
-                  <button
-                    type="submit"
-                    className="bb-btn text-[11px] px-3"
-                  >
+                  <button type="submit" className="bb-btn text-[11px] px-3">
                     + Location
                   </button>
                   {isPending && (
