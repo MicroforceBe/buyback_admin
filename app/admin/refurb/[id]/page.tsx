@@ -51,6 +51,13 @@ type RefurbItemRow = {
   location: string | null;
 };
 
+type RefurbModel = {
+  id: string;
+  name: string;
+  search_keywords: string | null;
+  active: boolean;
+};
+
 async function getReception(id: string): Promise<RefurbReception | null> {
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
@@ -159,6 +166,59 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
   return data as RefurbItemRow[];
 }
 
+async function getRefurbModels(): Promise<RefurbModel[]> {
+  const { data, error } = await supabaseAdmin
+    .from("refurb_models")
+    .select("id, name, search_keywords, active")
+    .eq("active", true)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("[REFURB] getRefurbModels error", error);
+    return [];
+  }
+
+  return (data || []) as RefurbModel[];
+}
+
+function determineModelForItem(
+  item: RefurbItemRow,
+  models: RefurbModel[]
+): RefurbModel | null {
+  if (!models.length) return null;
+
+  const haystack = [
+    item.sku,
+    item.description,
+    item.supplier_device_errors,
+    item.supplier_grading,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!haystack.trim()) return null;
+
+  for (const model of models) {
+    const rawKeywords = (model.search_keywords || "").toLowerCase();
+    if (!rawKeywords.trim()) continue;
+
+    const tokens = rawKeywords
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (!tokens.length) continue;
+
+    const matches = tokens.some((token) => token && haystack.includes(token));
+    if (matches) {
+      return model;
+    }
+  }
+
+  return null;
+}
+
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -177,10 +237,11 @@ export default async function RefurbReceptionDetailPage({
     );
   }
 
-  const [items, statusOptions, locationOptions] = await Promise.all([
+  const [items, statusOptions, locationOptions, models] = await Promise.all([
     getReceptionItems(reception.id),
     getRefurbStatusOptions(),
     getRefurbLocationOptions(),
+    getRefurbModels(),
   ]);
 
   const vatLabel =
@@ -249,33 +310,47 @@ export default async function RefurbReceptionDetailPage({
     };
   }
 
-  // -------- Model stats (eenvoudig op basis van SKU/description gegroepeerd) --------
+  // -------- Model stats op basis van refurb_models + zoekwoorden --------
   type ModelStat = {
-    key: string;
+    modelId: string;
     name: string;
     count: number;
   };
 
-  const modelCountMap = new Map<string, ModelStat>();
-  for (const it of items) {
-    const key =
-      it.sku ??
-      (it.description
-        ? it.description.slice(0, 40)
-        : "Onbekend model");
-    const name = it.sku ?? it.description ?? "Onbekend model";
+  const modelStatsMap = new Map<string, ModelStat>();
 
-    const existing = modelCountMap.get(key);
-    if (existing) {
-      existing.count += 1;
+  // Start: alle modellen met count 0
+  for (const m of models) {
+    modelStatsMap.set(m.id, {
+      modelId: m.id,
+      name: m.name,
+      count: 0,
+    });
+  }
+
+  let unknownCount = 0;
+
+  for (const it of items) {
+    const matchedModel = determineModelForItem(it, models);
+    if (matchedModel) {
+      const stat = modelStatsMap.get(matchedModel.id);
+      if (stat) {
+        stat.count += 1;
+      } else {
+        modelStatsMap.set(matchedModel.id, {
+          modelId: matchedModel.id,
+          name: matchedModel.name,
+          count: 1,
+        });
+      }
     } else {
-      modelCountMap.set(key, { key, name, count: 1 });
+      unknownCount += 1;
     }
   }
 
-  const modelStats = Array.from(modelCountMap.values()).sort(
-    (a, b) => b.count - a.count
-  );
+  const modelStats = Array.from(modelStatsMap.values())
+    .filter((m) => m.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   return (
     <div className="p-4 space-y-4">
@@ -425,12 +500,12 @@ export default async function RefurbReceptionDetailPage({
             </div>
           </div>
 
-          {/* Rechts: aantal toestellen per model */}
+          {/* Rechts: aantal toestellen per model (op basis van refurb_models) */}
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
               Aantal toestellen per model
             </div>
-            {modelStats.length === 0 ? (
+            {modelStats.length === 0 && unknownCount === 0 ? (
               <div className="text-[11px] text-slate-500">
                 Geen toestellen of modellen konden niet worden bepaald.
               </div>
@@ -438,7 +513,7 @@ export default async function RefurbReceptionDetailPage({
               <div className="space-y-1">
                 {modelStats.map((m) => (
                   <div
-                    key={m.key}
+                    key={m.modelId}
                     className="flex items-center justify-between"
                   >
                     <span className="truncate max-w-[200px]">
@@ -449,6 +524,15 @@ export default async function RefurbReceptionDetailPage({
                     </span>
                   </div>
                 ))}
+
+                {unknownCount > 0 && (
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="truncate max-w-[200px]">
+                      Onbekend model
+                    </span>
+                    <span className="tabular-nums">{unknownCount}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
