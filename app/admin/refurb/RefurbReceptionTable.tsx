@@ -406,7 +406,7 @@ export default function RefurbReceptionTable({
                           e.target.value
                         )
                       }
-                      className="refurb-select h-8 w-full rounded border border-slate-200 bg-white px-2 text-[12px] text-slate-900"
+                      className="bb-select bb-select-sm w-full text-slate-900"
                     >
                       <option value="">— kies status —</option>
                       {statusOptions.map((opt) => (
@@ -425,7 +425,7 @@ export default function RefurbReceptionTable({
                       onChange={(e) =>
                         handleCellChange(it.id, "location", e.target.value)
                       }
-                      className="refurb-select h-8 w-full rounded border border-slate-200 bg-white px-2 text-[12px] text-slate-900"
+                      className="bb-select bb-select-sm w-full text-slate-900"
                     >
                       <option value="">— kies locatie —</option>
                       {locationOptions.map((opt) => (
