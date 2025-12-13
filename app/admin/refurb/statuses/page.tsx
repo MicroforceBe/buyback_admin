@@ -62,7 +62,7 @@ export default async function RefurbStatusesPage() {
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
         <form
           action={saveStatusRowAction}
-          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_110px_80px_auto] gap-2 items-end"
+          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_80px_auto] gap-2 items-end"
         >
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Label*</label>
@@ -96,7 +96,7 @@ export default async function RefurbStatusesPage() {
                 title="Kies kleur"
               />
               <input
-                name="color"
+                name="color_text"
                 defaultValue="#64748b"
                 className="bb-input h-8 text-xs px-2 w-full"
                 placeholder="#64748b"
@@ -122,11 +122,6 @@ export default async function RefurbStatusesPage() {
             Toevoegen
           </button>
         </form>
-
-        <p className="text-[11px] text-slate-500">
-          Tip: gebruik hex (bv. <code>#22c55e</code>) zodat grafieken en badges
-          altijd dezelfde kleur gebruiken.
-        </p>
       </div>
 
       {/* Overzicht + inline bewerken */}
@@ -135,7 +130,7 @@ export default async function RefurbStatusesPage() {
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
               <th className="px-2 py-1 border text-left" colSpan={6}>
-                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_120px_70px_90px_auto] gap-2 items-center">
+                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_70px_90px_auto] gap-2 items-center">
                   <span>Label</span>
                   <span>Value / code</span>
                   <span>Kleur</span>
@@ -154,7 +149,7 @@ export default async function RefurbStatusesPage() {
                   {/* Eén form per rij, met meerdere server actions via formAction */}
                   <form
                     action={saveStatusRowAction}
-                    className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_120px_70px_90px_auto] gap-2 items-center"
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_70px_90px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
 
@@ -185,7 +180,7 @@ export default async function RefurbStatusesPage() {
                         title="Kies kleur"
                       />
                       <input
-                        name="color"
+                        name="color_text"
                         defaultValue={(row as any).color ?? "#64748b"}
                         className="bb-input h-7 text-[11px] px-1 w-full"
                         placeholder="#64748b"
