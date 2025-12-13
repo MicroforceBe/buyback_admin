@@ -89,10 +89,7 @@ function UsedPartsCell({
 
   if (locked) {
     return (
-      <span
-        className="block truncate max-w-[200px]"
-        title={rawValue ?? ""}
-      >
+      <span className="block truncate max-w-[200px]" title={rawValue ?? ""}>
         {rawValue}
       </span>
     );
@@ -189,6 +186,11 @@ export default function RefurbReceptionTable({
     BASE_COL_COUNT +
     (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
     (showAdvanced ? ADVANCED_COL_COUNT : 0);
+
+  // NIEUW: snelle lookup van statuskleur per value
+  const statusColorByValue = new Map(
+    statusOptions.map((s: any) => [s.value, s.color ?? null])
+  );
 
   async function handleCellChange(
     itemId: string,
@@ -348,6 +350,7 @@ export default function RefurbReceptionTable({
           </button>
         </div>
       </div>
+
       <table className="min-w-full border-collapse">
         <thead className="bg-slate-50 text-[11px] uppercase">
           <tr>
@@ -371,6 +374,7 @@ export default function RefurbReceptionTable({
             )}
           </tr>
         </thead>
+
         <tbody>
           {/* ⬇️ Normale rijen uit de DB */}
           {hasItems &&
@@ -393,29 +397,42 @@ export default function RefurbReceptionTable({
               const locationValue = (it as any).location ?? "";
               const imeiLocked = !!imeiSn; // eenmaal data aanwezig → niet meer editable
 
+              const statusColor =
+                statusColorByValue.get(it.refurb_status ?? "") ?? null;
+
               return (
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
                   {/* Status (dropdown) */}
                   <td className="px-1 py-0.5 border">
-                    <select
-                      value={it.refurb_status ?? ""}
-                      onChange={(e) =>
-                        handleCellChange(
-                          it.id,
-                          "refurb_status",
-                          e.target.value
-                        )
-                      }
-                      className="bb-select bb-select-sm w-full text-slate-900"
-                    >
-                      <option value="">— kies status —</option>
-                      {statusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                          {opt.is_default ? " (default)" : ""}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
+                        style={{
+                          background: statusColor ?? "transparent",
+                        }}
+                        title={it.refurb_status ?? ""}
+                        aria-hidden="true"
+                      />
+                      <select
+                        value={it.refurb_status ?? ""}
+                        onChange={(e) =>
+                          handleCellChange(
+                            it.id,
+                            "refurb_status",
+                            e.target.value
+                          )
+                        }
+                        className="bb-select bb-select-sm w-full text-slate-900"
+                      >
+                        <option value="">— kies status —</option>
+                        {statusOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                            {opt.is_default ? " (default)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </td>
 
                   {/* Location (dropdown) */}
@@ -467,9 +484,7 @@ export default function RefurbReceptionTable({
                             e.target.value.trim()
                           )
                         }
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, idx, "imei_sn")
-                        }
+                        onPaste={(e) => handlePasteToColumn(e, idx, "imei_sn")}
                       />
                     )}
                   </td>
@@ -497,9 +512,7 @@ export default function RefurbReceptionTable({
                             e.target.value.trim()
                           )
                         }
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, idx, "manual_sn")
-                        }
+                        onPaste={(e) => handlePasteToColumn(e, idx, "manual_sn")}
                       />
                     </td>
                   )}
@@ -530,9 +543,7 @@ export default function RefurbReceptionTable({
                     <UsedPartsCell
                       rawValue={it.used_parts ?? ""}
                       locked={lockedUsedParts}
-                      onChange={(raw) =>
-                        handleCellChange(it.id, "used_parts", raw)
-                      }
+                      onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
                       onPasteToColumn={(e) =>
                         handlePasteToColumn(e, idx, "used_parts")
                       }
@@ -553,11 +564,7 @@ export default function RefurbReceptionTable({
                         }
                         placeholder="0,00"
                         onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "price_cents",
-                            e.target.value
-                          )
+                          handleCellChange(it.id, "price_cents", e.target.value)
                         }
                         onPaste={(e) =>
                           handlePasteToColumn(e, idx, "price_cents")
@@ -580,11 +587,7 @@ export default function RefurbReceptionTable({
                         className="bb-input h-7 text-[11px] px-1 w-full"
                         defaultValue={it.description ?? ""}
                         onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "description",
-                            e.target.value
-                          )
+                          handleCellChange(it.id, "description", e.target.value)
                         }
                         onPaste={(e) =>
                           handlePasteToColumn(e, idx, "description")
@@ -661,11 +664,7 @@ export default function RefurbReceptionTable({
                             )
                           }
                           onPaste={(e) =>
-                            handlePasteToColumn(
-                              e,
-                              idx,
-                              "refurb_diagnostics"
-                            )
+                            handlePasteToColumn(e, idx, "refurb_diagnostics")
                           }
                         />
                       </td>
@@ -700,9 +699,7 @@ export default function RefurbReceptionTable({
                           onBlur={(e) =>
                             handleCellChange(it.id, "rma", e.target.value)
                           }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, idx, "rma")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, idx, "rma")}
                         />
                       </td>
 
@@ -724,11 +721,7 @@ export default function RefurbReceptionTable({
                             )
                           }
                           onPaste={(e) =>
-                            handlePasteToColumn(
-                              e,
-                              idx,
-                              "compensation_cents"
-                            )
+                            handlePasteToColumn(e, idx, "compensation_cents")
                           }
                         />
                       </td>
@@ -793,9 +786,7 @@ export default function RefurbReceptionTable({
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
                   placeholder="Plak Used parts-kolom hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "used_parts")
-                  }
+                  onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
                 />
               </td>
 
@@ -813,9 +804,7 @@ export default function RefurbReceptionTable({
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
                   placeholder="Plak Description-kolom hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "description")
-                  }
+                  onPaste={(e) => handlePasteToColumn(e, 0, "description")}
                 />
               </td>
 
@@ -835,9 +824,7 @@ export default function RefurbReceptionTable({
                 <input
                   className="bb-input h-7 text-[11px] px-1 w-full"
                   placeholder="Plak grading hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "supplier_grading")
-                  }
+                  onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
                 />
               </td>
 
@@ -849,11 +836,7 @@ export default function RefurbReceptionTable({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak refurb diagnostics hier"
                       onPaste={(e) =>
-                        handlePasteToColumn(
-                          e,
-                          0,
-                          "refurb_diagnostics"
-                        )
+                        handlePasteToColumn(e, 0, "refurb_diagnostics")
                       }
                     />
                   </td>
@@ -864,11 +847,7 @@ export default function RefurbReceptionTable({
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak RMA defect beschrijving hier"
                       onPaste={(e) =>
-                        handlePasteToColumn(
-                          e,
-                          0,
-                          "rma_defect_description"
-                        )
+                        handlePasteToColumn(e, 0, "rma_defect_description")
                       }
                     />
                   </td>
@@ -878,9 +857,7 @@ export default function RefurbReceptionTable({
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak RMA-codes hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "rma")
-                      }
+                      onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
                     />
                   </td>
 
@@ -890,11 +867,7 @@ export default function RefurbReceptionTable({
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
                       placeholder="Plak compensaties hier"
                       onPaste={(e) =>
-                        handlePasteToColumn(
-                          e,
-                          0,
-                          "compensation_cents"
-                        )
+                        handlePasteToColumn(e, 0, "compensation_cents")
                       }
                     />
                   </td>
