@@ -9,6 +9,9 @@ export type RefurbStatusOption = {
   label: string;
   is_default: boolean;
   sort_order: number;
+
+  // NIEUW: vaste kleur voor grafieken/UI (hex, bv #22c55e)
+  color: string | null;
 };
 
 export type RefurbLocationOption = {
@@ -19,11 +22,20 @@ export type RefurbLocationOption = {
   sort_order: number;
 };
 
+// helper: haal laatste niet-lege FormData value op (voor inputs met dezelfde name)
+function getLastNonEmpty(formData: FormData, key: string): string {
+  const all = formData.getAll(key).map((v) => String(v ?? "").trim());
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i]) return all[i];
+  }
+  return "";
+}
+
 // Optioneel: helpers om lijsten op te halen (handig voor andere plekken)
 export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_status_options")
-    .select("id, value, label, is_default, sort_order")
+    .select("id, value, label, is_default, sort_order, color")
     .order("sort_order", { ascending: true })
     .order("label", { ascending: true });
 
@@ -58,6 +70,10 @@ export async function saveRefurbStatusRow(formData: FormData) {
   const sortOrderRaw = formData.get("sort_order") as string | null;
   const sort_order = sortOrderRaw ? Number(sortOrderRaw) : 0;
 
+  // NIEUW: kleur (laatste niet-lege, zodat color picker + text input kan)
+  const colorRaw = getLastNonEmpty(formData, "color");
+  const color = colorRaw ? colorRaw : null;
+
   if (!value || !label) {
     throw new Error("Value en label zijn verplicht.");
   }
@@ -68,6 +84,7 @@ export async function saveRefurbStatusRow(formData: FormData) {
       value,
       label,
       sort_order,
+      color,
     },
     { onConflict: "id" }
   );
