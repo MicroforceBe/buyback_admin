@@ -8,6 +8,7 @@ import {
   setDefaultRefurbStatus,
   type RefurbStatusOption,
 } from "../settingsActions";
+import ColorPickerField from "./ColorPickerField";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -62,7 +63,7 @@ export default async function RefurbStatusesPage() {
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
         <form
           action={saveStatusRowAction}
-          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_80px_auto] gap-2 items-end"
+          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_80px_auto] gap-2 items-end"
         >
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Label*</label>
@@ -73,7 +74,6 @@ export default async function RefurbStatusesPage() {
               required
             />
           </div>
-
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Value / code*</label>
             <input
@@ -84,24 +84,10 @@ export default async function RefurbStatusesPage() {
             />
           </div>
 
-          {/* NIEUW: kleur */}
+          {/* NIEUW: kleur (synced picker + hex) */}
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Kleur</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                name="color"
-                defaultValue="#64748b"
-                className="h-8 w-10 p-0 border border-slate-200 rounded bg-white"
-                title="Kies kleur"
-              />
-              <input
-                name="color_text"
-                defaultValue="#64748b"
-                className="bb-input h-8 text-xs px-2 w-full"
-                placeholder="#64748b"
-              />
-            </div>
+            <ColorPickerField defaultValue="#64748b" />
           </div>
 
           <div className="flex flex-col gap-1">
@@ -114,7 +100,6 @@ export default async function RefurbStatusesPage() {
               defaultValue="0"
             />
           </div>
-
           <button
             type="submit"
             className="bb-btn bb-btn-primary h-8 px-3 text-xs justify-self-end"
@@ -130,7 +115,7 @@ export default async function RefurbStatusesPage() {
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
               <th className="px-2 py-1 border text-left" colSpan={6}>
-                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_70px_90px_auto] gap-2 items-center">
+                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_90px_auto] gap-2 items-center">
                   <span>Label</span>
                   <span>Value / code</span>
                   <span>Kleur</span>
@@ -141,15 +126,13 @@ export default async function RefurbStatusesPage() {
               </th>
             </tr>
           </thead>
-
           <tbody>
             {statuses.map((row) => (
               <tr key={row.id} className="border-t">
                 <td className="px-2 py-1 border" colSpan={6}>
-                  {/* Eén form per rij, met meerdere server actions via formAction */}
                   <form
                     action={saveStatusRowAction}
-                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_120px_70px_90px_auto] gap-2 items-center"
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_90px_auto] gap-2 items-center"
                   >
                     <input type="hidden" name="id" value={row.id} />
 
@@ -164,28 +147,11 @@ export default async function RefurbStatusesPage() {
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
 
-                    {/* NIEUW: kleur (picker + hex) */}
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-flex w-3 h-3 rounded-full border border-slate-300"
-                        style={{ background: (row as any).color ?? "#64748b" }}
-                        aria-hidden="true"
-                        title={(row as any).color ?? ""}
-                      />
-                      <input
-                        type="color"
-                        name="color"
-                        defaultValue={(row as any).color ?? "#64748b"}
-                        className="h-7 w-10 p-0 border border-slate-200 rounded bg-white"
-                        title="Kies kleur"
-                      />
-                      <input
-                        name="color_text"
-                        defaultValue={(row as any).color ?? "#64748b"}
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        placeholder="#64748b"
-                      />
-                    </div>
+                    {/* Kleur synced (picker ↔ hex) */}
+                    <ColorPickerField
+                      defaultValue={(row as any).color ?? "#64748b"}
+                      compact
+                    />
 
                     <input
                       name="sort_order"
@@ -194,7 +160,6 @@ export default async function RefurbStatusesPage() {
                       type="number"
                     />
 
-                    {/* Default toggle */}
                     <button
                       type="submit"
                       name="default_btn"
@@ -210,10 +175,7 @@ export default async function RefurbStatusesPage() {
                     </button>
 
                     <div className="flex justify-end gap-1">
-                      <button
-                        type="submit"
-                        className="bb-btn text-[11px] px-2"
-                      >
+                      <button type="submit" className="bb-btn text-[11px] px-2">
                         Bewaar
                       </button>
                       <button
@@ -228,7 +190,6 @@ export default async function RefurbStatusesPage() {
                 </td>
               </tr>
             ))}
-
             {statuses.length === 0 && (
               <tr>
                 <td
