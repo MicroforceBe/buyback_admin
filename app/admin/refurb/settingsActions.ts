@@ -10,7 +10,7 @@ export type RefurbStatusOption = {
   is_default: boolean;
   sort_order: number;
 
-  // NIEUW: vaste kleur voor grafieken/UI (hex, bv #22c55e)
+  // NIEUW
   color: string | null;
 };
 
@@ -22,16 +22,10 @@ export type RefurbLocationOption = {
   sort_order: number;
 };
 
-// helper: haal laatste niet-lege FormData value op (voor inputs met dezelfde name)
-function getLastNonEmpty(formData: FormData, key: string): string {
-  const all = formData.getAll(key).map((v) => String(v ?? "").trim());
-  for (let i = all.length - 1; i >= 0; i--) {
-    if (all[i]) return all[i];
-  }
-  return "";
-}
+// ===============================
+// GETTERS
+// ===============================
 
-// Optioneel: helpers om lijsten op te halen (handig voor andere plekken)
 export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_status_options")
@@ -62,7 +56,10 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
   return data as RefurbLocationOption[];
 }
 
-/** STATUS: create/update via form */
+// ===============================
+// STATUS
+// ===============================
+
 export async function saveRefurbStatusRow(formData: FormData) {
   const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
@@ -70,9 +67,13 @@ export async function saveRefurbStatusRow(formData: FormData) {
   const sortOrderRaw = formData.get("sort_order") as string | null;
   const sort_order = sortOrderRaw ? Number(sortOrderRaw) : 0;
 
-  // NIEUW: kleur (laatste niet-lege, zodat color picker + text input kan)
-  const colorRaw = getLastNonEmpty(formData, "color");
-  const color = colorRaw ? colorRaw : null;
+  // ✅ FIX: kleur correct bepalen
+  const colorText =
+    (formData.get("color_text") as string | null)?.trim() ?? "";
+  const colorPicker =
+    (formData.get("color") as string | null)?.trim() ?? "";
+
+  const color = colorText || colorPicker || null;
 
   if (!value || !label) {
     throw new Error("Value en label zijn verplicht.");
@@ -95,7 +96,6 @@ export async function saveRefurbStatusRow(formData: FormData) {
   }
 }
 
-/** STATUS: delete via form */
 export async function deleteRefurbStatusRow(formData: FormData) {
   const id = formData.get("id") as string | null;
   if (!id) return;
@@ -111,12 +111,10 @@ export async function deleteRefurbStatusRow(formData: FormData) {
   }
 }
 
-/** STATUS: set default via form */
 export async function setDefaultRefurbStatus(formData: FormData) {
   const id = formData.get("id") as string | null;
   if (!id) return;
 
-  // alle defaults uit
   const { error: clearErr } = await supabaseAdmin
     .from("refurb_status_options")
     .update({ is_default: false })
@@ -137,7 +135,10 @@ export async function setDefaultRefurbStatus(formData: FormData) {
   }
 }
 
-/** LOCATION: create/update via form */
+// ===============================
+// LOCATION
+// ===============================
+
 export async function saveRefurbLocationRow(formData: FormData) {
   const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
@@ -165,7 +166,6 @@ export async function saveRefurbLocationRow(formData: FormData) {
   }
 }
 
-/** LOCATION: delete via form */
 export async function deleteRefurbLocationRow(formData: FormData) {
   const id = formData.get("id") as string | null;
   if (!id) return;
@@ -181,7 +181,6 @@ export async function deleteRefurbLocationRow(formData: FormData) {
   }
 }
 
-/** LOCATION: set default via form */
 export async function setDefaultRefurbLocation(formData: FormData) {
   const id = formData.get("id") as string | null;
   if (!id) return;
