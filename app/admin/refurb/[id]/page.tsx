@@ -97,8 +97,7 @@ async function getReception(id: string): Promise<RefurbReception | null> {
         id: String(supplierRel.id),
         name: String(supplierRel.name),
         vat_number:
-          supplierRel.vat_number !== undefined &&
-          supplierRel.vat_number !== null
+          supplierRel.vat_number !== undefined && supplierRel.vat_number !== null
             ? String(supplierRel.vat_number)
             : null,
         contact_email:
@@ -116,8 +115,7 @@ async function getReception(id: string): Promise<RefurbReception | null> {
     vat_scheme: raw.vat_scheme === "normal" ? "normal" : "margin",
     supplier_invoice_nr: String(raw.supplier_invoice_nr),
     internal_invoice_nr:
-      raw.internal_invoice_nr !== undefined &&
-      raw.internal_invoice_nr !== null
+      raw.internal_invoice_nr !== undefined && raw.internal_invoice_nr !== null
         ? String(raw.internal_invoice_nr)
         : null,
     supplier,
@@ -257,31 +255,28 @@ export default async function RefurbReceptionDetailPage({
     color: string;
   };
 
+  // ✅ Statuskleur lookup uit settings (met fallback)
+  const statusOptionByValue = new Map<string, RefurbStatusOption>(
+    (statusOptions || []).map((s) => [s.value, s])
+  );
+  const FALLBACK_STATUS_COLOR = "#64748b";
+  const getStatusColor = (statusValue: string) =>
+    statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
+
   const statusCountMap = new Map<string, number>();
   for (const it of items) {
     const key = it.refurb_status || "onbekend";
     statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
   }
 
-  const statusPalette = [
-    "#0EA5E9", // sky
-    "#22C55E", // green
-    "#F97316", // orange
-    "#EAB308", // yellow
-    "#6366F1", // indigo
-    "#EC4899", // pink
-    "#64748B", // slate
-  ];
-
-  const statusColorMap: Record<string, string> = {};
-
   const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(
-    ([status, count], idx) => {
-      const def = statusOptions.find((s) => s.value === status);
-      const pct =
-        totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
-      const color = statusPalette[idx % statusPalette.length];
-      statusColorMap[status] = color;
+    ([status, count]) => {
+      const def = statusOptionByValue.get(status);
+      const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+
+      // ✅ kleur uit status-definitie
+      const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
+
       return {
         status,
         label: def?.label ?? status,
@@ -338,8 +333,7 @@ export default async function RefurbReceptionDetailPage({
       const existing = modelStatsMap.get(matchedModel.id);
       if (existing) {
         existing.total += 1;
-        existing.perStatus[statusKey] =
-          (existing.perStatus[statusKey] ?? 0) + 1;
+        existing.perStatus[statusKey] = (existing.perStatus[statusKey] ?? 0) + 1;
       } else {
         modelStatsMap.set(matchedModel.id, {
           modelId: matchedModel.id,
@@ -488,9 +482,7 @@ export default async function RefurbReceptionDetailPage({
                       className="inline-block w-2 h-2 rounded-full"
                       style={{ backgroundColor: s.color }}
                     />
-                    <span className="truncate max-w-[140px]">
-                      {s.label}
-                    </span>
+                    <span className="truncate max-w-[140px]">{s.label}</span>
                     <span className="ml-auto tabular-nums">
                       {s.count} ({s.pct}%)
                     </span>
@@ -517,22 +509,19 @@ export default async function RefurbReceptionDetailPage({
             ) : (
               <div className="space-y-2">
                 {modelStats.map((m) => (
-                  <div
-                    key={m.modelId}
-                    className="flex items-center gap-2"
-                  >
+                  <div key={m.modelId} className="flex items-center gap-2">
                     {/* Modelnaam rechts uitgelijnd in vaste kolombreedte */}
                     <span className="truncate text-right w-32 shrink-0">
                       {m.name}
                     </span>
+
                     {/* Balk met vaste totale lengte, opgesplitst per status */}
                     <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
                       {statusStats.map((s) => {
                         const count = m.perStatus[s.status] ?? 0;
                         if (!count) return null;
 
-                        const pct =
-                          m.total > 0 ? (count / m.total) * 100 : 0;
+                        const pct = m.total > 0 ? (count / m.total) * 100 : 0;
 
                         return (
                           <div
@@ -549,6 +538,7 @@ export default async function RefurbReceptionDetailPage({
                         );
                       })}
                     </div>
+
                     <span className="tabular-nums text-slate-700 w-6 text-right">
                       {m.total}
                     </span>
@@ -557,9 +547,7 @@ export default async function RefurbReceptionDetailPage({
 
                 {unknownCount > 0 && (
                   <div className="flex items-center justify-between text-slate-500">
-                    <span className="truncate max-w-[200px]">
-                      Onbekend model
-                    </span>
+                    <span className="truncate max-w-[200px]">Onbekend model</span>
                     <span className="tabular-nums">{unknownCount}</span>
                   </div>
                 )}
