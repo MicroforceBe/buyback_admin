@@ -21,21 +21,13 @@ type Props = {
   readyToBookValue: string;
 };
 
+// Alleen deze velden blijven "lock after fill" (SKU + used_parts NIET meer)
 const LOCK_AFTER_FILL_FIELDS = new Set<
-  | "sku"
-  | "used_parts"
   | "price_cents"
   | "description"
   | "supplier_device_errors"
   | "supplier_grading"
->([
-  "sku",
-  "used_parts",
-  "price_cents",
-  "description",
-  "supplier_device_errors",
-  "supplier_grading",
-]);
+>(["price_cents", "description", "supplier_device_errors", "supplier_grading"]);
 
 function money(cents: number | null) {
   if (typeof cents !== "number") return "";
@@ -65,107 +57,6 @@ function parseUsedParts(raw: string | null): string[] {
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
-}
-
-type UsedPartsCellProps = {
-  rawValue: string | null;
-  locked: boolean;
-  onChange: (raw: string) => void;
-  onPasteToColumn?: (
-    e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => void;
-};
-
-function UsedPartsCell({
-  rawValue,
-  locked,
-  onChange,
-  onPasteToColumn,
-}: UsedPartsCellProps) {
-  const [parts, setParts] = useState<string[]>(() => parseUsedParts(rawValue));
-
-  useEffect(() => {
-    setParts(parseUsedParts(rawValue));
-  }, [rawValue]);
-
-  if (locked) {
-    return (
-      <span className="block truncate max-w-[200px]" title={rawValue ?? ""}>
-        {rawValue}
-      </span>
-    );
-  }
-
-  const commit = () => {
-    const raw = parts
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .join(", ");
-    onChange(raw);
-  };
-
-  const updatePart = (index: number, value: string) => {
-    setParts((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-  };
-
-  const addPart = () => {
-    setParts((prev) => [...prev, ""]);
-  };
-
-  const removePart = (index: number) => {
-    setParts((prev) => {
-      const next = [...prev];
-      next.splice(index, 1);
-      const raw = next
-        .map((p) => p.trim())
-        .filter(Boolean)
-        .join(", ");
-      onChange(raw);
-      return next;
-    });
-  };
-
-  const rows = parts.length > 0 ? parts : [""];
-
-  return (
-    <div className="flex flex-col gap-1">
-      {rows.map((part, i) => (
-        <div key={i} className="flex gap-1">
-          <input
-            className="bb-input h-7 text-[11px] px-1 w-full"
-            value={part}
-            onChange={(e) => updatePart(i, e.target.value)}
-            onBlur={commit}
-            onPaste={
-              i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined
-            }
-          />
-          {rows.length > 1 && (
-            <button
-              type="button"
-              className="bb-btn text-[11px] px-2"
-              onClick={() => removePart(i)}
-            >
-              –
-            </button>
-          )}
-          {i === rows.length - 1 && (
-            <button
-              type="button"
-              className="bb-btn text-[11px] px-2"
-              onClick={addPart}
-            >
-              +
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function norm(s: string) {
@@ -242,6 +133,150 @@ function parseTokens(raw: string): string[] {
     .filter(Boolean);
 }
 
+async function copyToClipboard(text: string) {
+  try {
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    console.error("[REFURB] clipboard error", e);
+  }
+}
+
+function CopyBtn({ value, title }: { value: string; title?: string }) {
+  return (
+    <button
+      type="button"
+      className="bb-btn text-[11px] px-2 h-7"
+      title={title ?? "Copy to clipboard"}
+      onClick={() => copyToClipboard(value)}
+      disabled={!value}
+    >
+      ⧉
+    </button>
+  );
+}
+
+type UsedPartsCellProps = {
+  rawValue: string | null;
+  locked: boolean;
+  onChange: (raw: string) => void;
+  onPasteToColumn?: (
+    e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
+};
+
+function UsedPartsCell({
+  rawValue,
+  locked,
+  onChange,
+  onPasteToColumn,
+}: UsedPartsCellProps) {
+  const [parts, setParts] = useState<string[]>(() => parseUsedParts(rawValue));
+
+  useEffect(() => {
+    setParts(parseUsedParts(rawValue));
+  }, [rawValue]);
+
+  if (locked) {
+    const list = parseUsedParts(rawValue || "");
+    if (!list.length) {
+      return <span className="text-slate-400">—</span>;
+    }
+    return (
+      <div className="flex flex-col gap-1">
+        {list.map((p, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <span className="block truncate max-w-[200px]" title={p}>
+              {p}
+            </span>
+            <CopyBtn value={p} title="Copy used part SKU" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const commit = () => {
+    const raw = parts
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(", ");
+    onChange(raw);
+  };
+
+  const updatePart = (index: number, value: string) => {
+    setParts((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const addPart = () => {
+    setParts((prev) => [...prev, ""]);
+  };
+
+  const removePart = (index: number) => {
+    setParts((prev) => {
+      const next = [...prev];
+      next.splice(index, 1);
+      const raw = next
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .join(", ");
+      onChange(raw);
+      return next;
+    });
+  };
+
+  const rows = parts.length > 0 ? parts : [""];
+
+  return (
+    <div className="flex flex-col gap-1">
+      {rows.map((part, i) => (
+        <div key={i} className="flex gap-1 items-center">
+          <input
+            className="bb-input h-7 text-[11px] px-1 w-full"
+            value={part}
+            onChange={(e) => updatePart(i, e.target.value)}
+            onBlur={commit}
+            onPaste={
+              i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined
+            }
+          />
+          <CopyBtn value={part.trim()} title="Copy used part SKU" />
+          {rows.length > 1 && (
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2 h-7"
+              onClick={() => removePart(i)}
+              title="Verwijderen"
+            >
+              –
+            </button>
+          )}
+          {i === rows.length - 1 && (
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2 h-7"
+              onClick={addPart}
+              title="Toevoegen"
+            >
+              +
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function chunk<T>(arr: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export default function RefurbReceptionTable({
   receptionId,
   initialItems,
@@ -256,20 +291,23 @@ export default function RefurbReceptionTable({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExtraSn, setShowExtraSn] = useState(false);
 
-  // ✅ status filter in header
+  // ✅ header filters
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
+  const [locationFilter, setLocationFilter] = useState<string>("__all__");
 
   // ✅ selectie checkboxes
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ bulk update blok
+  // ✅ bulk update blok (collapse)
+  const [bulkOpen, setBulkOpen] = useState(false);
+
   const [bulkEnableStatus, setBulkEnableStatus] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string>("");
   const [bulkEnableLocation, setBulkEnableLocation] = useState(false);
   const [bulkLocation, setBulkLocation] = useState<string>("");
-  const [bulkImeiText, setBulkImeiText] = useState<string>("");
   const [bulkPartsText, setBulkPartsText] = useState<string>("");
+  const [bulkImeiText, setBulkImeiText] = useState<string>("");
   const [bulkTarget, setBulkTarget] = useState<"imei" | "selected">("selected");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
@@ -279,7 +317,6 @@ export default function RefurbReceptionTable({
     (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
     (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
-  // NIEUW: snelle lookup van statuskleur per value
   const statusColorByValue = new Map(
     statusOptions.map((s: any) => [s.value, s.color ?? null])
   );
@@ -290,7 +327,12 @@ export default function RefurbReceptionTable({
     return m;
   }, [statusOptions]);
 
-  // ✅ statuses die voorkomen in rijen
+  const locationOptionByValue = useMemo(() => {
+    const m = new Map<string, RefurbLocationOption>();
+    for (const l of locationOptions) m.set(l.value, l);
+    return m;
+  }, [locationOptions]);
+
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
@@ -300,15 +342,27 @@ export default function RefurbReceptionTable({
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  // ✅ filtered rows (behoud originele idx voor paste)
+  const presentLocations = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      const v = ((it as any).location ?? "").trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [items]);
+
   const filteredRows = useMemo(() => {
     return items
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
-        if (statusFilter === "__all__") return true;
-        return (it.refurb_status ?? "") === statusFilter;
+        const okStatus =
+          statusFilter === "__all__" || (it.refurb_status ?? "") === statusFilter;
+        const okLoc =
+          locationFilter === "__all__" ||
+          (((it as any).location ?? "") === locationFilter);
+        return okStatus && okLoc;
       });
-  }, [items, statusFilter]);
+  }, [items, statusFilter, locationFilter]);
 
   const filteredIds = useMemo(
     () => filteredRows.map((r) => r.it.id),
@@ -345,6 +399,13 @@ export default function RefurbReceptionTable({
     });
   };
 
+  function isLockedAfterFill(item: RefurbItem, field: any) {
+    if (!LOCK_AFTER_FILL_FIELDS.has(field)) return false;
+    const value = (item as any)[field];
+    if (field === "price_cents") return value !== null && value !== undefined;
+    return value !== null && value !== undefined && value !== "";
+  }
+
   async function handleCellChange(
     itemId: string,
     field:
@@ -366,7 +427,14 @@ export default function RefurbReceptionTable({
   ) {
     const before = items.find((x) => x.id === itemId);
 
-    // ✅ status rules (client-side guard)
+    // row lock: booked => niets wijzigen (incl. SKU/parts)
+    if (isBooked(before?.refurb_status ?? "")) {
+      window.alert("Status is booked en deze rij kan niet meer gewijzigd worden.");
+      setItems((prev) => [...prev]);
+      return;
+    }
+
+    // status rules
     if (field === "refurb_status") {
       const verdict = canChangeStatus({
         current: before?.refurb_status ?? "",
@@ -402,7 +470,6 @@ export default function RefurbReceptionTable({
 
     try {
       await updateRefurbItemCell(itemId, field as any, value);
-
       if (field === "refurb_status" || field === "location") {
         router.refresh();
       }
@@ -445,9 +512,7 @@ export default function RefurbReceptionTable({
         readyToBookValue,
       });
 
-      if (!verdict.ok) {
-        continue;
-      }
+      if (!verdict.ok) continue;
 
       try {
         await updateRefurbItemCell(row.id, "refurb_status" as any, desired);
@@ -482,9 +547,7 @@ export default function RefurbReceptionTable({
       | "location"
   ) {
     const text = e.clipboardData.getData("text");
-    if (!text || !text.includes("\n")) {
-      return; // enkele waarde → default gedrag
-    }
+    if (!text || !text.includes("\n")) return;
 
     e.preventDefault();
     const lines = text.split(/\r?\n/);
@@ -514,29 +577,9 @@ export default function RefurbReceptionTable({
     }
   }
 
-  function isLockedSupplierCell(
-    item: RefurbItem,
-    field:
-      | "sku"
-      | "used_parts"
-      | "price_cents"
-      | "description"
-      | "supplier_device_errors"
-      | "supplier_grading"
-  ) {
-    if (!LOCK_AFTER_FILL_FIELDS.has(field)) return false;
-
-    const value = (item as any)[field];
-    if (field === "price_cents") {
-      return value !== null && value !== undefined;
-    }
-    return value !== null && value !== undefined && value !== "";
-  }
-
   function getTargetsForBulk(): RefurbItem[] {
     if (bulkTarget === "selected") {
-      const ids = selectedIds;
-      return items.filter((it) => ids.has(it.id));
+      return items.filter((it) => selectedIds.has(it.id));
     }
 
     const tokens = new Set(parseTokens(bulkImeiText).map(norm));
@@ -577,64 +620,94 @@ export default function RefurbReceptionTable({
     setIsBulkUpdating(true);
 
     let changedStatusOrLocation = false;
-    let okCount = 0;
-    let skipCount = 0;
+
+    let skipped = 0;
     const skipReasons: Record<string, number> = {};
 
-    // optimistic batch update in state
+    // ✅ chunked parallel (sneller dan 1 per 1)
+    const BATCH_SIZE = 12;
+    const batches = chunk(targets, BATCH_SIZE);
+
     const nextItems = new Map(items.map((it) => [it.id, it]));
 
-    for (const row of targets) {
-      const current = nextItems.get(row.id) ?? row;
+    for (const batch of batches) {
+      const jobs: Promise<any>[] = [];
 
-      // Used parts: respect lock (zoals single edit)
-      if (wantParts) {
-        const locked = isLockedSupplierCell(current, "used_parts");
-        if (locked) {
-          skipCount += 1;
-          skipReasons["Used parts locked"] = (skipReasons["Used parts locked"] ?? 0) + 1;
-        } else {
-          try {
-            await updateRefurbItemCell(row.id, "used_parts" as any, partsRaw);
-            nextItems.set(row.id, { ...(nextItems.get(row.id) as any), used_parts: partsRaw });
-          } catch (e) {
-            console.error("[REFURB] bulk used_parts update failed", e);
+      for (const row of batch) {
+        const current = nextItems.get(row.id) ?? row;
+
+        // booked => niets doen
+        if (isBooked(current.refurb_status ?? "")) {
+          skipped += 1;
+          skipReasons["Status is booked (locked)"] =
+            (skipReasons["Status is booked (locked)"] ?? 0) + 1;
+          continue;
+        }
+
+        if (wantParts) {
+          jobs.push(
+            (async () => {
+              try {
+                await updateRefurbItemCell(row.id, "used_parts" as any, partsRaw);
+                nextItems.set(row.id, {
+                  ...(nextItems.get(row.id) as any),
+                  used_parts: partsRaw,
+                });
+              } catch (e) {
+                console.error("[REFURB] bulk used_parts update failed", e);
+              }
+            })()
+          );
+        }
+
+        if (wantLocation) {
+          jobs.push(
+            (async () => {
+              try {
+                await updateRefurbItemCell(row.id, "location" as any, bulkLocation);
+                nextItems.set(row.id, {
+                  ...(nextItems.get(row.id) as any),
+                  location: bulkLocation,
+                });
+                changedStatusOrLocation = true;
+              } catch (e) {
+                console.error("[REFURB] bulk location update failed", e);
+              }
+            })()
+          );
+        }
+
+        if (wantStatus) {
+          const verdict = canChangeStatus({
+            current: (nextItems.get(row.id) as any)?.refurb_status ?? row.refurb_status ?? "",
+            next: bulkStatus,
+            defaultStatusValue,
+            readyToBookValue,
+          });
+
+          if (!verdict.ok) {
+            skipped += 1;
+            skipReasons[verdict.reason] = (skipReasons[verdict.reason] ?? 0) + 1;
+          } else {
+            jobs.push(
+              (async () => {
+                try {
+                  await updateRefurbItemCell(row.id, "refurb_status" as any, bulkStatus);
+                  nextItems.set(row.id, {
+                    ...(nextItems.get(row.id) as any),
+                    refurb_status: bulkStatus,
+                  });
+                  changedStatusOrLocation = true;
+                } catch (e) {
+                  console.error("[REFURB] bulk status update failed", e);
+                }
+              })()
+            );
           }
         }
       }
 
-      if (wantLocation) {
-        try {
-          await updateRefurbItemCell(row.id, "location" as any, bulkLocation);
-          nextItems.set(row.id, { ...(nextItems.get(row.id) as any), location: bulkLocation });
-          changedStatusOrLocation = true;
-        } catch (e) {
-          console.error("[REFURB] bulk location update failed", e);
-        }
-      }
-
-      if (wantStatus) {
-        const verdict = canChangeStatus({
-          current: (nextItems.get(row.id) as any)?.refurb_status ?? row.refurb_status ?? "",
-          next: bulkStatus,
-          defaultStatusValue,
-          readyToBookValue,
-        });
-        if (!verdict.ok) {
-          skipCount += 1;
-          skipReasons[verdict.reason] = (skipReasons[verdict.reason] ?? 0) + 1;
-        } else {
-          try {
-            await updateRefurbItemCell(row.id, "refurb_status" as any, bulkStatus);
-            nextItems.set(row.id, { ...(nextItems.get(row.id) as any), refurb_status: bulkStatus });
-            changedStatusOrLocation = true;
-          } catch (e) {
-            console.error("[REFURB] bulk status update failed", e);
-          }
-        }
-      }
-
-      okCount += 1;
+      await Promise.allSettled(jobs);
     }
 
     setItems(Array.from(nextItems.values()));
@@ -646,7 +719,7 @@ export default function RefurbReceptionTable({
 
     window.alert(
       `Bulk update uitgevoerd op ${targets.length} rij(en).\n` +
-        (skipCount > 0 ? `Overgeslagen: ${skipCount}\n${reasons}` : "Alles succesvol toegepast.")
+        (skipped > 0 ? `Overgeslagen: ${skipped}\n${reasons}` : "Alles succesvol toegepast.")
     );
 
     setIsBulkUpdating(false);
@@ -654,139 +727,150 @@ export default function RefurbReceptionTable({
 
   return (
     <div className="mt-4 space-y-3">
-      {/* ✅ Bulk Update blok */}
-      <div className="border rounded-md bg-white p-3 text-xs">
-        <div className="flex items-center justify-between gap-3">
+      {/* ✅ Bulk Update (collapsible) */}
+      <div className="border rounded-md bg-white text-xs">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
+          onClick={() => setBulkOpen((v) => !v)}
+        >
           <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
             Bulk Update
           </div>
-          {isBulkUpdating && (
-            <div className="flex items-center gap-2 text-[11px] text-slate-600">
-              <span
-                className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
-                aria-hidden="true"
-              />
-              <span>Bezig met bulk update...</span>
-            </div>
-          )}
-        </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-600">
+            {isBulkUpdating && (
+              <>
+                <span
+                  className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
+                  aria-hidden="true"
+                />
+                <span>Bezig...</span>
+              </>
+            )}
+            <span className="ml-2">{bulkOpen ? "▲" : "▼"}</span>
+          </div>
+        </button>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {/* Status */}
-          <div className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={bulkEnableStatus}
-              onChange={(e) => setBulkEnableStatus(e.target.checked)}
-            />
-            <div className="flex-1">
-              <div className="text-[11px] text-slate-500 mb-1">Status</div>
-              <select
-                className="bb-select bb-select-sm w-full"
-                disabled={!bulkEnableStatus}
-                value={bulkStatus}
-                onChange={(e) => setBulkStatus(e.target.value)}
+        {bulkOpen && (
+          <div className="p-3">
+            {/* Layout: links 3 controls, rechts IMEI textarea even hoog */}
+            <div className="md:flex gap-3 items-stretch">
+              {/* links */}
+              <div className="flex-1 flex flex-col gap-3">
+                {/* Status */}
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={bulkEnableStatus}
+                    onChange={(e) => setBulkEnableStatus(e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="text-[11px] text-slate-500 mb-1">Status</div>
+                    <select
+                      className="bb-select bb-select-sm w-full"
+                      disabled={!bulkEnableStatus}
+                      value={bulkStatus}
+                      onChange={(e) => setBulkStatus(e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {statusOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                          {opt.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Locatie */}
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={bulkEnableLocation}
+                    onChange={(e) => setBulkEnableLocation(e.target.checked)}
+                  />
+                  <div className="flex-1">
+                    <div className="text-[11px] text-slate-500 mb-1">Locatie</div>
+                    <select
+                      className="bb-select bb-select-sm w-full"
+                      disabled={!bulkEnableLocation}
+                      value={bulkLocation}
+                      onChange={(e) => setBulkLocation(e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {locationOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                          {opt.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Used parts textarea */}
+                <div>
+                  <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
+                  <textarea
+                    className="bb-input w-full text-[11px] p-2 min-h-[110px]"
+                    value={bulkPartsText}
+                    onChange={(e) => setBulkPartsText(e.target.value)}
+                    placeholder={"Plak hier used parts SKU’s (komma/enter) ..."}
+                  />
+                </div>
+              </div>
+
+              {/* rechts: IMEI textarea, even hoog als links */}
+              <div className="flex-1 flex flex-col mt-3 md:mt-0">
+                <div className="text-[11px] text-slate-500 mb-1">
+                  IMEI/SN lijst (voor target “op IMEI/SN”)
+                </div>
+                <textarea
+                  className="bb-input w-full text-[11px] p-2 flex-1 h-full min-h-[calc(110px+72px)]"
+                  value={bulkImeiText}
+                  onChange={(e) => setBulkImeiText(e.target.value)}
+                  placeholder={"Plak hier IMEI/SN (1 per lijn of gescheiden) ..."}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="text-[11px] text-slate-500">Toepassen op:</div>
+                <label className="flex items-center gap-2 text-[11px]">
+                  <input
+                    type="radio"
+                    name="bulkTarget"
+                    checked={bulkTarget === "selected"}
+                    onChange={() => setBulkTarget("selected")}
+                  />
+                  geselecteerde rijen
+                </label>
+                <label className="flex items-center gap-2 text-[11px]">
+                  <input
+                    type="radio"
+                    name="bulkTarget"
+                    checked={bulkTarget === "imei"}
+                    onChange={() => setBulkTarget("imei")}
+                  />
+                  rijen met IMEI/SN uit textarea
+                </label>
+              </div>
+
+              <button
+                type="button"
+                className="bb-btn text-[11px] px-3 py-2"
+                onClick={runBulkUpdate}
+                disabled={isBulkUpdating}
               >
-                <option value="">— kies status —</option>
-                {statusOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                    {opt.is_default ? " (default)" : ""}
-                  </option>
-                ))}
-              </select>
+                Apply bulk update
+              </button>
             </div>
           </div>
-
-          {/* Locatie */}
-          <div className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={bulkEnableLocation}
-              onChange={(e) => setBulkEnableLocation(e.target.checked)}
-            />
-            <div className="flex-1">
-              <div className="text-[11px] text-slate-500 mb-1">Locatie</div>
-              <select
-                className="bb-select bb-select-sm w-full"
-                disabled={!bulkEnableLocation}
-                value={bulkLocation}
-                onChange={(e) => setBulkLocation(e.target.value)}
-              >
-                <option value="">— kies locatie —</option>
-                {locationOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                    {opt.is_default ? " (default)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* IMEI textarea */}
-          <div>
-            <div className="text-[11px] text-slate-500 mb-1">
-              IMEI/SN lijst (voor target “op IMEI/SN”)
-            </div>
-            <textarea
-              className="bb-input w-full text-[11px] p-2 min-h-[90px]"
-              value={bulkImeiText}
-              onChange={(e) => setBulkImeiText(e.target.value)}
-              placeholder={"Plak hier IMEI/SN (1 per lijn of gescheiden door spaties/komma's) ..."}
-            />
-          </div>
-
-          {/* Used parts textarea */}
-          <div>
-            <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
-            <textarea
-              className="bb-input w-full text-[11px] p-2 min-h-[90px]"
-              value={bulkPartsText}
-              onChange={(e) => setBulkPartsText(e.target.value)}
-              placeholder={"Plak hier used parts SKU’s (komma/enter) ..."}
-            />
-            <div className="mt-1 text-[10px] text-slate-500">
-              Opgelet: “Used parts” wordt niet overschreven als de cel al locked is.
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          {/* Target keuze */}
-          <div className="flex items-center gap-4">
-            <div className="text-[11px] text-slate-500">Toepassen op:</div>
-            <label className="flex items-center gap-2 text-[11px]">
-              <input
-                type="radio"
-                name="bulkTarget"
-                checked={bulkTarget === "selected"}
-                onChange={() => setBulkTarget("selected")}
-              />
-              geselecteerde rijen
-            </label>
-            <label className="flex items-center gap-2 text-[11px]">
-              <input
-                type="radio"
-                name="bulkTarget"
-                checked={bulkTarget === "imei"}
-                onChange={() => setBulkTarget("imei")}
-              />
-              rijen met IMEI/SN uit textarea
-            </label>
-          </div>
-
-          <button
-            type="button"
-            className="bb-btn text-[11px] px-3 py-2"
-            onClick={runBulkUpdate}
-            disabled={isBulkUpdating}
-          >
-            Apply bulk update
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Tabel */}
@@ -810,10 +894,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowExtraSn((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showExtraSn ? "▲" : "▼"}
               </span>
               <span>Extra SN</span>
@@ -823,10 +904,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowAdvanced((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showAdvanced ? "▲" : "▼"}
               </span>
               <span>RMA</span>
@@ -837,7 +915,6 @@ export default function RefurbReceptionTable({
         <table className="min-w-full border-collapse">
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
-              {/* ✅ Header checkbox */}
               <th className="px-2 py-1 border w-8">
                 <input
                   ref={headerCheckboxRef}
@@ -848,18 +925,14 @@ export default function RefurbReceptionTable({
                 />
               </th>
 
-              {/* ✅ Status header met filter */}
+              {/* Status filter */}
               <th className="px-2 py-1 border">
                 <div className="flex items-center gap-2">
                   <span>Status</span>
                   <select
                     className="bb-select bb-select-sm text-[11px]"
                     value={statusFilter}
-                    onChange={(e) => {
-                      setStatusFilter(e.target.value);
-                      // bij filter wissel: header checkbox state correct houden
-                      // selectie laten staan (maar header toggles alleen gefilterde)
-                    }}
+                    onChange={(e) => setStatusFilter(e.target.value)}
                     title="Filter op status"
                   >
                     <option value="__all__">Alles</option>
@@ -872,7 +945,26 @@ export default function RefurbReceptionTable({
                 </div>
               </th>
 
-              <th className="px-2 py-1 border">Location</th>
+              {/* Location filter */}
+              <th className="px-2 py-1 border">
+                <div className="flex items-center gap-2">
+                  <span>Location</span>
+                  <select
+                    className="bb-select bb-select-sm text-[11px]"
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value)}
+                    title="Filter op locatie"
+                  >
+                    <option value="__all__">Alles</option>
+                    {presentLocations.map((loc) => (
+                      <option key={loc} value={loc}>
+                        {locationOptionByValue.get(loc)?.label ?? loc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </th>
+
               <th className="px-2 py-1 border">IMEI/SN</th>
               {showExtraSn && <th className="px-2 py-1 border">SN</th>}
               <th className="px-2 py-1 border">SKU</th>
@@ -893,36 +985,36 @@ export default function RefurbReceptionTable({
           </thead>
 
           <tbody>
-            {/* ⬇️ Normale rijen uit de DB (met filter) */}
             {hasItems &&
               filteredRows.map(({ it, originalIndex }) => {
-                const lockedSku = isLockedSupplierCell(it, "sku");
-                const lockedUsedParts = isLockedSupplierCell(it, "used_parts");
-                const lockedPrice = isLockedSupplierCell(it, "price_cents");
-                const lockedDesc = isLockedSupplierCell(it, "description");
-                const lockedSuppErr = isLockedSupplierCell(
-                  it,
-                  "supplier_device_errors"
-                );
-                const lockedSuppGrad = isLockedSupplierCell(it, "supplier_grading");
+                const currentStatus = it.refurb_status ?? "";
+                const rowBooked = isBooked(currentStatus);
+
+                const lockedPrice = isLockedAfterFill(it, "price_cents");
+                const lockedDesc = isLockedAfterFill(it, "description");
+                const lockedSuppErr = isLockedAfterFill(it, "supplier_device_errors");
+                const lockedSuppGrad = isLockedAfterFill(it, "supplier_grading");
 
                 const imeiSn = (it as any).imei_sn ?? "";
                 const manualSn = (it as any).manual_sn ?? "";
                 const locationValue = (it as any).location ?? "";
-                const imeiLocked = !!imeiSn;
+                const imeiLocked = !!imeiSn; // zoals vroeger
 
                 const statusColor =
                   statusColorByValue.get(it.refurb_status ?? "") ?? null;
 
-                const currentStatus = it.refurb_status ?? "";
-                const lockedStatus = isBooked(currentStatus);
                 const isFinishedRow = containsFinished(currentStatus);
-
                 const rowChecked = selectedIds.has(it.id);
+
+                const statusValue = it.refurb_status ?? "";
+                const statusLabel =
+                  statusOptionByValue.get(statusValue)?.label ?? statusValue;
+
+                const locationLabel =
+                  locationOptionByValue.get(locationValue)?.label ?? locationValue;
 
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                    {/* ✅ Row checkbox */}
                     <td className="px-2 py-0.5 border">
                       <input
                         type="checkbox"
@@ -932,26 +1024,28 @@ export default function RefurbReceptionTable({
                       />
                     </td>
 
-                    {/* Status dropdown */}
+                    {/* Status (geen "kies status") */}
                     <td className="px-1 py-0.5 border">
                       <div className="flex items-center gap-2">
                         <span
                           className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
-                          style={{
-                            background: statusColor ?? "transparent",
-                          }}
-                          title={it.refurb_status ?? ""}
+                          style={{ background: statusColor ?? "transparent" }}
+                          title={statusLabel}
                           aria-hidden="true"
                         />
                         <select
-                          value={it.refurb_status ?? ""}
-                          disabled={lockedStatus}
+                          value={statusValue}
+                          disabled={rowBooked}
                           onChange={(e) =>
                             handleCellChange(it.id, "refurb_status", e.target.value)
                           }
                           className="bb-select bb-select-sm w-full text-slate-900"
                         >
-                          <option value="">— kies status —</option>
+                          {/* fallback: als huidige value niet in options zit */}
+                          {statusValue && !statusOptionByValue.has(statusValue) && (
+                            <option value={statusValue}>{statusLabel}</option>
+                          )}
+
                           {statusOptions.map((opt) => {
                             const optValue = opt.value;
 
@@ -964,11 +1058,9 @@ export default function RefurbReceptionTable({
                               norm(currentStatus) !== norm(defaultStatusValue);
 
                             const cannotSetBooked =
-                              norm(optValue) === "booked" &&
-                              !isReadyToBook(currentStatus);
+                              norm(optValue) === "booked" && !isReadyToBook(currentStatus);
 
-                            const disabled =
-                              lockedStatus || cannotGoBackToDefault || cannotSetBooked;
+                            const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
                             return (
                               <option key={opt.value} value={opt.value} disabled={disabled}>
@@ -981,16 +1073,17 @@ export default function RefurbReceptionTable({
                       </div>
                     </td>
 
-                    {/* Location (dropdown) */}
+                    {/* Location (geen "kies locatie") */}
                     <td className="px-1 py-0.5 border">
                       <select
-                        value={locationValue ?? ""}
-                        onChange={(e) =>
-                          handleCellChange(it.id, "location", e.target.value)
-                        }
+                        value={locationValue}
+                        disabled={rowBooked}
+                        onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
                         className="bb-select bb-select-sm w-full text-slate-900"
                       >
-                        <option value="">— kies locatie —</option>
+                        {locationValue && !locationOptionByValue.has(locationValue) && (
+                          <option value={locationValue}>{locationLabel}</option>
+                        )}
                         {locationOptions.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
@@ -1000,38 +1093,43 @@ export default function RefurbReceptionTable({
                       </select>
                     </td>
 
-                    {/* IMEI/SN */}
+                    {/* IMEI/SN + copy */}
                     <td className="px-1 py-0.5 border">
-                      {imeiLocked ? (
-                        <span className="block truncate max-w-[200px]" title={imeiSn}>
-                          {imeiSn}
-                        </span>
-                      ) : (
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          value={imeiSn}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((row) =>
-                                row.id === it.id ? ({ ...row, imei_sn: val } as any) : row
-                              )
-                            );
-                          }}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "imei_sn", e.target.value.trim())
-                          }
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "imei_sn")}
-                        />
-                      )}
+                      <div className="flex items-center gap-1">
+                        {imeiLocked ? (
+                          <span className="block truncate max-w-[200px]" title={imeiSn}>
+                            {imeiSn}
+                          </span>
+                        ) : (
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            value={imeiSn}
+                            disabled={rowBooked}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setItems((prev) =>
+                                prev.map((row) =>
+                                  row.id === it.id ? ({ ...row, imei_sn: val } as any) : row
+                                )
+                              );
+                            }}
+                            onBlur={(e) =>
+                              handleCellChange(it.id, "imei_sn", e.target.value.trim())
+                            }
+                            onPaste={(e) => handlePasteToColumn(e, originalIndex, "imei_sn")}
+                          />
+                        )}
+                        <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
+                      </div>
                     </td>
 
-                    {/* SN (manueel) */}
+                    {/* SN */}
                     {showExtraSn && (
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           value={manualSn}
+                          disabled={rowBooked}
                           onChange={(e) => {
                             const val = e.target.value;
                             setItems((prev) =>
@@ -1048,30 +1146,25 @@ export default function RefurbReceptionTable({
                       </td>
                     )}
 
-                    {/* SKU */}
+                    {/* SKU editable behalve booked + copy */}
                     <td className="px-1 py-0.5 border">
-                      {lockedSku ? (
-                        <span
-                          className="block truncate max-w-[200px]"
-                          title={it.sku ?? ""}
-                        >
-                          {it.sku}
-                        </span>
-                      ) : (
+                      <div className="flex items-center gap-1">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.sku ?? ""}
+                          disabled={rowBooked}
                           onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
                           onPaste={(e) => handlePasteToColumn(e, originalIndex, "sku")}
                         />
-                      )}
+                        <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
+                      </div>
                     </td>
 
-                    {/* Used parts */}
+                    {/* Used parts editable behalve booked */}
                     <td className="px-1 py-0.5 border">
                       <UsedPartsCell
                         rawValue={it.used_parts ?? ""}
-                        locked={lockedUsedParts}
+                        locked={rowBooked}
                         onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
                         onPasteToColumn={(e) =>
                           handlePasteToColumn(e, originalIndex, "used_parts")
@@ -1091,10 +1184,9 @@ export default function RefurbReceptionTable({
                               ? (it.price_cents / 100).toString()
                               : ""
                           }
+                          disabled={rowBooked}
                           placeholder="0,00"
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "price_cents", e.target.value)
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
                           onPaste={(e) =>
                             handlePasteToColumn(e, originalIndex, "price_cents")
                           }
@@ -1105,16 +1197,14 @@ export default function RefurbReceptionTable({
                     {/* Description */}
                     <td className="px-1 py-0.5 border">
                       {lockedDesc ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.description ?? ""}
-                        >
+                        <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
                           {it.description}
                         </span>
                       ) : (
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.description ?? ""}
+                          disabled={rowBooked}
                           onBlur={(e) =>
                             handleCellChange(it.id, "description", e.target.value)
                           }
@@ -1138,19 +1228,12 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.supplier_device_errors ?? ""}
+                          disabled={rowBooked}
                           onBlur={(e) =>
-                            handleCellChange(
-                              it.id,
-                              "supplier_device_errors",
-                              e.target.value
-                            )
+                            handleCellChange(it.id, "supplier_device_errors", e.target.value)
                           }
                           onPaste={(e) =>
-                            handlePasteToColumn(
-                              e,
-                              originalIndex,
-                              "supplier_device_errors"
-                            )
+                            handlePasteToColumn(e, originalIndex, "supplier_device_errors")
                           }
                         />
                       )}
@@ -1164,6 +1247,7 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.supplier_grading ?? ""}
+                          disabled={rowBooked}
                           onBlur={(e) =>
                             handleCellChange(it.id, "supplier_grading", e.target.value)
                           }
@@ -1176,17 +1260,13 @@ export default function RefurbReceptionTable({
 
                     {showAdvanced && (
                       <>
-                        {/* Refurb Diagnostics */}
                         <td className="px-1 py-0.5 border">
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full"
                             defaultValue={it.refurb_diagnostics ?? ""}
+                            disabled={rowBooked}
                             onBlur={(e) =>
-                              handleCellChange(
-                                it.id,
-                                "refurb_diagnostics",
-                                e.target.value
-                              )
+                              handleCellChange(it.id, "refurb_diagnostics", e.target.value)
                             }
                             onPaste={(e) =>
                               handlePasteToColumn(e, originalIndex, "refurb_diagnostics")
@@ -1194,39 +1274,30 @@ export default function RefurbReceptionTable({
                           />
                         </td>
 
-                        {/* RMA Defect Description */}
                         <td className="px-1 py-0.5 border">
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full"
                             defaultValue={it.rma_defect_description ?? ""}
+                            disabled={rowBooked}
                             onBlur={(e) =>
-                              handleCellChange(
-                                it.id,
-                                "rma_defect_description",
-                                e.target.value
-                              )
+                              handleCellChange(it.id, "rma_defect_description", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(
-                                e,
-                                originalIndex,
-                                "rma_defect_description"
-                              )
+                              handlePasteToColumn(e, originalIndex, "rma_defect_description")
                             }
                           />
                         </td>
 
-                        {/* RMA */}
                         <td className="px-1 py-0.5 border">
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full"
                             defaultValue={it.rma ?? ""}
+                            disabled={rowBooked}
                             onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
                             onPaste={(e) => handlePasteToColumn(e, originalIndex, "rma")}
                           />
                         </td>
 
-                        {/* Compensation */}
                         <td className="px-1 py-0.5 border">
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full text-right"
@@ -1235,13 +1306,10 @@ export default function RefurbReceptionTable({
                                 ? (it.compensation_cents / 100).toString()
                                 : ""
                             }
+                            disabled={rowBooked}
                             placeholder="0,00"
                             onBlur={(e) =>
-                              handleCellChange(
-                                it.id,
-                                "compensation_cents",
-                                e.target.value
-                              )
+                              handleCellChange(it.id, "compensation_cents", e.target.value)
                             }
                             onPaste={(e) =>
                               handlePasteToColumn(e, originalIndex, "compensation_cents")
@@ -1254,160 +1322,18 @@ export default function RefurbReceptionTable({
                 );
               })}
 
-            {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
-            {!hasItems && (
-              <tr className="border-t">
-                <td className="px-2 py-0.5 border" />
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak status hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak locaties hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "location")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak IMEI/SN kolom hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
-                  />
-                </td>
-
-                {showExtraSn && (
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak SN kolom hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
-                    />
-                  </td>
-                )}
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak SKU-kolom hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak Used parts-kolom hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                    placeholder="Plak prijzen hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak Description-kolom hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "description")}
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak Supplier remarks hier"
-                    onPaste={(e) =>
-                      handlePasteToColumn(e, 0, "supplier_device_errors")
-                    }
-                  />
-                </td>
-
-                <td className="px-1 py-0.5 border">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak grading hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
-                  />
-                </td>
-
-                {showAdvanced && (
-                  <>
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        placeholder="Plak refurb diagnostics hier"
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, 0, "refurb_diagnostics")
-                        }
-                      />
-                    </td>
-
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        placeholder="Plak RMA defect beschrijving hier"
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, 0, "rma_defect_description")
-                        }
-                      />
-                    </td>
-
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        placeholder="Plak RMA-codes hier"
-                        onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
-                      />
-                    </td>
-
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                        placeholder="Plak compensaties hier"
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, 0, "compensation_cents")
-                        }
-                      />
-                    </td>
-                  </>
-                )}
-              </tr>
-            )}
-
             {!hasItems && (
               <tr>
-                <td
-                  className="px-2 py-3 border text-[11px] text-slate-500"
-                  colSpan={colSpan + 1}
-                >
-                  Nog geen toestellen in deze receptie. Plak een kolom uit Excel
-                  in één van de velden hierboven (bv. IMEI/SN, SKU, Description,
-                  Price...) om rijen aan te maken. Status en Location gebruiken
-                  hun ingestelde default-waarde bij het importeren.
+                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1}>
+                  Nog geen toestellen in deze receptie.
                 </td>
               </tr>
             )}
 
-            {/* ✅ leeg resultaat bij filter */}
             {hasItems && filteredRows.length === 0 && (
               <tr>
-                <td
-                  className="px-2 py-3 border text-[11px] text-slate-500"
-                  colSpan={colSpan + 1}
-                >
-                  Geen rijen voor deze statusfilter.
+                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1}>
+                  Geen rijen voor deze filters.
                 </td>
               </tr>
             )}
