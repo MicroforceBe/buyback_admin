@@ -343,7 +343,8 @@ export async function pasteIntoRefurbColumn(
   startRowIndex: number,
   field: PasteField,
   rawLines: string[],
-  defaultStatusValue?: string
+  defaultStatusValue?: string,
+  defaultLocationValue: string
 ): Promise<RefurbItem[]> {
   // we strippen enkel carriage returns, maar bewaren lege lijnen
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
@@ -391,12 +392,13 @@ export async function pasteIntoRefurbColumn(
       });
     } else {
       // Nieuwe rij
-      inserts.push({
-        reception_id: receptionId,
-        row_index: rowIndex,
-        refurb_status: (defaultStatusValue || "new") as any, // ✅ default uit UI
-        [field]: value,
-      });
+        inserts.push({
+          reception_id: receptionId,
+          row_index: rowIndex,
+          refurb_status: defaultStatusValue || "new",
+          location: defaultLocationValue || null,
+          [field]: value,
+        });
     }
   }
 
