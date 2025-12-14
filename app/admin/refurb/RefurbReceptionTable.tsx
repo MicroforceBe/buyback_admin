@@ -1,7 +1,7 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   RefurbItem,
@@ -16,7 +16,7 @@ type Props = {
   statusOptions: RefurbStatusOption[];
   locationOptions: RefurbLocationOption[];
 
-  // ✅ nieuw (doorgegeven vanuit page.tsx)
+  // ✅ doorgegeven vanuit page.tsx
   defaultStatusValue: string;
   readyToBookValue: string;
 };
@@ -193,22 +193,34 @@ function canChangeStatus(opts: {
 
   // finished-status mag enkel naar Ready to Book
   if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
-    return { ok: false, reason: "Finished-status kan enkel op Ready to Book gezet worden." };
+    return {
+      ok: false,
+      reason: "Finished-status kan enkel op Ready to Book gezet worden.",
+    };
   }
 
   // booked is immutable
   if (isBooked(current) && norm(next) !== norm(current)) {
-    return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
+    return {
+      ok: false,
+      reason: "Status is booked en kan niet meer gewijzigd worden.",
+    };
   }
 
   // only Ready to Book -> booked
   if (isBooked(next) && !isReadyToBook(current)) {
-    return { ok: false, reason: "Status kan alleen op booked gezet worden vanuit Ready to Book." };
+    return {
+      ok: false,
+      reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
+    };
   }
 
   // cannot go back to default if current isn't default
   if (norm(next) === norm(def) && norm(current) !== norm(def)) {
-    return { ok: false, reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt." };
+    return {
+      ok: false,
+      reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt.",
+    };
   }
 
   return { ok: true };
@@ -221,6 +233,13 @@ function statusForPaste(opts: {
 }) {
   if (containsFinished(opts.currentStatus)) return opts.readyToBookValue;
   return opts.defaultStatusValue;
+}
+
+function parseTokens(raw: string): string[] {
+  return (raw || "")
+    .split(/[\r\n\t,; ]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
 }
 
 export default function RefurbReceptionTable({
@@ -237,6 +256,23 @@ export default function RefurbReceptionTable({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExtraSn, setShowExtraSn] = useState(false);
 
+  // ✅ status filter in header
+  const [statusFilter, setStatusFilter] = useState<string>("__all__");
+
+  // ✅ selectie checkboxes
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+  // ✅ bulk update blok
+  const [bulkEnableStatus, setBulkEnableStatus] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<string>("");
+  const [bulkEnableLocation, setBulkEnableLocation] = useState(false);
+  const [bulkLocation, setBulkLocation] = useState<string>("");
+  const [bulkImeiText, setBulkImeiText] = useState<string>("");
+  const [bulkPartsText, setBulkPartsText] = useState<string>("");
+  const [bulkTarget, setBulkTarget] = useState<"imei" | "selected">("selected");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+
   const hasItems = items.length > 0;
   const colSpan =
     BASE_COL_COUNT +
@@ -247,6 +283,67 @@ export default function RefurbReceptionTable({
   const statusColorByValue = new Map(
     statusOptions.map((s: any) => [s.value, s.color ?? null])
   );
+
+  const statusOptionByValue = useMemo(() => {
+    const m = new Map<string, RefurbStatusOption>();
+    for (const s of statusOptions) m.set(s.value, s);
+    return m;
+  }, [statusOptions]);
+
+  // ✅ statuses die voorkomen in rijen
+  const presentStatuses = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of items) {
+      const v = (it.refurb_status ?? "").trim();
+      if (v) s.add(v);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [items]);
+
+  // ✅ filtered rows (behoud originele idx voor paste)
+  const filteredRows = useMemo(() => {
+    return items
+      .map((it, originalIndex) => ({ it, originalIndex }))
+      .filter(({ it }) => {
+        if (statusFilter === "__all__") return true;
+        return (it.refurb_status ?? "") === statusFilter;
+      });
+  }, [items, statusFilter]);
+
+  const filteredIds = useMemo(
+    () => filteredRows.map((r) => r.it.id),
+    [filteredRows]
+  );
+
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected =
+    filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
+
+  useEffect(() => {
+    if (!headerCheckboxRef.current) return;
+    headerCheckboxRef.current.indeterminate = someFilteredSelected;
+  }, [someFilteredSelected, allFilteredSelected]);
+
+  const toggleSelectOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
 
   async function handleCellChange(
     itemId: string,
@@ -278,9 +375,7 @@ export default function RefurbReceptionTable({
         readyToBookValue,
       });
       if (!verdict.ok) {
-        // revert UI (nothing changed) + feedback
         window.alert(verdict.reason);
-        // force re-render with original items snapshot (keeps select value correct)
         setItems((prev) => [...prev]);
         return;
       }
@@ -308,13 +403,11 @@ export default function RefurbReceptionTable({
     try {
       await updateRefurbItemCell(itemId, field as any, value);
 
-      // status/location aangepast → herbereken header (grafieken, tellingen)
       if (field === "refurb_status" || field === "location") {
         router.refresh();
       }
     } catch (e) {
       console.error("[REFURB] updateCell client error", e);
-      // best effort: refresh to restore truth
       router.refresh();
     }
   }
@@ -327,7 +420,6 @@ export default function RefurbReceptionTable({
     const { updated, startRowIndex, lineCount } = opts;
     const end = startRowIndex + Math.max(0, lineCount - 1);
 
-    // rows that were affected by the paste (best-effort by index in current ordering)
     const targets = updated
       .map((row, idx) => ({ row, idx }))
       .filter(({ idx }) => idx >= startRowIndex && idx <= end)
@@ -337,7 +429,6 @@ export default function RefurbReceptionTable({
 
     let working = updated;
 
-    // We do sequential updates to keep it simple & correct.
     for (const row of targets) {
       const desired = statusForPaste({
         currentStatus: row.refurb_status ?? "",
@@ -355,7 +446,6 @@ export default function RefurbReceptionTable({
       });
 
       if (!verdict.ok) {
-        // skip silently (booked / can't go back to default / etc.)
         continue;
       }
 
@@ -402,8 +492,6 @@ export default function RefurbReceptionTable({
     try {
       setIsPasting(true);
 
-      // ✅ We laten de server de kolom-paste doen (rijen aanmaken/updaten)
-      // Daarna forceren we client-side de statusregels: bij kolom-paste -> auto status
       const updated = await pasteIntoRefurbColumn(
         receptionId,
         startRowIndex,
@@ -418,8 +506,6 @@ export default function RefurbReceptionTable({
       });
 
       setItems(withAutoStatus);
-
-      // receptie refreshen zodat header + grafieken up-to-date zijn
       router.refresh();
     } catch (err) {
       console.error("[REFURB] pasteToColumn client error", err);
@@ -447,615 +533,887 @@ export default function RefurbReceptionTable({
     return value !== null && value !== undefined && value !== "";
   }
 
+  function getTargetsForBulk(): RefurbItem[] {
+    if (bulkTarget === "selected") {
+      const ids = selectedIds;
+      return items.filter((it) => ids.has(it.id));
+    }
+
+    const tokens = new Set(parseTokens(bulkImeiText).map(norm));
+    if (!tokens.size) return [];
+
+    return items.filter((it) => {
+      const imei = norm((it as any).imei_sn ?? "");
+      const sn = norm((it as any).manual_sn ?? "");
+      return (imei && tokens.has(imei)) || (sn && tokens.has(sn));
+    });
+  }
+
+  async function runBulkUpdate() {
+    const targets = getTargetsForBulk();
+
+    const wantStatus = bulkEnableStatus && bulkStatus.trim() !== "";
+    const wantLocation = bulkEnableLocation && bulkLocation.trim() !== "";
+    const partsRaw = parseTokens(bulkPartsText)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .join(", ");
+    const wantParts = partsRaw.length > 0;
+
+    if (!wantStatus && !wantLocation && !wantParts) {
+      window.alert("Kies minstens één bulk update (Status, Locatie of Used parts).");
+      return;
+    }
+
+    if (!targets.length) {
+      window.alert(
+        bulkTarget === "selected"
+          ? "Geen rijen geselecteerd."
+          : "Geen rijen gevonden met IMEI/SN uit de textarea."
+      );
+      return;
+    }
+
+    setIsBulkUpdating(true);
+
+    let changedStatusOrLocation = false;
+    let okCount = 0;
+    let skipCount = 0;
+    const skipReasons: Record<string, number> = {};
+
+    // optimistic batch update in state
+    const nextItems = new Map(items.map((it) => [it.id, it]));
+
+    for (const row of targets) {
+      const current = nextItems.get(row.id) ?? row;
+
+      // Used parts: respect lock (zoals single edit)
+      if (wantParts) {
+        const locked = isLockedSupplierCell(current, "used_parts");
+        if (locked) {
+          skipCount += 1;
+          skipReasons["Used parts locked"] = (skipReasons["Used parts locked"] ?? 0) + 1;
+        } else {
+          try {
+            await updateRefurbItemCell(row.id, "used_parts" as any, partsRaw);
+            nextItems.set(row.id, { ...(nextItems.get(row.id) as any), used_parts: partsRaw });
+          } catch (e) {
+            console.error("[REFURB] bulk used_parts update failed", e);
+          }
+        }
+      }
+
+      if (wantLocation) {
+        try {
+          await updateRefurbItemCell(row.id, "location" as any, bulkLocation);
+          nextItems.set(row.id, { ...(nextItems.get(row.id) as any), location: bulkLocation });
+          changedStatusOrLocation = true;
+        } catch (e) {
+          console.error("[REFURB] bulk location update failed", e);
+        }
+      }
+
+      if (wantStatus) {
+        const verdict = canChangeStatus({
+          current: (nextItems.get(row.id) as any)?.refurb_status ?? row.refurb_status ?? "",
+          next: bulkStatus,
+          defaultStatusValue,
+          readyToBookValue,
+        });
+        if (!verdict.ok) {
+          skipCount += 1;
+          skipReasons[verdict.reason] = (skipReasons[verdict.reason] ?? 0) + 1;
+        } else {
+          try {
+            await updateRefurbItemCell(row.id, "refurb_status" as any, bulkStatus);
+            nextItems.set(row.id, { ...(nextItems.get(row.id) as any), refurb_status: bulkStatus });
+            changedStatusOrLocation = true;
+          } catch (e) {
+            console.error("[REFURB] bulk status update failed", e);
+          }
+        }
+      }
+
+      okCount += 1;
+    }
+
+    setItems(Array.from(nextItems.values()));
+    if (changedStatusOrLocation) router.refresh();
+
+    const reasons = Object.entries(skipReasons)
+      .map(([k, v]) => `- ${k}: ${v}`)
+      .join("\n");
+
+    window.alert(
+      `Bulk update uitgevoerd op ${targets.length} rij(en).\n` +
+        (skipCount > 0 ? `Overgeslagen: ${skipCount}\n${reasons}` : "Alles succesvol toegepast.")
+    );
+
+    setIsBulkUpdating(false);
+  }
+
   return (
-    <div className="border rounded-md overflow-x-auto text-xs mt-4">
-      <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-        <span className="font-medium text-[11px] uppercase tracking-wide">
-          Refurb Reception items
-        </span>
-        <div className="flex items-center gap-3">
-          {isPasting && (
+    <div className="mt-4 space-y-3">
+      {/* ✅ Bulk Update blok */}
+      <div className="border rounded-md bg-white p-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+            Bulk Update
+          </div>
+          {isBulkUpdating && (
             <div className="flex items-center gap-2 text-[11px] text-slate-600">
               <span
                 className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
                 aria-hidden="true"
               />
-              <span>Bezig met plakken...</span>
+              <span>Bezig met bulk update...</span>
             </div>
           )}
+        </div>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {/* Status */}
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={bulkEnableStatus}
+              onChange={(e) => setBulkEnableStatus(e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="text-[11px] text-slate-500 mb-1">Status</div>
+              <select
+                className="bb-select bb-select-sm w-full"
+                disabled={!bulkEnableStatus}
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value)}
+              >
+                <option value="">— kies status —</option>
+                {statusOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                    {opt.is_default ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Locatie */}
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={bulkEnableLocation}
+              onChange={(e) => setBulkEnableLocation(e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="text-[11px] text-slate-500 mb-1">Locatie</div>
+              <select
+                className="bb-select bb-select-sm w-full"
+                disabled={!bulkEnableLocation}
+                value={bulkLocation}
+                onChange={(e) => setBulkLocation(e.target.value)}
+              >
+                <option value="">— kies locatie —</option>
+                {locationOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                    {opt.is_default ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* IMEI textarea */}
+          <div>
+            <div className="text-[11px] text-slate-500 mb-1">
+              IMEI/SN lijst (voor target “op IMEI/SN”)
+            </div>
+            <textarea
+              className="bb-input w-full text-[11px] p-2 min-h-[90px]"
+              value={bulkImeiText}
+              onChange={(e) => setBulkImeiText(e.target.value)}
+              placeholder={"Plak hier IMEI/SN (1 per lijn of gescheiden door spaties/komma's) ..."}
+            />
+          </div>
+
+          {/* Used parts textarea */}
+          <div>
+            <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
+            <textarea
+              className="bb-input w-full text-[11px] p-2 min-h-[90px]"
+              value={bulkPartsText}
+              onChange={(e) => setBulkPartsText(e.target.value)}
+              placeholder={"Plak hier used parts SKU’s (komma/enter) ..."}
+            />
+            <div className="mt-1 text-[10px] text-slate-500">
+              Opgelet: “Used parts” wordt niet overschreven als de cel al locked is.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          {/* Target keuze */}
+          <div className="flex items-center gap-4">
+            <div className="text-[11px] text-slate-500">Toepassen op:</div>
+            <label className="flex items-center gap-2 text-[11px]">
+              <input
+                type="radio"
+                name="bulkTarget"
+                checked={bulkTarget === "selected"}
+                onChange={() => setBulkTarget("selected")}
+              />
+              geselecteerde rijen
+            </label>
+            <label className="flex items-center gap-2 text-[11px]">
+              <input
+                type="radio"
+                name="bulkTarget"
+                checked={bulkTarget === "imei"}
+                onChange={() => setBulkTarget("imei")}
+              />
+              rijen met IMEI/SN uit textarea
+            </label>
+          </div>
+
           <button
             type="button"
-            onClick={() => setShowExtraSn((v) => !v)}
-            className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            className="bb-btn text-[11px] px-3 py-2"
+            onClick={runBulkUpdate}
+            disabled={isBulkUpdating}
           >
-            <span
-              className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-              aria-hidden="true"
-            >
-              {showExtraSn ? "▲" : "▼"}
-            </span>
-            <span>Extra SN</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
-          >
-            <span
-              className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-              aria-hidden="true"
-            >
-              {showAdvanced ? "▲" : "▼"}
-            </span>
-            <span>RMA</span>
+            Apply bulk update
           </button>
         </div>
       </div>
 
-      <table className="min-w-full border-collapse">
-        <thead className="bg-slate-50 text-[11px] uppercase">
-          <tr>
-            <th className="px-2 py-1 border">Status</th>
-            <th className="px-2 py-1 border">Location</th>
-            <th className="px-2 py-1 border">IMEI/SN</th>
-            {showExtraSn && <th className="px-2 py-1 border">SN</th>}
-            <th className="px-2 py-1 border">SKU</th>
-            <th className="px-2 py-1 border">Used parts</th>
-            <th className="px-2 py-1 border">Price</th>
-            <th className="px-2 py-1 border">Description</th>
-            <th className="px-2 py-1 border">Supplier remarks</th>
-            <th className="px-2 py-1 border">Supplier Grading</th>
-            {showAdvanced && (
-              <>
-                <th className="px-2 py-1 border">Refurb Diagnostics</th>
-                <th className="px-2 py-1 border">RMA Defect Description</th>
-                <th className="px-2 py-1 border">RMA</th>
-                <th className="px-2 py-1 border">Compensation</th>
-              </>
+      {/* Tabel */}
+      <div className="border rounded-md overflow-x-auto text-xs">
+        <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
+          <span className="font-medium text-[11px] uppercase tracking-wide">
+            Refurb Reception items
+          </span>
+          <div className="flex items-center gap-3">
+            {isPasting && (
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span
+                  className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
+                  aria-hidden="true"
+                />
+                <span>Bezig met plakken...</span>
+              </div>
             )}
-          </tr>
-        </thead>
+            <button
+              type="button"
+              onClick={() => setShowExtraSn((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
+                {showExtraSn ? "▲" : "▼"}
+              </span>
+              <span>Extra SN</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
+                {showAdvanced ? "▲" : "▼"}
+              </span>
+              <span>RMA</span>
+            </button>
+          </div>
+        </div>
 
-        <tbody>
-          {/* ⬇️ Normale rijen uit de DB */}
-          {hasItems &&
-            items.map((it, idx) => {
-              const lockedSku = isLockedSupplierCell(it, "sku");
-              const lockedUsedParts = isLockedSupplierCell(it, "used_parts");
-              const lockedPrice = isLockedSupplierCell(it, "price_cents");
-              const lockedDesc = isLockedSupplierCell(it, "description");
-              const lockedSuppErr = isLockedSupplierCell(
-                it,
-                "supplier_device_errors"
-              );
-              const lockedSuppGrad = isLockedSupplierCell(it, "supplier_grading");
+        <table className="min-w-full border-collapse">
+          <thead className="bg-slate-50 text-[11px] uppercase">
+            <tr>
+              {/* ✅ Header checkbox */}
+              <th className="px-2 py-1 border w-8">
+                <input
+                  ref={headerCheckboxRef}
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+                  aria-label="Selecteer alle gefilterde rijen"
+                />
+              </th>
 
-              const imeiSn = (it as any).imei_sn ?? "";
-              const manualSn = (it as any).manual_sn ?? "";
-              const locationValue = (it as any).location ?? "";
-              const imeiLocked = !!imeiSn; // eenmaal data aanwezig → niet meer editable
+              {/* ✅ Status header met filter */}
+              <th className="px-2 py-1 border">
+                <div className="flex items-center gap-2">
+                  <span>Status</span>
+                  <select
+                    className="bb-select bb-select-sm text-[11px]"
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      // bij filter wissel: header checkbox state correct houden
+                      // selectie laten staan (maar header toggles alleen gefilterde)
+                    }}
+                    title="Filter op status"
+                  >
+                    <option value="__all__">Alles</option>
+                    {presentStatuses.map((st) => (
+                      <option key={st} value={st}>
+                        {statusOptionByValue.get(st)?.label ?? st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </th>
 
-              const statusColor =
-                statusColorByValue.get(it.refurb_status ?? "") ?? null;
+              <th className="px-2 py-1 border">Location</th>
+              <th className="px-2 py-1 border">IMEI/SN</th>
+              {showExtraSn && <th className="px-2 py-1 border">SN</th>}
+              <th className="px-2 py-1 border">SKU</th>
+              <th className="px-2 py-1 border">Used parts</th>
+              <th className="px-2 py-1 border">Price</th>
+              <th className="px-2 py-1 border">Description</th>
+              <th className="px-2 py-1 border">Supplier remarks</th>
+              <th className="px-2 py-1 border">Supplier Grading</th>
+              {showAdvanced && (
+                <>
+                  <th className="px-2 py-1 border">Refurb Diagnostics</th>
+                  <th className="px-2 py-1 border">RMA Defect Description</th>
+                  <th className="px-2 py-1 border">RMA</th>
+                  <th className="px-2 py-1 border">Compensation</th>
+                </>
+              )}
+            </tr>
+          </thead>
 
-              const currentStatus = it.refurb_status ?? "";
-              const lockedStatus = isBooked(currentStatus); // booked => locked
-              const isFinishedRow = containsFinished(currentStatus);
+          <tbody>
+            {/* ⬇️ Normale rijen uit de DB (met filter) */}
+            {hasItems &&
+              filteredRows.map(({ it, originalIndex }) => {
+                const lockedSku = isLockedSupplierCell(it, "sku");
+                const lockedUsedParts = isLockedSupplierCell(it, "used_parts");
+                const lockedPrice = isLockedSupplierCell(it, "price_cents");
+                const lockedDesc = isLockedSupplierCell(it, "description");
+                const lockedSuppErr = isLockedSupplierCell(
+                  it,
+                  "supplier_device_errors"
+                );
+                const lockedSuppGrad = isLockedSupplierCell(it, "supplier_grading");
 
-              return (
-                <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                  {/* Status (dropdown) */}
-                  <td className="px-1 py-0.5 border">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
-                        style={{
-                          background: statusColor ?? "transparent",
-                        }}
-                        title={it.refurb_status ?? ""}
-                        aria-hidden="true"
+                const imeiSn = (it as any).imei_sn ?? "";
+                const manualSn = (it as any).manual_sn ?? "";
+                const locationValue = (it as any).location ?? "";
+                const imeiLocked = !!imeiSn;
+
+                const statusColor =
+                  statusColorByValue.get(it.refurb_status ?? "") ?? null;
+
+                const currentStatus = it.refurb_status ?? "";
+                const lockedStatus = isBooked(currentStatus);
+                const isFinishedRow = containsFinished(currentStatus);
+
+                const rowChecked = selectedIds.has(it.id);
+
+                return (
+                  <tr key={it.id} className="border-t hover:bg-slate-50/50">
+                    {/* ✅ Row checkbox */}
+                    <td className="px-2 py-0.5 border">
+                      <input
+                        type="checkbox"
+                        checked={rowChecked}
+                        onChange={(e) => toggleSelectOne(it.id, e.target.checked)}
+                        aria-label={`Selecteer rij ${it.id}`}
                       />
+                    </td>
+
+                    {/* Status dropdown */}
+                    <td className="px-1 py-0.5 border">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
+                          style={{
+                            background: statusColor ?? "transparent",
+                          }}
+                          title={it.refurb_status ?? ""}
+                          aria-hidden="true"
+                        />
+                        <select
+                          value={it.refurb_status ?? ""}
+                          disabled={lockedStatus}
+                          onChange={(e) =>
+                            handleCellChange(it.id, "refurb_status", e.target.value)
+                          }
+                          className="bb-select bb-select-sm w-full text-slate-900"
+                        >
+                          <option value="">— kies status —</option>
+                          {statusOptions.map((opt) => {
+                            const optValue = opt.value;
+
+                            if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
+                              return null;
+                            }
+
+                            const cannotGoBackToDefault =
+                              norm(optValue) === norm(defaultStatusValue) &&
+                              norm(currentStatus) !== norm(defaultStatusValue);
+
+                            const cannotSetBooked =
+                              norm(optValue) === "booked" &&
+                              !isReadyToBook(currentStatus);
+
+                            const disabled =
+                              lockedStatus || cannotGoBackToDefault || cannotSetBooked;
+
+                            return (
+                              <option key={opt.value} value={opt.value} disabled={disabled}>
+                                {opt.label}
+                                {opt.is_default ? " (default)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    </td>
+
+                    {/* Location (dropdown) */}
+                    <td className="px-1 py-0.5 border">
                       <select
-                        value={it.refurb_status ?? ""}
-                        disabled={lockedStatus}
+                        value={locationValue ?? ""}
                         onChange={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "refurb_status",
-                            e.target.value
-                          )
+                          handleCellChange(it.id, "location", e.target.value)
                         }
                         className="bb-select bb-select-sm w-full text-slate-900"
                       >
-                        <option value="">— kies status —</option>
-                        {statusOptions.map((opt) => {
-                          const optValue = opt.value;
-
-                          // finished => only Ready to Book
-                          if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
-                            return null;
-                          }
-
-                          const cannotGoBackToDefault =
-                            norm(optValue) === norm(defaultStatusValue) &&
-                            norm(currentStatus) !== norm(defaultStatusValue);
-
-                          const cannotSetBooked =
-                            norm(optValue) === "booked" &&
-                            !isReadyToBook(currentStatus);
-
-                          const disabled =
-                            lockedStatus || cannotGoBackToDefault || cannotSetBooked;
-
-                          return (
-                            <option key={opt.value} value={opt.value} disabled={disabled}>
-                              {opt.label}
-                              {opt.is_default ? " (default)" : ""}
-                            </option>
-                          );
-                        })}
+                        <option value="">— kies locatie —</option>
+                        {locationOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                            {opt.is_default ? " (default)" : ""}
+                          </option>
+                        ))}
                       </select>
-                    </div>
-                  </td>
-
-                  {/* Location (dropdown) */}
-                  <td className="px-1 py-0.5 border">
-                    <select
-                      value={locationValue ?? ""}
-                      onChange={(e) =>
-                        handleCellChange(it.id, "location", e.target.value)
-                      }
-                      className="bb-select bb-select-sm w-full text-slate-900"
-                    >
-                      <option value="">— kies locatie —</option>
-                      {locationOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                          {opt.is_default ? " (default)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  {/* IMEI/SN (uit import, na invullen niet meer editable) */}
-                  <td className="px-1 py-0.5 border">
-                    {imeiLocked ? (
-                      <span
-                        className="block truncate max-w-[200px]"
-                        title={imeiSn}
-                      >
-                        {imeiSn}
-                      </span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        value={imeiSn}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setItems((prev) =>
-                            prev.map((row) =>
-                              row.id === it.id
-                                ? ({ ...row, imei_sn: val } as any)
-                                : row
-                            )
-                          );
-                        }}
-                        onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "imei_sn",
-                            e.target.value.trim()
-                          )
-                        }
-                        onPaste={(e) => handlePasteToColumn(e, idx, "imei_sn")}
-                      />
-                    )}
-                  </td>
-
-                  {/* SN (manueel) */}
-                  {showExtraSn && (
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        value={manualSn}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setItems((prev) =>
-                            prev.map((row) =>
-                              row.id === it.id
-                                ? ({ ...row, manual_sn: val } as any)
-                                : row
-                            )
-                          );
-                        }}
-                        onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "manual_sn",
-                            e.target.value.trim()
-                          )
-                        }
-                        onPaste={(e) => handlePasteToColumn(e, idx, "manual_sn")}
-                      />
                     </td>
-                  )}
 
-                  {/* SKU */}
-                  <td className="px-1 py-0.5 border">
-                    {lockedSku ? (
-                      <span
-                        className="block truncate max-w-[200px]"
-                        title={it.sku ?? ""}
-                      >
-                        {it.sku}
-                      </span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        defaultValue={it.sku ?? ""}
-                        onBlur={(e) =>
-                          handleCellChange(it.id, "sku", e.target.value)
-                        }
-                        onPaste={(e) => handlePasteToColumn(e, idx, "sku")}
-                      />
-                    )}
-                  </td>
+                    {/* IMEI/SN */}
+                    <td className="px-1 py-0.5 border">
+                      {imeiLocked ? (
+                        <span className="block truncate max-w-[200px]" title={imeiSn}>
+                          {imeiSn}
+                        </span>
+                      ) : (
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          value={imeiSn}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setItems((prev) =>
+                              prev.map((row) =>
+                                row.id === it.id ? ({ ...row, imei_sn: val } as any) : row
+                              )
+                            );
+                          }}
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "imei_sn", e.target.value.trim())
+                          }
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "imei_sn")}
+                        />
+                      )}
+                    </td>
 
-                  {/* Used parts (meerdere SKU's via +) */}
-                  <td className="px-1 py-0.5 border">
-                    <UsedPartsCell
-                      rawValue={it.used_parts ?? ""}
-                      locked={lockedUsedParts}
-                      onChange={(raw) =>
-                        handleCellChange(it.id, "used_parts", raw)
-                      }
-                      onPasteToColumn={(e) =>
-                        handlePasteToColumn(e, idx, "used_parts")
-                      }
-                    />
-                  </td>
-
-                  {/* Price */}
-                  <td className="px-1 py-0.5 border">
-                    {lockedPrice ? (
-                      <span>{money(it.price_cents)}</span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                        defaultValue={
-                          typeof it.price_cents === "number"
-                            ? (it.price_cents / 100).toString()
-                            : ""
-                        }
-                        placeholder="0,00"
-                        onBlur={(e) =>
-                          handleCellChange(it.id, "price_cents", e.target.value)
-                        }
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, idx, "price_cents")
-                        }
-                      />
-                    )}
-                  </td>
-
-                  {/* Description */}
-                  <td className="px-1 py-0.5 border">
-                    {lockedDesc ? (
-                      <span
-                        className="block truncate max-w-[260px]"
-                        title={it.description ?? ""}
-                      >
-                        {it.description}
-                      </span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        defaultValue={it.description ?? ""}
-                        onBlur={(e) =>
-                          handleCellChange(it.id, "description", e.target.value)
-                        }
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, idx, "description")
-                        }
-                      />
-                    )}
-                  </td>
-
-                  {/* Supplier remarks */}
-                  <td className="px-1 py-0.5 border">
-                    {lockedSuppErr ? (
-                      <span
-                        className="block truncate max-w-[260px]"
-                        title={it.supplier_device_errors ?? ""}
-                      >
-                        {it.supplier_device_errors}
-                      </span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        defaultValue={it.supplier_device_errors ?? ""}
-                        onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "supplier_device_errors",
-                            e.target.value
-                          )
-                        }
-                        onPaste={(e) =>
-                          handlePasteToColumn(
-                            e,
-                            idx,
-                            "supplier_device_errors"
-                          )
-                        }
-                      />
-                    )}
-                  </td>
-
-                  {/* Supplier Grading */}
-                  <td className="px-1 py-0.5 border">
-                    {lockedSuppGrad ? (
-                      <span>{it.supplier_grading}</span>
-                    ) : (
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        defaultValue={it.supplier_grading ?? ""}
-                        onBlur={(e) =>
-                          handleCellChange(
-                            it.id,
-                            "supplier_grading",
-                            e.target.value
-                          )
-                        }
-                        onPaste={(e) =>
-                          handlePasteToColumn(e, idx, "supplier_grading")
-                        }
-                      />
-                    )}
-                  </td>
-
-                  {showAdvanced && (
-                    <>
-                      {/* Refurb Diagnostics */}
+                    {/* SN (manueel) */}
+                    {showExtraSn && (
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.refurb_diagnostics ?? ""}
+                          value={manualSn}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setItems((prev) =>
+                              prev.map((row) =>
+                                row.id === it.id ? ({ ...row, manual_sn: val } as any) : row
+                              )
+                            );
+                          }}
                           onBlur={(e) =>
-                            handleCellChange(
-                              it.id,
-                              "refurb_diagnostics",
-                              e.target.value
-                            )
+                            handleCellChange(it.id, "manual_sn", e.target.value.trim())
                           }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, idx, "refurb_diagnostics")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "manual_sn")}
                         />
                       </td>
+                    )}
 
-                      {/* RMA Defect Description */}
-                      <td className="px-1 py-0.5 border">
+                    {/* SKU */}
+                    <td className="px-1 py-0.5 border">
+                      {lockedSku ? (
+                        <span
+                          className="block truncate max-w-[200px]"
+                          title={it.sku ?? ""}
+                        >
+                          {it.sku}
+                        </span>
+                      ) : (
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.rma_defect_description ?? ""}
+                          defaultValue={it.sku ?? ""}
+                          onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "sku")}
+                        />
+                      )}
+                    </td>
+
+                    {/* Used parts */}
+                    <td className="px-1 py-0.5 border">
+                      <UsedPartsCell
+                        rawValue={it.used_parts ?? ""}
+                        locked={lockedUsedParts}
+                        onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
+                        onPasteToColumn={(e) =>
+                          handlePasteToColumn(e, originalIndex, "used_parts")
+                        }
+                      />
+                    </td>
+
+                    {/* Price */}
+                    <td className="px-1 py-0.5 border">
+                      {lockedPrice ? (
+                        <span>{money(it.price_cents)}</span>
+                      ) : (
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                          defaultValue={
+                            typeof it.price_cents === "number"
+                              ? (it.price_cents / 100).toString()
+                              : ""
+                          }
+                          placeholder="0,00"
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "price_cents", e.target.value)
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "price_cents")
+                          }
+                        />
+                      )}
+                    </td>
+
+                    {/* Description */}
+                    <td className="px-1 py-0.5 border">
+                      {lockedDesc ? (
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.description ?? ""}
+                        >
+                          {it.description}
+                        </span>
+                      ) : (
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          defaultValue={it.description ?? ""}
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "description", e.target.value)
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "description")
+                          }
+                        />
+                      )}
+                    </td>
+
+                    {/* Supplier remarks */}
+                    <td className="px-1 py-0.5 border">
+                      {lockedSuppErr ? (
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.supplier_device_errors ?? ""}
+                        >
+                          {it.supplier_device_errors}
+                        </span>
+                      ) : (
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          defaultValue={it.supplier_device_errors ?? ""}
                           onBlur={(e) =>
                             handleCellChange(
                               it.id,
-                              "rma_defect_description",
+                              "supplier_device_errors",
                               e.target.value
                             )
                           }
                           onPaste={(e) =>
                             handlePasteToColumn(
                               e,
-                              idx,
-                              "rma_defect_description"
+                              originalIndex,
+                              "supplier_device_errors"
                             )
                           }
                         />
-                      </td>
+                      )}
+                    </td>
 
-                      {/* RMA */}
-                      <td className="px-1 py-0.5 border">
+                    {/* Supplier Grading */}
+                    <td className="px-1 py-0.5 border">
+                      {lockedSuppGrad ? (
+                        <span>{it.supplier_grading}</span>
+                      ) : (
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.rma ?? ""}
+                          defaultValue={it.supplier_grading ?? ""}
                           onBlur={(e) =>
-                            handleCellChange(it.id, "rma", e.target.value)
-                          }
-                          onPaste={(e) => handlePasteToColumn(e, idx, "rma")}
-                        />
-                      </td>
-
-                      {/* Compensation */}
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                          defaultValue={
-                            typeof it.compensation_cents === "number"
-                              ? (it.compensation_cents / 100).toString()
-                              : ""
-                          }
-                          placeholder="0,00"
-                          onBlur={(e) =>
-                            handleCellChange(
-                              it.id,
-                              "compensation_cents",
-                              e.target.value
-                            )
+                            handleCellChange(it.id, "supplier_grading", e.target.value)
                           }
                           onPaste={(e) =>
-                            handlePasteToColumn(e, idx, "compensation_cents")
+                            handlePasteToColumn(e, originalIndex, "supplier_grading")
                           }
                         />
-                      </td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
+                      )}
+                    </td>
 
-          {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
-          {!hasItems && (
-            <tr className="border-t">
-              {/* Status (start: paste mogelijk) */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak status hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
-                />
-              </td>
+                    {showAdvanced && (
+                      <>
+                        {/* Refurb Diagnostics */}
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            defaultValue={it.refurb_diagnostics ?? ""}
+                            onBlur={(e) =>
+                              handleCellChange(
+                                it.id,
+                                "refurb_diagnostics",
+                                e.target.value
+                              )
+                            }
+                            onPaste={(e) =>
+                              handlePasteToColumn(e, originalIndex, "refurb_diagnostics")
+                            }
+                          />
+                        </td>
 
-              {/* Location */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak locaties hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "location")}
-                />
-              </td>
+                        {/* RMA Defect Description */}
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            defaultValue={it.rma_defect_description ?? ""}
+                            onBlur={(e) =>
+                              handleCellChange(
+                                it.id,
+                                "rma_defect_description",
+                                e.target.value
+                              )
+                            }
+                            onPaste={(e) =>
+                              handlePasteToColumn(
+                                e,
+                                originalIndex,
+                                "rma_defect_description"
+                              )
+                            }
+                          />
+                        </td>
 
-              {/* IMEI/SN */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak IMEI/SN kolom hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
-                />
-              </td>
+                        {/* RMA */}
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            defaultValue={it.rma ?? ""}
+                            onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
+                            onPaste={(e) => handlePasteToColumn(e, originalIndex, "rma")}
+                          />
+                        </td>
 
-              {/* SN (alleen tonen als Extra SN actief is) */}
-              {showExtraSn && (
+                        {/* Compensation */}
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                            defaultValue={
+                              typeof it.compensation_cents === "number"
+                                ? (it.compensation_cents / 100).toString()
+                                : ""
+                            }
+                            placeholder="0,00"
+                            onBlur={(e) =>
+                              handleCellChange(
+                                it.id,
+                                "compensation_cents",
+                                e.target.value
+                              )
+                            }
+                            onPaste={(e) =>
+                              handlePasteToColumn(e, originalIndex, "compensation_cents")
+                            }
+                          />
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+
+            {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
+            {!hasItems && (
+              <tr className="border-t">
+                <td className="px-2 py-0.5 border" />
                 <td className="px-1 py-0.5 border">
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
-                    placeholder="Plak SN kolom hier"
-                    onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
+                    placeholder="Plak status hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
                   />
                 </td>
-              )}
 
-              {/* SKU */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak SKU-kolom hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
-                />
-              </td>
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak locaties hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "location")}
+                  />
+                </td>
 
-              {/* Used parts */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak Used parts-kolom hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
-                />
-              </td>
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak IMEI/SN kolom hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
+                  />
+                </td>
 
-              {/* Price */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                  placeholder="Plak prijzen hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
-                />
-              </td>
-
-              {/* Description */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak Description-kolom hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "description")}
-                />
-              </td>
-
-              {/* Supplier remarks */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak Supplier remarks hier"
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, 0, "supplier_device_errors")
-                  }
-                />
-              </td>
-
-              {/* Supplier Grading */}
-              <td className="px-1 py-0.5 border">
-                <input
-                  className="bb-input h-7 text-[11px] px-1 w-full"
-                  placeholder="Plak grading hier"
-                  onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
-                />
-              </td>
-
-              {showAdvanced && (
-                <>
-                  {/* Refurb Diagnostics */}
+                {showExtraSn && (
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak refurb diagnostics hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "refurb_diagnostics")
-                      }
+                      placeholder="Plak SN kolom hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
                     />
                   </td>
+                )}
 
-                  {/* RMA Defect Description */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak RMA defect beschrijving hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "rma_defect_description")
-                      }
-                    />
-                  </td>
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak SKU-kolom hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
+                  />
+                </td>
 
-                  {/* RMA */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak RMA-codes hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
-                    />
-                  </td>
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak Used parts-kolom hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
+                  />
+                </td>
 
-                  {/* Compensation */}
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                      placeholder="Plak compensaties hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "compensation_cents")
-                      }
-                    />
-                  </td>
-                </>
-              )}
-            </tr>
-          )}
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                    placeholder="Plak prijzen hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
+                  />
+                </td>
 
-          {!hasItems && (
-            <tr>
-              <td
-                className="px-2 py-3 border text-[11px] text-slate-500"
-                colSpan={colSpan}
-              >
-                Nog geen toestellen in deze receptie. Plak een kolom uit Excel in
-                één van de velden hierboven (bv. IMEI/SN, SKU, Description,
-                Price...) om rijen aan te maken. Status en Location gebruiken hun
-                ingestelde default-waarde bij het importeren.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak Description-kolom hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "description")}
+                  />
+                </td>
+
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak Supplier remarks hier"
+                    onPaste={(e) =>
+                      handlePasteToColumn(e, 0, "supplier_device_errors")
+                    }
+                  />
+                </td>
+
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    placeholder="Plak grading hier"
+                    onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
+                  />
+                </td>
+
+                {showAdvanced && (
+                  <>
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        placeholder="Plak refurb diagnostics hier"
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, 0, "refurb_diagnostics")
+                        }
+                      />
+                    </td>
+
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        placeholder="Plak RMA defect beschrijving hier"
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, 0, "rma_defect_description")
+                        }
+                      />
+                    </td>
+
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        placeholder="Plak RMA-codes hier"
+                        onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
+                      />
+                    </td>
+
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                        placeholder="Plak compensaties hier"
+                        onPaste={(e) =>
+                          handlePasteToColumn(e, 0, "compensation_cents")
+                        }
+                      />
+                    </td>
+                  </>
+                )}
+              </tr>
+            )}
+
+            {!hasItems && (
+              <tr>
+                <td
+                  className="px-2 py-3 border text-[11px] text-slate-500"
+                  colSpan={colSpan + 1}
+                >
+                  Nog geen toestellen in deze receptie. Plak een kolom uit Excel
+                  in één van de velden hierboven (bv. IMEI/SN, SKU, Description,
+                  Price...) om rijen aan te maken. Status en Location gebruiken
+                  hun ingestelde default-waarde bij het importeren.
+                </td>
+              </tr>
+            )}
+
+            {/* ✅ leeg resultaat bij filter */}
+            {hasItems && filteredRows.length === 0 && (
+              <tr>
+                <td
+                  className="px-2 py-3 border text-[11px] text-slate-500"
+                  colSpan={colSpan + 1}
+                >
+                  Geen rijen voor deze statusfilter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
