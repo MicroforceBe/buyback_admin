@@ -51,7 +51,8 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data) const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
+// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data) 
+const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "sku",
   "used_parts",
   "price_cents",
@@ -60,7 +61,8 @@ type PasteField = EditableField;
   "supplier_grading",
 ];
 
-// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow) const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
+// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow) 
+const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
   "rma_defect_description",
