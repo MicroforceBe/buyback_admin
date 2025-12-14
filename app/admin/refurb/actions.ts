@@ -141,7 +141,8 @@ function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
 
   return current === null || current === undefined || current === ""; }
 
-// Helper: alle items voor een receptie ophalen async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
+// Helper: alle items voor een receptie ophalen 
+async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
