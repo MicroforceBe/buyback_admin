@@ -11,6 +11,20 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const locationList = locationOptions || [];
+
+const defaultLocFromFlag =
+  locationList.find((l: any) => l?.is_default === true) ||
+  locationList.find((l: any) => l?.default === true) ||
+  locationList.find((l: any) => l?.isDefault === true) ||
+  null;
+
+const defaultLocationValue: string =
+  (defaultLocFromFlag?.value as string) ||
+  (locationList[0]?.value as string) ||
+  "";
+
+
 type SupplierInfo = {
   id: string;
   name: string;
@@ -592,9 +606,10 @@ export default async function RefurbReceptionDetailPage({
         initialItems={items}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
-        // ✅ nieuw: nodig om de status-regels correct af te dwingen bij paste & edits
+        // ✅ nieuw: nodig om de status- en location-regels correct af te dwingen bij paste & edits
         defaultStatusValue={defaultStatusValue}
         readyToBookValue={readyToBookValue}
+        defaultLocationValue={defaultLocationValue}
       />
     </div>
   );
