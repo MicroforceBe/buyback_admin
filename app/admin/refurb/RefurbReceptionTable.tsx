@@ -17,8 +17,8 @@ type Props = {
   initialItems: RefurbItem[];
   statusOptions: RefurbStatusOption[];
   locationOptions: RefurbLocationOption[];
-
   defaultStatusValue: string;
+  defaultLocationValue: string;
   readyToBookValue: string;
 };
 
@@ -247,6 +247,7 @@ export default function RefurbReceptionTable({
   statusOptions,
   locationOptions,
   defaultStatusValue,
+  defaultLocationValue,
   readyToBookValue,
 }: Props) {
   const router = useRouter();
@@ -530,7 +531,8 @@ export default function RefurbReceptionTable({
         startRowIndex,
         field as any,
         lines,
-        defaultStatusValue // ✅ voorkomt "new"
+        defaultStatusValue, // ✅ voorkomt "new"
+        defaultLocationValue
       );
       setItems(updated);
       router.refresh();
