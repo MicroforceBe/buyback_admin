@@ -259,18 +259,18 @@ export default async function RefurbReceptionDetailPage({
     null;
 
   // 2) fallback: eerste status in lijst
+  // ✅ BELANGRIJK: geen "new" fallback meer (die zorgde voor ghost value)
   const defaultStatusValue: string =
-    (defaultFromFlag?.value as string) ||
-    (statusList[0]?.value as string) ||
-    "new";
+    (defaultFromFlag?.value as string) || (statusList[0]?.value as string) || "";
 
   // Ready to Book zoeken op value of label (case-insensitive)
   const readyToBook =
-    statusList.find((s) => norm(s.value) === "ready to book") ||
-    statusList.find((s) => norm(s.label) === "ready to book") ||
+    statusList.find((s) => norm((s as any).value) === "ready to book") ||
+    statusList.find((s) => norm((s as any).label) === "ready to book") ||
     null;
 
-  const readyToBookValue: string = (readyToBook?.value as string) || "Ready to Book";
+  // ✅ als we het niet vinden, geef lege string door; table/action kan dan nog defensief zijn
+  const readyToBookValue: string = (readyToBook?.value as string) || "";
 
   // -------- Status stats voor donut + percentages --------
   const totalItems = items.length;
