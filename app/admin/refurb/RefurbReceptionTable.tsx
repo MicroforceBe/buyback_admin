@@ -278,6 +278,50 @@ export default function RefurbReceptionTable({
   const locationLabelByValue = new Map(
     (locationOptions || []).map((o: any) => [o.value, o.label])
   );
+
+
+    const preLocationFilteredItems = (items || []).filter((it: any) => {
+      // ✅ pas HIER al je filters toe behalve location
+    
+      // status filter (als je die hebt)
+      if (statusFilter && (it.refurb_status ?? "") !== statusFilter) return false;
+    
+      // imei search (als je die hebt)
+      if (imeiQuery) {
+        const v = ((it.imei_sn ?? "") as string).toLowerCase();
+        if (!v.includes(imeiQuery.toLowerCase().trim())) return false;
+      }
+    
+      // description search (als je die hebt)
+      if (descQuery) {
+        const v = ((it.description ?? "") as string).toLowerCase();
+        if (!v.includes(descQuery.toLowerCase().trim())) return false;
+      }
+    
+      return true;
+    });
+
+    const locationLabelByValue = new Map(
+      (locationOptions || []).map((o: any) => [String(o.value), String(o.label)])
+    );
+    
+    // (optioneel) normaliseer om "A " en "a" samen te nemen
+    const normLoc = (v: string) => v.trim();
+    
+    const locMap = new Map<string, string>(); // norm -> originele value
+    for (const it of preLocationFilteredItems as any[]) {
+      const raw = (it.location ?? "").toString();
+      const n = normLoc(raw);
+      if (!n) continue;
+      if (!locMap.has(n)) locMap.set(n, n); // bewaar genormaliseerde value
+    }
+    
+    const locationFilterOptions = Array.from(locMap.values())
+      .sort((a, b) => a.localeCompare(b))
+      .map((v) => ({
+        value: v,
+        label: locationLabelByValue.get(v) || v,
+      }));
   
   // unieke waarden die in de rijen voorkomen (uit items, niet uit settings)
   const locationValuesInRows = Array.from(
@@ -287,12 +331,6 @@ export default function RefurbReceptionTable({
         .filter(Boolean)
     )
   ).sort((a, b) => a.localeCompare(b));
-  
-  // dropdown opties: label uit settings, fallback = raw value
-  const locationFilterOptions = locationValuesInRows.map((v) => ({
-    value: v,
-    label: locationLabelByValue.get(v) || v,
-  }));
 
   
   // statuses & locations present in rows (filter dropdowns)
