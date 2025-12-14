@@ -1,10 +1,7 @@
 // app/admin/refurb/actions.ts
 "use server";
 
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { redirect } from "next/navigation"; import { revalidatePath } from "next/cache"; import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
 
@@ -54,8 +51,7 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
-const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
+// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data) const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "sku",
   "used_parts",
   "price_cents",
@@ -64,8 +60,7 @@ const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "supplier_grading",
 ];
 
-// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow)
-const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
+// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow) const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
   "rma_defect_description",
@@ -84,6 +79,57 @@ function parseMoneyToCents(raw: string): number | null {
   return Math.round(n * 100);
 }
 
+function norm(s: string) {
+  return (s || "").trim().toLowerCase(); } function containsFinished(status: string | null | undefined) {
+  return norm(status || "").includes("finished"); } function isBooked(status: string | null | undefined) {
+  return norm(status || "") === "booked"; } function isReadyToBook(status: string | null | undefined) {
+  return norm(status || "") === "ready to book"; }
+
+function canChangeStatus(opts: {
+  current: string | null | undefined;
+  next: string;
+  defaultStatusValue: string;
+  readyToBookValue: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const current = opts.current ?? "";
+  const next = opts.next;
+  const def = opts.defaultStatusValue;
+
+  // finished-status mag enkel naar Ready to Book
+  if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
+    return {
+      ok: false,
+      reason: "Finished-status kan enkel op Ready to Book gezet worden.",
+    };
+  }
+
+  // booked is immutable
+  if (isBooked(current) && norm(next) !== norm(current)) {
+    return {
+      ok: false,
+      reason: "Status is booked en kan niet meer gewijzigd worden.",
+    };
+  }
+
+  // only Ready to Book -> booked
+  if (isBooked(next) && !isReadyToBook(current)) {
+    return {
+      ok: false,
+      reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
+    };
+  }
+
+  // cannot go back to default if current isn't default
+  if (norm(next) === norm(def) && norm(current) !== norm(def)) {
+    return {
+      ok: false,
+      reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt.",
+    };
+  }
+
+  return { ok: true };
+}
+
 function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
   const current = (item as any)[field];
 
@@ -91,13 +137,9 @@ function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
     return current === null || current === undefined;
   }
 
-  return current === null || current === undefined || current === "";
-}
+  return current === null || current === undefined || current === ""; }
 
-// Helper: alle items voor een receptie ophalen
-async function fetchItemsForReception(
-  receptionId: string
-): Promise<RefurbItem[]> {
+// Helper: alle items voor een receptie ophalen async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
@@ -130,6 +172,10 @@ async function fetchItemsForReception(
   }
 
   return data as RefurbItem[];
+}
+
+// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
+  return fetchItemsForReception(receptionId);
 }
 
 /**
@@ -169,6 +215,113 @@ export async function updateRefurbItemCell(
 }
 
 /**
+ * ✅ Bulk update (snel: 1–3 DB updates)
+ * - location / used_parts: in één update op alle niet-booked rows
+ * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)  */ export async function bulkUpdateRefurbItems(input: {
+  receptionId: string;
+  itemIds: string[];
+  patch: { refurb_status?: string; location?: string; used_parts?: string };
+  defaultStatusValue: string;
+  readyToBookValue: string;
+}): Promise<{ updated: number; skipped: number; reasons: Record<string, number> }> {
+  const { receptionId, itemIds, patch, defaultStatusValue, readyToBookValue } = input;
+
+  if (!itemIds?.length) return { updated: 0, skipped: 0, reasons: {} };
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("id, refurb_status")
+    .eq("reception_id", receptionId)
+    .in("id", itemIds);
+
+  if (error) {
+    console.error("[REFURB] bulkUpdateRefurbItems fetch error", error);
+    throw error;
+  }
+
+  const rows = (data || []) as Array<{ id: string; refurb_status: string | null }>;
+  const now = new Date().toISOString();
+
+  const reasons: Record<string, number> = {};
+  let skipped = 0;
+  let updated = 0;
+
+  const notBookedIds = rows.filter((r) => !isBooked(r.refurb_status)).map((r) => r.id);
+
+  // used_parts
+  if (typeof patch.used_parts === "string") {
+    if (notBookedIds.length) {
+      const { error: e1 } = await supabaseAdmin
+        .from("refurb_reception_items")
+        .update({ used_parts: patch.used_parts || null, updated_at: now })
+        .in("id", notBookedIds);
+
+      if (e1) throw e1;
+      updated += notBookedIds.length;
+    } else {
+      skipped += rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+    }
+  }
+
+  // location
+  if (typeof patch.location === "string") {
+    if (notBookedIds.length) {
+      const { error: e2 } = await supabaseAdmin
+        .from("refurb_reception_items")
+        .update({ location: patch.location || null, updated_at: now })
+        .in("id", notBookedIds);
+
+      if (e2) throw e2;
+      updated += notBookedIds.length;
+    } else if (!patch.used_parts) {
+      skipped += rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+    }
+  }
+
+  // refurb_status (per rij evalueren, dan 1 update op allowed ids)
+  if (typeof patch.refurb_status === "string" && patch.refurb_status.trim()) {
+    const allowed: string[] = [];
+    for (const r of rows) {
+      const current = r.refurb_status ?? "";
+      if (isBooked(current)) {
+        skipped += 1;
+        reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + 1;
+        continue;
+      }
+
+      const verdict = canChangeStatus({
+        current,
+        next: patch.refurb_status,
+        defaultStatusValue,
+        readyToBookValue,
+      });
+
+      if (!verdict.ok) {
+        skipped += 1;
+        reasons[verdict.reason] = (reasons[verdict.reason] ?? 0) + 1;
+        continue;
+      }
+
+      allowed.push(r.id);
+    }
+
+    if (allowed.length) {
+      const { error: e3 } = await supabaseAdmin
+        .from("refurb_reception_items")
+        .update({ refurb_status: patch.refurb_status, updated_at: now })
+        .in("id", allowed);
+
+      if (e3) throw e3;
+      updated += allowed.length;
+    }
+  }
+
+  return { updated, skipped, reasons };
+}
+
+/**
  * Multi-line paste in één kolom (Excel-stijl).
  *
  * - Voor LOCK_AFTER_FILL_FIELDS: alleen invullen als cel nog leeg is.
@@ -176,15 +329,12 @@ export async function updateRefurbItemCell(
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
- * Lege rijen in de bron (lege cellen) worden niet meer weggefilterd zodat
- * de rijen eronder correct in lijn blijven. Een lege waarde zorgt gewoon
- * voor een "no-op" op die rij.
- */
-export async function pasteIntoRefurbColumn(
+ * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")  */ export async function pasteIntoRefurbColumn(
   receptionId: string,
   startRowIndex: number,
   field: PasteField,
-  rawLines: string[]
+  rawLines: string[],
+  defaultStatusValue?: string
 ): Promise<RefurbItem[]> {
   // we strippen enkel carriage returns, maar bewaren lege lijnen
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
@@ -225,19 +375,17 @@ export async function pasteIntoRefurbColumn(
           continue; // skip, niet overschrijven
         }
       }
-      // Interne kolom of lege supplier-kolom: gewoon updaten
+
       updates.push({
         id: existingItem.id,
-        patch: {
-          [field]: value,
-        } as Partial<RefurbItem>,
+        patch: { [field]: value } as Partial<RefurbItem>,
       });
     } else {
       // Nieuwe rij
       inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
-        refurb_status: "new",
+        refurb_status: (defaultStatusValue || "new") as any, // ✅ default uit UI
         [field]: value,
       });
     }
@@ -261,13 +409,14 @@ export async function pasteIntoRefurbColumn(
 
   // Inserts in batch
   if (inserts.length) {
+    const now = new Date().toISOString();
     const { error } = await supabaseAdmin
       .from("refurb_reception_items")
       .insert(
         inserts.map((row) => ({
           ...row,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          created_at: now,
+          updated_at: now,
         }))
       );
 
@@ -287,9 +436,7 @@ export async function pasteIntoRefurbColumn(
 /**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
-export async function searchRefurbSuppliers(
-  query: string
-): Promise<RefurbSupplier[]> {
+export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
   const q = query.trim();
   if (!q) return [];
 
@@ -375,8 +522,7 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   revalidatePath("/admin/refurb/suppliers");
 }
 
-/** 🔴 Form state type voor nieuwe receptie */
-export type CreateReceptionFormState = {
+/** 🔴 Form state type voor nieuwe receptie */ export type CreateReceptionFormState = {
   success: boolean;
   fieldErrors: {
     reception_number?: string;
@@ -391,40 +537,23 @@ export async function createRefurbReception(
   _prevState: CreateReceptionFormState,
   formData: FormData
 ): Promise<CreateReceptionFormState> {
-  const reception_number = (
-    formData.get("reception_number") || ""
-  ).toString().trim();
-  const reception_date = (formData.get("reception_date") || "")
-    .toString()
-    .trim();
+  const reception_number = (formData.get("reception_number") || "").toString().trim();
+  const reception_date = (formData.get("reception_date") || "").toString().trim();
   const supplier_id = (formData.get("supplier_id") || "").toString().trim();
-  const vat_scheme_raw = (formData.get("vat_scheme") || "")
+  const vat_scheme_raw = (formData.get("vat_scheme") || "").toString().trim();
+  const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "")
     .toString()
     .trim();
-  const supplier_invoice_nr = (
-    formData.get("supplier_invoice_nr") || ""
-  )
-    .toString()
-    .trim();
-  const internal_invoice_nr = (
-    formData.get("internal_invoice_nr") || ""
-  )
+  const internal_invoice_nr = (formData.get("internal_invoice_nr") || "")
     .toString()
     .trim();
   const rma_expiry_date = (formData.get("rma_expiry_date") || "")
     .toString()
     .trim();
 
-  const vat_scheme: VatScheme =
-    vat_scheme_raw === "normal" ? "normal" : "margin"; // default margin
+  const vat_scheme: VatScheme = vat_scheme_raw === "normal" ? "normal" : "margin";
 
-  // Basis-check verplichte velden
-  if (
-    !reception_number ||
-    !reception_date ||
-    !supplier_id ||
-    !supplier_invoice_nr
-  ) {
+  if (!reception_number || !reception_date || !supplier_id || !supplier_invoice_nr) {
     return {
       success: false,
       fieldErrors: {
@@ -434,7 +563,6 @@ export async function createRefurbReception(
     };
   }
 
-  // Unieke check op receptienummer
   const existing = await supabaseAdmin
     .from("refurb_receptions")
     .select("id")
@@ -442,15 +570,11 @@ export async function createRefurbReception(
     .limit(1);
 
   if (existing.error) {
-    console.error(
-      "[REFURB] createRefurbReception unique-check error",
-      existing.error
-    );
+    console.error("[REFURB] createRefurbReception unique-check error", existing.error);
     return {
       success: false,
       fieldErrors: {},
-      formError:
-        "Kon niet controleren of het receptienummer reeds bestaat.",
+      formError: "Kon niet controleren of het receptienummer reeds bestaat.",
     };
   }
 
@@ -464,7 +588,6 @@ export async function createRefurbReception(
     };
   }
 
-  // Leveranciersnaam ophalen voor oude 'supplier' kolom (NOT NULL)
   let supplierName = "";
   const supplierRes = await supabaseAdmin
     .from("refurb_suppliers")
@@ -474,15 +597,11 @@ export async function createRefurbReception(
     .single();
 
   if (supplierRes.error) {
-    console.warn(
-      "[REFURB] could not fetch supplier name",
-      supplierRes.error
-    );
+    console.warn("[REFURB] could not fetch supplier name", supplierRes.error);
   } else if (supplierRes.data?.name) {
     supplierName = supplierRes.data.name;
   }
 
-  // Insert uitvoeren
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
     .insert({
