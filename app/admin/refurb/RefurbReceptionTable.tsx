@@ -1221,16 +1221,160 @@ export default function RefurbReceptionTable({
                 );
               })}
 
+            {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
             {!hasItems && (
-              <tr>
-                <td
-                  className="px-2 py-3 border text-[11px] text-slate-500"
-                  colSpan={colSpan + 1}
-                >
-                  Nog geen toestellen in deze receptie.
-                </td>
-              </tr>
+              <>
+                <tr className="border-t">
+                  {/* Select (header checkbox kolom) */}
+                  <td className="px-2 py-0.5 border" />
+            
+                  {/* Status (start: paste mogelijk) */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak status hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
+                    />
+                  </td>
+            
+                  {/* Location */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak locaties hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "location")}
+                    />
+                  </td>
+            
+                  {/* IMEI/SN */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak IMEI/SN kolom hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
+                    />
+                  </td>
+            
+                  {/* SN (alleen tonen als Extra SN actief is) */}
+                  {showExtraSn && (
+                    <td className="px-1 py-0.5 border">
+                      <input
+                        className="bb-input h-7 text-[11px] px-1 w-full"
+                        placeholder="Plak SN kolom hier"
+                        onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
+                      />
+                    </td>
+                  )}
+            
+                  {/* SKU */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak SKU-kolom hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
+                    />
+                  </td>
+            
+                  {/* Used parts */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak Used parts-kolom hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
+                    />
+                  </td>
+            
+                  {/* Price */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      placeholder="Plak prijzen hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
+                    />
+                  </td>
+            
+                  {/* Description */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak Description-kolom hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "description")}
+                    />
+                  </td>
+            
+                  {/* Supplier remarks */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak Supplier remarks hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
+                    />
+                  </td>
+            
+                  {/* Supplier Grading */}
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      placeholder="Plak grading hier"
+                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
+                    />
+                  </td>
+            
+                  {showAdvanced && (
+                    <>
+                      {/* Refurb Diagnostics */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak refurb diagnostics hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
+                        />
+                      </td>
+            
+                      {/* RMA Defect Description */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak RMA defect beschrijving hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "rma_defect_description")}
+                        />
+                      </td>
+            
+                      {/* RMA */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak RMA-codes hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
+                        />
+                      </td>
+            
+                      {/* Compensation */}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                          placeholder="Plak compensaties hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
+                        />
+                      </td>
+                    </>
+                  )}
+                </tr>
+            
+                <tr>
+                  <td
+                    className="px-2 py-3 border text-[11px] text-slate-500"
+                    colSpan={colSpan + 1}
+                  >
+                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van
+                    de velden hierboven (bv. IMEI/SN, SKU, Description, Price...) om rijen
+                    aan te maken. Status en Location gebruiken hun ingestelde default-waarde
+                    bij het importeren.
+                  </td>
+                </tr>
+              </>
             )}
+
 
             {hasItems && filteredRows.length === 0 && (
               <tr>
