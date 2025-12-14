@@ -270,10 +270,31 @@ export default function RefurbReceptionTable({
     return m;
   }, [locationOptions]);
 
-  const statusColorByValue = useMemo(() => {
-    return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
-  }, [statusOptions]);
+    const statusColorByValue = useMemo(() => {
+      return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
+    }, [statusOptions]);
+  
+  // label lookup uit settings
+  const locationLabelByValue = new Map(
+    (locationOptions || []).map((o: any) => [o.value, o.label])
+  );
+  
+  // unieke waarden die in de rijen voorkomen (uit items, niet uit settings)
+  const locationValuesInRows = Array.from(
+    new Set(
+      (items || [])
+        .map((it: any) => (it.location ?? "").toString().trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  
+  // dropdown opties: label uit settings, fallback = raw value
+  const locationFilterOptions = locationValuesInRows.map((v) => ({
+    value: v,
+    label: locationLabelByValue.get(v) || v,
+  }));
 
+  
   // statuses & locations present in rows (filter dropdowns)
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
@@ -751,14 +772,14 @@ export default function RefurbReceptionTable({
                 <div className="flex items-center gap-2">
                   <span>Location</span>
                   <select
-                    className="bb-select bb-select-sm text-[11px]"
                     value={locationFilter}
                     onChange={(e) => setLocationFilter(e.target.value)}
+                    className="bb-select bb-select-sm w-full text-slate-900"
                   >
-                    <option value="__all__">Alles</option>
-                    {presentLocations.map((loc) => (
-                      <option key={loc} value={loc}>
-                        {locationOptionByValue.get(loc)?.label ?? loc}
+                    <option value="">Alles</option>
+                    {locationFilterOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
                       </option>
                     ))}
                   </select>
