@@ -79,13 +79,22 @@ function canChangeStatus(opts: {
   const def = opts.defaultStatusValue;
 
   if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
-    return { ok: false, reason: "Finished-status kan enkel op Ready to Book gezet worden." };
+    return {
+      ok: false,
+      reason: "Finished-status kan enkel op Ready to Book gezet worden.",
+    };
   }
   if (isBooked(current) && norm(next) !== norm(current)) {
-    return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
+    return {
+      ok: false,
+      reason: "Status is booked en kan niet meer gewijzigd worden.",
+    };
   }
   if (isBooked(next) && !isReadyToBook(current)) {
-    return { ok: false, reason: "Status kan alleen op booked gezet worden vanuit Ready to Book." };
+    return {
+      ok: false,
+      reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
+    };
   }
   if (norm(next) === norm(def) && norm(current) !== norm(def)) {
     return {
@@ -135,7 +144,12 @@ type UsedPartsCellProps = {
   ) => void;
 };
 
-function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPartsCellProps) {
+function UsedPartsCell({
+  rawValue,
+  locked,
+  onChange,
+  onPasteToColumn,
+}: UsedPartsCellProps) {
   const [parts, setParts] = useState<string[]>(() => parseUsedParts(rawValue));
 
   useEffect(() => {
@@ -198,16 +212,26 @@ function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPart
             value={part}
             onChange={(e) => updatePart(i, e.target.value)}
             onBlur={commit}
-            onPaste={i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined}
+            onPaste={
+              i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined
+            }
           />
           <CopyBtn value={part.trim()} title="Copy used part SKU" />
           {rows.length > 1 && (
-            <button type="button" className="bb-btn text-[11px] px-2 h-7" onClick={() => removePart(i)}>
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2 h-7"
+              onClick={() => removePart(i)}
+            >
               –
             </button>
           )}
           {i === rows.length - 1 && (
-            <button type="button" className="bb-btn text-[11px] px-2 h-7" onClick={addPart}>
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2 h-7"
+              onClick={addPart}
+            >
               +
             </button>
           )}
@@ -270,70 +294,11 @@ export default function RefurbReceptionTable({
     return m;
   }, [locationOptions]);
 
-    const statusColorByValue = useMemo(() => {
-      return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
-    }, [statusOptions]);
-  
-  // label lookup uit settings
-  const locationLabelByValue = new Map(
-    (locationOptions || []).map((o: any) => [o.value, o.label])
-  );
+  const statusColorByValue = useMemo(() => {
+    return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
+  }, [statusOptions]);
 
-
-    const preLocationFilteredItems = (items || []).filter((it: any) => {
-      // ✅ pas HIER al je filters toe behalve location
-    
-      // status filter (als je die hebt)
-      if (statusFilter && (it.refurb_status ?? "") !== statusFilter) return false;
-    
-      // imei search (als je die hebt)
-      if (imeiQuery) {
-        const v = ((it.imei_sn ?? "") as string).toLowerCase();
-        if (!v.includes(imeiQuery.toLowerCase().trim())) return false;
-      }
-    
-      // description search (als je die hebt)
-      if (descQuery) {
-        const v = ((it.description ?? "") as string).toLowerCase();
-        if (!v.includes(descQuery.toLowerCase().trim())) return false;
-      }
-    
-      return true;
-    });
-
-    const locationLabelByValue = new Map(
-      (locationOptions || []).map((o: any) => [String(o.value), String(o.label)])
-    );
-    
-    // (optioneel) normaliseer om "A " en "a" samen te nemen
-    const normLoc = (v: string) => v.trim();
-    
-    const locMap = new Map<string, string>(); // norm -> originele value
-    for (const it of preLocationFilteredItems as any[]) {
-      const raw = (it.location ?? "").toString();
-      const n = normLoc(raw);
-      if (!n) continue;
-      if (!locMap.has(n)) locMap.set(n, n); // bewaar genormaliseerde value
-    }
-    
-    const locationFilterOptions = Array.from(locMap.values())
-      .sort((a, b) => a.localeCompare(b))
-      .map((v) => ({
-        value: v,
-        label: locationLabelByValue.get(v) || v,
-      }));
-  
-  // unieke waarden die in de rijen voorkomen (uit items, niet uit settings)
-  const locationValuesInRows = Array.from(
-    new Set(
-      (items || [])
-        .map((it: any) => (it.location ?? "").toString().trim())
-        .filter(Boolean)
-    )
-  ).sort((a, b) => a.localeCompare(b));
-
-  
-  // statuses & locations present in rows (filter dropdowns)
+  // statuses present in rows (filter dropdown)
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
@@ -343,14 +308,61 @@ export default function RefurbReceptionTable({
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  const presentLocations = useMemo(() => {
-    const s = new Set<string>();
-    for (const it of items) {
-      const v = ((it as any).location ?? "").trim();
-      if (v) s.add(v);
+  // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
+  const locationFilterOptions = useMemo(() => {
+    const labelByValue = new Map(
+      (locationOptions || []).map((o: any) => [
+        String(o.value),
+        String(o.label),
+      ])
+    );
+
+    const iq = norm(imeiQuery);
+    const dq = norm(descQuery);
+
+    // apply all filters except location
+    const base = (items || []).filter((it: any) => {
+      const st = (it.refurb_status || defaultStatusValue).trim();
+      if (statusFilter !== "__all__" && st !== statusFilter) return false;
+
+      if (iq) {
+        const imei = norm((it as any).imei_sn ?? "");
+        const sn = norm((it as any).manual_sn ?? "");
+        if (!imei.includes(iq) && !sn.includes(iq)) return false;
+      }
+
+      if (dq) {
+        const desc = norm(it.description ?? "");
+        if (!desc.includes(dq)) return false;
+      }
+
+      return true;
+    });
+
+    const normLoc = (v: string) => v.trim();
+    const locSet = new Set<string>();
+
+    for (const it of base as any[]) {
+      const raw = (it.location ?? "").toString();
+      const n = normLoc(raw);
+      if (!n) continue;
+      locSet.add(n);
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [items]);
+
+    return Array.from(locSet.values())
+      .sort((a, b) => a.localeCompare(b))
+      .map((v) => ({
+        value: v,
+        label: labelByValue.get(v) || v,
+      }));
+  }, [
+    items,
+    locationOptions,
+    statusFilter,
+    imeiQuery,
+    descQuery,
+    defaultStatusValue,
+  ]);
 
   const filteredRows = useMemo(() => {
     const iq = norm(imeiQuery);
@@ -374,9 +386,19 @@ export default function RefurbReceptionTable({
 
         return okStatus && okLoc && okImei && okDesc;
       });
-  }, [items, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
+  }, [
+    items,
+    statusFilter,
+    locationFilter,
+    imeiQuery,
+    descQuery,
+    defaultStatusValue,
+  ]);
 
-  const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
+  const filteredIds = useMemo(
+    () => filteredRows.map((r) => r.it.id),
+    [filteredRows]
+  );
 
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
@@ -456,7 +478,10 @@ export default function RefurbReceptionTable({
         if (it.id !== itemId) return it;
 
         if (field === "price_cents" || field === "compensation_cents") {
-          return { ...it, [field]: value ? parseMoneyToCents(value) : null } as RefurbItem;
+          return {
+            ...it,
+            [field]: value ? parseMoneyToCents(value) : null,
+          } as RefurbItem;
         }
 
         return { ...it, [field]: value || null } as RefurbItem;
@@ -538,11 +563,16 @@ export default function RefurbReceptionTable({
 
     const wantStatus = bulkEnableStatus && bulkStatus.trim() !== "";
     const wantLocation = bulkEnableLocation && bulkLocation.trim() !== "";
-    const partsRaw = parseTokens(bulkPartsText).map((t) => t.trim()).filter(Boolean).join(", ");
+    const partsRaw = parseTokens(bulkPartsText)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .join(", ");
     const wantParts = partsRaw.length > 0;
 
     if (!wantStatus && !wantLocation && !wantParts) {
-      window.alert("Kies minstens één bulk update (Status, Locatie of Used parts).");
+      window.alert(
+        "Kies minstens één bulk update (Status, Locatie of Used parts)."
+      );
       return;
     }
 
@@ -676,7 +706,9 @@ export default function RefurbReceptionTable({
                 </div>
 
                 <div>
-                  <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
+                  <div className="text-[11px] text-slate-500 mb-1">
+                    Used parts (SKU’s)
+                  </div>
                   <textarea
                     className="bb-input w-full text-[11px] p-2 min-h-[110px]"
                     value={bulkPartsText}
@@ -757,7 +789,10 @@ export default function RefurbReceptionTable({
               onClick={() => setShowExtraSn((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
                 {showExtraSn ? "▲" : "▼"}
               </span>
               <span>Extra SN</span>
@@ -767,7 +802,10 @@ export default function RefurbReceptionTable({
               onClick={() => setShowAdvanced((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
                 {showAdvanced ? "▲" : "▼"}
               </span>
               <span>RMA</span>
@@ -814,7 +852,7 @@ export default function RefurbReceptionTable({
                     onChange={(e) => setLocationFilter(e.target.value)}
                     className="bb-select bb-select-sm w-full text-slate-900"
                   >
-                    <option value="">Alles</option>
+                    <option value="__all__">Alles</option>
                     {locationFilterOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
@@ -1035,9 +1073,7 @@ export default function RefurbReceptionTable({
                         rawValue={it.used_parts ?? ""}
                         locked={rowBooked}
                         onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-                        onPasteToColumn={(e) =>
-                          handlePasteToColumn(e, originalIndex, "used_parts")
-                        }
+                        onPasteToColumn={(e) => handlePasteToColumn(e, originalIndex, "used_parts")}
                       />
                     </td>
 
@@ -1081,7 +1117,10 @@ export default function RefurbReceptionTable({
                     {/* Supplier remarks */}
                     <td className="px-1 py-0.5 border">
                       {lockedSuppErr ? (
-                        <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.supplier_device_errors ?? ""}
+                        >
                           {it.supplier_device_errors}
                         </span>
                       ) : (
@@ -1108,8 +1147,12 @@ export default function RefurbReceptionTable({
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.supplier_grading ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "supplier_grading")}
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "supplier_grading", e.target.value)
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "supplier_grading")
+                          }
                         />
                       )}
                     </td>
@@ -1180,7 +1223,10 @@ export default function RefurbReceptionTable({
 
             {!hasItems && (
               <tr>
-                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1}>
+                <td
+                  className="px-2 py-3 border text-[11px] text-slate-500"
+                  colSpan={colSpan + 1}
+                >
                   Nog geen toestellen in deze receptie.
                 </td>
               </tr>
@@ -1188,7 +1234,10 @@ export default function RefurbReceptionTable({
 
             {hasItems && filteredRows.length === 0 && (
               <tr>
-                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1}>
+                <td
+                  className="px-2 py-3 border text-[11px] text-slate-500"
+                  colSpan={colSpan + 1}
+                >
                   Geen rijen voor deze filters.
                 </td>
               </tr>
