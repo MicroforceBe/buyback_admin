@@ -212,6 +212,10 @@ function determineModelForItem(
   return null;
 }
 
+function norm(s: string) {
+  return (s || "").trim().toLowerCase();
+}
+
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -244,6 +248,30 @@ export default async function RefurbReceptionDetailPage({
   const supplierVat = reception.supplier?.vat_number ?? null;
   const supplierEmail = reception.supplier?.contact_email ?? null;
 
+  // ✅ Default status + Ready to Book bepalen uit settings (robust, met fallback)
+  const statusList = statusOptions || [];
+
+  // 1) probeer expliciete default flag te vinden (verschillende mogelijke keys)
+  const defaultFromFlag =
+    statusList.find((s: any) => s?.is_default === true) ||
+    statusList.find((s: any) => s?.default === true) ||
+    statusList.find((s: any) => s?.isDefault === true) ||
+    null;
+
+  // 2) fallback: eerste status in lijst
+  const defaultStatusValue: string =
+    (defaultFromFlag?.value as string) ||
+    (statusList[0]?.value as string) ||
+    "new";
+
+  // Ready to Book zoeken op value of label (case-insensitive)
+  const readyToBook =
+    statusList.find((s) => norm(s.value) === "ready to book") ||
+    statusList.find((s) => norm(s.label) === "ready to book") ||
+    null;
+
+  const readyToBookValue: string = (readyToBook?.value as string) || "Ready to Book";
+
   // -------- Status stats voor donut + percentages --------
   const totalItems = items.length;
 
@@ -275,7 +303,8 @@ export default async function RefurbReceptionDetailPage({
       const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
 
       // ✅ kleur uit status-definitie
-      const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
+      const color =
+        status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
 
       return {
         status,
@@ -563,6 +592,9 @@ export default async function RefurbReceptionDetailPage({
         initialItems={items}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
+        // ✅ nieuw: nodig om de status-regels correct af te dwingen bij paste & edits
+        defaultStatusValue={defaultStatusValue}
+        readyToBookValue={readyToBookValue}
       />
     </div>
   );
