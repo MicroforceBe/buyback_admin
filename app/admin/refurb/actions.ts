@@ -1,7 +1,10 @@
 // app/admin/refurb/actions.ts
 "use server";
 
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { redirect } from "next/navigation"; import { revalidatePath } from "next/cache"; import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; 
+import { redirect } from "next/navigation"; 
+import { revalidatePath } from "next/cache"; 
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
 
@@ -177,7 +180,8 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
   return data as RefurbItem[];
 }
 
-// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
+// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen 
+export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
   return fetchItemsForReception(receptionId);
 }
 
@@ -220,7 +224,8 @@ export async function updateRefurbItemCell(
 /**
  * ✅ Bulk update (snel: 1–3 DB updates)
  * - location / used_parts: in één update op alle niet-booked rows
- * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)  */ export async function bulkUpdateRefurbItems(input: {
+ * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)  */ 
+export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
   itemIds: string[];
   patch: { refurb_status?: string; location?: string; used_parts?: string };
@@ -332,7 +337,8 @@ export async function updateRefurbItemCell(
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
- * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")  */ export async function pasteIntoRefurbColumn(
+ * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")  */ 
+export async function pasteIntoRefurbColumn(
   receptionId: string,
   startRowIndex: number,
   field: PasteField,
