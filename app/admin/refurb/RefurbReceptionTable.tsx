@@ -8,16 +8,17 @@ import {
   updateRefurbItemCell,
   pasteIntoRefurbColumn,
 } from "./actions";
-import type {
-  RefurbStatusOption,
-  RefurbLocationOption,
-} from "./settingsActions";
+import type { RefurbStatusOption, RefurbLocationOption } from "./settingsActions";
 
 type Props = {
   receptionId: string;
   initialItems: RefurbItem[];
   statusOptions: RefurbStatusOption[];
   locationOptions: RefurbLocationOption[];
+
+  // ✅ nieuw (doorgegeven vanuit page.tsx)
+  defaultStatusValue: string;
+  readyToBookValue: string;
 };
 
 const LOCK_AFTER_FILL_FIELDS = new Set<
@@ -140,9 +141,7 @@ function UsedPartsCell({
             onChange={(e) => updatePart(i, e.target.value)}
             onBlur={commit}
             onPaste={
-              i === 0 && onPasteToColumn
-                ? (e) => onPasteToColumn(e)
-                : undefined
+              i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined
             }
           />
           {rows.length > 1 && (
@@ -169,11 +168,68 @@ function UsedPartsCell({
   );
 }
 
+function norm(s: string) {
+  return (s || "").trim().toLowerCase();
+}
+function containsFinished(status: string | null | undefined) {
+  return norm(status || "").includes("finished");
+}
+function isBooked(status: string | null | undefined) {
+  return norm(status || "") === "booked";
+}
+function isReadyToBook(status: string | null | undefined) {
+  return norm(status || "") === "ready to book";
+}
+
+function canChangeStatus(opts: {
+  current: string | null | undefined;
+  next: string;
+  defaultStatusValue: string;
+  readyToBookValue: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const current = opts.current ?? "";
+  const next = opts.next;
+  const def = opts.defaultStatusValue;
+
+  // finished-status mag enkel naar Ready to Book
+  if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
+    return { ok: false, reason: "Finished-status kan enkel op Ready to Book gezet worden." };
+  }
+
+  // booked is immutable
+  if (isBooked(current) && norm(next) !== norm(current)) {
+    return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
+  }
+
+  // only Ready to Book -> booked
+  if (isBooked(next) && !isReadyToBook(current)) {
+    return { ok: false, reason: "Status kan alleen op booked gezet worden vanuit Ready to Book." };
+  }
+
+  // cannot go back to default if current isn't default
+  if (norm(next) === norm(def) && norm(current) !== norm(def)) {
+    return { ok: false, reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt." };
+  }
+
+  return { ok: true };
+}
+
+function statusForPaste(opts: {
+  currentStatus: string | null | undefined;
+  defaultStatusValue: string;
+  readyToBookValue: string;
+}) {
+  if (containsFinished(opts.currentStatus)) return opts.readyToBookValue;
+  return opts.defaultStatusValue;
+}
+
 export default function RefurbReceptionTable({
   receptionId,
   initialItems,
   statusOptions,
   locationOptions,
+  defaultStatusValue,
+  readyToBookValue,
 }: Props) {
   const router = useRouter();
   const [items, setItems] = useState<RefurbItem[]>(initialItems);
@@ -211,6 +267,25 @@ export default function RefurbReceptionTable({
       | "location",
     value: string
   ) {
+    const before = items.find((x) => x.id === itemId);
+
+    // ✅ status rules (client-side guard)
+    if (field === "refurb_status") {
+      const verdict = canChangeStatus({
+        current: before?.refurb_status ?? "",
+        next: value,
+        defaultStatusValue,
+        readyToBookValue,
+      });
+      if (!verdict.ok) {
+        // revert UI (nothing changed) + feedback
+        window.alert(verdict.reason);
+        // force re-render with original items snapshot (keeps select value correct)
+        setItems((prev) => [...prev]);
+        return;
+      }
+    }
+
     // optimistic update
     setItems((prev) =>
       prev.map((it) => {
@@ -239,7 +314,62 @@ export default function RefurbReceptionTable({
       }
     } catch (e) {
       console.error("[REFURB] updateCell client error", e);
+      // best effort: refresh to restore truth
+      router.refresh();
     }
+  }
+
+  async function applyAutoStatusesAfterPaste(opts: {
+    updated: RefurbItem[];
+    startRowIndex: number;
+    lineCount: number;
+  }): Promise<RefurbItem[]> {
+    const { updated, startRowIndex, lineCount } = opts;
+    const end = startRowIndex + Math.max(0, lineCount - 1);
+
+    // rows that were affected by the paste (best-effort by index in current ordering)
+    const targets = updated
+      .map((row, idx) => ({ row, idx }))
+      .filter(({ idx }) => idx >= startRowIndex && idx <= end)
+      .map(({ row }) => row);
+
+    if (!targets.length) return updated;
+
+    let working = updated;
+
+    // We do sequential updates to keep it simple & correct.
+    for (const row of targets) {
+      const desired = statusForPaste({
+        currentStatus: row.refurb_status ?? "",
+        defaultStatusValue,
+        readyToBookValue,
+      });
+
+      if (norm(desired) === norm(row.refurb_status ?? "")) continue;
+
+      const verdict = canChangeStatus({
+        current: row.refurb_status ?? "",
+        next: desired,
+        defaultStatusValue,
+        readyToBookValue,
+      });
+
+      if (!verdict.ok) {
+        // skip silently (booked / can't go back to default / etc.)
+        continue;
+      }
+
+      try {
+        await updateRefurbItemCell(row.id, "refurb_status" as any, desired);
+        working = working.map((it) =>
+          it.id === row.id ? ({ ...it, refurb_status: desired } as any) : it
+        );
+      } catch (e) {
+        console.error("[REFURB] auto-status after paste failed", e);
+      }
+    }
+
+    return working;
   }
 
   async function handlePasteToColumn(
@@ -271,13 +401,24 @@ export default function RefurbReceptionTable({
 
     try {
       setIsPasting(true);
+
+      // ✅ We laten de server de kolom-paste doen (rijen aanmaken/updaten)
+      // Daarna forceren we client-side de statusregels: bij kolom-paste -> auto status
       const updated = await pasteIntoRefurbColumn(
         receptionId,
         startRowIndex,
         field as any,
         lines
       );
-      setItems(updated);
+
+      const withAutoStatus = await applyAutoStatusesAfterPaste({
+        updated,
+        startRowIndex,
+        lineCount: lines.filter((l) => l !== undefined).length,
+      });
+
+      setItems(withAutoStatus);
+
       // receptie refreshen zodat header + grafieken up-to-date zijn
       router.refresh();
     } catch (err) {
@@ -387,10 +528,7 @@ export default function RefurbReceptionTable({
                 it,
                 "supplier_device_errors"
               );
-              const lockedSuppGrad = isLockedSupplierCell(
-                it,
-                "supplier_grading"
-              );
+              const lockedSuppGrad = isLockedSupplierCell(it, "supplier_grading");
 
               const imeiSn = (it as any).imei_sn ?? "";
               const manualSn = (it as any).manual_sn ?? "";
@@ -399,6 +537,10 @@ export default function RefurbReceptionTable({
 
               const statusColor =
                 statusColorByValue.get(it.refurb_status ?? "") ?? null;
+
+              const currentStatus = it.refurb_status ?? "";
+              const lockedStatus = isBooked(currentStatus); // booked => locked
+              const isFinishedRow = containsFinished(currentStatus);
 
               return (
                 <tr key={it.id} className="border-t hover:bg-slate-50/50">
@@ -415,6 +557,7 @@ export default function RefurbReceptionTable({
                       />
                       <select
                         value={it.refurb_status ?? ""}
+                        disabled={lockedStatus}
                         onChange={(e) =>
                           handleCellChange(
                             it.id,
@@ -425,12 +568,32 @@ export default function RefurbReceptionTable({
                         className="bb-select bb-select-sm w-full text-slate-900"
                       >
                         <option value="">— kies status —</option>
-                        {statusOptions.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                            {opt.is_default ? " (default)" : ""}
-                          </option>
-                        ))}
+                        {statusOptions.map((opt) => {
+                          const optValue = opt.value;
+
+                          // finished => only Ready to Book
+                          if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
+                            return null;
+                          }
+
+                          const cannotGoBackToDefault =
+                            norm(optValue) === norm(defaultStatusValue) &&
+                            norm(currentStatus) !== norm(defaultStatusValue);
+
+                          const cannotSetBooked =
+                            norm(optValue) === "booked" &&
+                            !isReadyToBook(currentStatus);
+
+                          const disabled =
+                            lockedStatus || cannotGoBackToDefault || cannotSetBooked;
+
+                          return (
+                            <option key={opt.value} value={opt.value} disabled={disabled}>
+                              {opt.label}
+                              {opt.is_default ? " (default)" : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   </td>
@@ -543,7 +706,9 @@ export default function RefurbReceptionTable({
                     <UsedPartsCell
                       rawValue={it.used_parts ?? ""}
                       locked={lockedUsedParts}
-                      onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
+                      onChange={(raw) =>
+                        handleCellChange(it.id, "used_parts", raw)
+                      }
                       onPasteToColumn={(e) =>
                         handlePasteToColumn(e, idx, "used_parts")
                       }
@@ -882,10 +1047,10 @@ export default function RefurbReceptionTable({
                 className="px-2 py-3 border text-[11px] text-slate-500"
                 colSpan={colSpan}
               >
-                Nog geen toestellen in deze receptie. Plak een kolom uit Excel
-                in één van de velden hierboven (bv. IMEI/SN, SKU, Description,
-                Price...) om rijen aan te maken. Status en Location gebruiken
-                hun ingestelde default-waarde bij het importeren.
+                Nog geen toestellen in deze receptie. Plak een kolom uit Excel in
+                één van de velden hierboven (bv. IMEI/SN, SKU, Description,
+                Price...) om rijen aan te maken. Status en Location gebruiken hun
+                ingestelde default-waarde bij het importeren.
               </td>
             </tr>
           )}
