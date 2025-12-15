@@ -11,20 +11,6 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const locationList = locationOptions || [];
-
-const defaultLocFromFlag =
-  locationList.find((l: any) => l?.is_default === true) ||
-  locationList.find((l: any) => l?.default === true) ||
-  locationList.find((l: any) => l?.isDefault === true) ||
-  null;
-
-const defaultLocationValue: string =
-  (defaultLocFromFlag?.value as string) ||
-  (locationList[0]?.value as string) ||
-  "";
-
-
 type SupplierInfo = {
   id: string;
   name: string;
@@ -255,6 +241,20 @@ export default async function RefurbReceptionDetailPage({
     getRefurbModels(),
   ]);
 
+  // ✅ Default location bepalen NA het ophalen van locationOptions
+  const locationList = locationOptions || [];
+
+  const defaultLocFromFlag =
+    locationList.find((l: any) => l?.is_default === true) ||
+    locationList.find((l: any) => l?.default === true) ||
+    locationList.find((l: any) => l?.isDefault === true) ||
+    null;
+
+  const defaultLocationValue: string =
+    (defaultLocFromFlag?.value as string) ||
+    (locationList[0]?.value as string) ||
+    "";
+
   const vatLabel =
     reception.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT";
 
@@ -265,25 +265,21 @@ export default async function RefurbReceptionDetailPage({
   // ✅ Default status + Ready to Book bepalen uit settings (robust, met fallback)
   const statusList = statusOptions || [];
 
-  // 1) probeer expliciete default flag te vinden (verschillende mogelijke keys)
   const defaultFromFlag =
     statusList.find((s: any) => s?.is_default === true) ||
     statusList.find((s: any) => s?.default === true) ||
     statusList.find((s: any) => s?.isDefault === true) ||
     null;
 
-  // 2) fallback: eerste status in lijst
-  // ✅ BELANGRIJK: geen "new" fallback meer (die zorgde voor ghost value)
+  // ✅ geen "new" fallback meer
   const defaultStatusValue: string =
     (defaultFromFlag?.value as string) || (statusList[0]?.value as string) || "";
 
-  // Ready to Book zoeken op value of label (case-insensitive)
   const readyToBook =
     statusList.find((s) => norm((s as any).value) === "ready to book") ||
     statusList.find((s) => norm((s as any).label) === "ready to book") ||
     null;
 
-  // ✅ als we het niet vinden, geef lege string door; table/action kan dan nog defensief zijn
   const readyToBookValue: string = (readyToBook?.value as string) || "";
 
   // -------- Status stats voor donut + percentages --------
@@ -297,7 +293,6 @@ export default async function RefurbReceptionDetailPage({
     color: string;
   };
 
-  // ✅ Statuskleur lookup uit settings (met fallback)
   const statusOptionByValue = new Map<string, RefurbStatusOption>(
     (statusOptions || []).map((s) => [s.value, s])
   );
@@ -316,7 +311,6 @@ export default async function RefurbReceptionDetailPage({
       const def = statusOptionByValue.get(status);
       const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
 
-      // ✅ kleur uit status-definitie
       const color =
         status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
 
@@ -330,7 +324,6 @@ export default async function RefurbReceptionDetailPage({
     }
   );
 
-  // conic-gradient style voor donut
   let donutStyle: Record<string, string> = {};
   if (totalItems > 0 && statusStats.length > 0) {
     let currentAngle = 0;
@@ -347,7 +340,7 @@ export default async function RefurbReceptionDetailPage({
     };
   }
 
-  // -------- Model stats op basis van refurb_models + zoekwoorden (description) --------
+  // -------- Model stats --------
   type ModelStat = {
     modelId: string;
     name: string;
@@ -357,7 +350,6 @@ export default async function RefurbReceptionDetailPage({
 
   const modelStatsMap = new Map<string, ModelStat>();
 
-  // Start: alle modellen met count 0
   for (const m of models) {
     modelStatsMap.set(m.id, {
       modelId: m.id,
@@ -503,7 +495,6 @@ export default async function RefurbReceptionDetailPage({
               Statusverdeling in deze receptie
             </div>
             <div className="flex items-center gap-3">
-              {/* Donut */}
               <div
                 className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
                 style={donutStyle}
@@ -511,7 +502,6 @@ export default async function RefurbReceptionDetailPage({
                 <div className="w-12 h-12 rounded-full bg-slate-50" />
               </div>
 
-              {/* Legend */}
               <div className="space-y-1 text-[11px]">
                 <div className="text-slate-500">
                   Totaal:{" "}
@@ -540,7 +530,7 @@ export default async function RefurbReceptionDetailPage({
             </div>
           </div>
 
-          {/* Rechts: aantal toestellen per model (met bar per status) */}
+          {/* Rechts: aantal toestellen per model */}
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
               Aantal toestellen per model
@@ -553,12 +543,10 @@ export default async function RefurbReceptionDetailPage({
               <div className="space-y-2">
                 {modelStats.map((m) => (
                   <div key={m.modelId} className="flex items-center gap-2">
-                    {/* Modelnaam rechts uitgelijnd in vaste kolombreedte */}
                     <span className="truncate text-right w-32 shrink-0">
                       {m.name}
                     </span>
 
-                    {/* Balk met vaste totale lengte, opgesplitst per status */}
                     <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
                       {statusStats.map((s) => {
                         const count = m.perStatus[s.status] ?? 0;
@@ -600,13 +588,11 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
-      {/* Excel-achtige tabel */}
       <RefurbReceptionTable
         receptionId={reception.id}
         initialItems={items}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
-        // ✅ nieuw: nodig om de status- en location-regels correct af te dwingen bij paste & edits
         defaultStatusValue={defaultStatusValue}
         readyToBookValue={readyToBookValue}
         defaultLocationValue={defaultLocationValue}
