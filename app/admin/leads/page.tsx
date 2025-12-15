@@ -67,6 +67,7 @@ type Lead = {
   // prijzen
   base_price_cents: number | null;
   final_price_cents: number | null;
+  final_price_with_voucher_cents: number | null; // ✅ DB-waarde (voucher inbegrepen)
 
   // klant
   first_name: string | null;
@@ -385,6 +386,16 @@ export default async function LeadsPage({
     }
   }
 
+  // ✅ effectieve prijs in cents voor weergave + edit (DB truth)
+  const effectiveFinalCents = (lead: Lead) => {
+    if (lead.wants_voucher) {
+      const v = lead.final_price_with_voucher_cents;
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+    }
+    const n = lead.final_price_cents;
+    return typeof n === "number" && Number.isFinite(n) ? n : null;
+  };
+
   // === query ===
   let query = supabaseAdmin
     .from("buyback_leads")
@@ -399,6 +410,7 @@ export default async function LeadsPage({
         "questions_answers_html",
         "base_price_cents",
         "final_price_cents",
+        "final_price_with_voucher_cents", // ✅ erbij
         "first_name",
         "last_name",
         "email",
@@ -472,14 +484,31 @@ export default async function LeadsPage({
   if (statusF) query = query.eq("status", statusF);
   if (method === "ship" || method === "dropoff")
     query = query.eq("delivery_method", method);
+
+  // ✅ prijsfilter op effectieve prijs (voucher of niet)
   if (priceMin) {
     const cents = Math.round(parseFloat(priceMin.replace(",", ".")) * 100);
-    if (!Number.isNaN(cents)) query = query.gte("final_price_cents", cents);
+    if (!Number.isNaN(cents)) {
+      query = query.or(
+        [
+          `and(wants_voucher.eq.true,final_price_with_voucher_cents.gte.${cents})`,
+          `and(or(wants_voucher.is.null,wants_voucher.eq.false),final_price_cents.gte.${cents})`,
+        ].join(",")
+      );
+    }
   }
   if (priceMax) {
     const cents = Math.round(parseFloat(priceMax.replace(",", ".")) * 100);
-    if (!Number.isNaN(cents)) query = query.lte("final_price_cents", cents);
+    if (!Number.isNaN(cents)) {
+      query = query.or(
+        [
+          `and(wants_voucher.eq.true,final_price_with_voucher_cents.lte.${cents})`,
+          `and(or(wants_voucher.is.null,wants_voucher.eq.false),final_price_cents.lte.${cents})`,
+        ].join(",")
+      );
+    }
   }
+
   if (cityF) query = query.ilike("city", `%${cityF}%`);
 
   // Winkel-filter op basis van shop_location (waarde = winkelnaam uit dropdown)
@@ -919,456 +948,458 @@ export default async function LeadsPage({
             </tr>
           </thead>
           <tbody>
-            {(data ?? []).map((lead, idx) => (
-              <tr
-                key={lead.id}
-                className={`border-t border-gray-200 ${
-                  idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"
-                }`}
-              >
-                {/* Order ID + uitklap: orderdetails */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  <details className="group">
-                    <summary className="cursor-pointer flex items-center gap-2">
-                      <span className="inline-block transition-transform group-open:-rotate-180">
-                        ▾
-                      </span>
-                      <div>
-                        <div className="font-mono">
-                          {lead.order_code ?? "—"}
-                        </div>
-                        <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
-                          <span>
-                            {lead.delivery_method === "ship"
-                              ? "Verzenden"
-                              : lead.delivery_method === "dropoff"
-                              ? "Binnenbrengen"
-                              : "—"}
-                          </span>
-                          <span aria-hidden>•</span>
-                          {lead.wants_voucher ? (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">
-                              Voucher
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">
-                              Overschrijving
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </summary>
-                    <div className="mt-2 text-xs leading-5 space-y-1">
-                      <div>
-                        <span className="text-gray-500">Aangemaakt op: </span>
-                        {fmtDate(lead.created_at)}
-                      </div>
-
-                      {/* STATUS LOG */}
-                      {Array.isArray(lead.status_history) &&
-                        lead.status_history.length > 0 && (
-                          <div className="mt-1">
-                            <div className="text-gray-500 mb-0.5">Log:</div>
-                            <ul className="space-y-0.5">
-                              {lead.status_history
-                                .filter((h) => h)
-                                .map((h, i) => {
-                                  const anyH: any = h;
-                                  const t = anyH.type as string | undefined;
-
-                                  let label: string;
-
-                                  if (t === "status") {
-                                    // Enkel de nieuwe status tonen
-                                    label = `Status: ${statusLabel(
-                                      anyH.to as Status | null
-                                    )}`;
-                                  } else if (t === "price") {
-                                    const to = Number(anyH.to ?? 0);
-                                    label = `Prijs: €${(
-                                      to / 100
-                                    ).toFixed(2)}`;
-                                  } else if (t === "device") {
-                                    label = "Toestel: gegevens aangepast";
-                                  } else {
-                                    label = t ? `Log (${t})` : "Log";
-                                  }
-
-                                  return (
-                                    <li
-                                      key={`${lead.id}-hist-${i}`}
-                                      className="text-[11px] text-gray-700"
-                                    >
-                                      <span className="font-mono">
-                                        {fmtDate(anyH.at ?? undefined)}
-                                      </span>
-                                      {anyH.by && (
-                                        <>
-                                          {" "}
-                                          <span className="text-gray-500">
-                                            •
-                                          </span>{" "}
-                                          <span>{anyH.by}</span>
-                                        </>
-                                      )}
-                                      <span className="text-gray-500"> • </span>
-                                      <span>{label}</span>
-                                    </li>
-                                  );
-                                })}
-                            </ul>
-                          </div>
-                        )}
-
-                      <div>
-                        <span className="text-gray-500">
-                          Laatst gewijzigd op:{" "}
+            {(data ?? []).map((lead, idx) => {
+              const shownCents = effectiveFinalCents(lead);
+              return (
+                <tr
+                  key={lead.id}
+                  className={`border-t border-gray-200 ${
+                    idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"
+                  }`}
+                >
+                  {/* Order ID + uitklap: orderdetails */}
+                  <td className="px-3 py-2 border-r border-gray-200 align-top">
+                    <details className="group">
+                      <summary className="cursor-pointer flex items-center gap-2">
+                        <span className="inline-block transition-transform group-open:-rotate-180">
+                          ▾
                         </span>
-                        {fmtDate(lead.updated_at)}
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Model: </span>
-                        {lead.model ?? "—"}{" "}
-                        {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {lead.delivery_method === "dropoff"
-                          ? `Winkel: ${lead.shop_location || "—"}`
-                          : "Verzending"}
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Huidige status: </span>
-                        {statusLabel(lead.status)}
-                      </div>
-                      {lead.status === "cancelled" && lead.cancel_reason && (
                         <div>
-                          <span className="text-gray-500">
-                            Reden annulatie:{" "}
-                          </span>
-                          {lead.cancel_reason}
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                </td>
-
-                {/* Datum */}
-                <td className="px-3 py-2 border-r border-gray-175 align-top">
-                  {fmtDate(lead.created_at)}
-                </td>
-
-                {/* Klantnaam + uitklap met klantdetails */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top">
-                  <CustomerCell
-                    id={lead.id}
-                    customer_number={lead.customer_number}
-                    iban={lead.iban}
-                    last_name={lead.last_name}
-                    first_name={lead.first_name}
-                    street={lead.street}
-                    house_number={lead.house_number}
-                    postal_code={lead.postal_code}
-                    city={lead.city}
-                    country={lead.country}
-                    phone={lead.phone}
-                    email={lead.email}
-                    // Na 'check_passed' geen edits meer mogelijk
-                    canEdit={
-                      canWriteLeads &&
-                      lead.status !== "cancelled" &&
-                      lead.status !== "check_passed" &&
-                      lead.status !== "done"
-                    }
-                  />
-                </td>
-
-                {/* Model + device details */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
-                  <DeviceCell
-                    id={lead.id}
-                    model={lead.model}
-                    variant={lead.variant}
-                    capacity_gb={lead.capacity_gb}
-                    sku={lead.sku}
-                    imei_sn={lead.imei_sn}
-                    questions_answers_html={lead.questions_answers_html}
-                    battery_percentage={lead.battery_percentage}
-                    used_parts_skus={lead.used_parts_skus}
-                    status={lead.status as Status | null}
-                    canEdit={
-                      canWriteLeads &&
-                      lead.status !== "cancelled" &&
-                      lead.status !== "check_passed" &&
-                      lead.status !== "done"
-                    }
-                  />
-                </td>
-
-                {/* Prijs (inline editable / read-only) – nooit afgekapt */}
-                <td className="px-3 py-2 border-r border-gray-200 align-top whitespace-nowrap min-w-[130px]">
-                  {canWriteLeads &&
-                  lead.status !== "cancelled" &&
-                  lead.status !== "check_passed" ? (
-                    <form
-                      action={updateLeadInlineAction}
-                      className="flex items-center justify-end gap-2"
-                    >
-                      <input type="hidden" name="id" value={lead.id} />
-                      {/* hint voor logging prijswijziging */}
-                      <input type="hidden" name="change_type" value="price" />
-                      <input
-                        type="hidden"
-                        name="previous_final_price_cents"
-                        value={lead.final_price_cents ?? ""}
-                      />
-                      <input
-                        name="final_price_eur"
-                        defaultValue={(
-                          (lead.final_price_cents ?? 0) / 100
-                        ).toString()}
-                        className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                      />
-                      <button
-                        className="bb-btn subtle h-9 text-xs px-2"
-                        type="submit"
-                        title="Opslaan"
-                      >
-                        💾
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="text-sm text-right">
-                      {lead.final_price_cents != null
-                        ? (lead.final_price_cents / 100).toFixed(2)
-                        : "—"}
-                    </div>
-                  )}
-                </td>
-
-                {/* Status (inline editable / read-only) + uitklap 'Verzending & label' */}
-                <td className="px-3 py-2 align-top">
-                  {(() => {
-                    const curr = (lead.status ?? "new") as Status;
-
-                    const isFinal =
-                      curr === "done" || curr === "cancelled";
-                    const trans = isFinal
-                      ? []
-                      : allowedTransitions(curr, {
-                          customer_number: lead.customer_number,
-                          sku: lead.sku,
-                          imei_sn: lead.imei_sn,
-                          delivery_method: lead.delivery_method,
-                        }).filter((t) => t.ok);
-                    const hasChoices = trans.length > 0;
-
-                    const trackingHref =
-                      lead.tracking_url ||
-                      fallbackTrackingUrl(lead.tracking_code);
-                    const hasTracking = Boolean(trackingHref);
-
-                    // Download label URL:
-                    let labelHref: string | null = null;
-                    if (lead.label_pdf_url) {
-                      if (/^https?:\/\//i.test(lead.label_pdf_url)) {
-                        labelHref = lead.label_pdf_url;
-                      } else {
-                        labelHref = `/api/admin/sendcloud/label?parcel_id=${encodeURIComponent(
-                          lead.label_pdf_url
-                        )}`;
-                      }
-                    }
-
-                    // basis: mag de user überhaupt status saven?
-                    const canEditStatusBase =
-                      canWriteLeads && !isFinal && hasChoices;
-
-                    // extra: na 'check_passed' enkel finaliseren als hij dat recht heeft
-                    const saveDisabled =
-                      !canEditStatusBase ||
-                      (curr === "check_passed" && !canFinalizeLeads);
-
-                    return (
-                      <div className="space-y-1">
-                        {/* Bovenste deel: status / opslaan */}
-                        {isFinal || !canWriteLeads ? (
-                          <div className="text-sm font-medium text-gray-700">
-                            {curr === "cancelled" ? (
-                              <div className="space-y-0.5">
-                                <div className="text-red-700 font-semibold">
-                                  Geannuleerd
-                                </div>
-                                {lead.cancel_reason && (
-                                  <div className="text-[11px] text-gray-600">
-                                    Reden: {lead.cancel_reason}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              statusLabel(curr)
-                            )}
+                          <div className="font-mono">
+                            {lead.order_code ?? "—"}
                           </div>
-                        ) : (
-                          <form
-                            action={updateLeadInlineAction}
-                            className="space-y-1"
-                            data-lead-id={lead.id}
-                          >
-                            <input
-                              type="hidden"
-                              name="id"
-                              value={lead.id}
-                            />
-                            {/* hint voor logging statuswijziging */}
-                            <input
-                              type="hidden"
-                              name="change_type"
-                              value="status"
-                            />
-                            <input
-                              type="hidden"
-                              name="previous_status"
-                              value={lead.status ?? ""}
-                            />
-                            <div className="inline-flex items-center gap-2">
-                              <select
-                                name="status"
-                                defaultValue={curr}
-                                className="bb-select-sm inline-block pr-8"
-                                title={
-                                  hasChoices
-                                    ? "Status wijzigen"
-                                    : "Geen vervolgstatus mogelijk"
-                                }
-                                disabled={!hasChoices}
-                                data-status-select
-                              >
-                                <option value={curr}>
-                                  {statusLabel(curr)}
-                                </option>
-                                {trans.map((t) => {
-                                  const isFinalTarget =
-                                    t.value === "done" ||
-                                    t.value === "cancelled";
-                                  const optionDisabled =
-                                    curr === "check_passed" &&
-                                    isFinalTarget &&
-                                    !canFinalizeLeads;
-                                  return (
-                                    <option
-                                      key={t.value}
-                                      value={t.value}
-                                      disabled={optionDisabled}
-                                    >
-                                      {t.label}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                              <button
-                                className="bb-btn subtle h-8 text-xs px-2"
-                                type="submit"
-                                disabled={saveDisabled}
-                                title={
-                                  saveDisabled
-                                    ? "Geen geldige overgang"
-                                    : "Opslaan"
-                                }
-                                aria-label="Opslaan"
-                                data-save-button
-                              >
-                                💾
-                              </button>
-                            </div>
-
-                            {/* Blok 'Reden annulatie' – alleen tonen bij keuze 'cancelled' (via JS) */}
-                            <div
-                              className="mt-1 text-[11px]"
-                              data-cancel-block
-                              style={{ display: "none" }}
-                            >
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-600">
-                                  Reden annulatie
-                                </span>
-                                <select
-                                  name="cancel_reason"
-                                  defaultValue={lead.cancel_reason ?? ""}
-                                  className="bb-select-sm inline-block pr-6"
-                                  data-cancel-select
-                                >
-                                  <option value="">
-                                    -- Kies reden --
-                                  </option>
-                                  <option value="Fake order">
-                                    Fake order
-                                  </option>
-                                  <option value="Technische problemen met toestel">
-                                    Technische problemen met toestel
-                                  </option>
-                                  <option value="Klant heeft zich bedacht">
-                                    Klant heeft zich bedacht
-                                  </option>
-                                  <option value="Klant niet akkoord met nieuwe prijs">
-                                    Klant niet akkoord met nieuwe prijs
-                                  </option>
-                                  <option value="Klant vindt dat het te lang duurt">
-                                    Klant vindt dat het te lang duurt
-                                  </option>
-                                  <option value="Test Order">
-                                    Test Order
-                                  </option>
-                                </select>
-                              </label>
-                            </div>
-                          </form>
-                        )}
-
-                        {/* Uitklap: Verzending & label */}
-                        <details className="mt-1 text-[11px]">
-                          <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
-                            <span>▸</span>
-                            <span>Verzending &amp; label</span>
-                          </summary>
-
-                          <div className="pl-4 mt-1 flex flex-col gap-1">
-                            {/* Traceer pakket */}
-                            {hasTracking ? (
-                              <a
-                                href={trackingHref!}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                              >
-                                Traceer pakket
-                              </a>
+                          <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
+                            <span>
+                              {lead.delivery_method === "ship"
+                                ? "Verzenden"
+                                : lead.delivery_method === "dropoff"
+                                ? "Binnenbrengen"
+                                : "—"}
+                            </span>
+                            <span aria-hidden>•</span>
+                            {lead.wants_voucher ? (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Voucher
+                              </span>
                             ) : (
-                              <span className="text-gray-400 italic">
-                                Nog geen tracking beschikbaar
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">
+                                Overschrijving
                               </span>
                             )}
-
-                            {/* Download label */}
-                            {labelHref && (
-                              <a
-                                href={labelHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                              >
-                                Download label
-                              </a>
-                            )}
                           </div>
-                        </details>
+                        </div>
+                      </summary>
+                      <div className="mt-2 text-xs leading-5 space-y-1">
+                        <div>
+                          <span className="text-gray-500">Aangemaakt op: </span>
+                          {fmtDate(lead.created_at)}
+                        </div>
+
+                        {/* STATUS LOG */}
+                        {Array.isArray(lead.status_history) &&
+                          lead.status_history.length > 0 && (
+                            <div className="mt-1">
+                              <div className="text-gray-500 mb-0.5">Log:</div>
+                              <ul className="space-y-0.5">
+                                {lead.status_history
+                                  .filter((h) => h)
+                                  .map((h, i) => {
+                                    const anyH: any = h;
+                                    const t = anyH.type as string | undefined;
+
+                                    let label: string;
+
+                                    if (t === "status") {
+                                      // Enkel de nieuwe status tonen
+                                      label = `Status: ${statusLabel(
+                                        anyH.to as Status | null
+                                      )}`;
+                                    } else if (t === "price") {
+                                      const to = Number(anyH.to ?? 0);
+                                      label = `Prijs: €${(
+                                        to / 100
+                                      ).toFixed(2)}`;
+                                    } else if (t === "device") {
+                                      label = "Toestel: gegevens aangepast";
+                                    } else {
+                                      label = t ? `Log (${t})` : "Log";
+                                    }
+
+                                    return (
+                                      <li
+                                        key={`${lead.id}-hist-${i}`}
+                                        className="text-[11px] text-gray-700"
+                                      >
+                                        <span className="font-mono">
+                                          {fmtDate(anyH.at ?? undefined)}
+                                        </span>
+                                        {anyH.by && (
+                                          <>
+                                            {" "}
+                                            <span className="text-gray-500">
+                                              •
+                                            </span>{" "}
+                                            <span>{anyH.by}</span>
+                                          </>
+                                        )}
+                                        <span className="text-gray-500"> • </span>
+                                        <span>{label}</span>
+                                      </li>
+                                    );
+                                  })}
+                              </ul>
+                            </div>
+                          )}
+
+                        <div>
+                          <span className="text-gray-500">
+                            Laatst gewijzigd op:{" "}
+                          </span>
+                          {fmtDate(lead.updated_at)}
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Model: </span>
+                          {lead.model ?? "—"}{" "}
+                          {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {lead.delivery_method === "dropoff"
+                            ? `Winkel: ${lead.shop_location || "—"}`
+                            : "Verzending"}
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Huidige status: </span>
+                          {statusLabel(lead.status)}
+                        </div>
+                        {lead.status === "cancelled" && lead.cancel_reason && (
+                          <div>
+                            <span className="text-gray-500">
+                              Reden annulatie:{" "}
+                            </span>
+                            {lead.cancel_reason}
+                          </div>
+                        )}
                       </div>
-                    );
-                  })()}
-                </td>
-              </tr>
-            ))}
+                    </details>
+                  </td>
+
+                  {/* Datum */}
+                  <td className="px-3 py-2 border-r border-gray-175 align-top">
+                    {fmtDate(lead.created_at)}
+                  </td>
+
+                  {/* Klantnaam + uitklap met klantdetails */}
+                  <td className="px-3 py-2 border-r border-gray-200 align-top">
+                    <CustomerCell
+                      id={lead.id}
+                      customer_number={lead.customer_number}
+                      iban={lead.iban}
+                      last_name={lead.last_name}
+                      first_name={lead.first_name}
+                      street={lead.street}
+                      house_number={lead.house_number}
+                      postal_code={lead.postal_code}
+                      city={lead.city}
+                      country={lead.country}
+                      phone={lead.phone}
+                      email={lead.email}
+                      // Na 'check_passed' geen edits meer mogelijk
+                      canEdit={
+                        canWriteLeads &&
+                        lead.status !== "cancelled" &&
+                        lead.status !== "check_passed" &&
+                        lead.status !== "done"
+                      }
+                    />
+                  </td>
+
+                  {/* Model + device details */}
+                  <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
+                    <DeviceCell
+                      id={lead.id}
+                      model={lead.model}
+                      variant={lead.variant}
+                      capacity_gb={lead.capacity_gb}
+                      sku={lead.sku}
+                      imei_sn={lead.imei_sn}
+                      questions_answers_html={lead.questions_answers_html}
+                      battery_percentage={lead.battery_percentage}
+                      used_parts_skus={lead.used_parts_skus}
+                      status={lead.status as Status | null}
+                      canEdit={
+                        canWriteLeads &&
+                        lead.status !== "cancelled" &&
+                        lead.status !== "check_passed" &&
+                        lead.status !== "done"
+                      }
+                    />
+                  </td>
+
+                  {/* Prijs (inline editable / read-only) – nooit afgekapt */}
+                  <td className="px-3 py-2 border-r border-gray-200 align-top whitespace-nowrap min-w-[130px]">
+                    {canWriteLeads &&
+                    lead.status !== "cancelled" &&
+                    lead.status !== "check_passed" &&
+                    lead.status !== "done" ? (
+                      <form
+                        action={updateLeadInlineAction}
+                        className="flex items-center justify-end gap-2"
+                      >
+                        <input type="hidden" name="id" value={lead.id} />
+                        {/* hint voor logging prijswijziging */}
+                        <input type="hidden" name="change_type" value="price" />
+                        <input
+                          type="hidden"
+                          name="previous_final_price_cents"
+                          value={shownCents ?? ""}
+                        />
+                        <input
+                          name="final_price_eur"
+                          defaultValue={(
+                            (shownCents ?? 0) / 100
+                          ).toString()}
+                          className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                        />
+                        <button
+                          className="bb-btn subtle h-9 text-xs px-2"
+                          type="submit"
+                          title="Opslaan"
+                        >
+                          💾
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="text-sm text-right">
+                        {shownCents != null ? (shownCents / 100).toFixed(2) : "—"}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Status (inline editable / read-only) + uitklap 'Verzending & label' */}
+                  <td className="px-3 py-2 align-top">
+                    {(() => {
+                      const curr = (lead.status ?? "new") as Status;
+
+                      const isFinal =
+                        curr === "done" || curr === "cancelled";
+                      const trans = isFinal
+                        ? []
+                        : allowedTransitions(curr, {
+                            customer_number: lead.customer_number,
+                            sku: lead.sku,
+                            imei_sn: lead.imei_sn,
+                            delivery_method: lead.delivery_method,
+                          }).filter((t) => t.ok);
+                      const hasChoices = trans.length > 0;
+
+                      const trackingHref =
+                        lead.tracking_url ||
+                        fallbackTrackingUrl(lead.tracking_code);
+                      const hasTracking = Boolean(trackingHref);
+
+                      // Download label URL:
+                      let labelHref: string | null = null;
+                      if (lead.label_pdf_url) {
+                        if (/^https?:\/\//i.test(lead.label_pdf_url)) {
+                          labelHref = lead.label_pdf_url;
+                        } else {
+                          labelHref = `/api/admin/sendcloud/label?parcel_id=${encodeURIComponent(
+                            lead.label_pdf_url
+                          )}`;
+                        }
+                      }
+
+                      // basis: mag de user überhaupt status saven?
+                      const canEditStatusBase =
+                        canWriteLeads && !isFinal && hasChoices;
+
+                      // extra: na 'check_passed' enkel finaliseren als hij dat recht heeft
+                      const saveDisabled =
+                        !canEditStatusBase ||
+                        (curr === "check_passed" && !canFinalizeLeads);
+
+                      return (
+                        <div className="space-y-1">
+                          {/* Bovenste deel: status / opslaan */}
+                          {isFinal || !canWriteLeads ? (
+                            <div className="text-sm font-medium text-gray-700">
+                              {curr === "cancelled" ? (
+                                <div className="space-y-0.5">
+                                  <div className="text-red-700 font-semibold">
+                                    Geannuleerd
+                                  </div>
+                                  {lead.cancel_reason && (
+                                    <div className="text-[11px] text-gray-600">
+                                      Reden: {lead.cancel_reason}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                statusLabel(curr)
+                              )}
+                            </div>
+                          ) : (
+                            <form
+                              action={updateLeadInlineAction}
+                              className="space-y-1"
+                              data-lead-id={lead.id}
+                            >
+                              <input
+                                type="hidden"
+                                name="id"
+                                value={lead.id}
+                              />
+                              {/* hint voor logging statuswijziging */}
+                              <input
+                                type="hidden"
+                                name="change_type"
+                                value="status"
+                              />
+                              <input
+                                type="hidden"
+                                name="previous_status"
+                                value={lead.status ?? ""}
+                              />
+                              <div className="inline-flex items-center gap-2">
+                                <select
+                                  name="status"
+                                  defaultValue={curr}
+                                  className="bb-select-sm inline-block pr-8"
+                                  title={
+                                    hasChoices
+                                      ? "Status wijzigen"
+                                      : "Geen vervolgstatus mogelijk"
+                                  }
+                                  disabled={!hasChoices}
+                                  data-status-select
+                                >
+                                  <option value={curr}>
+                                    {statusLabel(curr)}
+                                  </option>
+                                  {trans.map((t) => {
+                                    const isFinalTarget =
+                                      t.value === "done" ||
+                                      t.value === "cancelled";
+                                    const optionDisabled =
+                                      curr === "check_passed" &&
+                                      isFinalTarget &&
+                                      !canFinalizeLeads;
+                                    return (
+                                      <option
+                                        key={t.value}
+                                        value={t.value}
+                                        disabled={optionDisabled}
+                                      >
+                                        {t.label}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                <button
+                                  className="bb-btn subtle h-8 text-xs px-2"
+                                  type="submit"
+                                  disabled={saveDisabled}
+                                  title={
+                                    saveDisabled
+                                      ? "Geen geldige overgang"
+                                      : "Opslaan"
+                                  }
+                                  aria-label="Opslaan"
+                                  data-save-button
+                                >
+                                  💾
+                                </button>
+                              </div>
+
+                              {/* Blok 'Reden annulatie' – alleen tonen bij keuze 'cancelled' (via JS) */}
+                              <div
+                                className="mt-1 text-[11px]"
+                                data-cancel-block
+                                style={{ display: "none" }}
+                              >
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-gray-600">
+                                    Reden annulatie
+                                  </span>
+                                  <select
+                                    name="cancel_reason"
+                                    defaultValue={lead.cancel_reason ?? ""}
+                                    className="bb-select-sm inline-block pr-6"
+                                    data-cancel-select
+                                  >
+                                    <option value="">
+                                      -- Kies reden --
+                                    </option>
+                                    <option value="Fake order">
+                                      Fake order
+                                    </option>
+                                    <option value="Technische problemen met toestel">
+                                      Technische problemen met toestel
+                                    </option>
+                                    <option value="Klant heeft zich bedacht">
+                                      Klant heeft zich bedacht
+                                    </option>
+                                    <option value="Klant niet akkoord met nieuwe prijs">
+                                      Klant niet akkoord met nieuwe prijs
+                                    </option>
+                                    <option value="Klant vindt dat het te lang duurt">
+                                      Klant vindt dat het te lang duurt
+                                    </option>
+                                    <option value="Test Order">
+                                      Test Order
+                                    </option>
+                                  </select>
+                                </label>
+                              </div>
+                            </form>
+                          )}
+
+                          {/* Uitklap: Verzending & label */}
+                          <details className="mt-1 text-[11px]">
+                            <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                              <span>▸</span>
+                              <span>Verzending &amp; label</span>
+                            </summary>
+
+                            <div className="pl-4 mt-1 flex flex-col gap-1">
+                              {/* Traceer pakket */}
+                              {hasTracking ? (
+                                <a
+                                  href={trackingHref!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                >
+                                  Traceer pakket
+                                </a>
+                              ) : (
+                                <span className="text-gray-400 italic">
+                                  Nog geen tracking beschikbaar
+                                </span>
+                              )}
+
+                              {/* Download label */}
+                              {labelHref && (
+                                <a
+                                  href={labelHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                >
+                                  Download label
+                                </a>
+                              )}
+                            </div>
+                          </details>
+                        </div>
+                      );
+                    })()}
+                  </td>
+                </tr>
+              );
+            })}
 
             {(!data || data.length === 0) && (
               <tr>
