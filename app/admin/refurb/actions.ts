@@ -344,7 +344,7 @@ export async function pasteIntoRefurbColumn(
   field: PasteField,
   rawLines: string[],
   defaultStatusValue?: string,
-  defaultLocationValue: string
+  defaultLocationValue?: string
 ): Promise<RefurbItem[]> {
   // we strippen enkel carriage returns, maar bewaren lege lijnen
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
