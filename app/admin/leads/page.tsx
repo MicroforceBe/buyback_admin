@@ -1141,35 +1141,38 @@ export default async function LeadsPage({
                     lead.status !== "cancelled" &&
                     lead.status !== "check_passed" &&
                     lead.status !== "done" ? (
-                      <form
-                        action={updateLeadInlineAction}
-                        className="flex items-center justify-end gap-2"
+                    <form
+                      action={updateLeadInlineAction}
+                      className="flex items-center justify-end gap-2"
+                    >
+                      <input type="hidden" name="id" value={lead.id} />
+                      <input type="hidden" name="change_type" value="price" />
+                    
+                      {/* ✅ nieuw: forceer dat voucher-kolom ook mee update */}
+                      <input type="hidden" name="update_voucher_price_too" value="1" />
+                    
+                      <input
+                        type="hidden"
+                        name="previous_final_price_cents"
+                        value={shownCents ?? ""}
+                      />
+                    
+                      <input
+                        name="final_price_eur"
+                        defaultValue={(((shownCents ?? 0) / 100)).toString()}
+                        className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                      />
+                      <button
+                        className="bb-btn subtle h-9 text-xs px-2"
+                        type="submit"
+                        title="Opslaan"
                       >
-                        <input type="hidden" name="id" value={lead.id} />
-                        {/* hint voor logging prijswijziging */}
-                        <input type="hidden" name="change_type" value="price" />
-                        <input
-                          type="hidden"
-                          name="previous_final_price_cents"
-                          value={shownCents ?? ""}
-                        />
-                        <input
-                          name="final_price_eur"
-                          defaultValue={(
-                            (shownCents ?? 0) / 100
-                          ).toString()}
-                          className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
-                          inputMode="decimal"
-                          placeholder="0.00"
-                        />
-                        <button
-                          className="bb-btn subtle h-9 text-xs px-2"
-                          type="submit"
-                          title="Opslaan"
-                        >
-                          💾
-                        </button>
-                      </form>
+                        💾
+                      </button>
+                    </form>
+
                     ) : (
                       <div className="text-sm text-right">
                         {shownCents != null ? (shownCents / 100).toFixed(2) : "—"}
