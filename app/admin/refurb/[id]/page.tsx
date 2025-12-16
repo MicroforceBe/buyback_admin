@@ -1,6 +1,7 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
   getRefurbStatusOptions,
   getRefurbLocationOptions,
@@ -386,6 +387,9 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
+  const user = await getCurrentAdminUser(); 
+  const canDelete = !!user && user.role === "admin";
+  
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -596,7 +600,9 @@ export default async function RefurbReceptionDetailPage({
         defaultStatusValue={defaultStatusValue}
         readyToBookValue={readyToBookValue}
         defaultLocationValue={defaultLocationValue}
+        canDelete={canDelete}
       />
+
     </div>
   );
 }
