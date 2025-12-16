@@ -22,12 +22,6 @@ export type RefurbLocationOption = {
   sort_order: number;
 };
 
-export type RefurbStatusTransitionRow = {
-  id: string;
-  from_value: string;
-  to_value: string;
-};
-
 // ===============================
 // GETTERS
 // ===============================
@@ -62,82 +56,66 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
   return data as RefurbLocationOption[];
 }
 
-/**
- * Transitions: lijst ophalen.
- * Elke rij betekent: van from_value -> to_value is toegestaan.
- */
-export async function getRefurbStatusTransitions(): Promise<
-  RefurbStatusTransitionRow[]
-> {
+// ===============================
+// STATUS TRANSITIONS (NIEUW)
+// ===============================
+
+export type RefurbStatusTransitionsMap = Record<string, string[]>; // from_status_id -> [to_status_id...]
+
+export async function getRefurbStatusTransitions(): Promise<RefurbStatusTransitionsMap> {
   const { data, error } = await supabaseAdmin
     .from("refurb_status_transitions")
-    .select("id, from_value, to_value")
-    .order("from_value", { ascending: true })
-    .order("to_value", { ascending: true });
+    .select("from_status_id, to_status_id");
 
   if (error) {
     console.error("[REFURB] getRefurbStatusTransitions error", error);
-    return [];
+    return {};
   }
 
-  return (data || []) as RefurbStatusTransitionRow[];
-}
-
-/**
- * Handige helper voor UI: Map<fromValue, string[]toValues>
- */
-export async function getRefurbStatusTransitionsMap(): Promise<
-  Record<string, string[]>
-> {
-  const rows = await getRefurbStatusTransitions();
-  const map: Record<string, string[]> = {};
-  for (const r of rows) {
-    if (!map[r.from_value]) map[r.from_value] = [];
-    map[r.from_value].push(r.to_value);
+  const map: RefurbStatusTransitionsMap = {};
+  for (const row of (data || []) as any[]) {
+    const from = String(row.from_status_id);
+    const to = String(row.to_status_id);
+    if (!map[from]) map[from] = [];
+    map[from].push(to);
   }
   return map;
 }
 
-/**
- * Transitions vervangen voor 1 "from" status.
- * (Exact wat je status-tab nodig heeft: "van deze status mag je naar: [..]")
- */
-export async function replaceRefurbStatusTransitions(input: {
-  from_value: string;
-  to_values: string[];
+export async function saveRefurbStatusTransitions(input: {
+  from_status_id: string;
+  to_status_ids: string[];
 }) {
-  const from_value = (input.from_value || "").trim();
-  const to_values = (input.to_values || [])
-    .map((v) => (v || "").trim())
-    .filter(Boolean);
+  const from_status_id = (input.from_status_id || "").toString().trim();
+  const to_status_ids = (input.to_status_ids || []).map((x) => String(x)).filter(Boolean);
 
-  if (!from_value) throw new Error("Missing from_value.");
+  if (!from_status_id) throw new Error("Missing from_status_id.");
 
-  // 1) delete existing for from_value
-  const { error: delErr } = await supabaseAdmin
+  // 1) delete existing
+  const { error: e1 } = await supabaseAdmin
     .from("refurb_status_transitions")
     .delete()
-    .eq("from_value", from_value);
+    .eq("from_status_id", from_status_id);
 
-  if (delErr) {
-    console.error("[REFURB] replaceRefurbStatusTransitions delete error", delErr);
-    throw delErr;
+  if (e1) {
+    console.error("[REFURB] saveRefurbStatusTransitions delete error", e1);
+    throw e1;
   }
 
-  // 2) insert new rows (if any)
-  if (to_values.length) {
-    const { error: insErr } = await supabaseAdmin
-      .from("refurb_status_transitions")
-      .insert(
-        to_values.map((to_value) => ({
-          from_value,
-          to_value,
-        }))
-      );
+  // 2) insert new
+  if (to_status_ids.length) {
+    const rows = to_status_ids.map((to) => ({
+      from_status_id,
+      to_status_id: to,
+    }));
 
-    if (insErr) {
-      console.error("[REFURB] replaceRefurbStatusTransitions insert error", insErr);
-      throw insErr;
+    const { error: e2 } = await supabaseAdmin
+      .from("refurb_status_transitions")
+      .insert(rows);
+
+    if (e2) {
+      console.error("[REFURB] saveRefurbStatusTransitions insert error", e2);
+      throw e2;
     }
   }
 }
