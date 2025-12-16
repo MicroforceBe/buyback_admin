@@ -1,10 +1,7 @@
 // app/admin/refurb/actions.ts
 "use server";
 
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import { supabaseAdmin } from "@/lib/supabaseAdmin"; import { redirect } from "next/navigation"; import { revalidatePath } from "next/cache"; import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
 
@@ -54,8 +51,7 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
-const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
+// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data) const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "sku",
   "used_parts",
   "price_cents",
@@ -64,8 +60,7 @@ const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "supplier_grading",
 ];
 
-// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow)
-const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
+// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow) const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
   "rma_defect_description",
@@ -85,17 +80,16 @@ function parseMoneyToCents(raw: string): number | null {
 }
 
 function norm(s: string) {
-  return (s || "").trim().toLowerCase();
-}
+  return (s || "").trim().toLowerCase(); }
+
 function containsFinished(status: string | null | undefined) {
-  return norm(status || "").includes("finished");
-}
+  return norm(status || "").includes("finished"); }
+
 function isBooked(status: string | null | undefined) {
-  return norm(status || "") === "booked";
-}
+  return norm(status || "") === "booked"; }
+
 function isReadyToBook(status: string | null | undefined) {
-  return norm(status || "") === "ready to book";
-}
+  return norm(status || "") === "ready to book"; }
 
 function canChangeStatus(opts: {
   current: string | null | undefined;
@@ -149,11 +143,9 @@ function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
     return current === null || current === undefined;
   }
 
-  return current === null || current === undefined || current === "";
-}
+  return current === null || current === undefined || current === ""; }
 
-// Helper: alle items voor een receptie ophalen
-async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
+// Helper: alle items voor een receptie ophalen async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(
@@ -188,44 +180,8 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
   return data as RefurbItem[];
 }
 
-// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen
-export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
+// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
   return fetchItemsForReception(receptionId);
-}
-
-/**
- * Probeer (optioneel) een default location te bepalen op de server,
- * als defaultLocationValue niet werd meegegeven.
- * (Best-effort: als tabel/kolommen niet bestaan -> fallback null)
- */
-async function resolveDefaultLocationValue(
-  defaultLocationValue?: string
-): Promise<string | null> {
-  const direct = (defaultLocationValue || "").trim();
-  if (direct) return direct;
-
-  try {
-    // best effort: vermoedelijke settings tabel
-    const { data, error } = await supabaseAdmin
-      .from("refurb_location_options")
-      .select("value, is_default, default, isDefault")
-      .order("sort_order", { ascending: true })
-      .limit(50);
-
-    if (error) return null;
-
-    const list = (data || []) as any[];
-    const flagged =
-      list.find((l) => l?.is_default === true) ||
-      list.find((l) => l?.default === true) ||
-      list.find((l) => l?.isDefault === true) ||
-      null;
-
-    const v = (flagged?.value ?? list[0]?.value ?? "").toString().trim();
-    return v || null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -267,9 +223,7 @@ export async function updateRefurbItemCell(
 /**
  * ✅ Bulk update (snel: 1–3 DB updates)
  * - location / used_parts: in één update op alle niet-booked rows
- * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)
- */
-export async function bulkUpdateRefurbItems(input: {
+ * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)  */ export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
   itemIds: string[];
   patch: { refurb_status?: string; location?: string; used_parts?: string };
@@ -312,8 +266,7 @@ export async function bulkUpdateRefurbItems(input: {
       updated += notBookedIds.length;
     } else {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] =
-        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
@@ -329,8 +282,7 @@ export async function bulkUpdateRefurbItems(input: {
       updated += notBookedIds.length;
     } else if (!patch.used_parts) {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] =
-        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
@@ -341,8 +293,7 @@ export async function bulkUpdateRefurbItems(input: {
       const current = r.refurb_status ?? "";
       if (isBooked(current)) {
         skipped += 1;
-        reasons["Status is booked (locked)"] =
-          (reasons["Status is booked (locked)"] ?? 0) + 1;
+        reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + 1;
         continue;
       }
 
@@ -384,10 +335,7 @@ export async function bulkUpdateRefurbItems(input: {
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
- * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new" tenzij caller niets meegeeft)
- * ✅ Nieuwe rij krijgt location = defaultLocationValue (of server best-effort default)
- */
-export async function pasteIntoRefurbColumn(
+ * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")  */ export async function pasteIntoRefurbColumn(
   receptionId: string,
   startRowIndex: number,
   field: PasteField,
@@ -408,9 +356,6 @@ export async function pasteIntoRefurbColumn(
   const inserts: Partial<RefurbItem & { reception_id: string }>[] = [];
 
   const isLockAfterFill = LOCK_AFTER_FILL_FIELDS.includes(field);
-
-  const resolvedDefaultLoc = await resolveDefaultLocationValue(defaultLocationValue);
-  const resolvedDefaultStatus = (defaultStatusValue || "").trim() || "new";
 
   for (let i = 0; i < lines.length; i++) {
     const rowIndex = startRowIndex + i;
@@ -444,19 +389,12 @@ export async function pasteIntoRefurbColumn(
       });
     } else {
       // Nieuwe rij
-      // ✅ location altijd zetten op default (behalve als je effectief de location-kolom aan het plakken bent)
-      const base: any = {
+      inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
-        refurb_status: resolvedDefaultStatus,
-        location: field === "location" ? null : resolvedDefaultLoc,
-      };
-
-      inserts.push({
-        ...base,
+        refurb_status: defaultStatusValue || "new",
+        location: defaultLocationValue || null,
         [field]: value,
-        // als je location-kolom plakt, zetten we location expliciet op de geplakte value
-        ...(field === "location" ? { location: value } : {}),
       });
     }
   }
@@ -502,137 +440,6 @@ export async function pasteIntoRefurbColumn(
 }
 
 /**
- * ✅ 1) Verwijder één rij uit een receptie (refurb_reception_items)
- * - Admin only
- * - Booked rijen worden niet verwijderd
- * - Re-index row_index zodat alles mooi aansluit
- * - Return: fresh items
- */
-export async function deleteRefurbReceptionItem(input: {
-  receptionId: string;
-  itemId: string;
-}): Promise<RefurbItem[]> {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Je hebt geen rechten om rijen te verwijderen.");
-  }
-
-  const { receptionId, itemId } = input;
-
-  const { data: row, error: e0 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .select("id, reception_id, row_index, refurb_status")
-    .eq("id", itemId)
-    .eq("reception_id", receptionId)
-    .single();
-
-  if (e0) {
-    console.error("[REFURB] deleteRefurbReceptionItem fetch error", e0);
-    throw new Error(e0.message || "Kon rij niet ophalen.");
-  }
-
-  if (isBooked((row as any).refurb_status)) {
-    throw new Error("Status is booked: deze rij kan niet verwijderd worden.");
-  }
-
-  const deletedIndex = Number((row as any).row_index);
-
-  const { error: e1 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .delete()
-    .eq("id", itemId)
-    .eq("reception_id", receptionId);
-
-  if (e1) {
-    console.error("[REFURB] deleteRefurbReceptionItem delete error", e1);
-    throw new Error(e1.message || "Kon rij niet verwijderen.");
-  }
-
-  // re-index: alle rijen met row_index > deletedIndex 1 naar boven schuiven
-  const { data: tail, error: e2 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .select("id, row_index")
-    .eq("reception_id", receptionId)
-    .gt("row_index", deletedIndex)
-    .order("row_index", { ascending: true });
-
-  if (e2) {
-    console.error("[REFURB] deleteRefurbReceptionItem tail fetch error", e2);
-    throw new Error(e2.message || "Kon rijen niet hernummeren.");
-  }
-
-  const now = new Date().toISOString();
-  for (const r of (tail || []) as any[]) {
-    const newIndex = Number(r.row_index) - 1;
-    const { error: e3 } = await supabaseAdmin
-      .from("refurb_reception_items")
-      .update({ row_index: newIndex, updated_at: now })
-      .eq("id", r.id)
-      .eq("reception_id", receptionId);
-
-    if (e3) {
-      console.error("[REFURB] deleteRefurbReceptionItem reindex error", { r, e3 });
-      throw new Error(e3.message || "Kon rijen niet hernummeren.");
-    }
-  }
-
-  revalidatePath(`/admin/refurb/${receptionId}`);
-  return fetchItemsForReception(receptionId);
-}
-
-/**
- * ✅ 2) Verwijder een volledige receptie
- * - Admin only
- * - Verwijdert eerst items, dan receptie
- * - Revalidate + redirect naar /admin/refurb
- */
-export async function deleteRefurbReception(receptionId: string): Promise<void> {
-  const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
-    throw new Error("Je hebt geen rechten om recepties te verwijderen.");
-  }
-
-  // (optioneel) blokkeer als er booked items zijn
-  const { data: bookedRows, error: e0 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .select("id, refurb_status")
-    .eq("reception_id", receptionId);
-
-  if (e0) {
-    console.error("[REFURB] deleteRefurbReception precheck error", e0);
-    throw new Error(e0.message || "Kon receptie-items niet controleren.");
-  }
-
-  const hasBooked = (bookedRows || []).some((r: any) => isBooked(r.refurb_status));
-  if (hasBooked) {
-    throw new Error("Deze receptie bevat booked items en kan niet verwijderd worden.");
-  }
-
-  const { error: e1 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .delete()
-    .eq("reception_id", receptionId);
-
-  if (e1) {
-    console.error("[REFURB] deleteRefurbReception delete items error", e1);
-    throw new Error(e1.message || "Kon receptie-items niet verwijderen.");
-  }
-
-  const { error: e2 } = await supabaseAdmin
-    .from("refurb_receptions")
-    .delete()
-    .eq("id", receptionId);
-
-  if (e2) {
-    console.error("[REFURB] deleteRefurbReception delete reception error", e2);
-    throw new Error(e2.message || "Kon receptie niet verwijderen.");
-  }
-
-  revalidatePath("/admin/refurb");
-  redirect("/admin/refurb");
-}
-
-/**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
 export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
@@ -664,10 +471,10 @@ export async function createRefurbSupplier(input: {
   contact_email?: string;
 }): Promise<RefurbSupplier> {
   const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
+  if (!user || (user as any).role !== "admin") {
     console.warn("[REFURB] createRefurbSupplier forbidden for user", {
-      email: user?.email,
-      role: user?.role,
+      email: (user as any)?.email,
+      role: (user as any)?.role,
     });
     throw new Error("Je hebt geen rechten om leveranciers aan te maken.");
   }
@@ -707,9 +514,7 @@ export async function createRefurbSupplier(input: {
 export async function createRefurbSupplierFromForm(formData: FormData) {
   const name = (formData.get("name") || "").toString().trim();
   const vat_number = (formData.get("vat_number") || "").toString().trim();
-  const contact_email = (formData.get("contact_email") || "")
-    .toString()
-    .trim();
+  const contact_email = (formData.get("contact_email") || "").toString().trim();
 
   await createRefurbSupplier({
     name,
@@ -721,8 +526,7 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   revalidatePath("/admin/refurb/suppliers");
 }
 
-/** 🔴 Form state type voor nieuwe receptie */
-export type CreateReceptionFormState = {
+/** 🔴 Form state type voor nieuwe receptie */ export type CreateReceptionFormState = {
   success: boolean;
   fieldErrors: {
     reception_number?: string;
@@ -741,15 +545,9 @@ export async function createRefurbReception(
   const reception_date = (formData.get("reception_date") || "").toString().trim();
   const supplier_id = (formData.get("supplier_id") || "").toString().trim();
   const vat_scheme_raw = (formData.get("vat_scheme") || "").toString().trim();
-  const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "")
-    .toString()
-    .trim();
-  const internal_invoice_nr = (formData.get("internal_invoice_nr") || "")
-    .toString()
-    .trim();
-  const rma_expiry_date = (formData.get("rma_expiry_date") || "")
-    .toString()
-    .trim();
+  const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "").toString().trim();
+  const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
+  const rma_expiry_date = (formData.get("rma_expiry_date") || "").toString().trim();
 
   const vat_scheme: VatScheme = vat_scheme_raw === "normal" ? "normal" : "margin";
 
@@ -840,75 +638,122 @@ export async function createRefurbReception(
   redirect(`/admin/refurb/${id}`);
 }
 
+/**
+ * ✅ 1) Verwijder één rij uit een receptie
+ * - Admin only
+ * - Blokkeer als status = booked
+ * - Re-index row_index zodat alles mooi aansluit
+ * - Return: fresh items
+ */
 export async function deleteRefurbReceptionItem(input: {
   receptionId: string;
   itemId: string;
 }): Promise<RefurbItem[]> {
   const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
+  if (!user || (user as any).role !== "admin") {
     throw new Error("Je hebt geen rechten om rijen te verwijderen.");
   }
 
   const { receptionId, itemId } = input;
 
-  const { data: row, error: rowErr } = await supabaseAdmin
+  const { data: row, error: e0 } = await supabaseAdmin
     .from("refurb_reception_items")
-    .select("id, refurb_status")
+    .select("id, reception_id, row_index, refurb_status")
     .eq("id", itemId)
+    .eq("reception_id", receptionId)
     .single();
 
-  if (rowErr) {
-    console.error("[REFURB] deleteRefurbReceptionItem fetch error", rowErr);
-    throw new Error("Kon rij niet ophalen.");
+  if (e0) {
+    console.error("[REFURB] deleteRefurbReceptionItem fetch error", e0);
+    throw new Error(e0.message || "Kon rij niet ophalen.");
   }
 
-  if (isBooked((row as any)?.refurb_status)) {
+  if (isBooked((row as any).refurb_status)) {
     throw new Error("Status is booked: deze rij kan niet verwijderd worden.");
   }
 
-  const { error } = await supabaseAdmin
+  const deletedIndex = Number((row as any).row_index);
+
+  const { error: e1 } = await supabaseAdmin
     .from("refurb_reception_items")
     .delete()
-    .eq("id", itemId);
+    .eq("id", itemId)
+    .eq("reception_id", receptionId);
 
-  if (error) {
-    console.error("[REFURB] deleteRefurbReceptionItem delete error", error);
-    throw new Error("Rij verwijderen mislukt.");
+  if (e1) {
+    console.error("[REFURB] deleteRefurbReceptionItem delete error", e1);
+    throw new Error(e1.message || "Kon rij niet verwijderen.");
+  }
+
+  // re-index: alle rijen met row_index > deletedIndex 1 naar boven schuiven
+  const { data: tail, error: e2 } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("id, row_index")
+    .eq("reception_id", receptionId)
+    .gt("row_index", deletedIndex)
+    .order("row_index", { ascending: true });
+
+  if (e2) {
+    console.error("[REFURB] deleteRefurbReceptionItem tail fetch error", e2);
+    throw new Error(e2.message || "Kon rijen niet hernummeren.");
+  }
+
+  const now = new Date().toISOString();
+  for (const r of (tail || []) as any[]) {
+    const newIndex = Number(r.row_index) - 1;
+    const { error: e3 } = await supabaseAdmin
+      .from("refurb_reception_items")
+      .update({ row_index: newIndex, updated_at: now })
+      .eq("id", r.id)
+      .eq("reception_id", receptionId);
+
+    if (e3) {
+      console.error("[REFURB] deleteRefurbReceptionItem reindex error", { r, e3 });
+      throw new Error(e3.message || "Kon rijen niet hernummeren.");
+    }
   }
 
   revalidatePath(`/admin/refurb/${receptionId}`);
   return fetchItemsForReception(receptionId);
 }
 
+/**
+ * ✅ 2) Verwijder een volledige receptie
+ * - Admin only
+ * - Verwijdert eerst items, dan receptie
+ * - Revalidate /admin/refurb
+ *
+ * LET OP: geen redirect hier (overview action kan zelf redirecten).
+ */
 export async function deleteRefurbReception(receptionId: string): Promise<void> {
   const user = await getCurrentAdminUser();
-  if (!user || user.role !== "admin") {
+  if (!user || (user as any).role !== "admin") {
     throw new Error("Je hebt geen rechten om recepties te verwijderen.");
   }
 
-  // eerst items verwijderen
+  if (!receptionId?.trim()) {
+    throw new Error("Missing receptionId.");
+  }
+
   const { error: e1 } = await supabaseAdmin
     .from("refurb_reception_items")
     .delete()
     .eq("reception_id", receptionId);
 
   if (e1) {
-    console.error("[REFURB] deleteRefurbReception items delete error", e1);
-    throw new Error("Kon items van receptie niet verwijderen.");
+    console.error("[REFURB] deleteRefurbReception delete items error", e1);
+    throw new Error(e1.message || "Kon receptie-items niet verwijderen.");
   }
 
-  // dan receptie
   const { error: e2 } = await supabaseAdmin
     .from("refurb_receptions")
     .delete()
     .eq("id", receptionId);
 
   if (e2) {
-    console.error("[REFURB] deleteRefurbReception reception delete error", e2);
-    throw new Error("Receptie verwijderen mislukt.");
+    console.error("[REFURB] deleteRefurbReception delete reception error", e2);
+    throw new Error(e2.message || "Kon receptie niet verwijderen.");
   }
 
   revalidatePath("/admin/refurb");
-  redirect("/admin/refurb");
 }
-
