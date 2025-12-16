@@ -5,8 +5,10 @@ import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
   getRefurbStatusOptions,
   getRefurbLocationOptions,
+  getRefurbStatusTransitions,
   type RefurbStatusOption,
   type RefurbLocationOption,
+  type RefurbStatusTransitionsMap,
 } from "../settingsActions";
 
 export const dynamic = "force-dynamic";
@@ -184,10 +186,7 @@ async function getRefurbModels(): Promise<RefurbModel[]> {
  * - Als één van de comma-gescheiden search_keywords in description voorkomt,
  *   dan is het model = model.name.
  */
-function determineModelForItem(
-  item: RefurbItemRow,
-  models: RefurbModel[]
-): RefurbModel | null {
+function determineModelForItem(item: RefurbItemRow, models: RefurbModel[]): RefurbModel | null {
   if (!models.length) return null;
 
   const desc = (item.description || "").toLowerCase().trim();
@@ -205,9 +204,7 @@ function determineModelForItem(
     if (!tokens.length) continue;
 
     const matches = tokens.some((token) => token && desc.includes(token));
-    if (matches) {
-      return model;
-    }
+    if (matches) return model;
   }
 
   return null;
@@ -235,11 +232,12 @@ export default async function RefurbReceptionDetailPage({
     );
   }
 
-  const [items, statusOptions, locationOptions, models] = await Promise.all([
+  const [items, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
     getReceptionItems(reception.id),
     getRefurbStatusOptions(),
     getRefurbLocationOptions(),
     getRefurbModels(),
+    getRefurbStatusTransitions(),
   ]);
 
   // ✅ Default location bepalen NA het ophalen van locationOptions
@@ -252,12 +250,9 @@ export default async function RefurbReceptionDetailPage({
     null;
 
   const defaultLocationValue: string =
-    (defaultLocFromFlag?.value as string) ||
-    (locationList[0]?.value as string) ||
-    "";
+    (defaultLocFromFlag?.value as string) || (locationList[0]?.value as string) || "";
 
-  const vatLabel =
-    reception.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT";
+  const vatLabel = reception.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT";
 
   const supplierName = reception.supplier?.name ?? "Onbekende leverancier";
   const supplierVat = reception.supplier?.vat_number ?? null;
@@ -307,23 +302,20 @@ export default async function RefurbReceptionDetailPage({
     statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
   }
 
-  const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(
-    ([status, count]) => {
-      const def = statusOptionByValue.get(status);
-      const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+  const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(([status, count]) => {
+    const def = statusOptionByValue.get(status);
+    const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
 
-      const color =
-        status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
+    const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
 
-      return {
-        status,
-        label: def?.label ?? status,
-        count,
-        pct,
-        color,
-      };
-    }
-  );
+    return {
+      status,
+      label: def?.label ?? status,
+      count,
+      pct,
+      color,
+    };
+  });
 
   let donutStyle: Record<string, string> = {};
   if (totalItems > 0 && statusStats.length > 0) {
@@ -387,22 +379,18 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  const user = await getCurrentAdminUser(); 
+  const user = await getCurrentAdminUser();
   const canDelete = !!user && user.role === "admin";
-  
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold">
-            Refurb reception {reception.reception_number}
-          </h1>
+          <h1 className="text-lg font-semibold">Refurb reception {reception.reception_number}</h1>
           <p className="text-xs text-slate-500">
             Leverancier: <span className="font-medium">{supplierName}</span>
             {supplierVat && (
-              <span className="ml-2 text-[11px] text-slate-500">
-                (BTW: {supplierVat})
-              </span>
+              <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>
             )}
           </p>
           {supplierEmail && (
@@ -419,73 +407,45 @@ export default async function RefurbReceptionDetailPage({
       {/* Header / meta blok */}
       <div className="grid gap-3 text-xs bg-slate-50 border rounded-md p-3 md:grid-cols-3">
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            Receptie nr
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">Receptie nr</div>
           <div className="mt-0.5">{reception.reception_number}</div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            Datum
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">Datum</div>
           <div className="mt-0.5">{reception.reception_date}</div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            Leverancier
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">Leverancier</div>
           <div className="mt-0.5">
             {supplierName}
-            {supplierVat && (
-              <span className="block text-[10px] text-slate-500">
-                BTW: {supplierVat}
-              </span>
-            )}
-            {supplierEmail && (
-              <span className="block text-[10px] text-slate-500">
-                {supplierEmail}
-              </span>
-            )}
+            {supplierVat && <span className="block text-[10px] text-slate-500">BTW: {supplierVat}</span>}
+            {supplierEmail && <span className="block text-[10px] text-slate-500">{supplierEmail}</span>}
           </div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            BTW regeling
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">BTW regeling</div>
           <div className="mt-0.5">{vatLabel}</div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            Supplier invoice nr
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">Supplier invoice nr</div>
           <div className="mt-0.5">{reception.supplier_invoice_nr}</div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            Intern factuurnr
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">Intern factuurnr</div>
           <div className="mt-0.5">
-            {reception.internal_invoice_nr || (
-              <span className="text-slate-400">—</span>
-            )}
+            {reception.internal_invoice_nr || <span className="text-slate-400">—</span>}
           </div>
         </div>
 
         <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">
-            RMA vervaldatum
-          </div>
+          <div className="text-[11px] font-medium text-slate-500 uppercase">RMA vervaldatum</div>
           <div className="mt-0.5">
-            {reception.rma_expiry_date ? (
-              reception.rma_expiry_date
-            ) : (
-              <span className="text-slate-400">—</span>
-            )}
+            {reception.rma_expiry_date ? reception.rma_expiry_date : <span className="text-slate-400">—</span>}
           </div>
         </div>
       </div>
@@ -509,9 +469,7 @@ export default async function RefurbReceptionDetailPage({
               <div className="space-y-1 text-[11px]">
                 <div className="text-slate-500">
                   Totaal:{" "}
-                  <span className="font-semibold text-slate-700">
-                    {totalItems} toestellen
-                  </span>
+                  <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
                 </div>
                 {statusStats.map((s) => (
                   <div key={s.status} className="flex items-center gap-2">
@@ -526,9 +484,7 @@ export default async function RefurbReceptionDetailPage({
                   </div>
                 ))}
                 {statusStats.length === 0 && (
-                  <div className="text-[11px] text-slate-400">
-                    Nog geen toestellen.
-                  </div>
+                  <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
                 )}
               </div>
             </div>
@@ -547,9 +503,7 @@ export default async function RefurbReceptionDetailPage({
               <div className="space-y-2">
                 {modelStats.map((m) => (
                   <div key={m.modelId} className="flex items-center gap-2">
-                    <span className="truncate text-right w-32 shrink-0">
-                      {m.name}
-                    </span>
+                    <span className="truncate text-right w-32 shrink-0">{m.name}</span>
 
                     <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
                       {statusStats.map((s) => {
@@ -574,9 +528,7 @@ export default async function RefurbReceptionDetailPage({
                       })}
                     </div>
 
-                    <span className="tabular-nums text-slate-700 w-6 text-right">
-                      {m.total}
-                    </span>
+                    <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
                   </div>
                 ))}
 
@@ -594,15 +546,15 @@ export default async function RefurbReceptionDetailPage({
 
       <RefurbReceptionTable
         receptionId={reception.id}
-        initialItems={items}
+        initialItems={items as any}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
         defaultStatusValue={defaultStatusValue}
         readyToBookValue={readyToBookValue}
         defaultLocationValue={defaultLocationValue}
+        statusTransitions={statusTransitions}
         canDelete={canDelete}
       />
-
     </div>
   );
 }
