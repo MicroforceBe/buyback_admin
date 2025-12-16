@@ -9,6 +9,7 @@ import {
   pasteIntoRefurbColumn,
   bulkUpdateRefurbItems,
   fetchReceptionItems,
+  deleteRefurbReceptionItem,
 } from "./actions";
 import type { RefurbStatusOption, RefurbLocationOption } from "./settingsActions";
 
@@ -20,6 +21,9 @@ type Props = {
   defaultStatusValue: string;
   defaultLocationValue: string;
   readyToBookValue: string;
+
+  // ✅ nieuw: delete-knoppen enkel tonen voor admin
+  canDelete?: boolean;
 };
 
 // SKU en used_parts blijven editable (dus NIET locken op fill)
@@ -249,6 +253,7 @@ export default function RefurbReceptionTable({
   defaultStatusValue,
   defaultLocationValue,
   readyToBookValue,
+  canDelete = false,
 }: Props) {
   const router = useRouter();
   const [items, setItems] = useState<RefurbItem[]>(initialItems);
@@ -277,6 +282,9 @@ export default function RefurbReceptionTable({
   const [bulkTarget, setBulkTarget] = useState<"imei" | "selected">("selected");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
+  // delete row
+  const [isDeletingRow, setIsDeletingRow] = useState<string | null>(null);
+
   const hasItems = items.length > 0;
   const colSpan =
     BASE_COL_COUNT +
@@ -298,53 +306,6 @@ export default function RefurbReceptionTable({
   const statusColorByValue = useMemo(() => {
     return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
   }, [statusOptions]);
-
-  const defaultLoc = (defaultLocationValue || "").trim();
-
-  const getEffectiveLocation = (it: any) => {
-    const raw = ((it as any).location ?? "").toString().trim();
-    return raw || defaultLoc || "";
-  };
-
-  // ✅ Zorg dat "lege location" geen UI-fallback blijft: zet het ook effectief (en persist) naar default.
-  const didAutoFixDefaultLocRef = useRef(false);
-  useEffect(() => {
-    if (didAutoFixDefaultLocRef.current) return;
-    if (!defaultLoc) return;
-    if (!items || items.length === 0) return;
-
-    const missing = items.filter((it: any) => !String((it as any).location ?? "").trim());
-    if (missing.length === 0) return;
-
-    didAutoFixDefaultLocRef.current = true;
-
-    // update state direct (zodat select ook correct "matched")
-    setItems((prev) =>
-      prev.map((it: any) => {
-        const loc = String((it as any).location ?? "").trim();
-        if (loc) return it;
-        return { ...it, location: defaultLoc } as any;
-      })
-    );
-
-    // persist in DB
-    (async () => {
-      try {
-        await bulkUpdateRefurbItems({
-          receptionId,
-          itemIds: missing.map((x: any) => x.id),
-          patch: { location: defaultLoc },
-          defaultStatusValue,
-          readyToBookValue,
-        });
-        const fresh = await fetchReceptionItems(receptionId);
-        setItems(fresh);
-        router.refresh();
-      } catch (e) {
-        console.error("[REFURB] auto-default-location persist failed", e);
-      }
-    })();
-  }, [items, defaultLoc, receptionId, defaultStatusValue, readyToBookValue, router]);
 
   // statuses present in rows (filter dropdown)
   const presentStatuses = useMemo(() => {
@@ -391,7 +352,8 @@ export default function RefurbReceptionTable({
     const locSet = new Set<string>();
 
     for (const it of base as any[]) {
-      const n = normLoc(getEffectiveLocation(it));
+      const raw = (it.location ?? "").toString();
+      const n = normLoc(raw);
       if (!n) continue;
       locSet.add(n);
     }
@@ -409,7 +371,6 @@ export default function RefurbReceptionTable({
     imeiQuery,
     descQuery,
     defaultStatusValue,
-    defaultLoc,
   ]);
 
   const filteredRows = useMemo(() => {
@@ -422,7 +383,7 @@ export default function RefurbReceptionTable({
         const st = (it.refurb_status || defaultStatusValue).trim();
         const okStatus = statusFilter === "__all__" || st === statusFilter;
 
-        const loc = getEffectiveLocation(it).trim();
+        const loc = ((it as any).location ?? "").trim();
         const okLoc = locationFilter === "__all__" || loc === locationFilter;
 
         const imei = norm((it as any).imei_sn ?? "");
@@ -441,7 +402,6 @@ export default function RefurbReceptionTable({
     imeiQuery,
     descQuery,
     defaultStatusValue,
-    defaultLoc,
   ]);
 
   const filteredIds = useMemo(
@@ -533,7 +493,6 @@ export default function RefurbReceptionTable({
           } as RefurbItem;
         }
 
-        // location/status/... -> null bij leeg
         return { ...it, [field]: value || null } as RefurbItem;
       })
     );
@@ -573,9 +532,6 @@ export default function RefurbReceptionTable({
     e.preventDefault();
     const lines = text.split(/\r?\n/);
 
-    // ✅ Bewaar ids vóór paste, om "nieuwe rijen" te detecteren
-    const beforeIds = new Set((items || []).map((x: any) => x.id));
-
     try {
       setIsPasting(true);
       const updated = await pasteIntoRefurbColumn(
@@ -586,50 +542,8 @@ export default function RefurbReceptionTable({
         defaultStatusValue, // ✅ voorkomt "new"
         defaultLocationValue
       );
-
-      // ✅ Zorg dat nieuwe rijen effectief default location krijgen én persisted worden
-      const newIds = (updated || [])
-        .map((x: any) => x.id)
-        .filter((id: string) => !beforeIds.has(id));
-
-      const missingLocNewIds = defaultLoc
-        ? (updated || [])
-            .filter((x: any) => newIds.includes(x.id))
-            .filter((x: any) => !String(x.location ?? "").trim())
-            .map((x: any) => x.id)
-        : [];
-
-      // update UI-state alvast (zodat het geen "select fallback" is)
-      let patched = updated as any[];
-      if (defaultLoc && missingLocNewIds.length > 0) {
-        patched = (updated || []).map((x: any) => {
-          if (!missingLocNewIds.includes(x.id)) return x;
-          return { ...x, location: defaultLoc };
-        });
-      }
-
-      setItems(patched as any);
+      setItems(updated);
       router.refresh();
-
-      // persist default location in DB (alleen voor nieuwe rijen die nog leeg zijn)
-      if (defaultLoc && missingLocNewIds.length > 0) {
-        try {
-          await bulkUpdateRefurbItems({
-            receptionId,
-            itemIds: missingLocNewIds,
-            patch: { location: defaultLoc },
-            defaultStatusValue,
-            readyToBookValue,
-          });
-
-          // haal opnieuw op zodat state zeker klopt met DB
-          const fresh = await fetchReceptionItems(receptionId);
-          setItems(fresh);
-          router.refresh();
-        } catch (e) {
-          console.error("[REFURB] persist default location after paste failed", e);
-        }
-      }
     } catch (err) {
       console.error("[REFURB] pasteToColumn client error", err);
     } finally {
@@ -666,9 +580,7 @@ export default function RefurbReceptionTable({
     const wantParts = partsRaw.length > 0;
 
     if (!wantStatus && !wantLocation && !wantParts) {
-      window.alert(
-        "Kies minstens één bulk update (Status, Locatie of Used parts)."
-      );
+      window.alert("Kies minstens één bulk update (Status, Locatie of Used parts).");
       return;
     }
 
@@ -717,6 +629,36 @@ export default function RefurbReceptionTable({
       window.alert("Bulk update mislukt (zie logs).");
     } finally {
       setIsBulkUpdating(false);
+    }
+  }
+
+  async function onDeleteRow(item: RefurbItem) {
+    if (!canDelete) return;
+
+    const currentStatus = (item.refurb_status || defaultStatusValue).trim();
+    if (isBooked(currentStatus)) {
+      window.alert("Status is booked: deze rij kan niet verwijderd worden.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${(item as any).imei_sn ?? "—"}`
+    );
+    if (!ok) return;
+
+    try {
+      setIsDeletingRow(item.id);
+      const fresh = await deleteRefurbReceptionItem({
+        receptionId,
+        itemId: item.id,
+      });
+      setItems(fresh);
+      router.refresh();
+    } catch (e: any) {
+      console.error("[REFURB] delete row error", e);
+      window.alert(e?.message || "Rij verwijderen mislukt.");
+    } finally {
+      setIsDeletingRow(null);
     }
   }
 
@@ -922,6 +864,8 @@ export default function RefurbReceptionTable({
                 />
               </th>
 
+              {canDelete && <th className="px-2 py-1 border w-10">Act</th>}
+
               <th className="px-2 py-1 border">
                 <div className="flex items-center gap-2">
                   <span>Status</span>
@@ -1015,7 +959,7 @@ export default function RefurbReceptionTable({
 
                 const imeiSn = (it as any).imei_sn ?? "";
                 const manualSn = (it as any).manual_sn ?? "";
-                const locationValue = getEffectiveLocation(it);
+                const locationValue = (it as any).location ?? "";
 
                 const statusColor = statusColorByValue.get(currentStatus) ?? null;
                 const isFinishedRow = containsFinished(currentStatus);
@@ -1031,6 +975,20 @@ export default function RefurbReceptionTable({
                         onChange={(e) => toggleSelectOne(it.id, e.target.checked)}
                       />
                     </td>
+
+                    {canDelete && (
+                      <td className="px-1 py-0.5 border">
+                        <button
+                          type="button"
+                          className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
+                          disabled={rowBooked || isDeletingRow === it.id}
+                          title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
+                          onClick={() => onDeleteRow(it)}
+                        >
+                          {isDeletingRow === it.id ? "…" : "🗑️"}
+                        </button>
+                      </td>
+                    )}
 
                     {/* Status */}
                     <td className="px-1 py-0.5 border">
@@ -1055,7 +1013,10 @@ export default function RefurbReceptionTable({
                           {statusOptions.map((opt) => {
                             const optValue = opt.value;
 
-                            if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
+                            if (
+                              isFinishedRow &&
+                              norm(optValue) !== norm(readyToBookValue)
+                            ) {
                               return null;
                             }
 
@@ -1064,13 +1025,18 @@ export default function RefurbReceptionTable({
                               norm(currentStatus) !== norm(defaultStatusValue);
 
                             const cannotSetBooked =
-                              norm(optValue) === "booked" && !isReadyToBook(currentStatus);
+                              norm(optValue) === "booked" &&
+                              !isReadyToBook(currentStatus);
 
                             const disabled =
                               rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
                             return (
-                              <option key={opt.value} value={opt.value} disabled={disabled}>
+                              <option
+                                key={opt.value}
+                                value={opt.value}
+                                disabled={disabled}
+                              >
                                 {opt.label}
                               </option>
                             );
@@ -1191,7 +1157,9 @@ export default function RefurbReceptionTable({
                           disabled={rowBooked}
                           placeholder="0,00"
                           onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "price_cents")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "price_cents")
+                          }
                         />
                       )}
                     </td>
@@ -1199,7 +1167,10 @@ export default function RefurbReceptionTable({
                     {/* Description */}
                     <td className="px-1 py-0.5 border">
                       {lockedDesc ? (
-                        <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.description ?? ""}
+                        >
                           {it.description}
                         </span>
                       ) : (
@@ -1207,8 +1178,12 @@ export default function RefurbReceptionTable({
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.description ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "description")}
+                          onBlur={(e) =>
+                            handleCellChange(it.id, "description", e.target.value)
+                          }
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "description")
+                          }
                         />
                       )}
                     </td>
@@ -1228,7 +1203,11 @@ export default function RefurbReceptionTable({
                           defaultValue={it.supplier_device_errors ?? ""}
                           disabled={rowBooked}
                           onBlur={(e) =>
-                            handleCellChange(it.id, "supplier_device_errors", e.target.value)
+                            handleCellChange(
+                              it.id,
+                              "supplier_device_errors",
+                              e.target.value
+                            )
                           }
                           onPaste={(e) =>
                             handlePasteToColumn(e, originalIndex, "supplier_device_errors")
@@ -1278,10 +1257,18 @@ export default function RefurbReceptionTable({
                             defaultValue={it.rma_defect_description ?? ""}
                             disabled={rowBooked}
                             onBlur={(e) =>
-                              handleCellChange(it.id, "rma_defect_description", e.target.value)
+                              handleCellChange(
+                                it.id,
+                                "rma_defect_description",
+                                e.target.value
+                              )
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(e, originalIndex, "rma_defect_description")
+                              handlePasteToColumn(
+                                e,
+                                originalIndex,
+                                "rma_defect_description"
+                              )
                             }
                           />
                         </td>
@@ -1326,6 +1313,8 @@ export default function RefurbReceptionTable({
                 <tr className="border-t">
                   {/* Select (header checkbox kolom) */}
                   <td className="px-2 py-0.5 border" />
+
+                  {canDelete && <td className="px-2 py-0.5 border" />}
 
                   {/* Status (start: paste mogelijk) */}
                   <td className="px-1 py-0.5 border">
@@ -1471,7 +1460,7 @@ export default function RefurbReceptionTable({
                 <tr>
                   <td
                     className="px-2 py-3 border text-[11px] text-slate-500"
-                    colSpan={colSpan + 1}
+                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
                   >
                     Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van
                     de velden hierboven (bv. IMEI/SN, SKU, Description, Price...) om rijen
@@ -1486,7 +1475,7 @@ export default function RefurbReceptionTable({
               <tr>
                 <td
                   className="px-2 py-3 border text-[11px] text-slate-500"
-                  colSpan={colSpan + 1}
+                  colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
                 >
                   Geen rijen voor deze filters.
                 </td>
