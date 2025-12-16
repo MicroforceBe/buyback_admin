@@ -22,6 +22,12 @@ export type RefurbLocationOption = {
   sort_order: number;
 };
 
+export type RefurbStatusTransitionRow = {
+  id: string;
+  from_value: string;
+  to_value: string;
+};
+
 // ===============================
 // GETTERS
 // ===============================
@@ -56,6 +62,86 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
   return data as RefurbLocationOption[];
 }
 
+/**
+ * Transitions: lijst ophalen.
+ * Elke rij betekent: van from_value -> to_value is toegestaan.
+ */
+export async function getRefurbStatusTransitions(): Promise<
+  RefurbStatusTransitionRow[]
+> {
+  const { data, error } = await supabaseAdmin
+    .from("refurb_status_transitions")
+    .select("id, from_value, to_value")
+    .order("from_value", { ascending: true })
+    .order("to_value", { ascending: true });
+
+  if (error) {
+    console.error("[REFURB] getRefurbStatusTransitions error", error);
+    return [];
+  }
+
+  return (data || []) as RefurbStatusTransitionRow[];
+}
+
+/**
+ * Handige helper voor UI: Map<fromValue, string[]toValues>
+ */
+export async function getRefurbStatusTransitionsMap(): Promise<
+  Record<string, string[]>
+> {
+  const rows = await getRefurbStatusTransitions();
+  const map: Record<string, string[]> = {};
+  for (const r of rows) {
+    if (!map[r.from_value]) map[r.from_value] = [];
+    map[r.from_value].push(r.to_value);
+  }
+  return map;
+}
+
+/**
+ * Transitions vervangen voor 1 "from" status.
+ * (Exact wat je status-tab nodig heeft: "van deze status mag je naar: [..]")
+ */
+export async function replaceRefurbStatusTransitions(input: {
+  from_value: string;
+  to_values: string[];
+}) {
+  const from_value = (input.from_value || "").trim();
+  const to_values = (input.to_values || [])
+    .map((v) => (v || "").trim())
+    .filter(Boolean);
+
+  if (!from_value) throw new Error("Missing from_value.");
+
+  // 1) delete existing for from_value
+  const { error: delErr } = await supabaseAdmin
+    .from("refurb_status_transitions")
+    .delete()
+    .eq("from_value", from_value);
+
+  if (delErr) {
+    console.error("[REFURB] replaceRefurbStatusTransitions delete error", delErr);
+    throw delErr;
+  }
+
+  // 2) insert new rows (if any)
+  if (to_values.length) {
+    const { error: insErr } = await supabaseAdmin
+      .from("refurb_status_transitions")
+      .insert(
+        to_values.map((to_value) => ({
+          from_value,
+          to_value,
+        }))
+      );
+
+    if (insErr) {
+      console.error("[REFURB] replaceRefurbStatusTransitions insert error", insErr);
+      throw insErr;
+    }
+  }
+}
+
 // ===============================
 // STATUS
 // ===============================
@@ -68,10 +154,8 @@ export async function saveRefurbStatusRow(formData: FormData) {
   const sort_order = sortOrderRaw ? Number(sortOrderRaw) : 0;
 
   // ✅ FIX: kleur correct bepalen
-  const colorText =
-    (formData.get("color_text") as string | null)?.trim() ?? "";
-  const colorPicker =
-    (formData.get("color") as string | null)?.trim() ?? "";
+  const colorText = (formData.get("color_text") as string | null)?.trim() ?? "";
+  const colorPicker = (formData.get("color") as string | null)?.trim() ?? "";
 
   const color = colorText || colorPicker || null;
 
