@@ -105,13 +105,13 @@ const DEFAULT_SHIP_WITH = {
 } as const;
 
 /**
-* Haal ship_with-object op uit env en normaliseer naar:
-*
-* {
-*   type: "shipping_option_code",
-*   properties: { shipping_option_code: "..." }
-* }
-*/
+ * Haal ship_with-object op uit env en normaliseer naar:
+ *
+ * {
+ *   type: "shipping_option_code",
+ *   properties: { shipping_option_code: "..." }
+ * }
+ */
 function getShipWithObject(): any {
   const raw = process.env.SENDCLOUD_RETURN_SHIP_WITH_JSON;
   if (!raw) {
@@ -195,8 +195,8 @@ function getMerchantToAddress() {
 }
 
 /**
-* Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
-*/
+ * Maakt via Sendcloud Shipments API v3 een zending + label aan voor deze lead.
+ */
 async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
   try {
     if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
@@ -420,9 +420,9 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
-* Server action om opnieuw een label + tracking op te halen
-* en opnieuw de statusmail voor 'label_created' te sturen.
-*/
+ * Server action om opnieuw een label + tracking op te halen
+ * en opnieuw de statusmail voor 'label_created' te sturen.
+ */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
@@ -473,9 +473,7 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
   }
 
   if ((lead as any).delivery_method !== "ship") {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent("resync_not_ship_lead")}`
-    );
+    redirect(`/admin/leads?msg=${encodeURIComponent("resync_not_ship_lead")}`);
   }
 
   // opnieuw label + tracking proberen
@@ -496,17 +494,12 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
       .eq("id", id);
 
     if (trackErr) {
-      console.error(
-        "[LEADS][RESYNC] tracking upsert failed:",
-        trackErr.message
-      );
+      console.error("[LEADS][RESYNC] tracking upsert failed:", trackErr.message);
     } else {
       console.info("[LEADS][RESYNC] tracking stored OK");
     }
   } else {
-    console.warn(
-      "[LEADS][RESYNC] label not created (no tracking/label returned)"
-    );
+    console.warn("[LEADS][RESYNC] label not created (no tracking/label returned)");
   }
 
   // indien er een e-mail is: opnieuw statusmail voor 'label_created'
@@ -538,10 +531,7 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
       });
       console.info("[LEADS][RESYNC] status mail (label_created) sent");
     } catch (e: any) {
-      console.error(
-        "[LEADS][RESYNC] sendStatusUpdateMail failed:",
-        e?.message || e
-      );
+      console.error("[LEADS][RESYNC] sendStatusUpdateMail failed:", e?.message || e);
     }
   }
 
@@ -549,8 +539,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
 }
 
 /**
-* Eén action die ALLES kan updaten.
-*/
+ * Eén action die ALLES kan updaten.
+ */
 export async function updateLeadInlineAction(formData: FormData) {
   // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
@@ -569,15 +559,11 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   if (statusRaw) {
     if (!isAllowedStatus(statusRaw)) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`
-      );
+      redirect(`/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`);
     }
     // Als status naar cancelled gaat, moet er een reden zijn
     if (statusRaw === "cancelled" && !cancelReason) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`
-      );
+      redirect(`/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`);
     }
   }
 
@@ -595,11 +581,15 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (priceRaw) {
     const eur = Number(priceRaw);
     if (!Number.isFinite(eur) || eur < 0) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(`invalid_price:${priceRaw}`)}`
-      );
+      redirect(`/admin/leads?msg=${encodeURIComponent(`invalid_price:${priceRaw}`)}`);
     }
-    desired.final_price_cents = Math.round(eur * 100);
+    const cents = Math.round(eur * 100);
+
+    desired.final_price_cents = cents;
+
+    // ✅ NIEUW: als prijs manueel wordt aangepast, ook voucher-kolom gelijk zetten.
+    // (De widget rekent dit al uit en schrijft dit weg; admin-edit moet beide sync houden.)
+    desired.final_price_with_voucher_cents = cents;
   }
 
   // wants_voucher (boolean in DB)
@@ -674,11 +664,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     .maybeSingle();
 
   if (selErr) {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent(
-        `select_error:${selErr.message}`
-      )}`
-    );
+    redirect(`/admin/leads?msg=${encodeURIComponent(`select_error:${selErr.message}`)}`);
   }
   if (!before) {
     redirect(`/admin/leads?msg=${encodeURIComponent("not_found")}`);
@@ -709,9 +695,7 @@ export async function updateLeadInlineAction(formData: FormData) {
         : "";
     if (!need("customer_number") || !need("sku") || !need("imei_sn")) {
       redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          "status_requires_customer_sku_imei"
-        )}`
+        `/admin/leads?msg=${encodeURIComponent("status_requires_customer_sku_imei")}`
       );
     }
   }
@@ -729,20 +713,13 @@ export async function updateLeadInlineAction(formData: FormData) {
   }
 
   if (Object.keys(patch).length === 0) {
-    const note = ignoredEarly.length
-      ? ` (ignored:${ignoredEarly.join(",")})`
-      : "";
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent("nothing_to_update" + note)}`
-    );
+    const note = ignoredEarly.length ? ` (ignored:${ignoredEarly.join(",")})` : "";
+    redirect(`/admin/leads?msg=${encodeURIComponent("nothing_to_update" + note)}`);
   }
 
   // === 5.c HISTORY LOG (status, prijs, SKU/IMEI) ===
   const nowIso = new Date().toISOString();
-  const actor =
-    (adminUser as any)?.email ||
-    (adminUser as any)?.id ||
-    "unknown";
+  const actor = (adminUser as any)?.email || (adminUser as any)?.id || "unknown";
 
   const existingHistory: any[] = Array.isArray((before as any).status_history)
     ? ((before as any).status_history as any[])
@@ -778,7 +755,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     });
   }
 
-// 3) Wijziging in toestelgegevens (SKU / IMEI / batterij / onderdelen) loggen
+  // 3) Wijziging in toestelgegevens (SKU / IMEI / batterij / onderdelen) loggen
   const skuChanged =
     Object.prototype.hasOwnProperty.call(patch, "sku") &&
     patch.sku !== (before as any).sku;
@@ -804,14 +781,12 @@ export async function updateLeadInlineAction(formData: FormData) {
       to_imei_sn: (patch.imei_sn ?? (before as any).imei_sn) ?? null,
       from_battery_percentage: (before as any).battery_percentage ?? null,
       to_battery_percentage:
-        (patch.battery_percentage ?? (before as any).battery_percentage) ??
-        null,
+        (patch.battery_percentage ?? (before as any).battery_percentage) ?? null,
       from_used_parts_skus: (before as any).used_parts_skus ?? null,
       to_used_parts_skus:
         (patch.used_parts_skus ?? (before as any).used_parts_skus) ?? null,
     });
   }
-
 
   if (historyToAppend.length > 0) {
     patch.status_history = [...existingHistory, ...historyToAppend];
@@ -822,6 +797,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "id",
     "status",
     "final_price_cents",
+    "final_price_with_voucher_cents", // ✅ NIEUW: mee teruggeven
     "wants_voucher",
     "customer_number",
     "sku",
@@ -867,11 +843,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     .single();
 
   if (updErr) {
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent(
-        `update_error:${updErr.message}`
-      )}`
-    );
+    redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
   // 7) Status change → Sendcloud + mail (fire-and-forget)
@@ -918,10 +890,7 @@ export async function updateLeadInlineAction(formData: FormData) {
               .update({ tracking_code, tracking_url, label_pdf_url })
               .eq("id", id);
             if (trackErr) {
-              console.error(
-                "[LEADS][SENDCLOUD] tracking upsert failed:",
-                trackErr.message
-              );
+              console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
             } else {
               console.info("[LEADS][SENDCLOUD] tracking stored OK");
             }
@@ -972,26 +941,21 @@ export async function updateLeadInlineAction(formData: FormData) {
           shop_zip,
           shop_city,
           opening_hours,
-          questions_answers_html:
-            (after as any).questions_answers_html ?? null,
+          questions_answers_html: (after as any).questions_answers_html ?? null,
           tracking_code: tracking_code ?? undefined,
           tracking_url: tracking_url ?? undefined,
           label_pdf_url: label_pdf_url ?? undefined,
         });
 
         // Finance-mail met aankoopborderel (bij geslaagde controle / done)
-        const shouldSendFinance =
-          newStatus === "check_passed" || newStatus === "done";
+        const shouldSendFinance = newStatus === "check_passed" || newStatus === "done";
         if (shouldSendFinance) {
           const { finance_email, brand_name } = await getNotificationSettings();
           if (finance_email) {
             try {
               await sendFinanceBorderelMail({
                 to: finance_email,
-                status:
-                  newStatus === "check_passed"
-                    ? "check_passed"
-                    : "done",
+                status: newStatus === "check_passed" ? "check_passed" : "done",
                 // basis + identificatie
                 first_name: (after as any).first_name,
                 last_name: (after as any).last_name,
@@ -1035,14 +999,10 @@ export async function updateLeadInlineAction(formData: FormData) {
                 battery_percentage: (after as any).battery_percentage ?? null,
                 used_parts_skus: (after as any).used_parts_skus ?? null,
                 // vragen/antwoorden (optioneel)
-                questions_answers_html:
-                  (after as any).questions_answers_html ?? null,
+                questions_answers_html: (after as any).questions_answers_html ?? null,
               });
             } catch (e: any) {
-              console.error(
-                "[LEADS][FINANCE] borderel mail failed:",
-                e?.message || e
-              );
+              console.error("[LEADS][FINANCE] borderel mail failed:", e?.message || e);
             }
           } else {
             console.warn(
@@ -1051,26 +1011,17 @@ export async function updateLeadInlineAction(formData: FormData) {
           }
         }
       } catch (e: any) {
-        console.error(
-          "[LEADS][MAIL] sendStatusMail failed:",
-          e?.message || e
-        );
+        console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
       }
     })();
   }
 
   // 8) Diagnose/feedback
   const setKeys = Object.keys(patch).sort();
-  const ignoredFinal = Object.keys(desired).filter(
-    (k) => !setKeys.includes(k)
-  );
-  const tagIgnored = ignoredFinal.length
-    ? ` • ignored:${ignoredFinal.join(",")}`
-    : "";
+  const ignoredFinal = Object.keys(desired).filter((k) => !setKeys.includes(k));
+  const tagIgnored = ignoredFinal.length ? ` • ignored:${ignoredFinal.join(",")}` : "";
   const msg =
-    `updated:${after?.status ?? "-"}•€${(
-      (after?.final_price_cents ?? 0) / 100
-    ).toFixed(2)}` +
+    `updated:${after?.status ?? "-"}•€${(((after as any)?.final_price_cents ?? 0) / 100).toFixed(2)}` +
     (setKeys.length ? ` • set:${setKeys.join(",")}` : "") +
     tagIgnored;
 
@@ -1085,15 +1036,12 @@ export async function deleteLeadAction(formData: FormData) {
   }
 
   const id = String(formData.get("id") || "").trim();
-  if (!id)
-    redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
+  if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
   const sb = sbClient();
   const { error } = await sb.from("buyback_leads").delete().eq("id", id);
   if (error)
     redirect(
-      `/admin/leads?msg=${encodeURIComponent(
-        `delete_error:${error.message}`
-      )}`
+      `/admin/leads?msg=${encodeURIComponent(`delete_error:${error.message}`)}`
     );
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
