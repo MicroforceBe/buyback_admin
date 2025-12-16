@@ -1,9 +1,9 @@
 // app/admin/refurb/actions.ts
 "use server";
 
-import { supabaseAdmin } from "@/lib/supabaseAdmin"; 
-import { redirect } from "next/navigation"; 
-import { revalidatePath } from "next/cache"; 
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export type VatScheme = "margin" | "normal";
@@ -54,7 +54,7 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data) 
+// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
 const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "sku",
   "used_parts",
@@ -64,7 +64,7 @@ const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
   "supplier_grading",
 ];
 
-// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow) 
+// Kolommen die altijd overschrijfbaar zijn (interne refurb workflow)
 const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "refurb_status",
   "refurb_diagnostics",
@@ -85,56 +85,78 @@ function parseMoneyToCents(raw: string): number | null {
 }
 
 function norm(s: string) {
-  return (s || "").trim().toLowerCase(); }
-
-function containsFinished(status: string | null | undefined) {
-  return norm(status || "").includes("finished"); }
+  return (s || "").trim().toLowerCase();
+}
 
 function isBooked(status: string | null | undefined) {
-  return norm(status || "") === "booked"; }
+  return norm(status || "") === "booked";
+}
 
-function isReadyToBook(status: string | null | undefined) {
-  return norm(status || "") === "ready to book"; }
+/**
+ * ================================
+ * STATUS TRANSITIONS (NIEUW)
+ * ================================
+ * Tabel: refurb_status_transitions (from_value, to_value)
+ * - Als er nog GEEN transitions geconfigureerd zijn: fail-open (alles toegestaan, behalve booked rule).
+ * - Als er wél transitions bestaan: enkel expliciet toegelaten paden.
+ */
+async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("refurb_status_transitions")
+    .select("id")
+    .limit(1);
 
-function canChangeStatus(opts: {
+  if (error) {
+    console.error("[REFURB] hasAnyStatusTransitionsConfigured error", error);
+    // fail-open bij DB glitch
+    return false;
+  }
+
+  return (data || []).length > 0;
+}
+
+async function isTransitionAllowed(current: string, next: string): Promise<boolean> {
+  const cur = (current || "").trim();
+  const nxt = (next || "").trim();
+
+  if (!cur || !nxt) return true;
+  if (cur === nxt) return true;
+
+  const configured = await hasAnyStatusTransitionsConfigured();
+  if (!configured) return true; // zolang je nog niets ingesteld hebt in de tab
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_status_transitions")
+    .select("id")
+    .eq("from_value", cur)
+    .eq("to_value", nxt)
+    .limit(1);
+
+  if (error) {
+    console.error("[REFURB] isTransitionAllowed error", error);
+    return false;
+  }
+
+  return (data || []).length > 0;
+}
+
+async function canChangeStatus(opts: {
   current: string | null | undefined;
   next: string;
-  defaultStatusValue: string;
-  readyToBookValue: string;
-}): { ok: true } | { ok: false; reason: string } {
-  const current = opts.current ?? "";
-  const next = opts.next;
-  const def = opts.defaultStatusValue;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const current = (opts.current ?? "").trim();
+  const next = (opts.next ?? "").trim();
 
-  // finished-status mag enkel naar Ready to Book
-  if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
-    return {
-      ok: false,
-      reason: "Finished-status kan enkel op Ready to Book gezet worden.",
-    };
-  }
-
-  // booked is immutable
+  // booked blijft immutable (harde regel)
   if (isBooked(current) && norm(next) !== norm(current)) {
-    return {
-      ok: false,
-      reason: "Status is booked en kan niet meer gewijzigd worden.",
-    };
+    return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
   }
 
-  // only Ready to Book -> booked
-  if (isBooked(next) && !isReadyToBook(current)) {
+  const allowed = await isTransitionAllowed(current, next);
+  if (!allowed) {
     return {
       ok: false,
-      reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
-    };
-  }
-
-  // cannot go back to default if current isn't default
-  if (norm(next) === norm(def) && norm(current) !== norm(def)) {
-    return {
-      ok: false,
-      reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt.",
+      reason: `Status "${current}" kan niet naar "${next}" gezet worden.`,
     };
   }
 
@@ -148,9 +170,10 @@ function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
     return current === null || current === undefined;
   }
 
-  return current === null || current === undefined || current === ""; }
+  return current === null || current === undefined || current === "";
+}
 
-// Helper: alle items voor een receptie ophalen 
+// Helper: alle items voor een receptie ophalen
 async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
@@ -186,7 +209,7 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
   return data as RefurbItem[];
 }
 
-// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen 
+// ✅ Export zodat client na bulk/paste de items in 1 call kan herladen
 export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
   return fetchItemsForReception(receptionId);
 }
@@ -194,12 +217,35 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
 /**
  * Eén cel updaten (inline edit vanuit UI).
  * UI zorgt ervoor dat "locked" kolommen geen input tonen als ze al gevuld zijn.
+ *
+ * ✅ NIEUW: statuswijziging wordt ook server-side gevalideerd via transitions.
  */
 export async function updateRefurbItemCell(
   itemId: string,
   field: EditableField,
   value: string
 ): Promise<void> {
+  // status rules (server-side)
+  if (field === "refurb_status") {
+    const { data: row, error: e0 } = await supabaseAdmin
+      .from("refurb_reception_items")
+      .select("id, refurb_status")
+      .eq("id", itemId)
+      .single();
+
+    if (e0) {
+      console.error("[REFURB] updateRefurbItemCell fetch current status error", e0);
+      throw e0;
+    }
+
+    const current = (row as any)?.refurb_status ?? "";
+    const verdict = await canChangeStatus({ current, next: value });
+
+    if (!verdict.ok) {
+      throw new Error(verdict.reason);
+    }
+  }
+
   const patch: Partial<RefurbItem> = {};
 
   if (field === "price_cents" || field === "compensation_cents") {
@@ -230,15 +276,16 @@ export async function updateRefurbItemCell(
 /**
  * ✅ Bulk update (snel: 1–3 DB updates)
  * - location / used_parts: in één update op alle niet-booked rows
- * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)  */ 
-  export async function bulkUpdateRefurbItems(input: {
+ * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)
+ */
+export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
   itemIds: string[];
   patch: { refurb_status?: string; location?: string; used_parts?: string };
   defaultStatusValue: string;
   readyToBookValue: string;
 }): Promise<{ updated: number; skipped: number; reasons: Record<string, number> }> {
-  const { receptionId, itemIds, patch, defaultStatusValue, readyToBookValue } = input;
+  const { receptionId, itemIds, patch } = input;
 
   if (!itemIds?.length) return { updated: 0, skipped: 0, reasons: {} };
 
@@ -274,7 +321,8 @@ export async function updateRefurbItemCell(
       updated += notBookedIds.length;
     } else {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] =
+        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
@@ -290,26 +338,28 @@ export async function updateRefurbItemCell(
       updated += notBookedIds.length;
     } else if (!patch.used_parts) {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] =
+        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
   // refurb_status (per rij evalueren, dan 1 update op allowed ids)
   if (typeof patch.refurb_status === "string" && patch.refurb_status.trim()) {
     const allowed: string[] = [];
+
     for (const r of rows) {
       const current = r.refurb_status ?? "";
+
       if (isBooked(current)) {
         skipped += 1;
-        reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + 1;
+        reasons["Status is booked (locked)"] =
+          (reasons["Status is booked (locked)"] ?? 0) + 1;
         continue;
       }
 
-      const verdict = canChangeStatus({
+      const verdict = await canChangeStatus({
         current,
         next: patch.refurb_status,
-        defaultStatusValue,
-        readyToBookValue,
       });
 
       if (!verdict.ok) {
@@ -343,7 +393,10 @@ export async function updateRefurbItemCell(
  *
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
- * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")  */ 
+ * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
+ *
+ * ✅ NIEUW: bij plakken in refurb_status kolom, server-side transitions respecteren (fail-open als niets geconfigureerd).
+ */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
   startRowIndex: number,
@@ -389,6 +442,18 @@ export async function pasteIntoRefurbColumn(
         // Supplier-kolom: alleen invullen als nog leeg
         if (!isCellEmpty(existingItem, field)) {
           continue; // skip, niet overschrijven
+        }
+      }
+
+      // status transitions afdwingen bij status-paste
+      if (field === "refurb_status") {
+        const verdict = await canChangeStatus({
+          current: existingItem.refurb_status ?? "",
+          next: String(value ?? ""),
+        });
+        if (!verdict.ok) {
+          // skip deze rij (geen throw, zodat bulk paste niet volledig faalt)
+          continue;
         }
       }
 
@@ -535,7 +600,8 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   revalidatePath("/admin/refurb/suppliers");
 }
 
-/** 🔴 Form state type voor nieuwe receptie */ export type CreateReceptionFormState = {
+/** 🔴 Form state type voor nieuwe receptie */
+export type CreateReceptionFormState = {
   success: boolean;
   fieldErrors: {
     reception_number?: string;
