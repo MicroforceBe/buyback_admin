@@ -1,5 +1,4 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
-// app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
@@ -14,6 +13,8 @@ import {
 } from "./actions";
 import type { RefurbStatusOption, RefurbLocationOption } from "./settingsActions";
 
+type StatusTransitionsMap = Record<string, string[]>;
+
 type Props = {
   receptionId: string;
   initialItems: RefurbItem[];
@@ -24,13 +25,14 @@ type Props = {
   readyToBookValue: string;
 
   /**
-   * ✅ NIEUW (backwards compatible):
-   * Map met toegelaten vervolgstatussen per huidige status (value -> allowed next values).
-   * Als dit niet meegegeven is, vallen we terug op de bestaande hardcoded regels.
+   * ✅ NIEUW: vervolgstatussen-map (value -> allowed next values).
+   * Je page.tsx geeft momenteel `statusTransitions` door.
+   * We ondersteunen BEIDE namen zodat TS build niet faalt.
    */
-  statusNextMap?: Record<string, string[]>;
+  statusTransitions?: StatusTransitionsMap;
+  statusNextMap?: StatusTransitionsMap;
 
-  // ✅ nieuw: delete-knoppen enkel tonen voor admin
+  // ✅ delete-knoppen enkel tonen voor admin
   canDelete?: boolean;
 };
 
@@ -81,7 +83,7 @@ function isReadyToBook(status: string | null | undefined) {
 }
 
 /**
- * Oude fallback-regels (blijven bestaan als er geen statusNextMap is)
+ * Oude fallback-regels (blijven bestaan als er geen statusTransitions-map is)
  */
 function canChangeStatusFallback(opts: {
   current: string | null | undefined;
@@ -264,6 +266,7 @@ export default function RefurbReceptionTable({
   defaultStatusValue,
   defaultLocationValue,
   readyToBookValue,
+  statusTransitions,
   statusNextMap,
   canDelete = false,
 }: Props) {
@@ -319,36 +322,40 @@ export default function RefurbReceptionTable({
     return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
   }, [statusOptions]);
 
-  /**
-   * ✅ Toegelaten transitions (als statusNextMap bestaat)
-   * - We houden keys exact (case-sensitive) omdat values in DB exact zijn.
-   * - Maar we maken ook een genormaliseerde lookup om robuust te zijn.
-   */
+  const transitions: StatusTransitionsMap | null =
+    statusNextMap ?? statusTransitions ?? null;
+
   const allowedNextByStatus = useMemo(() => {
-    if (!statusNextMap) return null;
+    if (!transitions) return null;
 
     const exact = new Map<string, Set<string>>();
     const normalized = new Map<string, Set<string>>();
 
-    for (const [from, arr] of Object.entries(statusNextMap)) {
+    for (const [from, arr] of Object.entries(transitions)) {
       const set = new Set((arr || []).filter(Boolean));
       exact.set(from, set);
-      normalized.set(norm(from), new Set(Array.from(set.values()).map((v) => v)));
+      normalized.set(norm(from), new Set(Array.from(set.values())));
     }
 
     return { exact, normalized };
-  }, [statusNextMap]);
+  }, [transitions]);
 
-  function isTransitionAllowed(current: string, next: string): { ok: true } | { ok: false; reason: string } {
+  function isTransitionAllowed(
+    current: string,
+    next: string
+  ): { ok: true } | { ok: false; reason: string } {
     const cur = (current || "").trim();
     const nxt = (next || "").trim();
 
     // booked blijft altijd hard lock
     if (isBooked(cur) && norm(nxt) !== norm(cur)) {
-      return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
+      return {
+        ok: false,
+        reason: "Status is booked en kan niet meer gewijzigd worden.",
+      };
     }
 
-    // als er een map is: dan is dat de bron van waarheid
+    // map = bron van waarheid
     if (allowedNextByStatus) {
       if (norm(nxt) === norm(cur)) return { ok: true };
 
@@ -357,10 +364,14 @@ export default function RefurbReceptionTable({
 
       const allowed =
         (fromSetExact && fromSetExact.has(nxt)) ||
-        (fromSetNorm && Array.from(fromSetNorm.values()).some((v) => norm(v) === norm(nxt)));
+        (fromSetNorm &&
+          Array.from(fromSetNorm.values()).some((v) => norm(v) === norm(nxt)));
 
       if (!allowed) {
-        return { ok: false, reason: "Deze status kan niet naar de gekozen vervolgstatus." };
+        return {
+          ok: false,
+          reason: "Deze status kan niet naar de gekozen vervolgstatus.",
+        };
       }
       return { ok: true };
     }
@@ -650,7 +661,6 @@ export default function RefurbReceptionTable({
         readyToBookValue,
       });
 
-      // ✅ Herlaad items in 1 call (sneller + state correct)
       const fresh = await fetchReceptionItems(receptionId);
       setItems(fresh);
 
@@ -786,7 +796,9 @@ export default function RefurbReceptionTable({
                 </div>
 
                 <div>
-                  <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
+                  <div className="text-[11px] text-slate-500 mb-1">
+                    Used parts (SKU’s)
+                  </div>
                   <textarea
                     className="bb-input w-full text-[11px] p-2 min-h-[110px]"
                     value={bulkPartsText}
@@ -845,6 +857,46 @@ export default function RefurbReceptionTable({
           </div>
         )}
       </div>
+
+      {/* Table */}
+      <div className="border rounded-md overflow-x-auto text-xs">
+        <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
+          <span className="font-medium text-[11px] uppercase tracking-wide">
+            Refurb Reception items
+          </span>
+          <div className="flex items-center gap-3">
+            {isPasting && (
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span
+                  className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
+                  aria-hidden="true"
+                />
+                <span>Bezig met plakken...</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowExtraSn((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full">
+                {showExtraSn ? "▲" : "▼"}
+              </span>
+              <span>Extra SN</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full">
+                {showAdvanced ? "▲" : "▼"}
+              </span>
+              <span>RMA</span>
+            </button>
+          </div>
+        </div>
+
 
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
