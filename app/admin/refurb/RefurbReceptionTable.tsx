@@ -22,6 +22,13 @@ type Props = {
   defaultLocationValue: string;
   readyToBookValue: string;
 
+  /**
+   * ✅ NIEUW (optioneel):
+   * Map van currentStatusValue -> toegelaten nextStatusValues.
+   * Als deze niet meegegeven wordt, valt de UI terug op de bestaande (hardcoded) regels.
+   */
+  allowedNextStatusByValue?: Record<string, string[]>;
+
   // ✅ nieuw: delete-knoppen enkel tonen voor admin
   canDelete?: boolean;
 };
@@ -253,6 +260,7 @@ export default function RefurbReceptionTable({
   defaultStatusValue,
   defaultLocationValue,
   readyToBookValue,
+  allowedNextStatusByValue,
   canDelete = false,
 }: Props) {
   const router = useRouter();
@@ -317,13 +325,56 @@ export default function RefurbReceptionTable({
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items]);
 
+  const allowedNextMapNorm = useMemo(() => {
+    if (!allowedNextStatusByValue) return null;
+    const out: Record<string, string[]> = {};
+    for (const [k, arr] of Object.entries(allowedNextStatusByValue)) {
+      out[norm(k)] = (arr || []).map((x) => norm(x));
+    }
+    return out;
+  }, [allowedNextStatusByValue]);
+
+  function isTransitionAllowed(current: string, next: string): boolean {
+    // Geen transition-map? -> UI gebruikt enkel de bestaande hardcoded regels.
+    if (!allowedNextMapNorm) return true;
+
+    const c = norm(current || "");
+    const n = norm(next || "");
+    if (!c) return true;
+
+    const allowed = allowedNextMapNorm[c];
+    // Als er een map is maar geen entry voor current -> enkel current blijft selectable.
+    if (!allowed) return n === c;
+
+    if (n === c) return true;
+    return allowed.includes(n);
+  }
+
+  function getStatusOptionsForRow(currentStatus: string) {
+    const current = (currentStatus || defaultStatusValue || "").trim();
+    const isFinishedRow = containsFinished(current);
+    const isBookedRow = isBooked(current);
+
+    return statusOptions.filter((opt) => {
+      const optValue = opt.value;
+
+      // 1) transition-regels (uit status-tab) indien aanwezig
+      if (!isTransitionAllowed(current, optValue)) return false;
+
+      // 2) bestaande hardcoded business rules blijven gelden
+      if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) return false;
+
+      // booked row: dropdown is disabled, maar lijst mag wel blijven (maakt niet uit)
+      if (isBookedRow) return true;
+
+      return true;
+    });
+  }
+
   // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
     const labelByValue = new Map(
-      (locationOptions || []).map((o: any) => [
-        String(o.value),
-        String(o.label),
-      ])
+      (locationOptions || []).map((o: any) => [String(o.value), String(o.label)])
     );
 
     const iq = norm(imeiQuery);
@@ -364,14 +415,7 @@ export default function RefurbReceptionTable({
         value: v,
         label: labelByValue.get(v) || v,
       }));
-  }, [
-    items,
-    locationOptions,
-    statusFilter,
-    imeiQuery,
-    descQuery,
-    defaultStatusValue,
-  ]);
+  }, [items, locationOptions, statusFilter, imeiQuery, descQuery, defaultStatusValue]);
 
   const filteredRows = useMemo(() => {
     const iq = norm(imeiQuery);
@@ -395,19 +439,9 @@ export default function RefurbReceptionTable({
 
         return okStatus && okLoc && okImei && okDesc;
       });
-  }, [
-    items,
-    statusFilter,
-    locationFilter,
-    imeiQuery,
-    descQuery,
-    defaultStatusValue,
-  ]);
+  }, [items, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
 
-  const filteredIds = useMemo(
-    () => filteredRows.map((r) => r.it.id),
-    [filteredRows]
-  );
+  const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
@@ -470,6 +504,13 @@ export default function RefurbReceptionTable({
     }
 
     if (field === "refurb_status") {
+      // 1) transition-map (indien aanwezig)
+      if (!isTransitionAllowed(currentStatus, value)) {
+        window.alert("Deze statuswijziging is niet toegestaan.");
+        return;
+      }
+
+      // 2) bestaande hardcoded rules
       const verdict = canChangeStatus({
         current: currentStatus,
         next: value,
@@ -593,6 +634,33 @@ export default function RefurbReceptionTable({
       return;
     }
 
+    // ✅ extra client-side check voor status transitions (indien status gekozen)
+    if (wantStatus && allowedNextMapNorm) {
+      const invalid = items
+        .filter((it) => itemIds.includes(it.id))
+        .filter((it) => {
+          const cur = (it.refurb_status || defaultStatusValue).trim();
+          if (isBooked(cur)) return true;
+          if (!isTransitionAllowed(cur, bulkStatus)) return true;
+
+          const verdict = canChangeStatus({
+            current: cur,
+            next: bulkStatus,
+            defaultStatusValue,
+            readyToBookValue,
+          });
+          return !verdict.ok;
+        });
+
+      if (invalid.length > 0) {
+        window.alert(
+          `Bulk status bevat ongeldige transitions voor ${invalid.length} rij(en).\n` +
+            `Pas je selectie/target aan of kies een andere status.`
+        );
+        return;
+      }
+    }
+
     setIsBulkUpdating(true);
 
     try {
@@ -642,7 +710,9 @@ export default function RefurbReceptionTable({
     }
 
     const ok = window.confirm(
-      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${(item as any).imei_sn ?? "—"}`
+      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${
+        item.sku ?? "—"
+      }\nIMEI/SN: ${(item as any).imei_sn ?? "—"}`
     );
     if (!ok) return;
 
@@ -715,6 +785,12 @@ export default function RefurbReceptionTable({
                         </option>
                       ))}
                     </select>
+                    {allowedNextStatusByValue && bulkEnableStatus && (
+                      <div className="mt-1 text-[10px] text-slate-500">
+                        Let op: statuskeuzes worden per rij beperkt door de ingestelde
+                        transities.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -962,9 +1038,12 @@ export default function RefurbReceptionTable({
                 const locationValue = (it as any).location ?? "";
 
                 const statusColor = statusColorByValue.get(currentStatus) ?? null;
-                const isFinishedRow = containsFinished(currentStatus);
 
                 const rowChecked = selectedIds.has(it.id);
+
+                const rowStatusOptions = getStatusOptionsForRow(currentStatus);
+                const canShowCurrentMissing =
+                  currentStatus && !statusOptionByValue.has(currentStatus);
 
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
@@ -1006,30 +1085,23 @@ export default function RefurbReceptionTable({
                           }
                           className="bb-select bb-select-sm w-full text-slate-900"
                         >
-                          {currentStatus && !statusOptionByValue.has(currentStatus) && (
+                          {canShowCurrentMissing && (
                             <option value={currentStatus}>{currentStatus}</option>
                           )}
 
-                          {statusOptions.map((opt) => {
+                          {rowStatusOptions.map((opt) => {
                             const optValue = opt.value;
-
-                            if (
-                              isFinishedRow &&
-                              norm(optValue) !== norm(readyToBookValue)
-                            ) {
-                              return null;
-                            }
 
                             const cannotGoBackToDefault =
                               norm(optValue) === norm(defaultStatusValue) &&
                               norm(currentStatus) !== norm(defaultStatusValue);
 
                             const cannotSetBooked =
-                              norm(optValue) === "booked" &&
-                              !isReadyToBook(currentStatus);
+                              norm(optValue) === "booked" && !isReadyToBook(currentStatus);
 
-                            const disabled =
-                              rowBooked || cannotGoBackToDefault || cannotSetBooked;
+                            // transition-map kan bestaan: als opt voorkomt in rowStatusOptions is hij al "allowed",
+                            // maar we zetten disabled extra op hardcoded rules.
+                            const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
                             return (
                               <option
@@ -1136,9 +1208,7 @@ export default function RefurbReceptionTable({
                         rawValue={it.used_parts ?? ""}
                         locked={rowBooked}
                         onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-                        onPasteToColumn={(e) =>
-                          handlePasteToColumn(e, originalIndex, "used_parts")
-                        }
+                        onPasteToColumn={(e) => handlePasteToColumn(e, originalIndex, "used_parts")}
                       />
                     </td>
 
@@ -1150,16 +1220,12 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
                           defaultValue={
-                            typeof it.price_cents === "number"
-                              ? (it.price_cents / 100).toString()
-                              : ""
+                            typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""
                           }
                           disabled={rowBooked}
                           placeholder="0,00"
                           onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "price_cents")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "price_cents")}
                         />
                       )}
                     </td>
@@ -1167,10 +1233,7 @@ export default function RefurbReceptionTable({
                     {/* Description */}
                     <td className="px-1 py-0.5 border">
                       {lockedDesc ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.description ?? ""}
-                        >
+                        <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
                           {it.description}
                         </span>
                       ) : (
@@ -1178,12 +1241,8 @@ export default function RefurbReceptionTable({
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.description ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "description", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "description")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "description")}
                         />
                       )}
                     </td>
@@ -1203,11 +1262,7 @@ export default function RefurbReceptionTable({
                           defaultValue={it.supplier_device_errors ?? ""}
                           disabled={rowBooked}
                           onBlur={(e) =>
-                            handleCellChange(
-                              it.id,
-                              "supplier_device_errors",
-                              e.target.value
-                            )
+                            handleCellChange(it.id, "supplier_device_errors", e.target.value)
                           }
                           onPaste={(e) =>
                             handlePasteToColumn(e, originalIndex, "supplier_device_errors")
@@ -1225,12 +1280,8 @@ export default function RefurbReceptionTable({
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.supplier_grading ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "supplier_grading", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "supplier_grading")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "supplier_grading")}
                         />
                       )}
                     </td>
@@ -1257,18 +1308,10 @@ export default function RefurbReceptionTable({
                             defaultValue={it.rma_defect_description ?? ""}
                             disabled={rowBooked}
                             onBlur={(e) =>
-                              handleCellChange(
-                                it.id,
-                                "rma_defect_description",
-                                e.target.value
-                              )
+                              handleCellChange(it.id, "rma_defect_description", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(
-                                e,
-                                originalIndex,
-                                "rma_defect_description"
-                              )
+                              handlePasteToColumn(e, originalIndex, "rma_defect_description")
                             }
                           />
                         </td>
@@ -1395,9 +1438,7 @@ export default function RefurbReceptionTable({
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "supplier_device_errors")
-                      }
+                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
                     />
                   </td>
 
@@ -1417,9 +1458,7 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, 0, "refurb_diagnostics")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
                         />
                       </td>
 
