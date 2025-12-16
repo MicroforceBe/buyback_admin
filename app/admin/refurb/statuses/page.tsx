@@ -84,7 +84,7 @@ export default async function RefurbStatusesPage() {
             />
           </div>
 
-          {/* NIEUW: kleur (synced picker + hex) */}
+          {/* Kleur (synced picker + hex) */}
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Kleur</label>
             <ColorPickerField defaultValue="#64748b" />
@@ -147,10 +147,15 @@ export default async function RefurbStatusesPage() {
                       className="bb-input h-7 text-[11px] px-1 w-full"
                     />
 
-                    {/* Kleur synced (picker ↔ hex) */}
+                    {/* ✅ FIX: ColorPickerField post naar settingsActions verwacht:
+                        - color_text (hex input)
+                        - color (picker input)
+                        De component moet dus die names gebruiken. */}
                     <ColorPickerField
                       defaultValue={(row as any).color ?? "#64748b"}
                       compact
+                      inputName="color_text"
+                      pickerName="color"
                     />
 
                     <input
