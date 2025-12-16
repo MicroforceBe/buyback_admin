@@ -796,9 +796,7 @@ export default function RefurbReceptionTable({
                 </div>
 
                 <div>
-                  <div className="text-[11px] text-slate-500 mb-1">
-                    Used parts (SKU’s)
-                  </div>
+                  <div className="text-[11px] text-slate-500 mb-1">Used parts (SKU’s)</div>
                   <textarea
                     className="bb-input w-full text-[11px] p-2 min-h-[110px]"
                     value={bulkPartsText}
@@ -858,47 +856,7 @@ export default function RefurbReceptionTable({
         )}
       </div>
 
-      {/* Table */}
-      <div className="border rounded-md overflow-x-auto text-xs">
-        <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-          <span className="font-medium text-[11px] uppercase tracking-wide">
-            Refurb Reception items
-          </span>
-          <div className="flex items-center gap-3">
-            {isPasting && (
-              <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <span
-                  className="inline-flex w-3 h-3 rounded-full border border-slate-400 border-t-transparent animate-spin"
-                  aria-hidden="true"
-                />
-                <span>Bezig met plakken...</span>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowExtraSn((v) => !v)}
-              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
-            >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full">
-                {showExtraSn ? "▲" : "▼"}
-              </span>
-              <span>Extra SN</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAdvanced((v) => !v)}
-              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
-            >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full">
-                {showAdvanced ? "▲" : "▼"}
-              </span>
-              <span>RMA</span>
-            </button>
-          </div>
-        </div>
-
-
-      {/* Table */}
+      {/* Table (ENKEL 1x — duplicaat verwijderd) */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
           <span className="font-medium text-[11px] uppercase tracking-wide">
@@ -1112,7 +1070,7 @@ export default function RefurbReceptionTable({
                             const optValue = opt.value;
 
                             // Als statusNextMap bestaat: toon alles, maar disable wat niet mag.
-                            // Als statusNextMap NIET bestaat: behoud oude UI-regels (finished -> only readyToBook, etc.)
+                            // Als statusNextMap NIET bestaat: behoud oude UI-regels
                             if (!allowedNextByStatus) {
                               if (
                                 isFinishedRow &&
@@ -1126,8 +1084,7 @@ export default function RefurbReceptionTable({
                                 norm(currentStatus) !== norm(defaultStatusValue);
 
                               const cannotSetBooked =
-                                norm(optValue) === "booked" &&
-                                !isReadyToBook(currentStatus);
+                                norm(optValue) === "booked" && !isReadyToBook(currentStatus);
 
                               const disabled =
                                 rowBooked || cannotGoBackToDefault || cannotSetBooked;
@@ -1157,7 +1114,11 @@ export default function RefurbReceptionTable({
                             }
 
                             return (
-                              <option key={opt.value} value={opt.value} disabled={disabled}>
+                              <option
+                                key={opt.value}
+                                value={opt.value}
+                                disabled={disabled}
+                              >
                                 {opt.label}
                               </option>
                             );
@@ -1234,7 +1195,9 @@ export default function RefurbReceptionTable({
                           onBlur={(e) =>
                             handleCellChange(it.id, "manual_sn", e.target.value.trim())
                           }
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "manual_sn")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, originalIndex, "manual_sn")
+                          }
                         />
                       </td>
                     )}
@@ -1516,7 +1479,9 @@ export default function RefurbReceptionTable({
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, 0, "supplier_device_errors")
+                      }
                     />
                   </td>
 
@@ -1536,7 +1501,9 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, 0, "refurb_diagnostics")
+                          }
                         />
                       </td>
 
@@ -1565,7 +1532,9 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
                           placeholder="Plak compensaties hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, 0, "compensation_cents")
+                          }
                         />
                       </td>
                     </>
