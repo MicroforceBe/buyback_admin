@@ -55,7 +55,11 @@ async function deleteRefurbReceptionAction(formData: FormData) {
 
   if (delItemsErr) {
     console.error("[REFURB] delete reception items error", delItemsErr);
-    redirect(`/admin/refurb?msg=delete_items_error:${encodeURIComponent(delItemsErr.message)}`);
+    redirect(
+      `/admin/refurb?msg=delete_items_error:${encodeURIComponent(
+        delItemsErr.message
+      )}`
+    );
   }
 
   // 2) dan de receptie zelf
@@ -66,7 +70,11 @@ async function deleteRefurbReceptionAction(formData: FormData) {
 
   if (delRecErr) {
     console.error("[REFURB] delete reception error", delRecErr);
-    redirect(`/admin/refurb?msg=delete_reception_error:${encodeURIComponent(delRecErr.message)}`);
+    redirect(
+      `/admin/refurb?msg=delete_reception_error:${encodeURIComponent(
+        delRecErr.message
+      )}`
+    );
   }
 
   revalidatePath("/admin/refurb");
@@ -129,16 +137,24 @@ export default async function RefurbListPage() {
                     <div className="mt-2 p-2 border rounded-md bg-white text-xs space-y-2">
                       <div className="text-slate-700">
                         Ben je zeker dat je receptie{" "}
-                        <span className="font-semibold">{r.reception_number}</span>{" "}
+                        <span className="font-semibold">
+                          {r.reception_number}
+                        </span>{" "}
                         definitief wil verwijderen?
                         <div className="text-[11px] text-slate-500">
                           (Dit verwijdert ook alle rijen/items.)
                         </div>
                       </div>
 
-                      <form action={deleteRefurbReceptionAction} className="flex items-center gap-2">
+                      <form
+                        action={deleteRefurbReceptionAction}
+                        className="flex items-center gap-2"
+                      >
                         <input type="hidden" name="reception_id" value={r.id} />
-                        <button type="submit" className="bb-btn text-[11px] px-2 h-7">
+                        <button
+                          type="submit"
+                          className="bb-btn text-[11px] px-2 h-7"
+                        >
                           Ja, definitief verwijderen
                         </button>
                       </form>
@@ -151,7 +167,10 @@ export default async function RefurbListPage() {
 
           {receptions.length === 0 && (
             <tr>
-              <td className="px-2 py-4 text-slate-500" colSpan={isAdmin ? 7 : 6}>
+              <td
+                className="px-2 py-4 text-slate-500"
+                colSpan={isAdmin ? 7 : 6}
+              >
                 Geen recepties gevonden.
               </td>
             </tr>
