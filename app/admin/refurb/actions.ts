@@ -839,3 +839,76 @@ export async function createRefurbReception(
 
   redirect(`/admin/refurb/${id}`);
 }
+
+export async function deleteRefurbReceptionItem(input: {
+  receptionId: string;
+  itemId: string;
+}): Promise<RefurbItem[]> {
+  const user = await getCurrentAdminUser();
+  if (!user || user.role !== "admin") {
+    throw new Error("Je hebt geen rechten om rijen te verwijderen.");
+  }
+
+  const { receptionId, itemId } = input;
+
+  const { data: row, error: rowErr } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("id, refurb_status")
+    .eq("id", itemId)
+    .single();
+
+  if (rowErr) {
+    console.error("[REFURB] deleteRefurbReceptionItem fetch error", rowErr);
+    throw new Error("Kon rij niet ophalen.");
+  }
+
+  if (isBooked((row as any)?.refurb_status)) {
+    throw new Error("Status is booked: deze rij kan niet verwijderd worden.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .delete()
+    .eq("id", itemId);
+
+  if (error) {
+    console.error("[REFURB] deleteRefurbReceptionItem delete error", error);
+    throw new Error("Rij verwijderen mislukt.");
+  }
+
+  revalidatePath(`/admin/refurb/${receptionId}`);
+  return fetchItemsForReception(receptionId);
+}
+
+export async function deleteRefurbReception(receptionId: string): Promise<void> {
+  const user = await getCurrentAdminUser();
+  if (!user || user.role !== "admin") {
+    throw new Error("Je hebt geen rechten om recepties te verwijderen.");
+  }
+
+  // eerst items verwijderen
+  const { error: e1 } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .delete()
+    .eq("reception_id", receptionId);
+
+  if (e1) {
+    console.error("[REFURB] deleteRefurbReception items delete error", e1);
+    throw new Error("Kon items van receptie niet verwijderen.");
+  }
+
+  // dan receptie
+  const { error: e2 } = await supabaseAdmin
+    .from("refurb_receptions")
+    .delete()
+    .eq("id", receptionId);
+
+  if (e2) {
+    console.error("[REFURB] deleteRefurbReception reception delete error", e2);
+    throw new Error("Receptie verwijderen mislukt.");
+  }
+
+  revalidatePath("/admin/refurb");
+  redirect("/admin/refurb");
+}
+
