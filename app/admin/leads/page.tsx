@@ -1,7 +1,11 @@
 // app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { updateLeadInlineAction, deleteLeadAction } from "./actions";
+import {
+  updateLeadInlineAction,
+  deleteLeadAction,
+  resyncSendcloudLabelAction,
+} from "./actions";
 import CustomerCell from "./CustomerCell";
 import DeviceCell from "./DeviceCell";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -1394,6 +1398,24 @@ export default async function LeadsPage({
                                   Download label
                                 </a>
                               )}
+                            {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
+                            {lead.delivery_method === "ship" &&
+                              (lead.status === "label_created" || lead.status === "shipment_received") &&
+                              !lead.tracking_code &&
+                              !lead.tracking_url &&
+                              !lead.label_pdf_url && (
+                                <form action={resyncSendcloudLabelAction} className="inline-flex">
+                                  <input type="hidden" name="id" value={lead.id} />
+                                  <button
+                                    type="submit"
+                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                    title="Resync: label + tracking opslaan en mail opnieuw sturen"
+                                    aria-label="Resync label"
+                                  >
+                                    🔄 Resync
+                                  </button>
+                                </form>
+                              )}                  
                             </div>
                           </details>
                         </div>
