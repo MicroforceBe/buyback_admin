@@ -417,8 +417,145 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
 }
 
 /**
+ * Probeer een bestaand shipment te vinden in Sendcloud op basis van externe referentie (order_code).
+ * We proberen query params, en filteren defensief client-side in de response.
+ */
+async function findExistingSendcloudShipmentByRef(
+  externalRef: string
+): Promise<CreateLabelResult | null> {
+  try {
+    if (!process.env.SENDCLOUD_PUBLIC_KEY || !process.env.SENDCLOUD_SECRET_KEY) {
+      console.warn("[SENDCLOUD] ontbrekende API keys; skip find existing shipment");
+      return null;
+    }
+    if (!externalRef) return null;
+
+    const url = new URL("https://panel.sendcloud.sc/api/v3/shipments");
+    url.searchParams.set("order_number", externalRef);
+    url.searchParams.set("external_reference", externalRef);
+    url.searchParams.set("reference", externalRef);
+
+    const resp = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: scAuthHeader(),
+        Accept: "application/json",
+      },
+    });
+
+    const rawText = await resp.text().catch(() => "");
+    console.info("[SENDCLOUD][V3 SHIPMENTS] find existing raw response", {
+      status: resp.status,
+      ok: resp.ok,
+      bodySnippet: rawText.slice(0, 1000),
+    });
+
+    if (!resp.ok) return null;
+
+    let data: any = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch (e: any) {
+      console.error(
+        "[SENDCLOUD][V3 SHIPMENTS] find existing response is not valid JSON:",
+        e?.message || e
+      );
+      return null;
+    }
+
+    const list: any[] = Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data)
+      ? data
+      : Array.isArray(data?.shipments)
+      ? data.shipments
+      : [];
+
+    if (!Array.isArray(list) || list.length === 0) return null;
+
+    const found = list.find((s: any) => {
+      const refs = [
+        s?.order_number,
+        s?.external_reference,
+        s?.reference,
+        s?.external_order_id,
+      ]
+        .filter(Boolean)
+        .map((x: any) => String(x));
+      return refs.includes(externalRef);
+    });
+
+    if (!found) return null;
+
+    const d: any = found;
+    const firstParcel: any = d?.parcels?.[0] ?? d?.parcel ?? null;
+
+    const trackingNumber: string | null =
+      d?.tracking_number ??
+      d?.parcel?.tracking_number ??
+      firstParcel?.tracking_number ??
+      null;
+
+    const trackingUrlFromApi: unknown =
+      d?.tracking_url ??
+      d?.parcel?.tracking_url ??
+      firstParcel?.tracking_url ??
+      null;
+
+    const trackingUrl: string | null =
+      typeof trackingUrlFromApi === "string" ? trackingUrlFromApi : null;
+
+    const docsArray: any[] =
+      d?.documents ??
+      d?.parcel?.documents ??
+      (firstParcel?.documents as any[]) ??
+      [];
+
+    let labelPdfUrl: string | null = null;
+    let parcelIdForLabel: string | null = null;
+
+    if (Array.isArray(docsArray)) {
+      const labelDoc = docsArray.find(
+        (doc) => doc && doc.type === "label" && typeof doc.link === "string"
+      );
+      if (labelDoc) {
+        const link = String(labelDoc.link);
+        const m = link.match(/parcels\/(\d+)\/documents\/label/);
+        if (m) parcelIdForLabel = m[1];
+        labelPdfUrl = link;
+      }
+    }
+
+    console.info("[SENDCLOUD][V3 SHIPMENTS] existing shipment found", {
+      externalRef,
+      trackingNumber,
+      hasLabelPdf: !!parcelIdForLabel || !!labelPdfUrl,
+    });
+
+    if (!trackingNumber && !trackingUrl && !parcelIdForLabel && !labelPdfUrl) {
+      return null;
+    }
+
+    return {
+      tracking_code: trackingNumber,
+      tracking_url: trackingUrl,
+      label_pdf_url: parcelIdForLabel ?? labelPdfUrl,
+    };
+  } catch (e: any) {
+    console.error("[SENDCLOUD][V3 SHIPMENTS] find existing exception", e?.message || e);
+    return null;
+  }
+}
+
+/**
  * Server action om opnieuw een label + tracking op te halen
  * en opnieuw de statusmail voor 'label_created' te sturen.
+ *
+ * NIEUW:
+ *  - eerst proberen bestaand shipment te vinden op order_code (externalRef)
+ *  - pas daarna (fallback) een nieuw label aanmaken
+ *  - mail enkel sturen als tracking/label effectief beschikbaar is
+ *  - adresvelden worden mee opgehaald (anders faalt create label)
  */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
@@ -453,6 +590,14 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
         "shop_location",
         "shop_id",
         "questions_answers_html",
+        // ✅ nodig voor Sendcloud from_address
+        "street",
+        "house_number",
+        "postal_code",
+        "city",
+        "country",
+        "phone",
+        // tracking
         "tracking_code",
         "tracking_url",
         "label_pdf_url",
@@ -473,9 +618,22 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent("resync_not_ship_lead")}`);
   }
 
-  // opnieuw label + tracking proberen
-  console.info("[LEADS][RESYNC] attempting Sendcloud label (manual resync)");
-  const made = await createSendcloudLabel(lead);
+  const externalRef: string =
+    (lead as any).order_code ||
+    String((lead as any).orderId || (lead as any).id || "");
+
+  // 1) eerst zoeken in Sendcloud op referentie
+  console.info("[LEADS][RESYNC] attempting Sendcloud lookup by reference", {
+    externalRef,
+  });
+  const existing = await findExistingSendcloudShipmentByRef(externalRef);
+
+  // 2) fallback: nieuw label aanmaken
+  let made: CreateLabelResult = existing ?? {};
+  if (!existing) {
+    console.info("[LEADS][RESYNC] no existing shipment found; attempting label creation");
+    made = await createSendcloudLabel(lead);
+  }
 
   let tracking_code: string | null =
     made.tracking_code ?? (lead as any).tracking_code ?? null;
@@ -484,7 +642,9 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
   let label_pdf_url: string | null =
     made.label_pdf_url ?? (lead as any).label_pdf_url ?? null;
 
-  if (tracking_code || tracking_url || label_pdf_url) {
+  const hasLabelNow = Boolean(tracking_code || tracking_url || label_pdf_url);
+
+  if (hasLabelNow) {
     const { error: trackErr } = await sb
       .from("buyback_leads")
       .update({ tracking_code, tracking_url, label_pdf_url })
@@ -496,11 +656,13 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
       console.info("[LEADS][RESYNC] tracking stored OK");
     }
   } else {
-    console.warn("[LEADS][RESYNC] label not created (no tracking/label returned)");
+    console.warn("[LEADS][RESYNC] no label created/found (no tracking/label returned)", {
+      externalRef,
+    });
   }
 
-  // indien er een e-mail is: opnieuw statusmail voor 'label_created'
-  if (lead.email) {
+  // ✅ mail enkel sturen als label/tracking effectief bestaat
+  if (lead.email && hasLabelNow) {
     try {
       await sendStatusUpdateMail({
         to: (lead as any).email,
@@ -530,9 +692,15 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
     } catch (e: any) {
       console.error("[LEADS][RESYNC] sendStatusUpdateMail failed:", e?.message || e);
     }
+  } else if (lead.email && !hasLabelNow) {
+    console.warn("[LEADS][RESYNC] skipping status mail: no label/tracking created/found");
   }
 
-  redirect(`/admin/leads?msg=${encodeURIComponent("resynced_label")}`);
+  redirect(
+    `/admin/leads?msg=${encodeURIComponent(
+      hasLabelNow ? "resynced_label" : "resync_no_label"
+    )}`
+  );
 }
 
 /**
