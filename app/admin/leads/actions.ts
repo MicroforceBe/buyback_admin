@@ -316,18 +316,15 @@ async function createSendcloudLabel(after: any): Promise<CreateLabelResult> {
       label_notes: externalRef ? `Buyback ${externalRef}` : "BUYBACK",
     };
 
-    const resp = await fetch(
-      "https://panel.sendcloud.sc/api/v3/shipments/announce",
-      {
-        method: "POST",
-        headers: {
-          Authorization: scAuthHeader(),
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    const resp = await fetch("https://panel.sendcloud.sc/api/v3/shipments/announce", {
+      method: "POST",
+      headers: {
+        Authorization: scAuthHeader(),
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
     const rawText = await resp.text().catch(() => "");
     console.info("[SENDCLOUD][V3 SHIPMENTS] raw response", {
@@ -846,7 +843,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  // 7) Status change → Sendcloud + mail (fire-and-forget)
+  // 7) Status change → Sendcloud + mail (SYNCHROON / AWAIT, NIET fire-and-forget)
   const prevStatus = (before as any)?.status as Status | undefined;
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
@@ -867,153 +864,152 @@ export async function updateLeadInlineAction(formData: FormData) {
     NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
 
   if (statusChanged && after?.email) {
-    (async () => {
-      try {
-        // Bij 'label_created' → maak verzendlabel + tracking via Sendcloud
-        let tracking_code: string | null | undefined =
-          (after as any).tracking_code ?? null;
-        let tracking_url: string | null | undefined =
-          (after as any).tracking_url ?? null;
-        let label_pdf_url: string | null | undefined =
-          (after as any).label_pdf_url ?? null;
+    try {
+      // Bij 'label_created' → maak verzendlabel + tracking via Sendcloud
+      let tracking_code: string | null | undefined =
+        (after as any).tracking_code ?? null;
+      let tracking_url: string | null | undefined =
+        (after as any).tracking_url ?? null;
+      let label_pdf_url: string | null | undefined =
+        (after as any).label_pdf_url ?? null;
 
-        if (newStatus === "label_created") {
-          console.info("[LEADS] attempting Sendcloud label (label_created)");
-          const made = await createSendcloudLabel(after);
-          if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
-            tracking_code = made.tracking_code ?? tracking_code ?? null;
-            tracking_url = made.tracking_url ?? tracking_url ?? null;
-            label_pdf_url = made.label_pdf_url ?? label_pdf_url ?? null;
+      if (newStatus === "label_created") {
+        console.info("[LEADS] attempting Sendcloud label (label_created)");
+        const made = await createSendcloudLabel(after);
 
-            const { error: trackErr } = await sb
-              .from("buyback_leads")
-              .update({ tracking_code, tracking_url, label_pdf_url })
-              .eq("id", id);
-            if (trackErr) {
-              console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
-            } else {
-              console.info("[LEADS][SENDCLOUD] tracking stored OK");
-            }
+        if (made.tracking_code || made.tracking_url || made.label_pdf_url) {
+          tracking_code = made.tracking_code ?? tracking_code ?? null;
+          tracking_url = made.tracking_url ?? tracking_url ?? null;
+          label_pdf_url = made.label_pdf_url ?? label_pdf_url ?? null;
+
+          const { error: trackErr } = await sb
+            .from("buyback_leads")
+            .update({ tracking_code, tracking_url, label_pdf_url })
+            .eq("id", id);
+          if (trackErr) {
+            console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
           } else {
-            console.warn(
-              "[LEADS][SENDCLOUD] label not created (no tracking/label returned)"
-            );
+            console.info("[LEADS][SENDCLOUD] tracking stored OK");
           }
+        } else {
+          console.warn(
+            "[LEADS][SENDCLOUD] label not created (no tracking/label returned)"
+          );
         }
-
-        // Shopdetails ophalen indien beschikbaar
-        let shop_address1: string | null = null;
-        let shop_zip: string | null = null;
-        let shop_city: string | null = null;
-        let opening_hours: Record<string, string> | null = null;
-
-        if ((after as any).shop_id) {
-          const { data: shop, error: shopErr } = await sb
-            .from("buyback_shops")
-            .select("name, address1, zip, city, opening_hours")
-            .eq("id", (after as any).shop_id)
-            .single();
-
-          if (!shopErr && shop) {
-            shop_address1 = shop.address1 ?? null;
-            shop_zip = shop.zip ?? null;
-            shop_city = shop.city ?? null;
-            opening_hours = (shop.opening_hours as any) ?? null;
-          }
-        }
-
-        await sendStatusUpdateMail({
-          to: (after as any).email,
-          first_name: (after as any).first_name,
-          last_name: (after as any).last_name,
-          order_code: (after as any).order_code,
-          status: newStatus as BuybackStatus, // 'cancelled' komt hier nooit
-          language: "nl",
-          model: (after as any).model,
-          capacity_gb: (after as any).capacity_gb,
-          variant: (after as any).variant ?? null,
-          final_price_cents: (after as any).final_price_cents,
-          wants_voucher: (after as any).wants_voucher ?? null,
-          iban: (after as any).iban ?? null,
-          delivery_method: (after as any).delivery_method,
-          shop_location: (after as any).shop_location,
-          shop_address1,
-          shop_zip,
-          shop_city,
-          opening_hours,
-          questions_answers_html: (after as any).questions_answers_html ?? null,
-          tracking_code: tracking_code ?? undefined,
-          tracking_url: tracking_url ?? undefined,
-          label_pdf_url: label_pdf_url ?? undefined,
-        });
-
-        // Finance-mail met aankoopborderel (bij geslaagde controle / done)
-        const shouldSendFinance = newStatus === "check_passed" || newStatus === "done";
-        if (shouldSendFinance) {
-          const { finance_email, brand_name } = await getNotificationSettings();
-          if (finance_email) {
-            try {
-              await sendFinanceBorderelMail({
-                to: finance_email,
-                status: newStatus === "check_passed" ? "check_passed" : "done",
-                // basis + identificatie
-                first_name: (after as any).first_name,
-                last_name: (after as any).last_name,
-                order_code: (after as any).order_code,
-                email: (after as any).email,
-                // toestel
-                model: (after as any).model,
-                capacity_gb: (after as any).capacity_gb,
-                variant: (after as any).variant ?? null,
-                sku: (after as any).sku ?? null,
-                imei_sn: (after as any).imei_sn ?? null,
-                // prijs / uitbetaling
-                final_price_cents: (after as any).final_price_cents,
-                wants_voucher: (after as any).wants_voucher ?? null,
-                iban: (after as any).iban ?? null,
-                // klant & adres
-                street: (after as any).street ?? null,
-                house_number: (after as any).house_number ?? null,
-                postal_code: (after as any).postal_code ?? null,
-                city: (after as any).city ?? null,
-                country: (after as any).country ?? null,
-                phone: (after as any).phone ?? null,
-                // levering / shop
-                delivery_method: (after as any).delivery_method,
-                shop_location: (after as any).shop_location,
-                shop_address1,
-                shop_zip,
-                shop_city,
-                opening_hours,
-                // tracking
-                tracking_code: tracking_code ?? undefined,
-                tracking_url: tracking_url ?? undefined,
-                label_pdf_url: label_pdf_url ?? undefined,
-                // extra voor finance
-                customer_number: (after as any).customer_number ?? null,
-                brand_name_override: brand_name,
-                // datums
-                created_at: (after as any).created_at ?? null,
-                done_at: (after as any).updated_at ?? null,
-                // batterij + onderdelen
-                battery_percentage: (after as any).battery_percentage ?? null,
-                used_parts_skus: (after as any).used_parts_skus ?? null,
-                // vragen/antwoorden (optioneel)
-                questions_answers_html: (after as any).questions_answers_html ?? null,
-              });
-            } catch (e: any) {
-              console.error("[LEADS][FINANCE] borderel mail failed:", e?.message || e);
-            }
-          } else {
-            console.warn(
-              "[LEADS][FINANCE] finance_email not configured; skipping borderel"
-            );
-          }
-        }
-      } catch (e: any) {
-        console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
       }
-    })();
+
+      // Shopdetails ophalen indien beschikbaar
+      let shop_address1: string | null = null;
+      let shop_zip: string | null = null;
+      let shop_city: string | null = null;
+      let opening_hours: Record<string, string> | null = null;
+
+      if ((after as any).shop_id) {
+        const { data: shop, error: shopErr } = await sb
+          .from("buyback_shops")
+          .select("name, address1, zip, city, opening_hours")
+          .eq("id", (after as any).shop_id)
+          .single();
+
+        if (!shopErr && shop) {
+          shop_address1 = shop.address1 ?? null;
+          shop_zip = shop.zip ?? null;
+          shop_city = shop.city ?? null;
+          opening_hours = (shop.opening_hours as any) ?? null;
+        }
+      }
+
+      await sendStatusUpdateMail({
+        to: (after as any).email,
+        first_name: (after as any).first_name,
+        last_name: (after as any).last_name,
+        order_code: (after as any).order_code,
+        status: newStatus as BuybackStatus, // 'cancelled' komt hier nooit
+        language: "nl",
+        model: (after as any).model,
+        capacity_gb: (after as any).capacity_gb,
+        variant: (after as any).variant ?? null,
+        final_price_cents: (after as any).final_price_cents,
+        wants_voucher: (after as any).wants_voucher ?? null,
+        iban: (after as any).iban ?? null,
+        delivery_method: (after as any).delivery_method,
+        shop_location: (after as any).shop_location,
+        shop_address1,
+        shop_zip,
+        shop_city,
+        opening_hours,
+        questions_answers_html: (after as any).questions_answers_html ?? null,
+        tracking_code: tracking_code ?? undefined,
+        tracking_url: tracking_url ?? undefined,
+        label_pdf_url: label_pdf_url ?? undefined,
+      });
+
+      // Finance-mail met aankoopborderel (bij geslaagde controle / done)
+      const shouldSendFinance = newStatus === "check_passed" || newStatus === "done";
+      if (shouldSendFinance) {
+        const { finance_email, brand_name } = await getNotificationSettings();
+        if (finance_email) {
+          try {
+            await sendFinanceBorderelMail({
+              to: finance_email,
+              status: newStatus === "check_passed" ? "check_passed" : "done",
+              // basis + identificatie
+              first_name: (after as any).first_name,
+              last_name: (after as any).last_name,
+              order_code: (after as any).order_code,
+              email: (after as any).email,
+              // toestel
+              model: (after as any).model,
+              capacity_gb: (after as any).capacity_gb,
+              variant: (after as any).variant ?? null,
+              sku: (after as any).sku ?? null,
+              imei_sn: (after as any).imei_sn ?? null,
+              // prijs / uitbetaling
+              final_price_cents: (after as any).final_price_cents,
+              wants_voucher: (after as any).wants_voucher ?? null,
+              iban: (after as any).iban ?? null,
+              // klant & adres
+              street: (after as any).street ?? null,
+              house_number: (after as any).house_number ?? null,
+              postal_code: (after as any).postal_code ?? null,
+              city: (after as any).city ?? null,
+              country: (after as any).country ?? null,
+              phone: (after as any).phone ?? null,
+              // levering / shop
+              delivery_method: (after as any).delivery_method,
+              shop_location: (after as any).shop_location,
+              shop_address1,
+              shop_zip,
+              shop_city,
+              opening_hours,
+              // tracking
+              tracking_code: tracking_code ?? undefined,
+              tracking_url: tracking_url ?? undefined,
+              label_pdf_url: label_pdf_url ?? undefined,
+              // extra voor finance
+              customer_number: (after as any).customer_number ?? null,
+              brand_name_override: brand_name,
+              // datums
+              created_at: (after as any).created_at ?? null,
+              done_at: (after as any).updated_at ?? null,
+              // batterij + onderdelen
+              battery_percentage: (after as any).battery_percentage ?? null,
+              used_parts_skus: (after as any).used_parts_skus ?? null,
+              // vragen/antwoorden (optioneel)
+              questions_answers_html: (after as any).questions_answers_html ?? null,
+            });
+          } catch (e: any) {
+            console.error("[LEADS][FINANCE] borderel mail failed:", e?.message || e);
+          }
+        } else {
+          console.warn(
+            "[LEADS][FINANCE] finance_email not configured; skipping borderel"
+          );
+        }
+      }
+    } catch (e: any) {
+      console.error("[LEADS][MAIL] sendStatusMail failed:", e?.message || e);
+    }
   }
 
   // 8) Diagnose/feedback
