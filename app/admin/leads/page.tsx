@@ -198,11 +198,7 @@ export default async function LeadsPage({
   const canReadLeads = hasPermission(adminUser, "leads", "read");
   const canWriteLeads = hasPermission(adminUser, "leads", "write");
   // Extra recht om van 'Controle succesvol' naar 'Afgewerkt/Geannuleerd' te gaan
-  const canFinalizeLeads = hasPermission(
-    adminUser,
-    "leads_finalize",
-    "write"
-  );
+  const canFinalizeLeads = hasPermission(adminUser, "leads_finalize", "write");
 
   if (!canReadLeads) {
     return (
@@ -225,18 +221,12 @@ export default async function LeadsPage({
   const modelF = (searchParams.model ?? "").trim();
   const variant = (searchParams.variant ?? "").trim();
   const statusF = (searchParams.status ?? "").trim();
-  const method = (searchParams.method ?? "").trim() as
-    | "ship"
-    | "dropoff"
-    | "";
+  const method = (searchParams.method ?? "").trim() as "ship" | "dropoff" | "";
   const priceMin = (searchParams.price_min ?? "").trim();
   const priceMax = (searchParams.price_max ?? "").trim();
   const cityF = (searchParams.city ?? "").trim();
   const shop = (searchParams.shop ?? "").trim();
-  const voucher = (searchParams.voucher ?? "").trim() as
-    | "yes"
-    | "no"
-    | "";
+  const voucher = (searchParams.voucher ?? "").trim() as "yes" | "no" | "";
 
   const sort = searchParams.sort ?? "created_at";
   const dir = (searchParams.dir ?? "desc") as "asc" | "desc";
@@ -246,6 +236,9 @@ export default async function LeadsPage({
     Math.max(10, parseInt(searchParams.limit ?? "50", 10) || 50)
   );
   const offset = (page - 1) * limit;
+
+  // ✅ NIEUW: standaard verberg "done" + "cancelled" tenzij expliciet status-filter gebruikt wordt
+  const defaultHideFinalStatuses = statusF === "";
 
   // === winkels ophalen voor de filter dropdown ===
   const { data: shopRows, error: shopsErr } = await supabaseAdmin
@@ -447,6 +440,11 @@ export default async function LeadsPage({
       ].join(","),
       { count: "exact" }
     );
+
+  // ✅ NIEUW: standaard geen "afgewerkt" of "geannuleerd" tonen
+  if (defaultHideFinalStatuses) {
+    query = query.not("status", "in", "(done,cancelled)");
+  }
 
   // Globale zoek
   if (q) {
@@ -721,10 +719,8 @@ export default async function LeadsPage({
           </div>
         )}
 
-        <details
-          className="border rounded-lg bg-white"
-          {...(hasActiveFilters ? { open: true } : {})}
-        >
+        {/* ✅ NIEUW: filterblok altijd open */}
+        <details className="border rounded-lg bg-white" open>
           <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center gap-2">
             Filters{" "}
             {hasActiveFilters ? (
@@ -1020,9 +1016,9 @@ export default async function LeadsPage({
                                       )}`;
                                     } else if (t === "price") {
                                       const to = Number(anyH.to ?? 0);
-                                      label = `Prijs: €${(
-                                        to / 100
-                                      ).toFixed(2)}`;
+                                      label = `Prijs: €${(to / 100).toFixed(
+                                        2
+                                      )}`;
                                     } else if (t === "device") {
                                       label = "Toestel: gegevens aangepast";
                                     } else {
@@ -1145,38 +1141,41 @@ export default async function LeadsPage({
                     lead.status !== "cancelled" &&
                     lead.status !== "check_passed" &&
                     lead.status !== "done" ? (
-                    <form
-                      action={updateLeadInlineAction}
-                      className="flex items-center justify-end gap-2"
-                    >
-                      <input type="hidden" name="id" value={lead.id} />
-                      <input type="hidden" name="change_type" value="price" />
-                    
-                      {/* ✅ nieuw: forceer dat voucher-kolom ook mee update */}
-                      <input type="hidden" name="update_voucher_price_too" value="1" />
-                    
-                      <input
-                        type="hidden"
-                        name="previous_final_price_cents"
-                        value={shownCents ?? ""}
-                      />
-                    
-                      <input
-                        name="final_price_eur"
-                        defaultValue={(((shownCents ?? 0) / 100)).toString()}
-                        className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                      />
-                      <button
-                        className="bb-btn subtle h-9 text-xs px-2"
-                        type="submit"
-                        title="Opslaan"
+                      <form
+                        action={updateLeadInlineAction}
+                        className="flex items-center justify-end gap-2"
                       >
-                        💾
-                      </button>
-                    </form>
+                        <input type="hidden" name="id" value={lead.id} />
+                        <input type="hidden" name="change_type" value="price" />
 
+                        {/* ✅ nieuw: forceer dat voucher-kolom ook mee update */}
+                        <input
+                          type="hidden"
+                          name="update_voucher_price_too"
+                          value="1"
+                        />
+
+                        <input
+                          type="hidden"
+                          name="previous_final_price_cents"
+                          value={shownCents ?? ""}
+                        />
+
+                        <input
+                          name="final_price_eur"
+                          defaultValue={((shownCents ?? 0) / 100).toString()}
+                          className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                        />
+                        <button
+                          className="bb-btn subtle h-9 text-xs px-2"
+                          type="submit"
+                          title="Opslaan"
+                        >
+                          💾
+                        </button>
+                      </form>
                     ) : (
                       <div className="text-sm text-right">
                         {shownCents != null ? (shownCents / 100).toFixed(2) : "—"}
@@ -1189,8 +1188,7 @@ export default async function LeadsPage({
                     {(() => {
                       const curr = (lead.status ?? "new") as Status;
 
-                      const isFinal =
-                        curr === "done" || curr === "cancelled";
+                      const isFinal = curr === "done" || curr === "cancelled";
                       const trans = isFinal
                         ? []
                         : allowedTransitions(curr, {
@@ -1336,12 +1334,8 @@ export default async function LeadsPage({
                                     className="bb-select-sm inline-block pr-6"
                                     data-cancel-select
                                   >
-                                    <option value="">
-                                      -- Kies reden --
-                                    </option>
-                                    <option value="Fake order">
-                                      Fake order
-                                    </option>
+                                    <option value="">-- Kies reden --</option>
+                                    <option value="Fake order">Fake order</option>
                                     <option value="Technische problemen met toestel">
                                       Technische problemen met toestel
                                     </option>
@@ -1354,9 +1348,7 @@ export default async function LeadsPage({
                                     <option value="Klant vindt dat het te lang duurt">
                                       Klant vindt dat het te lang duurt
                                     </option>
-                                    <option value="Test Order">
-                                      Test Order
-                                    </option>
+                                    <option value="Test Order">Test Order</option>
                                   </select>
                                 </label>
                               </div>
@@ -1398,24 +1390,28 @@ export default async function LeadsPage({
                                   Download label
                                 </a>
                               )}
-                            {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
-                            {lead.delivery_method === "ship" &&
-                              (lead.status === "label_created" || lead.status === "shipment_received") &&
-                              !lead.tracking_code &&
-                              !lead.tracking_url &&
-                              !lead.label_pdf_url && (
-                                <form action={resyncSendcloudLabelAction} className="inline-flex">
-                                  <input type="hidden" name="id" value={lead.id} />
-                                  <button
-                                    type="submit"
-                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                                    title="Resync: label + tracking opslaan en mail opnieuw sturen"
-                                    aria-label="Resync label"
+                              {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
+                              {lead.delivery_method === "ship" &&
+                                (lead.status === "label_created" ||
+                                  lead.status === "shipment_received") &&
+                                !lead.tracking_code &&
+                                !lead.tracking_url &&
+                                !lead.label_pdf_url && (
+                                  <form
+                                    action={resyncSendcloudLabelAction}
+                                    className="inline-flex"
                                   >
-                                    🔄 Resync
-                                  </button>
-                                </form>
-                              )}                  
+                                    <input type="hidden" name="id" value={lead.id} />
+                                    <button
+                                      type="submit"
+                                      className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                      title="Resync: label + tracking opslaan en mail opnieuw sturen"
+                                      aria-label="Resync label"
+                                    >
+                                      🔄 Resync
+                                    </button>
+                                  </form>
+                                )}
                             </div>
                           </details>
                         </div>
@@ -1428,10 +1424,7 @@ export default async function LeadsPage({
 
             {(!data || data.length === 0) && (
               <tr>
-                <td
-                  colSpan={7}
-                  className="px-3 py-6 text-center text-gray-500"
-                >
+                <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
                   Geen resultaten
                 </td>
               </tr>
