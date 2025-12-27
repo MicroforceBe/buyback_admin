@@ -93,105 +93,142 @@ function isBooked(status: string | null | undefined) {
 }
 
 /**
+ * Resolve status "value" robust:
+ * - Normal case: input is already refurb_status_options.value
+ * - If input is accidentally a label (bv "New"), map label -> value
+ *
+ * Returns:
+ * - { value, id } if found
+ * - null if not found
+ */
+async function resolveStatusValueAndId(input: string): Promise<{ value: string; id: string } | null> {
+  const raw = (input || "").trim();
+  if (!raw) return null;
+
+  // 1) Exact match on value
+  const byValue = await supabaseAdmin
+    .from("refurb_status_options")
+    .select("id, value")
+    .eq("value", raw)
+    .limit(1);
+
+  if (byValue.error) {
+    console.error("[REFURB] resolveStatusValueAndId by value error", byValue.error);
+  } else if (byValue.data && byValue.data.length > 0) {
+    const row = byValue.data[0] as any;
+    return { id: String(row.id), value: String(row.value) };
+  }
+
+  // 2) Case-insensitive match on label (fallback)
+  const byLabel = await supabaseAdmin
+    .from("refurb_status_options")
+    .select("id, value, label")
+    .ilike("label", raw)
+    .limit(1);
+
+  if (byLabel.error) {
+    console.error("[REFURB] resolveStatusValueAndId by label error", byLabel.error);
+    return null;
+  }
+
+  if (byLabel.data && byLabel.data.length > 0) {
+    const row = byLabel.data[0] as any;
+    return { id: String(row.id), value: String(row.value) };
+  }
+
+  return null;
+}
+
+/**
  * ================================
- * STATUS TRANSITIONS (NIEUW)
+ * STATUS TRANSITIONS (ID-based)
  * ================================
- * Tabel: refurb_status_transitions (from_value, to_value)
+ * Tabel: refurb_status_transitions (id, from_status_id, to_status_id, created_at)
+ *
  * - Als er nog GEEN transitions geconfigureerd zijn: fail-open (alles toegestaan, behalve booked rule).
  * - Als er wél transitions bestaan: enkel expliciet toegelaten paden.
- *
- * ✅ FIX:
- * Als er transitions bestaan, maar er is GEEN enkele "from_value" voor de huidige status,
- * dan gaan we fail-open voor die status (anders lockt alles als DB values niet exact matchen).
  */
 async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("refurb_status_transitions")
-    .select("id")
-    .limit(1);
+  const { data, error } = await supabaseAdmin.from("refurb_status_transitions").select("id").limit(1);
 
   if (error) {
     console.error("[REFURB] hasAnyStatusTransitionsConfigured error", error);
-    // fail-open bij DB glitch
-    return false;
+    return false; // fail-open bij DB glitch
   }
 
   return (data || []).length > 0;
 }
 
-async function hasAnyTransitionFrom(current: string): Promise<boolean> {
-  const cur = (current || "").trim();
-  if (!cur) return false;
+async function isTransitionAllowed(currentValue: string, nextValue: string): Promise<boolean> {
+  const curRaw = (currentValue || "").trim();
+  const nxtRaw = (nextValue || "").trim();
 
-  const { data, error } = await supabaseAdmin
-    .from("refurb_status_transitions")
-    .select("id")
-    .eq("from_value", cur)
-    .limit(1);
-
-  if (error) {
-    console.error("[REFURB] hasAnyTransitionFrom error", error);
-    // fail-open bij DB glitch
-    return false;
-  }
-
-  return (data || []).length > 0;
-}
-
-async function isTransitionAllowed(current: string, next: string): Promise<boolean> {
-  const cur = (current || "").trim();
-  const nxt = (next || "").trim();
-
-  if (!cur || !nxt) return true;
-  if (cur === nxt) return true;
+  if (!curRaw || !nxtRaw) return true;
+  if (curRaw === nxtRaw) return true;
 
   const configured = await hasAnyStatusTransitionsConfigured();
-  if (!configured) return true; // zolang je nog niets ingesteld hebt in de tab
+  if (!configured) return true;
 
-  // 1) bestaat exacte transition?
+  // Map current/next to option ids (via value; fallback label->value)
+  const curResolved = await resolveStatusValueAndId(curRaw);
+  const nxtResolved = await resolveStatusValueAndId(nxtRaw);
+
+  // Als mapping niet lukt, blokkeer NIET de UI (fail-open), maar log wel:
+  if (!curResolved || !nxtResolved) {
+    console.error("[REFURB] isTransitionAllowed could not resolve status option IDs", {
+      currentValue: curRaw,
+      nextValue: nxtRaw,
+      curResolved,
+      nxtResolved,
+    });
+    return true;
+  }
+
   const { data, error } = await supabaseAdmin
     .from("refurb_status_transitions")
     .select("id")
-    .eq("from_value", cur)
-    .eq("to_value", nxt)
+    .eq("from_status_id", curResolved.id)
+    .eq("to_status_id", nxtResolved.id)
     .limit(1);
 
   if (error) {
     console.error("[REFURB] isTransitionAllowed error", error);
-    return false;
+    // fail-open bij DB glitch, anders zit alles vast
+    return true;
   }
 
-  if ((data || []).length > 0) return true;
-
-  // 2) ✅ FIX: als er geen enkele transition bestaat voor deze "from", fail-open
-  const hasFrom = await hasAnyTransitionFrom(cur);
-  if (!hasFrom) return true;
-
-  // anders strict: niet toegestaan
-  return false;
+  return (data || []).length > 0;
 }
 
 async function canChangeStatus(opts: {
   current: string | null | undefined;
   next: string;
-}): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const current = (opts.current ?? "").trim();
-  const next = (opts.next ?? "").trim();
+}): Promise<{ ok: true; nextValue: string } | { ok: false; reason: string }> {
+  const currentRaw = (opts.current ?? "").trim();
+  const nextRaw = (opts.next ?? "").trim();
 
   // booked blijft immutable (harde regel)
-  if (isBooked(current) && norm(next) !== norm(current)) {
+  if (isBooked(currentRaw) && norm(nextRaw) !== norm(currentRaw)) {
     return { ok: false, reason: "Status is booked en kan niet meer gewijzigd worden." };
   }
 
-  const allowed = await isTransitionAllowed(current, next);
+  // Resolve next (label->value) zodat we altijd VALUE opslaan in refurb_reception_items
+  const nextResolved = await resolveStatusValueAndId(nextRaw);
+  const nextValue = nextResolved?.value ?? nextRaw;
+
+  // Resolve current ook, want oude rows kunnen label bevatten
+  const currentResolved = await resolveStatusValueAndId(currentRaw);
+  const currentValue = currentResolved?.value ?? currentRaw;
+
+  const allowed = await isTransitionAllowed(currentValue, nextValue);
   if (!allowed) {
     return {
       ok: false,
-      reason: `Status "${current}" kan niet naar "${next}" gezet worden.`,
+      reason: `Status "${currentRaw}" kan niet naar "${nextRaw}" gezet worden.`,
     };
   }
 
-  return { ok: true };
+  return { ok: true, nextValue };
 }
 
 function isCellEmpty(item: RefurbItem, field: PasteField): boolean {
@@ -249,7 +286,8 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
  * Eén cel updaten (inline edit vanuit UI).
  * UI zorgt ervoor dat "locked" kolommen geen input tonen als ze al gevuld zijn.
  *
- * ✅ NIEUW: statuswijziging wordt ook server-side gevalideerd via transitions.
+ * ✅ Statuswijziging wordt server-side gevalideerd via transitions (ID-based).
+ * ✅ We slaan altijd de STATUS "value" op (niet label).
  */
 export async function updateRefurbItemCell(
   itemId: string,
@@ -269,12 +307,15 @@ export async function updateRefurbItemCell(
       throw e0;
     }
 
-    const current = (row as any)?.refurb_status ?? "";
-    const verdict = await canChangeStatus({ current, next: value });
+    const currentRaw = (row as any)?.refurb_status ?? "";
+    const verdict = await canChangeStatus({ current: currentRaw, next: value });
 
     if (!verdict.ok) {
       throw new Error(verdict.reason);
     }
+
+    // overwrite value -> canonical status value
+    value = verdict.nextValue;
   }
 
   const patch: Partial<RefurbItem> = {};
@@ -305,9 +346,9 @@ export async function updateRefurbItemCell(
 }
 
 /**
- * ✅ Bulk update (snel: 1–3 DB updates)
+ * ✅ Bulk update
  * - location / used_parts: in één update op alle niet-booked rows
- * - refurb_status: alleen op rows waar statusregels het toelaten (ook in 1 update)
+ * - refurb_status: alleen op rows waar statusregels het toelaten
  */
 export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
@@ -352,8 +393,7 @@ export async function bulkUpdateRefurbItems(input: {
       updated += notBookedIds.length;
     } else {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] =
-        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
@@ -369,28 +409,30 @@ export async function bulkUpdateRefurbItems(input: {
       updated += notBookedIds.length;
     } else if (!patch.used_parts) {
       skipped += rows.length;
-      reasons["Status is booked (locked)"] =
-        (reasons["Status is booked (locked)"] ?? 0) + rows.length;
+      reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
     }
   }
 
   // refurb_status (per rij evalueren, dan 1 update op allowed ids)
   if (typeof patch.refurb_status === "string" && patch.refurb_status.trim()) {
+    // resolve patch status to canonical value once
+    const resolvedPatch = await resolveStatusValueAndId(patch.refurb_status.trim());
+    const patchValue = resolvedPatch?.value ?? patch.refurb_status.trim();
+
     const allowed: string[] = [];
 
     for (const r of rows) {
-      const current = r.refurb_status ?? "";
+      const currentRaw = r.refurb_status ?? "";
 
-      if (isBooked(current)) {
+      if (isBooked(currentRaw)) {
         skipped += 1;
-        reasons["Status is booked (locked)"] =
-          (reasons["Status is booked (locked)"] ?? 0) + 1;
+        reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + 1;
         continue;
       }
 
       const verdict = await canChangeStatus({
-        current,
-        next: patch.refurb_status,
+        current: currentRaw,
+        next: patchValue,
       });
 
       if (!verdict.ok) {
@@ -405,7 +447,7 @@ export async function bulkUpdateRefurbItems(input: {
     if (allowed.length) {
       const { error: e3 } = await supabaseAdmin
         .from("refurb_reception_items")
-        .update({ refurb_status: patch.refurb_status, updated_at: now })
+        .update({ refurb_status: patchValue, updated_at: now })
         .in("id", allowed);
 
       if (e3) throw e3;
@@ -425,8 +467,7 @@ export async function bulkUpdateRefurbItems(input: {
  * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
  *
  * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
- *
- * ✅ NIEUW: bij plakken in refurb_status kolom, server-side transitions respecteren (fail-open als niets geconfigureerd).
+ * ✅ Bij plakken in refurb_status: label->value + transitions (ID-based)
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
@@ -436,7 +477,6 @@ export async function pasteIntoRefurbColumn(
   defaultStatusValue?: string,
   defaultLocationValue?: string
 ): Promise<RefurbItem[]> {
-  // we strippen enkel carriage returns, maar bewaren lege lijnen
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
 
   if (!lines.length) {
@@ -455,37 +495,36 @@ export async function pasteIntoRefurbColumn(
     const raw = lines[i] ?? "";
     const trimmed = raw.trim();
 
-    // lege broncel: rowIndex schuift wél door, maar we doen niets op die rij
-    if (trimmed === "") {
-      continue;
-    }
+    if (trimmed === "") continue;
 
     let value: any = trimmed;
+
     if (field === "price_cents" || field === "compensation_cents") {
       value = parseMoneyToCents(trimmed);
+    }
+
+    // ✅ If pasting status, normalize to canonical value
+    if (field === "refurb_status") {
+      const resolved = await resolveStatusValueAndId(trimmed);
+      value = resolved?.value ?? trimmed;
     }
 
     const existingItem = existing.find((it) => it.row_index === rowIndex);
 
     if (existingItem) {
-      // Bestaande rij
       if (isLockAfterFill) {
-        // Supplier-kolom: alleen invullen als nog leeg
-        if (!isCellEmpty(existingItem, field)) {
-          continue; // skip, niet overschrijven
-        }
+        if (!isCellEmpty(existingItem, field)) continue;
       }
 
-      // status transitions afdwingen bij status-paste
       if (field === "refurb_status") {
         const verdict = await canChangeStatus({
           current: existingItem.refurb_status ?? "",
           next: String(value ?? ""),
         });
         if (!verdict.ok) {
-          // skip deze rij (geen throw, zodat bulk paste niet volledig faalt)
-          continue;
+          continue; // skip row, don't fail whole paste
         }
+        value = verdict.nextValue;
       }
 
       updates.push({
@@ -493,18 +532,16 @@ export async function pasteIntoRefurbColumn(
         patch: { [field]: value } as Partial<RefurbItem>,
       });
     } else {
-      // Nieuwe rij
       inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
-        refurb_status: defaultStatusValue || "",
+        refurb_status: defaultStatusValue || "new",
         location: defaultLocationValue || null,
         [field]: value,
       });
     }
   }
 
-  // Updates
   for (const u of updates) {
     const { error } = await supabaseAdmin
       .from("refurb_reception_items")
@@ -520,7 +557,6 @@ export async function pasteIntoRefurbColumn(
     }
   }
 
-  // Inserts in batch
   if (inserts.length) {
     const now = new Date().toISOString();
     const { error } = await supabaseAdmin.from("refurb_reception_items").insert(
@@ -540,7 +576,6 @@ export async function pasteIntoRefurbColumn(
     }
   }
 
-  // Alles opnieuw ophalen zodat client state klopt
   return fetchItemsForReception(receptionId);
 }
 
@@ -627,7 +662,6 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
     contact_email,
   });
 
-  // lijst opnieuw inladen op de leverancierspagina
   revalidatePath("/admin/refurb/suppliers");
 }
 
@@ -746,10 +780,6 @@ export async function createRefurbReception(
 
 /**
  * ✅ 1) Verwijder één rij uit een receptie
- * - Admin only
- * - Blokkeer als status = booked
- * - Re-index row_index zodat alles mooi aansluit
- * - Return: fresh items
  */
 export async function deleteRefurbReceptionItem(input: {
   receptionId: string;
@@ -791,7 +821,6 @@ export async function deleteRefurbReceptionItem(input: {
     throw new Error(e1.message || "Kon rij niet verwijderen.");
   }
 
-  // re-index: alle rijen met row_index > deletedIndex 1 naar boven schuiven
   const { data: tail, error: e2 } = await supabaseAdmin
     .from("refurb_reception_items")
     .select("id, row_index")
@@ -825,11 +854,6 @@ export async function deleteRefurbReceptionItem(input: {
 
 /**
  * ✅ 2) Verwijder een volledige receptie
- * - Admin only
- * - Verwijdert eerst items, dan receptie
- * - Revalidate /admin/refurb
- *
- * LET OP: geen redirect hier (overview action kan zelf redirecten).
  */
 export async function deleteRefurbReception(receptionId: string): Promise<void> {
   const user = await getCurrentAdminUser();
@@ -863,3 +887,4 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
 
   revalidatePath("/admin/refurb");
 }
+
