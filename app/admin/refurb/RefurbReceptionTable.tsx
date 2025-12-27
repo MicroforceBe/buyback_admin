@@ -71,14 +71,20 @@ function parseUsedParts(raw: string | null): string[] {
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
 }
+
+// ✅ normalize status keys robust (ready_to_book == ready to book, etc.)
+function normStatusKey(s: string) {
+  return norm(s).replace(/_/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function containsFinished(status: string | null | undefined) {
   return norm(status || "").includes("finished");
 }
 function isBooked(status: string | null | undefined) {
-  return norm(status || "") === "booked";
+  return normStatusKey(status || "") === "booked";
 }
 function isReadyToBook(status: string | null | undefined) {
-  return norm(status || "") === "ready to book";
+  return normStatusKey(status || "") === "ready to book";
 }
 
 /**
@@ -95,13 +101,13 @@ function canChangeStatusFallback(opts: {
   const next = opts.next;
   const def = opts.defaultStatusValue;
 
-  if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
+  if (containsFinished(current) && normStatusKey(next) !== normStatusKey(opts.readyToBookValue)) {
     return {
       ok: false,
       reason: "Finished-status kan enkel op Ready to Book gezet worden.",
     };
   }
-  if (isBooked(current) && norm(next) !== norm(current)) {
+  if (isBooked(current) && normStatusKey(next) !== normStatusKey(current)) {
     return {
       ok: false,
       reason: "Status is booked en kan niet meer gewijzigd worden.",
@@ -113,7 +119,7 @@ function canChangeStatusFallback(opts: {
       reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
     };
   }
-  if (norm(next) === norm(def) && norm(current) !== norm(def)) {
+  if (normStatusKey(next) === normStatusKey(def) && normStatusKey(current) !== normStatusKey(def)) {
     return {
       ok: false,
       reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt.",
@@ -229,9 +235,7 @@ function UsedPartsCell({
             value={part}
             onChange={(e) => updatePart(i, e.target.value)}
             onBlur={commit}
-            onPaste={
-              i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined
-            }
+            onPaste={i === 0 && onPasteToColumn ? (e) => onPasteToColumn(e) : undefined}
           />
           <CopyBtn value={part.trim()} title="Copy used part SKU" />
           {rows.length > 1 && (
@@ -302,13 +306,29 @@ export default function RefurbReceptionTable({
 
   const hasItems = items.length > 0;
   const colSpan =
-    BASE_COL_COUNT +
-    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
-    (showAdvanced ? ADVANCED_COL_COUNT : 0);
+    BASE_COL_COUNT + (showExtraSn ? EXTRA_SN_COL_COUNT : 0) + (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
     for (const s of statusOptions) m.set(s.value, s);
+    return m;
+  }, [statusOptions]);
+
+  const statusOptionByNormKey = useMemo(() => {
+    const m = new Map<string, RefurbStatusOption[]>();
+    for (const s of statusOptions) {
+      const k = normStatusKey(s.value);
+      const arr = m.get(k) ?? [];
+      arr.push(s);
+      m.set(k, arr);
+      // ook label meenemen als index (soms staan transitions per label)
+      const kl = normStatusKey((s as any).label ?? "");
+      if (kl && kl !== k) {
+        const arr2 = m.get(kl) ?? [];
+        arr2.push(s);
+        m.set(kl, arr2);
+      }
+    }
     return m;
   }, [statusOptions]);
 
@@ -322,8 +342,7 @@ export default function RefurbReceptionTable({
     return new Map(statusOptions.map((s: any) => [s.value, s.color ?? null]));
   }, [statusOptions]);
 
-  const transitions: StatusTransitionsMap | null =
-    statusNextMap ?? statusTransitions ?? null;
+  const transitions: StatusTransitionsMap | null = statusNextMap ?? statusTransitions ?? null;
 
   const allowedNextByStatus = useMemo(() => {
     if (!transitions) return null;
@@ -334,54 +353,75 @@ export default function RefurbReceptionTable({
     for (const [from, arr] of Object.entries(transitions)) {
       const set = new Set((arr || []).filter(Boolean));
       exact.set(from, set);
-      normalized.set(norm(from), new Set(Array.from(set.values())));
+      normalized.set(normStatusKey(from), new Set(Array.from(set.values())));
     }
 
     return { exact, normalized };
   }, [transitions]);
 
-function getAllowedNextSet(currentStatus: string) {
-  if (!allowedNextByStatus) {
-    return { hasMapForCurrent: false, set: null as Set<string> | null };
+  /**
+   * ✅ Resolves transitions into concrete statusOption values.
+   * - Als mapping "stuk" is (bv. transitions bevatten labels i.p.v. values),
+   *   proberen we te matchen op value én label.
+   * - Als er uiteindelijk niets resolvebaar is: fail-open (geen map-mode).
+   */
+  function resolveAllowedNextValues(currentStatus: string): {
+    hasMapForCurrent: boolean;
+    allowedValues: Set<string> | null;
+    rawSet: Set<string> | null;
+  } {
+    if (!allowedNextByStatus) {
+      return { hasMapForCurrent: false, allowedValues: null, rawSet: null };
+    }
+
+    const cur = (currentStatus || "").trim();
+    const rawExact = allowedNextByStatus.exact.get(cur) ?? null;
+    const rawNorm = allowedNextByStatus.normalized.get(normStatusKey(cur)) ?? null;
+    const rawSet = rawExact ?? rawNorm ?? null;
+
+    // enkel map-mode als er effectief een rawSet bestaat met minstens 1 entry
+    const hasMapForCurrent = Boolean(rawSet && rawSet.size > 0);
+    if (!hasMapForCurrent || !rawSet) {
+      return { hasMapForCurrent: false, allowedValues: null, rawSet: null };
+    }
+
+    // probeer raw waarden te resolven naar echte statusOptions (op value OF label)
+    const resolved = new Set<string>();
+    for (const raw of Array.from(rawSet.values())) {
+      const k = normStatusKey(raw);
+      const matches = statusOptionByNormKey.get(k) ?? [];
+      for (const opt of matches) resolved.add(opt.value);
+    }
+
+    // ✅ als niets resolvebaar is: fail-open (geen map-mode, anders raakt alles disabled)
+    if (resolved.size === 0) {
+      return { hasMapForCurrent: false, allowedValues: null, rawSet };
+    }
+
+    return { hasMapForCurrent: true, allowedValues: resolved, rawSet };
   }
 
-  const cur = (currentStatus || "").trim();
-  const setExact = allowedNextByStatus.exact.get(cur);
-  const setNorm = allowedNextByStatus.normalized.get(norm(cur));
-  const set = setExact ?? setNorm ?? null;
-
-  // ✅ BELANGRIJK:
-  // enkel "map-mode" als er effectief minstens 1 toegelaten volgende status is
-  const hasMapForCurrent = Boolean(set && set.size > 0);
-
-  return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
-}
-
-
-  function isTransitionAllowed(
-    current: string,
-    next: string
-  ): { ok: true } | { ok: false; reason: string } {
+  function isTransitionAllowed(current: string, next: string): { ok: true } | { ok: false; reason: string } {
     const cur = (current || "").trim();
     const nxt = (next || "").trim();
 
     // booked blijft altijd hard lock
-    if (isBooked(cur) && norm(nxt) !== norm(cur)) {
+    if (isBooked(cur) && normStatusKey(nxt) !== normStatusKey(cur)) {
       return {
         ok: false,
         reason: "Status is booked en kan niet meer gewijzigd worden.",
       };
     }
 
-    // ✅ Alleen map als er effectief een entry bestaat voor deze current status
-    const { hasMapForCurrent, set } = getAllowedNextSet(cur);
-    if (allowedNextByStatus && hasMapForCurrent) {
-      if (norm(nxt) === norm(cur)) return { ok: true };
+    const { hasMapForCurrent, allowedValues } = resolveAllowedNextValues(cur);
+
+    // ✅ map-mode alleen als mapping bruikbaar is
+    if (allowedNextByStatus && hasMapForCurrent && allowedValues) {
+      if (normStatusKey(nxt) === normStatusKey(cur)) return { ok: true };
 
       const allowed =
-        (set && set.has(nxt)) ||
-        (set &&
-          Array.from(set.values()).some((v) => norm(v) === norm(nxt)));
+        allowedValues.has(nxt) ||
+        Array.from(allowedValues.values()).some((v) => normStatusKey(v) === normStatusKey(nxt));
 
       if (!allowed) {
         return {
@@ -483,10 +523,8 @@ function getAllowedNextSet(currentStatus: string) {
 
   const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
-  const allFilteredSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
-  const someFilteredSelected =
-    filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
 
   useEffect(() => {
     if (!headerCheckboxRef.current) return;
@@ -551,6 +589,7 @@ function getAllowedNextSet(currentStatus: string) {
       }
     }
 
+    // optimistic UI
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
@@ -571,8 +610,16 @@ function getAllowedNextSet(currentStatus: string) {
       if (field === "refurb_status" || field === "location") {
         router.refresh();
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[REFURB] updateCell client error", e);
+
+      // ✅ rollback: herlaad items zodat UI niet “vast” blijft in foute state
+      try {
+        const fresh = await fetchReceptionItems(receptionId);
+        setItems(fresh);
+      } catch {}
+
+      window.alert(e?.message || "Wijziging mislukt (zie logs).");
     }
   }
 
@@ -613,8 +660,9 @@ function getAllowedNextSet(currentStatus: string) {
       );
       setItems(updated);
       router.refresh();
-    } catch (err) {
+    } catch (err: any) {
       console.error("[REFURB] pasteToColumn client error", err);
+      window.alert(err?.message || "Plakken mislukt (zie logs).");
     } finally {
       setIsPasting(false);
     }
@@ -710,7 +758,9 @@ function getAllowedNextSet(currentStatus: string) {
     }
 
     const ok = window.confirm(
-      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${(item as any).imei_sn ?? "—"}`
+      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${
+        (item as any).imei_sn ?? "—"
+      }`
     );
     if (!ok) return;
 
@@ -824,9 +874,7 @@ function getAllowedNextSet(currentStatus: string) {
 
               {/* rechts */}
               <div className="flex-1 flex flex-col mt-3 md:mt-0">
-                <div className="text-[11px] text-slate-500 mb-1">
-                  IMEI/SN lijst (voor target “op IMEI/SN”)
-                </div>
+                <div className="text-[11px] text-slate-500 mb-1">IMEI/SN lijst (voor target “op IMEI/SN”)</div>
                 <textarea
                   className="bb-input w-full text-[11px] p-2 flex-1 h-full min-h-[calc(110px+72px)]"
                   value={bulkImeiText}
@@ -875,9 +923,7 @@ function getAllowedNextSet(currentStatus: string) {
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-          <span className="font-medium text-[11px] uppercase tracking-wide">
-            Refurb Reception items
-          </span>
+          <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
           <div className="flex items-center gap-3">
             {isPasting && (
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
@@ -1026,35 +1072,28 @@ function getAllowedNextSet(currentStatus: string) {
 
                 const rowChecked = selectedIds.has(it.id);
 
-                const { hasMapForCurrent, set: allowedNextSet } =
-                  getAllowedNextSet(currentStatus);
-
-                // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
-                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
+                const { hasMapForCurrent, allowedValues } = resolveAllowedNextValues(currentStatus);
+                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent && allowedValues);
 
                 // ✅ status dropdown options
                 const visibleStatusOptions = (() => {
-                  if (!mapModeForRow) return statusOptions;
+                  if (!mapModeForRow || !allowedValues) return statusOptions;
 
-                  const curNorm = norm(currentStatus);
+                  const curNorm = normStatusKey(currentStatus);
                   const allowedNorms = new Set<string>();
-                  if (allowedNextSet) {
-                    for (const v of Array.from(allowedNextSet.values())) {
-                      allowedNorms.add(norm(v));
-                    }
+                  for (const v of Array.from(allowedValues.values())) {
+                    allowedNorms.add(normStatusKey(v));
                   }
 
                   return statusOptions.filter((opt) => {
-                    const vNorm = norm(opt.value);
+                    const vNorm = normStatusKey(opt.value);
                     return vNorm === curNorm || allowedNorms.has(vNorm);
                   });
                 })();
 
-                // ✅ als map-mode maar 0/1 opties: toch niet hard disablen (want dat was het probleem),
-                // maar in map-mode kan dit enkel als de map effectief geen vervolgen gaf: dan blijft 'current' en is wisselen sowieso zinloos.
-                const rowHasChoices = mapModeForRow
-                  ? visibleStatusOptions.length > 1
-                  : statusOptions.length > 0;
+                // ✅ never hard-disable because “map exists but resolves to nothing”
+                // mapModeForRow is already false in that case.
+                const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
 
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
@@ -1091,9 +1130,7 @@ function getAllowedNextSet(currentStatus: string) {
                         <select
                           value={currentStatus}
                           disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
-                          onChange={(e) =>
-                            handleCellChange(it.id, "refurb_status", e.target.value)
-                          }
+                          onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
                           className="bb-select bb-select-sm w-full text-slate-900"
                           title={
                             rowBooked
@@ -1113,28 +1150,22 @@ function getAllowedNextSet(currentStatus: string) {
 
                                 if (
                                   isFinishedRow &&
-                                  norm(optValue) !== norm(readyToBookValue)
+                                  normStatusKey(optValue) !== normStatusKey(readyToBookValue)
                                 ) {
                                   return null;
                                 }
 
                                 const cannotGoBackToDefault =
-                                  norm(optValue) === norm(defaultStatusValue) &&
-                                  norm(currentStatus) !== norm(defaultStatusValue);
+                                  normStatusKey(optValue) === normStatusKey(defaultStatusValue) &&
+                                  normStatusKey(currentStatus) !== normStatusKey(defaultStatusValue);
 
                                 const cannotSetBooked =
-                                  norm(optValue) === "booked" &&
-                                  !isReadyToBook(currentStatus);
+                                  normStatusKey(optValue) === "booked" && !isReadyToBook(currentStatus);
 
-                                const disabled =
-                                  rowBooked || cannotGoBackToDefault || cannotSetBooked;
+                                const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
                                 return (
-                                  <option
-                                    key={opt.value}
-                                    value={opt.value}
-                                    disabled={disabled}
-                                  >
+                                  <option key={opt.value} value={opt.value} disabled={disabled}>
                                     {opt.label}
                                   </option>
                                 );
@@ -1153,9 +1184,7 @@ function getAllowedNextSet(currentStatus: string) {
                       <select
                         value={locationValue}
                         disabled={rowBooked}
-                        onChange={(e) =>
-                          handleCellChange(it.id, "location", e.target.value)
-                        }
+                        onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
                         className="bb-select bb-select-sm w-full text-slate-900"
                       >
                         {locationValue && !locationOptionByValue.has(locationValue) && (
@@ -1189,9 +1218,7 @@ function getAllowedNextSet(currentStatus: string) {
                                 )
                               );
                             }}
-                            onBlur={(e) =>
-                              handleCellChange(it.id, "imei_sn", e.target.value.trim())
-                            }
+                            onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
                             onPaste={(e) => handlePasteToColumn(e, originalIndex, "imei_sn")}
                           />
                         )}
@@ -1213,12 +1240,8 @@ function getAllowedNextSet(currentStatus: string) {
                               )
                             );
                           }}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "manual_sn", e.target.value.trim())
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "manual_sn")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "manual_sn")}
                         />
                       </td>
                     )}
@@ -1243,9 +1266,7 @@ function getAllowedNextSet(currentStatus: string) {
                         rawValue={it.used_parts ?? ""}
                         locked={rowBooked}
                         onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-                        onPasteToColumn={(e) =>
-                          handlePasteToColumn(e, originalIndex, "used_parts")
-                        }
+                        onPasteToColumn={(e) => handlePasteToColumn(e, originalIndex, "used_parts")}
                       />
                     </td>
 
@@ -1257,18 +1278,12 @@ function getAllowedNextSet(currentStatus: string) {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
                           defaultValue={
-                            typeof it.price_cents === "number"
-                              ? (it.price_cents / 100).toString()
-                              : ""
+                            typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""
                           }
                           disabled={rowBooked}
                           placeholder="0,00"
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "price_cents", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "price_cents")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "price_cents")}
                         />
                       )}
                     </td>
@@ -1284,12 +1299,8 @@ function getAllowedNextSet(currentStatus: string) {
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.description ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "description", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "description")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "description")}
                         />
                       )}
                     </td>
@@ -1324,12 +1335,8 @@ function getAllowedNextSet(currentStatus: string) {
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           defaultValue={it.supplier_grading ?? ""}
                           disabled={rowBooked}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "supplier_grading", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "supplier_grading")
-                          }
+                          onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
+                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "supplier_grading")}
                         />
                       )}
                     </td>
@@ -1475,9 +1482,7 @@ function getAllowedNextSet(currentStatus: string) {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "supplier_device_errors")
-                      }
+                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
                     />
                   </td>
 
@@ -1495,9 +1500,7 @@ function getAllowedNextSet(currentStatus: string) {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, 0, "refurb_diagnostics")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
                         />
                       </td>
 
@@ -1505,9 +1508,7 @@ function getAllowedNextSet(currentStatus: string) {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak RMA defect beschrijving hier"
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, 0, "rma_defect_description")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, 0, "rma_defect_description")}
                         />
                       </td>
 
@@ -1523,9 +1524,7 @@ function getAllowedNextSet(currentStatus: string) {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
                           placeholder="Plak compensaties hier"
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, 0, "compensation_cents")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
                         />
                       </td>
                     </>
@@ -1537,10 +1536,9 @@ function getAllowedNextSet(currentStatus: string) {
                     className="px-2 py-3 border text-[11px] text-slate-500"
                     colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
                   >
-                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van
-                    de velden hierboven (bv. IMEI/SN, SKU, Description, Price...) om rijen
-                    aan te maken. Status en Location gebruiken hun ingestelde default-waarde
-                    bij het importeren.
+                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van de velden hierboven
+                    (bv. IMEI/SN, SKU, Description, Price...) om rijen aan te maken. Status en Location gebruiken hun
+                    ingestelde default-waarde bij het importeren.
                   </td>
                 </tr>
               </>
