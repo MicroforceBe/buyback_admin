@@ -340,17 +340,23 @@ export default function RefurbReceptionTable({
     return { exact, normalized };
   }, [transitions]);
 
-  function getAllowedNextSet(currentStatus: string) {
-    if (!allowedNextByStatus) {
-      return { hasMapForCurrent: false, set: null as Set<string> | null };
-    }
-    const cur = (currentStatus || "").trim();
-    const setExact = allowedNextByStatus.exact.get(cur);
-    const setNorm = allowedNextByStatus.normalized.get(norm(cur));
-    const set = setExact ?? setNorm ?? null;
-    const hasMapForCurrent = Boolean(setExact || setNorm);
-    return { hasMapForCurrent, set };
+function getAllowedNextSet(currentStatus: string) {
+  if (!allowedNextByStatus) {
+    return { hasMapForCurrent: false, set: null as Set<string> | null };
   }
+
+  const cur = (currentStatus || "").trim();
+  const setExact = allowedNextByStatus.exact.get(cur);
+  const setNorm = allowedNextByStatus.normalized.get(norm(cur));
+  const set = setExact ?? setNorm ?? null;
+
+  // ✅ BELANGRIJK:
+  // enkel "map-mode" als er effectief minstens 1 toegelaten volgende status is
+  const hasMapForCurrent = Boolean(set && set.size > 0);
+
+  return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
+}
+
 
   function isTransitionAllowed(
     current: string,
