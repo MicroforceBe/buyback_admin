@@ -1,15 +1,11 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
-// ❌ getCurrentAdminUser veroorzaakt cookie-set tijdens render → runtime error
-// import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
   getRefurbStatusOptions,
   getRefurbLocationOptions,
-  getRefurbStatusTransitions,
   type RefurbStatusOption,
   type RefurbLocationOption,
-  type RefurbStatusTransitionsMap,
 } from "../settingsActions";
 
 export const dynamic = "force-dynamic";
@@ -89,7 +85,6 @@ async function getReception(id: string): Promise<RefurbReception | null> {
     return null;
   }
 
-  // Supabase geeft hier vaak een array terug voor de relatie.
   const raw = data as any;
 
   const supplierRel = Array.isArray(raw.supplier)
@@ -181,12 +176,6 @@ async function getRefurbModels(): Promise<RefurbModel[]> {
   return (data || []) as RefurbModel[];
 }
 
-/**
- * Bepaal model van een toestel:
- * - Alleen op basis van description.
- * - Als één van de comma-gescheiden search_keywords in description voorkomt,
- *   dan is het model = model.name.
- */
 function determineModelForItem(item: RefurbItemRow, models: RefurbModel[]): RefurbModel | null {
   if (!models.length) return null;
 
@@ -215,9 +204,72 @@ function norm(s: string) {
   return (s || "").trim().toLowerCase();
 }
 
-// ✅ robust: "ready_to_book" en "ready to book" gelijk trekken
-function normStatusKey(s: string) {
-  return norm(s).replace(/_/g, " ").replace(/\s+/g, " ").trim();
+/**
+ * ✅ Canonicalize status in rows:
+ * - If row has a label (e.g. "New") instead of value, map it to option.value.
+ * - If unknown: keep as-is.
+ */
+function canonicalizeStatusValue(raw: string | null | undefined, statusOptions: RefurbStatusOption[]) {
+  const v = (raw ?? "").trim();
+  if (!v) return v;
+
+  // exact match on value
+  const byValue = statusOptions.find((o: any) => (o?.value ?? "").trim() === v);
+  if (byValue) return byValue.value;
+
+  // match on label (case-insensitive)
+  const vNorm = norm(v);
+  const byLabel = statusOptions.find((o: any) => norm(o?.label ?? "") === vNorm);
+  if (byLabel) return byLabel.value;
+
+  return v;
+}
+
+/**
+ * ✅ Build transitions map using ID-based transitions table:
+ * refurb_status_transitions(from_status_id, to_status_id)
+ * refurb_status_options(id, value)
+ */
+async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
+  const [{ data: options, error: e1 }, { data: transitions, error: e2 }] = await Promise.all([
+    supabaseAdmin.from("refurb_status_options").select("id, value"),
+    supabaseAdmin.from("refurb_status_transitions").select("from_status_id, to_status_id"),
+  ]);
+
+  if (e1) {
+    console.error("[REFURB] buildStatusTransitionsMap options error", e1);
+    return {};
+  }
+  if (e2) {
+    console.error("[REFURB] buildStatusTransitionsMap transitions error", e2);
+    return {};
+  }
+
+  const idToValue = new Map<string, string>();
+  for (const row of (options || []) as any[]) {
+    if (!row?.id || !row?.value) continue;
+    idToValue.set(String(row.id), String(row.value));
+  }
+
+  const map: Record<string, string[]> = {};
+
+  for (const tr of (transitions || []) as any[]) {
+    const fromId = String(tr.from_status_id ?? "");
+    const toId = String(tr.to_status_id ?? "");
+    const fromValue = idToValue.get(fromId);
+    const toValue = idToValue.get(toId);
+    if (!fromValue || !toValue) continue;
+
+    if (!map[fromValue]) map[fromValue] = [];
+    map[fromValue].push(toValue);
+  }
+
+  // de-dup
+  for (const k of Object.keys(map)) {
+    map[k] = Array.from(new Set(map[k]));
+  }
+
+  return map;
 }
 
 export default async function RefurbReceptionDetailPage({
@@ -231,22 +283,25 @@ export default async function RefurbReceptionDetailPage({
     return (
       <div className="p-4">
         <h1 className="text-lg font-semibold mb-2">Refurb reception</h1>
-        <p className="text-sm text-red-600">
-          Receptie niet gevonden (id: {params.id}).
-        </p>
+        <p className="text-sm text-red-600">Receptie niet gevonden (id: {params.id}).</p>
       </div>
     );
   }
 
-  const [items, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
+  const [itemsRaw, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
     getReceptionItems(reception.id),
     getRefurbStatusOptions(),
     getRefurbLocationOptions(),
     getRefurbModels(),
-    getRefurbStatusTransitions(),
+    buildStatusTransitionsMap(),
   ]);
 
-  // ✅ Default location bepalen NA het ophalen van locationOptions
+  // ✅ Canonicalize status values in the loaded items (fix label-vs-value historical data)
+  const items = (itemsRaw || []).map((it) => ({
+    ...it,
+    refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || []),
+  }));
+
   const locationList = locationOptions || [];
 
   const defaultLocFromFlag =
@@ -264,7 +319,6 @@ export default async function RefurbReceptionDetailPage({
   const supplierVat = reception.supplier?.vat_number ?? null;
   const supplierEmail = reception.supplier?.contact_email ?? null;
 
-  // ✅ Default status + Ready to Book bepalen uit settings (robust, met fallback)
   const statusList = statusOptions || [];
 
   const defaultFromFlag =
@@ -277,8 +331,8 @@ export default async function RefurbReceptionDetailPage({
     (defaultFromFlag?.value as string) || (statusList[0]?.value as string) || "";
 
   const readyToBook =
-    statusList.find((s) => normStatusKey((s as any).value) === "ready to book") ||
-    statusList.find((s) => normStatusKey((s as any).label) === "ready to book") ||
+    statusList.find((s) => norm((s as any).value) === "ready to book") ||
+    statusList.find((s) => norm((s as any).label) === "ready to book") ||
     null;
 
   const readyToBookValue: string = (readyToBook?.value as string) || "";
@@ -303,7 +357,7 @@ export default async function RefurbReceptionDetailPage({
 
   const statusCountMap = new Map<string, number>();
   for (const it of items) {
-    const key = it.refurb_status || "onbekend";
+    const key = (it.refurb_status || "onbekend").trim() || "onbekend";
     statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
   }
 
@@ -362,7 +416,7 @@ export default async function RefurbReceptionDetailPage({
   for (const it of items) {
     const matchedModel = determineModelForItem(it, models);
     if (matchedModel) {
-      const statusKey = it.refurb_status || "onbekend";
+      const statusKey = (it.refurb_status || "onbekend").trim() || "onbekend";
       const existing = modelStatsMap.get(matchedModel.id);
       if (existing) {
         existing.total += 1;
@@ -384,10 +438,9 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  // ✅ FIX voor cookie runtime error:
-  // getCurrentAdminUser() in deze server component kan cookies willen zetten → Next.js error.
-  // Dus voorlopig: delete buttons uit (server-side delete blijft admin-only in de action).
-  const canDelete = false;
+  // ✅ We don't call getCurrentAdminUser here (prevents cookies-set error during render).
+  // Server actions still enforce admin on delete.
+  const canDelete = true;
 
   return (
     <div className="p-4 space-y-4">
@@ -396,9 +449,7 @@ export default async function RefurbReceptionDetailPage({
           <h1 className="text-lg font-semibold">Refurb reception {reception.reception_number}</h1>
           <p className="text-xs text-slate-500">
             Leverancier: <span className="font-medium">{supplierName}</span>
-            {supplierVat && (
-              <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>
-            )}
+            {supplierVat && <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>}
           </p>
           {supplierEmail && (
             <p className="text-[11px] text-slate-500">
@@ -411,7 +462,6 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
-      {/* Header / meta blok */}
       <div className="grid gap-3 text-xs bg-slate-50 border rounded-md p-3 md:grid-cols-3">
         <div>
           <div className="text-[11px] font-medium text-slate-500 uppercase">Receptie nr</div>
@@ -444,9 +494,7 @@ export default async function RefurbReceptionDetailPage({
 
         <div>
           <div className="text-[11px] font-medium text-slate-500 uppercase">Intern factuurnr</div>
-          <div className="mt-0.5">
-            {reception.internal_invoice_nr || <span className="text-slate-400">—</span>}
-          </div>
+          <div className="mt-0.5">{reception.internal_invoice_nr || <span className="text-slate-400">—</span>}</div>
         </div>
 
         <div>
@@ -457,55 +505,39 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
-      {/* Status- & modeloverzicht */}
       <div className="border rounded-md bg-white p-3 text-xs">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-          {/* Links: statusverdeling met donut */}
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
               Statusverdeling in deze receptie
             </div>
             <div className="flex items-center gap-3">
-              <div
-                className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                style={donutStyle}
-              >
+              <div className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center" style={donutStyle}>
                 <div className="w-12 h-12 rounded-full bg-slate-50" />
               </div>
 
               <div className="space-y-1 text-[11px]">
                 <div className="text-slate-500">
-                  Totaal:{" "}
-                  <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
+                  Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
                 </div>
                 {statusStats.map((s) => (
                   <div key={s.status} className="flex items-center gap-2">
-                    <span
-                      className="inline-block w-2 h-2 rounded-full"
-                      style={{ backgroundColor: s.color }}
-                    />
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                     <span className="truncate max-w-[140px]">{s.label}</span>
                     <span className="ml-auto tabular-nums">
                       {s.count} ({s.pct}%)
                     </span>
                   </div>
                 ))}
-                {statusStats.length === 0 && (
-                  <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
-                )}
+                {statusStats.length === 0 && <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>}
               </div>
             </div>
           </div>
 
-          {/* Rechts: aantal toestellen per model */}
           <div>
-            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-              Aantal toestellen per model
-            </div>
+            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">Aantal toestellen per model</div>
             {modelStats.length === 0 && unknownCount === 0 ? (
-              <div className="text-[11px] text-slate-500">
-                Geen toestellen of modellen konden niet worden bepaald.
-              </div>
+              <div className="text-[11px] text-slate-500">Geen toestellen of modellen konden niet worden bepaald.</div>
             ) : (
               <div className="space-y-2">
                 {modelStats.map((m) => (
@@ -523,10 +555,7 @@ export default async function RefurbReceptionDetailPage({
                           <div
                             key={s.status}
                             className="h-full flex items-center justify-center text-[9px] text-white"
-                            style={{
-                              width: `${pct}%`,
-                              backgroundColor: s.color,
-                            }}
+                            style={{ width: `${pct}%`, backgroundColor: s.color }}
                             title={`${s.label}: ${count}`}
                           >
                             {count}
