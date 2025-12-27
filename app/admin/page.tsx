@@ -31,24 +31,29 @@ export default async function AdminDashboardPage() {
         </div>
         <div className="text-xs text-gray-500 flex flex-col items-end">
           <span>Ingelogd als:</span>
-          <span className="font-medium">
-            {adminUser.email}
-          </span>
-          <span className="text-[11px] text-gray-400">
-            rol: {adminUser.role}
-          </span>
+          <span className="font-medium">{adminUser.email}</span>
+          <span className="text-[11px] text-gray-400">rol: {adminUser.role}</span>
         </div>
       </div>
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+        {/* ✅ NIEUW: Refurb tegel */}
+        <Link
+          href="/admin/refurb"
+          className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
+        >
+          <h2 className="font-semibold flex items-center gap-2">🔧 Refurb</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Refurb recepties, items en statusopvolging beheren.
+          </p>
+        </Link>
+
         {can("leads") && (
           <Link
             href="/admin/leads"
             className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
           >
-            <h2 className="font-semibold flex items-center gap-2">
-              📋 Leads
-            </h2>
+            <h2 className="font-semibold flex items-center gap-2">📋 Leads</h2>
             <p className="text-sm text-gray-500 mt-1">
               Overzicht van alle buyback-aanvragen, status en details.
             </p>
@@ -88,9 +93,7 @@ export default async function AdminDashboardPage() {
             href="/admin/uploads"
             className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
           >
-            <h2 className="font-semibold flex items-center gap-2">
-              ⤴️ Uploads
-            </h2>
+            <h2 className="font-semibold flex items-center gap-2">⤴️ Uploads</h2>
             <p className="text-sm text-gray-500 mt-1">
               Bestanden en logo&apos;s beheren voor de widget en e-mails.
             </p>
@@ -102,9 +105,7 @@ export default async function AdminDashboardPage() {
             href="/admin/settings"
             className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
           >
-            <h2 className="font-semibold flex items-center gap-2">
-              🛠️ Settings
-            </h2>
+            <h2 className="font-semibold flex items-center gap-2">🛠️ Settings</h2>
             <p className="text-sm text-gray-500 mt-1">
               Branding, e-mailtemplates en userrechten beheren.
             </p>
@@ -124,7 +125,8 @@ export default async function AdminDashboardPage() {
             Je account heeft momenteel geen toegang tot een van de modules.
           </div>
           <p className="text-xs text-red-600 mt-1">
-            Vraag een beheerder om je rechten aan te passen onder Settings &gt; Users.
+            Vraag een beheerder om je rechten aan te passen onder Settings &gt;
+            Users.
           </p>
         </div>
       )}
