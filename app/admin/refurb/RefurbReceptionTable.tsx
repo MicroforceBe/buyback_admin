@@ -1022,6 +1022,29 @@ export default function RefurbReceptionTable({
                   allowedNextByStatus?.normalized.get(norm(currentStatus)) ??
                   null;
 
+                // ✅ Toon in de dropdown enkel: huidige status + toegelaten vervolgstatussen (enkel uit statusOptions).
+                const visibleStatusOptions = (() => {
+                  // Geen map: toon alle statusOptions zoals vroeger.
+                  if (!allowedNextByStatus) return statusOptions;
+
+                  const curNorm = norm(currentStatus);
+                  const allowedNorms = new Set<string>();
+                  if (allowedNextSet) {
+                    for (const v of Array.from(allowedNextSet.values())) {
+                      allowedNorms.add(norm(v));
+                    }
+                  }
+
+                  return statusOptions.filter((opt) => {
+                    const vNorm = norm(opt.value);
+                    return vNorm === curNorm || allowedNorms.has(vNorm);
+                  });
+                })();
+
+                // ✅ Als er met map geen vervolgstatussen zijn (alleen current), disable de dropdown.
+                const rowHasChoices =
+                  !allowedNextByStatus || visibleStatusOptions.length > 1;
+
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
                     <td className="px-2 py-0.5 border">
@@ -1054,75 +1077,65 @@ export default function RefurbReceptionTable({
                           style={{ background: statusColor ?? "transparent" }}
                           aria-hidden="true"
                         />
+
                         <select
                           value={currentStatus}
-                          disabled={rowBooked}
+                          disabled={rowBooked || !rowHasChoices}
                           onChange={(e) =>
                             handleCellChange(it.id, "refurb_status", e.target.value)
                           }
                           className="bb-select bb-select-sm w-full text-slate-900"
+                          title={
+                            rowBooked
+                              ? "Booked: status kan niet meer gewijzigd worden"
+                              : !rowHasChoices
+                              ? "Geen toegelaten vervolgstatus"
+                              : "Status wijzigen"
+                          }
                         >
+                          {/* Als currentStatus niet (meer) bestaat in settings: toch tonen */}
                           {currentStatus && !statusOptionByValue.has(currentStatus) && (
                             <option value={currentStatus}>{currentStatus}</option>
                           )}
 
-                          {statusOptions.map((opt) => {
-                            const optValue = opt.value;
+                          {/* Fallback zonder map: behoud oude filtering (finished -> enkel readyToBook, etc.) */}
+                          {!allowedNextByStatus
+                            ? statusOptions.map((opt) => {
+                                const optValue = opt.value;
 
-                            // Als statusNextMap bestaat: toon alles, maar disable wat niet mag.
-                            // Als statusNextMap NIET bestaat: behoud oude UI-regels
-                            if (!allowedNextByStatus) {
-                              if (
-                                isFinishedRow &&
-                                norm(optValue) !== norm(readyToBookValue)
-                              ) {
-                                return null;
-                              }
+                                if (
+                                  isFinishedRow &&
+                                  norm(optValue) !== norm(readyToBookValue)
+                                ) {
+                                  return null;
+                                }
 
-                              const cannotGoBackToDefault =
-                                norm(optValue) === norm(defaultStatusValue) &&
-                                norm(currentStatus) !== norm(defaultStatusValue);
+                                const cannotGoBackToDefault =
+                                  norm(optValue) === norm(defaultStatusValue) &&
+                                  norm(currentStatus) !== norm(defaultStatusValue);
 
-                              const cannotSetBooked =
-                                norm(optValue) === "booked" && !isReadyToBook(currentStatus);
+                                const cannotSetBooked =
+                                  norm(optValue) === "booked" &&
+                                  !isReadyToBook(currentStatus);
 
-                              const disabled =
-                                rowBooked || cannotGoBackToDefault || cannotSetBooked;
+                                const disabled =
+                                  rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
-                              return (
-                                <option
-                                  key={opt.value}
-                                  value={opt.value}
-                                  disabled={disabled}
-                                >
+                                return (
+                                  <option
+                                    key={opt.value}
+                                    value={opt.value}
+                                    disabled={disabled}
+                                  >
+                                    {opt.label}
+                                  </option>
+                                );
+                              })
+                            : visibleStatusOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
                                   {opt.label}
                                 </option>
-                              );
-                            }
-
-                            // Met statusNextMap: disable als niet in allowedNextSet (behalve current zelf)
-                            const isCurrent = norm(optValue) === norm(currentStatus);
-
-                            let disabled = rowBooked;
-                            if (!disabled && !isCurrent && allowedNextSet) {
-                              const allowed =
-                                allowedNextSet.has(optValue) ||
-                                Array.from(allowedNextSet.values()).some(
-                                  (v) => norm(v) === norm(optValue)
-                                );
-                              disabled = !allowed;
-                            }
-
-                            return (
-                              <option
-                                key={opt.value}
-                                value={opt.value}
-                                disabled={disabled}
-                              >
-                                {opt.label}
-                              </option>
-                            );
-                          })}
+                              ))}
                         </select>
                       </div>
                     </td>
@@ -1479,9 +1492,7 @@ export default function RefurbReceptionTable({
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) =>
-                        handlePasteToColumn(e, 0, "supplier_device_errors")
-                      }
+                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
                     />
                   </td>
 
@@ -1501,9 +1512,7 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, 0, "refurb_diagnostics")
-                          }
+                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
                         />
                       </td>
 
