@@ -26,7 +26,6 @@ type Props = {
 
   /**
    * ✅ NIEUW: vervolgstatussen-map (value -> allowed next values).
-   * Je page.tsx geeft momenteel `statusTransitions` door.
    * We ondersteunen BEIDE namen zodat TS build niet faalt.
    */
   statusTransitions?: StatusTransitionsMap;
@@ -83,7 +82,8 @@ function isReadyToBook(status: string | null | undefined) {
 }
 
 /**
- * Oude fallback-regels (blijven bestaan als er geen statusTransitions-map is)
+ * Oude fallback-regels (blijven bestaan als er geen statusTransitions-map is
+ * OF als er geen entry bestaat voor de huidige status)
  */
 function canChangeStatusFallback(opts: {
   current: string | null | undefined;
@@ -340,6 +340,18 @@ export default function RefurbReceptionTable({
     return { exact, normalized };
   }, [transitions]);
 
+  function getAllowedNextSet(currentStatus: string) {
+    if (!allowedNextByStatus) {
+      return { hasMapForCurrent: false, set: null as Set<string> | null };
+    }
+    const cur = (currentStatus || "").trim();
+    const setExact = allowedNextByStatus.exact.get(cur);
+    const setNorm = allowedNextByStatus.normalized.get(norm(cur));
+    const set = setExact ?? setNorm ?? null;
+    const hasMapForCurrent = Boolean(setExact || setNorm);
+    return { hasMapForCurrent, set };
+  }
+
   function isTransitionAllowed(
     current: string,
     next: string
@@ -355,17 +367,15 @@ export default function RefurbReceptionTable({
       };
     }
 
-    // map = bron van waarheid
-    if (allowedNextByStatus) {
+    // ✅ Alleen map als er effectief een entry bestaat voor deze current status
+    const { hasMapForCurrent, set } = getAllowedNextSet(cur);
+    if (allowedNextByStatus && hasMapForCurrent) {
       if (norm(nxt) === norm(cur)) return { ok: true };
 
-      const fromSetExact = allowedNextByStatus.exact.get(cur);
-      const fromSetNorm = allowedNextByStatus.normalized.get(norm(cur));
-
       const allowed =
-        (fromSetExact && fromSetExact.has(nxt)) ||
-        (fromSetNorm &&
-          Array.from(fromSetNorm.values()).some((v) => norm(v) === norm(nxt)));
+        (set && set.has(nxt)) ||
+        (set &&
+          Array.from(set.values()).some((v) => norm(v) === norm(nxt)));
 
       if (!allowed) {
         return {
@@ -856,7 +866,7 @@ export default function RefurbReceptionTable({
         )}
       </div>
 
-      {/* Table (ENKEL 1x — duplicaat verwijderd) */}
+      {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
           <span className="font-medium text-[11px] uppercase tracking-wide">
@@ -877,10 +887,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowExtraSn((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showExtraSn ? "▲" : "▼"}
               </span>
               <span>Extra SN</span>
@@ -890,10 +897,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowAdvanced((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showAdvanced ? "▲" : "▼"}
               </span>
               <span>RMA</span>
@@ -1016,16 +1020,15 @@ export default function RefurbReceptionTable({
 
                 const rowChecked = selectedIds.has(it.id);
 
-                // allowed next values (indien statusNextMap)
-                const allowedNextSet =
-                  allowedNextByStatus?.exact.get(currentStatus) ??
-                  allowedNextByStatus?.normalized.get(norm(currentStatus)) ??
-                  null;
+                const { hasMapForCurrent, set: allowedNextSet } =
+                  getAllowedNextSet(currentStatus);
 
-                // ✅ Toon in de dropdown enkel: huidige status + toegelaten vervolgstatussen (enkel uit statusOptions).
+                // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
+                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
+
+                // ✅ status dropdown options
                 const visibleStatusOptions = (() => {
-                  // Geen map: toon alle statusOptions zoals vroeger.
-                  if (!allowedNextByStatus) return statusOptions;
+                  if (!mapModeForRow) return statusOptions;
 
                   const curNorm = norm(currentStatus);
                   const allowedNorms = new Set<string>();
@@ -1041,9 +1044,11 @@ export default function RefurbReceptionTable({
                   });
                 })();
 
-                // ✅ Als er met map geen vervolgstatussen zijn (alleen current), disable de dropdown.
-                const rowHasChoices =
-                  !allowedNextByStatus || visibleStatusOptions.length > 1;
+                // ✅ als map-mode maar 0/1 opties: toch niet hard disablen (want dat was het probleem),
+                // maar in map-mode kan dit enkel als de map effectief geen vervolgen gaf: dan blijft 'current' en is wisselen sowieso zinloos.
+                const rowHasChoices = mapModeForRow
+                  ? visibleStatusOptions.length > 1
+                  : statusOptions.length > 0;
 
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
@@ -1077,10 +1082,9 @@ export default function RefurbReceptionTable({
                           style={{ background: statusColor ?? "transparent" }}
                           aria-hidden="true"
                         />
-
                         <select
                           value={currentStatus}
-                          disabled={rowBooked || !rowHasChoices}
+                          disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
                           onChange={(e) =>
                             handleCellChange(it.id, "refurb_status", e.target.value)
                           }
@@ -1088,18 +1092,16 @@ export default function RefurbReceptionTable({
                           title={
                             rowBooked
                               ? "Booked: status kan niet meer gewijzigd worden"
-                              : !rowHasChoices
+                              : mapModeForRow && !rowHasChoices
                               ? "Geen toegelaten vervolgstatus"
                               : "Status wijzigen"
                           }
                         >
-                          {/* Als currentStatus niet (meer) bestaat in settings: toch tonen */}
                           {currentStatus && !statusOptionByValue.has(currentStatus) && (
                             <option value={currentStatus}>{currentStatus}</option>
                           )}
 
-                          {/* Fallback zonder map: behoud oude filtering (finished -> enkel readyToBook, etc.) */}
-                          {!allowedNextByStatus
+                          {!mapModeForRow
                             ? statusOptions.map((opt) => {
                                 const optValue = opt.value;
 
@@ -1268,10 +1270,7 @@ export default function RefurbReceptionTable({
                     {/* Description */}
                     <td className="px-1 py-0.5 border">
                       {lockedDesc ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.description ?? ""}
-                        >
+                        <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
                           {it.description}
                         </span>
                       ) : (
@@ -1292,10 +1291,7 @@ export default function RefurbReceptionTable({
                     {/* Supplier remarks */}
                     <td className="px-1 py-0.5 border">
                       {lockedSuppErr ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.supplier_device_errors ?? ""}
-                        >
+                        <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
                           {it.supplier_device_errors}
                         </span>
                       ) : (
@@ -1354,18 +1350,10 @@ export default function RefurbReceptionTable({
                             defaultValue={it.rma_defect_description ?? ""}
                             disabled={rowBooked}
                             onBlur={(e) =>
-                              handleCellChange(
-                                it.id,
-                                "rma_defect_description",
-                                e.target.value
-                              )
+                              handleCellChange(it.id, "rma_defect_description", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(
-                                e,
-                                originalIndex,
-                                "rma_defect_description"
-                              )
+                              handlePasteToColumn(e, originalIndex, "rma_defect_description")
                             }
                           />
                         </td>
@@ -1404,16 +1392,13 @@ export default function RefurbReceptionTable({
                 );
               })}
 
-            {/* ⬇️ Lege start-rij als er nog geen items zijn → hier kan je plakken */}
+            {/* ... (rest van je “no items” blok blijft ongewijzigd) ... */}
             {!hasItems && (
               <>
                 <tr className="border-t">
-                  {/* Select (header checkbox kolom) */}
                   <td className="px-2 py-0.5 border" />
-
                   {canDelete && <td className="px-2 py-0.5 border" />}
 
-                  {/* Status (start: paste mogelijk) */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1422,7 +1407,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* Location */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1431,7 +1415,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* IMEI/SN */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1440,7 +1423,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* SN (alleen tonen als Extra SN actief is) */}
                   {showExtraSn && (
                     <td className="px-1 py-0.5 border">
                       <input
@@ -1451,7 +1433,6 @@ export default function RefurbReceptionTable({
                     </td>
                   )}
 
-                  {/* SKU */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1460,7 +1441,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* Used parts */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1469,7 +1449,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* Price */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
@@ -1478,7 +1457,6 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* Description */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1487,16 +1465,16 @@ export default function RefurbReceptionTable({
                     />
                   </td>
 
-                  {/* Supplier remarks */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
+                      onPaste={(e) =>
+                        handlePasteToColumn(e, 0, "supplier_device_errors")
+                      }
                     />
                   </td>
 
-                  {/* Supplier Grading */}
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1507,16 +1485,16 @@ export default function RefurbReceptionTable({
 
                   {showAdvanced && (
                     <>
-                      {/* Refurb Diagnostics */}
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, 0, "refurb_diagnostics")
+                          }
                         />
                       </td>
 
-                      {/* RMA Defect Description */}
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1527,7 +1505,6 @@ export default function RefurbReceptionTable({
                         />
                       </td>
 
-                      {/* RMA */}
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
@@ -1536,7 +1513,6 @@ export default function RefurbReceptionTable({
                         />
                       </td>
 
-                      {/* Compensation */}
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
