@@ -99,6 +99,10 @@ function isBooked(status: string | null | undefined) {
  * Tabel: refurb_status_transitions (from_value, to_value)
  * - Als er nog GEEN transitions geconfigureerd zijn: fail-open (alles toegestaan, behalve booked rule).
  * - Als er wél transitions bestaan: enkel expliciet toegelaten paden.
+ *
+ * ✅ FIX:
+ * Als er transitions bestaan, maar er is GEEN enkele "from_value" voor de huidige status,
+ * dan gaan we fail-open voor die status (anders lockt alles als DB values niet exact matchen).
  */
 async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
   const { data, error } = await supabaseAdmin
@@ -108,6 +112,25 @@ async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
 
   if (error) {
     console.error("[REFURB] hasAnyStatusTransitionsConfigured error", error);
+    // fail-open bij DB glitch
+    return false;
+  }
+
+  return (data || []).length > 0;
+}
+
+async function hasAnyTransitionFrom(current: string): Promise<boolean> {
+  const cur = (current || "").trim();
+  if (!cur) return false;
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_status_transitions")
+    .select("id")
+    .eq("from_value", cur)
+    .limit(1);
+
+  if (error) {
+    console.error("[REFURB] hasAnyTransitionFrom error", error);
     // fail-open bij DB glitch
     return false;
   }
@@ -125,6 +148,7 @@ async function isTransitionAllowed(current: string, next: string): Promise<boole
   const configured = await hasAnyStatusTransitionsConfigured();
   if (!configured) return true; // zolang je nog niets ingesteld hebt in de tab
 
+  // 1) bestaat exacte transition?
   const { data, error } = await supabaseAdmin
     .from("refurb_status_transitions")
     .select("id")
@@ -137,7 +161,14 @@ async function isTransitionAllowed(current: string, next: string): Promise<boole
     return false;
   }
 
-  return (data || []).length > 0;
+  if ((data || []).length > 0) return true;
+
+  // 2) ✅ FIX: als er geen enkele transition bestaat voor deze "from", fail-open
+  const hasFrom = await hasAnyTransitionFrom(cur);
+  if (!hasFrom) return true;
+
+  // anders strict: niet toegestaan
+  return false;
 }
 
 async function canChangeStatus(opts: {
@@ -466,7 +497,7 @@ export async function pasteIntoRefurbColumn(
       inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
-        refurb_status: defaultStatusValue || "new",
+        refurb_status: defaultStatusValue || "",
         location: defaultLocationValue || null,
         [field]: value,
       });
