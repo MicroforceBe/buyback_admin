@@ -1084,7 +1084,7 @@ export default async function LeadsPage({
                     {fmtDate(lead.created_at)}
                   </td>
 
-                  {/* Klant: enkel CustomerCell (copy icons zitten nu IN CustomerCell) */}
+                  {/* Klant: enkel CustomerCell (copy icons zitten IN CustomerCell) */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top">
                     <CustomerCell
                       id={lead.id}
