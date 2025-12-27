@@ -71,20 +71,37 @@ function parseUsedParts(raw: string | null): string[] {
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
 }
-
-// ✅ normalize status keys robust (ready_to_book == ready to book, etc.)
-function normStatusKey(s: string) {
-  return norm(s).replace(/_/g, " ").replace(/\s+/g, " ").trim();
-}
-
 function containsFinished(status: string | null | undefined) {
   return norm(status || "").includes("finished");
 }
 function isBooked(status: string | null | undefined) {
-  return normStatusKey(status || "") === "booked";
+  return norm(status || "") === "booked";
 }
 function isReadyToBook(status: string | null | undefined) {
-  return normStatusKey(status || "") === "ready to book";
+  return norm(status || "") === "ready to book";
+}
+
+/**
+ * ✅ Canonicalize status:
+ * - DB/legacy kan label opslaan (bv "New") i.p.v. value.
+ * - Wij tonen en bewerken altijd de value uit refurb_status_options.value.
+ */
+function canonicalizeStatusValue(
+  raw: string | null | undefined,
+  statusOptions: RefurbStatusOption[],
+  defaultStatusValue: string
+) {
+  const v = (raw ?? "").trim();
+  if (!v) return (defaultStatusValue || "").trim();
+
+  const exact = statusOptions.find((o: any) => String(o?.value ?? "").trim() === v);
+  if (exact) return exact.value;
+
+  const vNorm = norm(v);
+  const byLabel = statusOptions.find((o: any) => norm(String(o?.label ?? "")) === vNorm);
+  if (byLabel) return byLabel.value;
+
+  return v;
 }
 
 /**
@@ -101,13 +118,13 @@ function canChangeStatusFallback(opts: {
   const next = opts.next;
   const def = opts.defaultStatusValue;
 
-  if (containsFinished(current) && normStatusKey(next) !== normStatusKey(opts.readyToBookValue)) {
+  if (containsFinished(current) && norm(next) !== norm(opts.readyToBookValue)) {
     return {
       ok: false,
       reason: "Finished-status kan enkel op Ready to Book gezet worden.",
     };
   }
-  if (isBooked(current) && normStatusKey(next) !== normStatusKey(current)) {
+  if (isBooked(current) && norm(next) !== norm(current)) {
     return {
       ok: false,
       reason: "Status is booked en kan niet meer gewijzigd worden.",
@@ -119,7 +136,7 @@ function canChangeStatusFallback(opts: {
       reason: "Status kan alleen op booked gezet worden vanuit Ready to Book.",
     };
   }
-  if (normStatusKey(next) === normStatusKey(def) && normStatusKey(current) !== normStatusKey(def)) {
+  if (norm(next) === norm(def) && norm(current) !== norm(def)) {
     return {
       ok: false,
       reason: "Je kan niet terug naar de default status zodra je daarvan afwijkt.",
@@ -275,7 +292,16 @@ export default function RefurbReceptionTable({
   canDelete = false,
 }: Props) {
   const router = useRouter();
-  const [items, setItems] = useState<RefurbItem[]>(initialItems);
+
+  // ✅ normalize initialItems (label -> value) zodat UI overeenstemt met Supabase options
+  const normalizedInitialItems = useMemo(() => {
+    return (initialItems || []).map((it) => ({
+      ...it,
+      refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue),
+    }));
+  }, [initialItems, statusOptions, defaultStatusValue]);
+
+  const [items, setItems] = useState<RefurbItem[]>(normalizedInitialItems);
   const [isPasting, setIsPasting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExtraSn, setShowExtraSn] = useState(false);
@@ -304,31 +330,21 @@ export default function RefurbReceptionTable({
   // delete row
   const [isDeletingRow, setIsDeletingRow] = useState<string | null>(null);
 
+  // ✅ als statusOptions wijzigen (of initialItems na refresh), sync de state (zonder user edits te droppen op elke render)
+  useEffect(() => {
+    setItems(normalizedInitialItems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalizedInitialItems]);
+
   const hasItems = items.length > 0;
   const colSpan =
-    BASE_COL_COUNT + (showExtraSn ? EXTRA_SN_COL_COUNT : 0) + (showAdvanced ? ADVANCED_COL_COUNT : 0);
+    BASE_COL_COUNT +
+    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
+    (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
     for (const s of statusOptions) m.set(s.value, s);
-    return m;
-  }, [statusOptions]);
-
-  const statusOptionByNormKey = useMemo(() => {
-    const m = new Map<string, RefurbStatusOption[]>();
-    for (const s of statusOptions) {
-      const k = normStatusKey(s.value);
-      const arr = m.get(k) ?? [];
-      arr.push(s);
-      m.set(k, arr);
-      // ook label meenemen als index (soms staan transitions per label)
-      const kl = normStatusKey((s as any).label ?? "");
-      if (kl && kl !== k) {
-        const arr2 = m.get(kl) ?? [];
-        arr2.push(s);
-        m.set(kl, arr2);
-      }
-    }
     return m;
   }, [statusOptions]);
 
@@ -353,52 +369,26 @@ export default function RefurbReceptionTable({
     for (const [from, arr] of Object.entries(transitions)) {
       const set = new Set((arr || []).filter(Boolean));
       exact.set(from, set);
-      normalized.set(normStatusKey(from), new Set(Array.from(set.values())));
+      normalized.set(norm(from), new Set(Array.from(set.values())));
     }
 
     return { exact, normalized };
   }, [transitions]);
 
-  /**
-   * ✅ Resolves transitions into concrete statusOption values.
-   * - Als mapping "stuk" is (bv. transitions bevatten labels i.p.v. values),
-   *   proberen we te matchen op value én label.
-   * - Als er uiteindelijk niets resolvebaar is: fail-open (geen map-mode).
-   */
-  function resolveAllowedNextValues(currentStatus: string): {
-    hasMapForCurrent: boolean;
-    allowedValues: Set<string> | null;
-    rawSet: Set<string> | null;
-  } {
+  function getAllowedNextSet(currentStatus: string) {
     if (!allowedNextByStatus) {
-      return { hasMapForCurrent: false, allowedValues: null, rawSet: null };
+      return { hasMapForCurrent: false, set: null as Set<string> | null };
     }
 
     const cur = (currentStatus || "").trim();
-    const rawExact = allowedNextByStatus.exact.get(cur) ?? null;
-    const rawNorm = allowedNextByStatus.normalized.get(normStatusKey(cur)) ?? null;
-    const rawSet = rawExact ?? rawNorm ?? null;
+    const setExact = allowedNextByStatus.exact.get(cur);
+    const setNorm = allowedNextByStatus.normalized.get(norm(cur));
+    const set = setExact ?? setNorm ?? null;
 
-    // enkel map-mode als er effectief een rawSet bestaat met minstens 1 entry
-    const hasMapForCurrent = Boolean(rawSet && rawSet.size > 0);
-    if (!hasMapForCurrent || !rawSet) {
-      return { hasMapForCurrent: false, allowedValues: null, rawSet: null };
-    }
+    // ✅ enkel "map-mode" als er effectief minstens 1 toegelaten volgende status is
+    const hasMapForCurrent = Boolean(set && set.size > 0);
 
-    // probeer raw waarden te resolven naar echte statusOptions (op value OF label)
-    const resolved = new Set<string>();
-    for (const raw of Array.from(rawSet.values())) {
-      const k = normStatusKey(raw);
-      const matches = statusOptionByNormKey.get(k) ?? [];
-      for (const opt of matches) resolved.add(opt.value);
-    }
-
-    // ✅ als niets resolvebaar is: fail-open (geen map-mode, anders raakt alles disabled)
-    if (resolved.size === 0) {
-      return { hasMapForCurrent: false, allowedValues: null, rawSet };
-    }
-
-    return { hasMapForCurrent: true, allowedValues: resolved, rawSet };
+    return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
   }
 
   function isTransitionAllowed(current: string, next: string): { ok: true } | { ok: false; reason: string } {
@@ -406,22 +396,21 @@ export default function RefurbReceptionTable({
     const nxt = (next || "").trim();
 
     // booked blijft altijd hard lock
-    if (isBooked(cur) && normStatusKey(nxt) !== normStatusKey(cur)) {
+    if (isBooked(cur) && norm(nxt) !== norm(cur)) {
       return {
         ok: false,
         reason: "Status is booked en kan niet meer gewijzigd worden.",
       };
     }
 
-    const { hasMapForCurrent, allowedValues } = resolveAllowedNextValues(cur);
-
-    // ✅ map-mode alleen als mapping bruikbaar is
-    if (allowedNextByStatus && hasMapForCurrent && allowedValues) {
-      if (normStatusKey(nxt) === normStatusKey(cur)) return { ok: true };
+    // ✅ Alleen map als er effectief een entry bestaat voor deze current status
+    const { hasMapForCurrent, set } = getAllowedNextSet(cur);
+    if (allowedNextByStatus && hasMapForCurrent) {
+      if (norm(nxt) === norm(cur)) return { ok: true };
 
       const allowed =
-        allowedValues.has(nxt) ||
-        Array.from(allowedValues.values()).some((v) => normStatusKey(v) === normStatusKey(nxt));
+        (set && set.has(nxt)) ||
+        (set && Array.from(set.values()).some((v) => norm(v) === norm(nxt)));
 
       if (!allowed) {
         return {
@@ -445,11 +434,11 @@ export default function RefurbReceptionTable({
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
-      const v = (it.refurb_status ?? "").trim();
+      const v = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (v) s.add(v);
     }
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [items]);
+  }, [items, statusOptions, defaultStatusValue]);
 
   // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
@@ -462,7 +451,7 @@ export default function RefurbReceptionTable({
 
     // apply all filters except location
     const base = (items || []).filter((it: any) => {
-      const st = (it.refurb_status || defaultStatusValue).trim();
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (statusFilter !== "__all__" && st !== statusFilter) return false;
 
       if (iq) {
@@ -495,7 +484,7 @@ export default function RefurbReceptionTable({
         value: v,
         label: labelByValue.get(v) || v,
       }));
-  }, [items, locationOptions, statusFilter, imeiQuery, descQuery, defaultStatusValue]);
+  }, [items, locationOptions, statusOptions, statusFilter, imeiQuery, descQuery, defaultStatusValue]);
 
   const filteredRows = useMemo(() => {
     const iq = norm(imeiQuery);
@@ -504,7 +493,7 @@ export default function RefurbReceptionTable({
     return items
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
-        const st = (it.refurb_status || defaultStatusValue).trim();
+        const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
         const okStatus = statusFilter === "__all__" || st === statusFilter;
 
         const loc = ((it as any).location ?? "").trim();
@@ -519,12 +508,14 @@ export default function RefurbReceptionTable({
 
         return okStatus && okLoc && okImei && okDesc;
       });
-  }, [items, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
+  }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
 
   const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
-  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
-  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected =
+    filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
 
   useEffect(() => {
     if (!headerCheckboxRef.current) return;
@@ -574,7 +565,11 @@ export default function RefurbReceptionTable({
     value: string
   ) {
     const before = items.find((x) => x.id === itemId);
-    const currentStatus = (before?.refurb_status || defaultStatusValue) as string;
+    const currentStatus = canonicalizeStatusValue(
+      before?.refurb_status,
+      statusOptions || [],
+      defaultStatusValue
+    );
 
     if (isBooked(currentStatus)) {
       window.alert("Status is booked en deze rij kan niet meer gewijzigd worden.");
@@ -589,7 +584,7 @@ export default function RefurbReceptionTable({
       }
     }
 
-    // optimistic UI
+    // optimistic UI update
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
@@ -599,6 +594,10 @@ export default function RefurbReceptionTable({
             ...it,
             [field]: value ? parseMoneyToCents(value) : null,
           } as RefurbItem;
+        }
+
+        if (field === "refurb_status") {
+          return { ...it, refurb_status: value || null } as RefurbItem;
         }
 
         return { ...it, [field]: value || null } as RefurbItem;
@@ -612,14 +611,18 @@ export default function RefurbReceptionTable({
       }
     } catch (e: any) {
       console.error("[REFURB] updateCell client error", e);
+      window.alert(e?.message || "Opslaan mislukt (zie logs).");
 
-      // ✅ rollback: herlaad items zodat UI niet “vast” blijft in foute state
+      // ✅ herstel UI naar server truth
       try {
         const fresh = await fetchReceptionItems(receptionId);
-        setItems(fresh);
+        setItems(
+          (fresh || []).map((it) => ({
+            ...it,
+            refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue),
+          }))
+        );
       } catch {}
-
-      window.alert(e?.message || "Wijziging mislukt (zie logs).");
     }
   }
 
@@ -658,7 +661,12 @@ export default function RefurbReceptionTable({
         defaultStatusValue, // ✅ voorkomt "new"
         defaultLocationValue
       );
-      setItems(updated);
+      setItems(
+        (updated || []).map((it) => ({
+          ...it,
+          refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue),
+        }))
+      );
       router.refresh();
     } catch (err: any) {
       console.error("[REFURB] pasteToColumn client error", err);
@@ -726,7 +734,12 @@ export default function RefurbReceptionTable({
       });
 
       const fresh = await fetchReceptionItems(receptionId);
-      setItems(fresh);
+      setItems(
+        (fresh || []).map((it) => ({
+          ...it,
+          refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue),
+        }))
+      );
 
       if (wantStatus || wantLocation) router.refresh();
 
@@ -751,16 +764,14 @@ export default function RefurbReceptionTable({
   async function onDeleteRow(item: RefurbItem) {
     if (!canDelete) return;
 
-    const currentStatus = (item.refurb_status || defaultStatusValue).trim();
+    const currentStatus = canonicalizeStatusValue(item.refurb_status, statusOptions || [], defaultStatusValue).trim();
     if (isBooked(currentStatus)) {
       window.alert("Status is booked: deze rij kan niet verwijderd worden.");
       return;
     }
 
     const ok = window.confirm(
-      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${
-        (item as any).imei_sn ?? "—"
-      }`
+      `Rij verwijderen?\n\nRow index: ${item.row_index}\nSKU: ${item.sku ?? "—"}\nIMEI/SN: ${(item as any).imei_sn ?? "—"}`
     );
     if (!ok) return;
 
@@ -770,7 +781,12 @@ export default function RefurbReceptionTable({
         receptionId,
         itemId: item.id,
       });
-      setItems(fresh);
+      setItems(
+        (fresh || []).map((it) => ({
+          ...it,
+          refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue),
+        }))
+      );
       router.refresh();
     } catch (e: any) {
       console.error("[REFURB] delete row error", e);
@@ -874,7 +890,9 @@ export default function RefurbReceptionTable({
 
               {/* rechts */}
               <div className="flex-1 flex flex-col mt-3 md:mt-0">
-                <div className="text-[11px] text-slate-500 mb-1">IMEI/SN lijst (voor target “op IMEI/SN”)</div>
+                <div className="text-[11px] text-slate-500 mb-1">
+                  IMEI/SN lijst (voor target “op IMEI/SN”)
+                </div>
                 <textarea
                   className="bb-input w-full text-[11px] p-2 flex-1 h-full min-h-[calc(110px+72px)]"
                   value={bulkImeiText}
@@ -923,7 +941,9 @@ export default function RefurbReceptionTable({
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-          <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
+          <span className="font-medium text-[11px] uppercase tracking-wide">
+            Refurb Reception items
+          </span>
           <div className="flex items-center gap-3">
             {isPasting && (
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
@@ -939,7 +959,10 @@ export default function RefurbReceptionTable({
               onClick={() => setShowExtraSn((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
                 {showExtraSn ? "▲" : "▼"}
               </span>
               <span>Extra SN</span>
@@ -949,7 +972,10 @@ export default function RefurbReceptionTable({
               onClick={() => setShowAdvanced((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
+                aria-hidden="true"
+              >
                 {showAdvanced ? "▲" : "▼"}
               </span>
               <span>RMA</span>
@@ -1054,8 +1080,13 @@ export default function RefurbReceptionTable({
 
           <tbody>
             {hasItems &&
-              filteredRows.map(({ it, originalIndex }) => {
-                const currentStatus = (it.refurb_status || defaultStatusValue).trim();
+              filteredRows.map(({ it }) => {
+                const currentStatus = canonicalizeStatusValue(
+                  it.refurb_status,
+                  statusOptions || [],
+                  defaultStatusValue
+                ).trim();
+
                 const rowBooked = isBooked(currentStatus);
 
                 const lockedPrice = isLockedAfterFill(it, "price_cents");
@@ -1072,28 +1103,34 @@ export default function RefurbReceptionTable({
 
                 const rowChecked = selectedIds.has(it.id);
 
-                const { hasMapForCurrent, allowedValues } = resolveAllowedNextValues(currentStatus);
-                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent && allowedValues);
+                const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
+
+                // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
+                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
 
                 // ✅ status dropdown options
                 const visibleStatusOptions = (() => {
-                  if (!mapModeForRow || !allowedValues) return statusOptions;
+                  if (!mapModeForRow) return statusOptions;
 
-                  const curNorm = normStatusKey(currentStatus);
+                  const curNorm = norm(currentStatus);
                   const allowedNorms = new Set<string>();
-                  for (const v of Array.from(allowedValues.values())) {
-                    allowedNorms.add(normStatusKey(v));
+                  if (allowedNextSet) {
+                    for (const v of Array.from(allowedNextSet.values())) {
+                      allowedNorms.add(norm(v));
+                    }
                   }
 
                   return statusOptions.filter((opt) => {
-                    const vNorm = normStatusKey(opt.value);
+                    const vNorm = norm(opt.value);
                     return vNorm === curNorm || allowedNorms.has(vNorm);
                   });
                 })();
 
-                // ✅ never hard-disable because “map exists but resolves to nothing”
-                // mapModeForRow is already false in that case.
+                // ✅ als map-mode maar 0/1 opties: niet hard disablen tenzij er echt geen choices zijn
                 const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
+
+                // ✅ paste startRowIndex moet row_index zijn (niet array-index), anders plakt alles “verschoven”
+                const pasteStartRowIndex = Number((it as any).row_index ?? 0);
 
                 return (
                   <tr key={it.id} className="border-t hover:bg-slate-50/50">
@@ -1150,22 +1187,27 @@ export default function RefurbReceptionTable({
 
                                 if (
                                   isFinishedRow &&
-                                  normStatusKey(optValue) !== normStatusKey(readyToBookValue)
+                                  norm(optValue) !== norm(readyToBookValue)
                                 ) {
                                   return null;
                                 }
 
                                 const cannotGoBackToDefault =
-                                  normStatusKey(optValue) === normStatusKey(defaultStatusValue) &&
-                                  normStatusKey(currentStatus) !== normStatusKey(defaultStatusValue);
+                                  norm(optValue) === norm(defaultStatusValue) &&
+                                  norm(currentStatus) !== norm(defaultStatusValue);
 
                                 const cannotSetBooked =
-                                  normStatusKey(optValue) === "booked" && !isReadyToBook(currentStatus);
+                                  norm(optValue) === "booked" &&
+                                  !isReadyToBook(currentStatus);
 
                                 const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked;
 
                                 return (
-                                  <option key={opt.value} value={opt.value} disabled={disabled}>
+                                  <option
+                                    key={opt.value}
+                                    value={opt.value}
+                                    disabled={disabled}
+                                  >
                                     {opt.label}
                                   </option>
                                 );
@@ -1219,7 +1261,7 @@ export default function RefurbReceptionTable({
                               );
                             }}
                             onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
-                            onPaste={(e) => handlePasteToColumn(e, originalIndex, "imei_sn")}
+                            onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
                           />
                         )}
                         <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
@@ -1241,7 +1283,7 @@ export default function RefurbReceptionTable({
                             );
                           }}
                           onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "manual_sn")}
+                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "manual_sn")}
                         />
                       </td>
                     )}
@@ -1254,7 +1296,7 @@ export default function RefurbReceptionTable({
                           defaultValue={it.sku ?? ""}
                           disabled={rowBooked}
                           onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "sku")}
+                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
                         />
                         <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
                       </div>
@@ -1266,7 +1308,7 @@ export default function RefurbReceptionTable({
                         rawValue={it.used_parts ?? ""}
                         locked={rowBooked}
                         onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-                        onPasteToColumn={(e) => handlePasteToColumn(e, originalIndex, "used_parts")}
+                        onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
                       />
                     </td>
 
@@ -1278,12 +1320,14 @@ export default function RefurbReceptionTable({
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full text-right"
                           defaultValue={
-                            typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""
+                            typeof it.price_cents === "number"
+                              ? (it.price_cents / 100).toString()
+                              : ""
                           }
                           disabled={rowBooked}
                           placeholder="0,00"
                           onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "price_cents")}
+                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
                         />
                       )}
                     </td>
@@ -1291,7 +1335,10 @@ export default function RefurbReceptionTable({
                     {/* Description */}
                     <td className="px-1 py-0.5 border">
                       {lockedDesc ? (
-                        <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.description ?? ""}
+                        >
                           {it.description}
                         </span>
                       ) : (
@@ -1300,7 +1347,7 @@ export default function RefurbReceptionTable({
                           defaultValue={it.description ?? ""}
                           disabled={rowBooked}
                           onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "description")}
+                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
                         />
                       )}
                     </td>
@@ -1308,7 +1355,10 @@ export default function RefurbReceptionTable({
                     {/* Supplier remarks */}
                     <td className="px-1 py-0.5 border">
                       {lockedSuppErr ? (
-                        <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
+                        <span
+                          className="block truncate max-w-[260px]"
+                          title={it.supplier_device_errors ?? ""}
+                        >
                           {it.supplier_device_errors}
                         </span>
                       ) : (
@@ -1320,7 +1370,7 @@ export default function RefurbReceptionTable({
                             handleCellChange(it.id, "supplier_device_errors", e.target.value)
                           }
                           onPaste={(e) =>
-                            handlePasteToColumn(e, originalIndex, "supplier_device_errors")
+                            handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")
                           }
                         />
                       )}
@@ -1336,7 +1386,9 @@ export default function RefurbReceptionTable({
                           defaultValue={it.supplier_grading ?? ""}
                           disabled={rowBooked}
                           onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, originalIndex, "supplier_grading")}
+                          onPaste={(e) =>
+                            handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")
+                          }
                         />
                       )}
                     </td>
@@ -1352,7 +1404,7 @@ export default function RefurbReceptionTable({
                               handleCellChange(it.id, "refurb_diagnostics", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(e, originalIndex, "refurb_diagnostics")
+                              handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")
                             }
                           />
                         </td>
@@ -1366,7 +1418,7 @@ export default function RefurbReceptionTable({
                               handleCellChange(it.id, "rma_defect_description", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(e, originalIndex, "rma_defect_description")
+                              handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")
                             }
                           />
                         </td>
@@ -1377,7 +1429,7 @@ export default function RefurbReceptionTable({
                             defaultValue={it.rma ?? ""}
                             disabled={rowBooked}
                             onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
-                            onPaste={(e) => handlePasteToColumn(e, originalIndex, "rma")}
+                            onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
                           />
                         </td>
 
@@ -1395,7 +1447,7 @@ export default function RefurbReceptionTable({
                               handleCellChange(it.id, "compensation_cents", e.target.value)
                             }
                             onPaste={(e) =>
-                              handlePasteToColumn(e, originalIndex, "compensation_cents")
+                              handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")
                             }
                           />
                         </td>
@@ -1536,9 +1588,10 @@ export default function RefurbReceptionTable({
                     className="px-2 py-3 border text-[11px] text-slate-500"
                     colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
                   >
-                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van de velden hierboven
-                    (bv. IMEI/SN, SKU, Description, Price...) om rijen aan te maken. Status en Location gebruiken hun
-                    ingestelde default-waarde bij het importeren.
+                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van
+                    de velden hierboven (bv. IMEI/SN, SKU, Description, Price...) om rijen
+                    aan te maken. Status en Location gebruiken hun ingestelde default-waarde
+                    bij het importeren.
                   </td>
                 </tr>
               </>
