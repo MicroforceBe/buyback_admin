@@ -42,14 +42,14 @@ export default function CustomerCell(p: Props) {
     return `${s} ${n}`.trim();
   }, [p.street, p.house_number]);
 
-  const cityLine = useMemo(() => {
-    const pc = (p.postal_code ?? "").trim();
-    const c = (p.city ?? "").trim();
-    return `${pc} ${c}`.trim();
-  }, [p.postal_code, p.city]);
+  const postalOnly = useMemo(() => {
+    return (p.postal_code ?? "").trim();
+  }, [p.postal_code]);
 
-  async function copy(text: string) {
-    const t = (text ?? "").trim();
+  const upper = (s: string) => (s ?? "").trim().toUpperCase();
+
+  async function copyUpper(text: string) {
+    const t = upper(text);
     if (!t) return;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -120,7 +120,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(p.customer_number ?? "")}
+              onClick={() => copyUpper(p.customer_number ?? "")}
               disabled={!((p.customer_number ?? "").trim().length > 0)}
               aria-label="Kopieer klantnummer"
               title="Kopieer klantnummer"
@@ -143,7 +143,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(p.iban ?? "")}
+              onClick={() => copyUpper(p.iban ?? "")}
               disabled={!((p.iban ?? "").trim().length > 0)}
               aria-label="Kopieer IBAN"
               title="Kopieer IBAN"
@@ -166,7 +166,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(fullName)}
+              onClick={() => copyUpper(fullName)}
               disabled={!fullName}
               aria-label="Kopieer naam + voornaam"
               title="Kopieer naam + voornaam"
@@ -189,7 +189,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(fullName)}
+              onClick={() => copyUpper(fullName)}
               disabled={!fullName}
               aria-label="Kopieer naam + voornaam"
               title="Kopieer naam + voornaam"
@@ -224,7 +224,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(streetNr)}
+              onClick={() => copyUpper(streetNr)}
               disabled={!streetNr}
               aria-label="Kopieer straat + nr"
               title="Kopieer straat + nr"
@@ -266,13 +266,14 @@ export default function CustomerCell(p: Props) {
                 />
               </div>
             </div>
+            {/* ✅ enkel POSTCODE kopiëren (geen gemeente) */}
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(cityLine)}
-              disabled={!cityLine}
-              aria-label="Kopieer postcode + gemeente"
-              title="Kopieer postcode + gemeente"
+              onClick={() => copyUpper(postalOnly)}
+              disabled={!postalOnly}
+              aria-label="Kopieer postcode"
+              title="Kopieer postcode"
             >
               <CopyIcon title="Kopieer" />
             </button>
@@ -292,7 +293,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(p.phone ?? "")}
+              onClick={() => copyUpper(p.phone ?? "")}
               disabled={!((p.phone ?? "").trim().length > 0)}
               aria-label="Kopieer telefoon"
               title="Kopieer telefoon"
@@ -309,7 +310,7 @@ export default function CustomerCell(p: Props) {
             <button
               type="button"
               className={copyBtn}
-              onClick={() => copy(p.email ?? "")}
+              onClick={() => copyUpper(p.email ?? "")}
               disabled={!((p.email ?? "").trim().length > 0)}
               aria-label="Kopieer email"
               title="Kopieer email"
