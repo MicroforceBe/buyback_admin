@@ -1,7 +1,8 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+// ❌ getCurrentAdminUser veroorzaakt cookie-set tijdens render → runtime error
+// import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
   getRefurbStatusOptions,
   getRefurbLocationOptions,
@@ -214,6 +215,11 @@ function norm(s: string) {
   return (s || "").trim().toLowerCase();
 }
 
+// ✅ robust: "ready_to_book" en "ready to book" gelijk trekken
+function normStatusKey(s: string) {
+  return norm(s).replace(/_/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -267,13 +273,12 @@ export default async function RefurbReceptionDetailPage({
     statusList.find((s: any) => s?.isDefault === true) ||
     null;
 
-  // ✅ geen "new" fallback meer
   const defaultStatusValue: string =
     (defaultFromFlag?.value as string) || (statusList[0]?.value as string) || "";
 
   const readyToBook =
-    statusList.find((s) => norm((s as any).value) === "ready to book") ||
-    statusList.find((s) => norm((s as any).label) === "ready to book") ||
+    statusList.find((s) => normStatusKey((s as any).value) === "ready to book") ||
+    statusList.find((s) => normStatusKey((s as any).label) === "ready to book") ||
     null;
 
   const readyToBookValue: string = (readyToBook?.value as string) || "";
@@ -379,8 +384,10 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  const user = await getCurrentAdminUser();
-  const canDelete = !!user && user.role === "admin";
+  // ✅ FIX voor cookie runtime error:
+  // getCurrentAdminUser() in deze server component kan cookies willen zetten → Next.js error.
+  // Dus voorlopig: delete buttons uit (server-side delete blijft admin-only in de action).
+  const canDelete = false;
 
   return (
     <div className="p-4 space-y-4">
