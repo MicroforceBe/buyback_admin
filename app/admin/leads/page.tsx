@@ -693,6 +693,34 @@ export default async function LeadsPage({
       ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(code)}`
       : null;
 
+  const copyBtnCls =
+    "inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white hover:bg-gray-50 text-gray-700";
+
+  const copyRow = (label: string, value: string | null | undefined) => {
+    const v = (value ?? "").trim();
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] text-gray-500 leading-4">{label}</div>
+          <div className="text-[12px] text-gray-800 leading-4 break-words">
+            {v || "—"}
+          </div>
+        </div>
+        <button
+          type="button"
+          className={copyBtnCls}
+          title={v ? "Kopieer" : "Niets om te kopiëren"}
+          aria-label={`Kopieer ${label}`}
+          data-copy-btn
+          data-copy-text={v}
+          disabled={!v}
+        >
+          📋
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="w-full p-4 space-y-3">
       {/* Kop */}
@@ -816,11 +844,7 @@ export default async function LeadsPage({
                 <option value="cancelled">Geannuleerd</option>
               </select>
 
-              <select
-                name="method"
-                defaultValue={method}
-                className={selectCls}
-              >
+              <select name="method" defaultValue={method} className={selectCls}>
                 <option value="">Methode</option>
                 <option value="ship">Verzenden</option>
                 <option value="dropoff">Binnenbrengen</option>
@@ -921,7 +945,7 @@ export default async function LeadsPage({
                   Datum
                 </a>
               </th>
-              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
                 <span className="font-semibold">Klant</span>
               </th>
               {/* model-kolom mag wrappen, dus geen harde minimum voor prijs wegkap */}
@@ -950,6 +974,11 @@ export default async function LeadsPage({
           <tbody>
             {(data ?? []).map((lead, idx) => {
               const shownCents = effectiveFinalCents(lead);
+
+              const fullName = `${(lead.last_name ?? "").trim()} ${(lead.first_name ?? "").trim()}`.trim();
+              const streetNr = `${(lead.street ?? "").trim()} ${(lead.house_number ?? "").trim()}`.trim();
+              const cityLine = `${(lead.postal_code ?? "").trim()} ${(lead.city ?? "").trim()}`.trim();
+
               return (
                 <tr
                   key={lead.id}
@@ -1090,27 +1119,40 @@ export default async function LeadsPage({
 
                   {/* Klantnaam + uitklap met klantdetails */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top">
-                    <CustomerCell
-                      id={lead.id}
-                      customer_number={lead.customer_number}
-                      iban={lead.iban}
-                      last_name={lead.last_name}
-                      first_name={lead.first_name}
-                      street={lead.street}
-                      house_number={lead.house_number}
-                      postal_code={lead.postal_code}
-                      city={lead.city}
-                      country={lead.country}
-                      phone={lead.phone}
-                      email={lead.email}
-                      // Na 'check_passed' geen edits meer mogelijk
-                      canEdit={
-                        canWriteLeads &&
-                        lead.status !== "cancelled" &&
-                        lead.status !== "check_passed" &&
-                        lead.status !== "done"
-                      }
-                    />
+                    {/* ✅ NIEUW: copy icon naast elk veld (rechts uitgelijnd) */}
+                    <div className="space-y-1">
+                      {copyRow("Naam", fullName)}
+                      {copyRow("IBAN", lead.iban ?? "")}
+                      {copyRow("Straat + nr", streetNr)}
+                      {copyRow("Gemeente", cityLine)}
+                      {copyRow("Tel", lead.phone ?? "")}
+                      {copyRow("Email", lead.email ?? "")}
+                    </div>
+
+                    {/* Bestaande CustomerCell behouden (edit functionaliteit) */}
+                    <div className="mt-2">
+                      <CustomerCell
+                        id={lead.id}
+                        customer_number={lead.customer_number}
+                        iban={lead.iban}
+                        last_name={lead.last_name}
+                        first_name={lead.first_name}
+                        street={lead.street}
+                        house_number={lead.house_number}
+                        postal_code={lead.postal_code}
+                        city={lead.city}
+                        country={lead.country}
+                        phone={lead.phone}
+                        email={lead.email}
+                        // Na 'check_passed' geen edits meer mogelijk
+                        canEdit={
+                          canWriteLeads &&
+                          lead.status !== "cancelled" &&
+                          lead.status !== "check_passed" &&
+                          lead.status !== "done"
+                        }
+                      />
+                    </div>
                   </td>
 
                   {/* Model + device details */}
@@ -1224,6 +1266,15 @@ export default async function LeadsPage({
                       const saveDisabled =
                         !canEditStatusBase ||
                         (curr === "check_passed" && !canFinalizeLeads);
+
+                      // ✅ NIEUW: "Verzending & label" pas zichtbaar vanaf status 'label_created'
+                      const shippingVisible = [
+                        "label_created",
+                        "shipment_received",
+                        "check_passed",
+                        "check_failed",
+                        "done",
+                      ].includes(curr);
 
                       return (
                         <div className="space-y-1">
@@ -1355,65 +1406,67 @@ export default async function LeadsPage({
                             </form>
                           )}
 
-                          {/* Uitklap: Verzending & label */}
-                          <details className="mt-1 text-[11px]">
-                            <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
-                              <span>▸</span>
-                              <span>Verzending &amp; label</span>
-                            </summary>
+                          {/* Uitklap: Verzending & label (pas tonen vanaf label_created) */}
+                          {shippingVisible && (
+                            <details className="mt-1 text-[11px]">
+                              <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                                <span>▸</span>
+                                <span>Verzending &amp; label</span>
+                              </summary>
 
-                            <div className="pl-4 mt-1 flex flex-col gap-1">
-                              {/* Traceer pakket */}
-                              {hasTracking ? (
-                                <a
-                                  href={trackingHref!}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                                >
-                                  Traceer pakket
-                                </a>
-                              ) : (
-                                <span className="text-gray-400 italic">
-                                  Nog geen tracking beschikbaar
-                                </span>
-                              )}
-
-                              {/* Download label */}
-                              {labelHref && (
-                                <a
-                                  href={labelHref}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                                >
-                                  Download label
-                                </a>
-                              )}
-                              {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
-                              {lead.delivery_method === "ship" &&
-                                (lead.status === "label_created" ||
-                                  lead.status === "shipment_received") &&
-                                !lead.tracking_code &&
-                                !lead.tracking_url &&
-                                !lead.label_pdf_url && (
-                                  <form
-                                    action={resyncSendcloudLabelAction}
-                                    className="inline-flex"
+                              <div className="pl-4 mt-1 flex flex-col gap-1">
+                                {/* Traceer pakket */}
+                                {hasTracking ? (
+                                  <a
+                                    href={trackingHref!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
                                   >
-                                    <input type="hidden" name="id" value={lead.id} />
-                                    <button
-                                      type="submit"
-                                      className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
-                                      title="Resync: label + tracking opslaan en mail opnieuw sturen"
-                                      aria-label="Resync label"
-                                    >
-                                      🔄 Resync
-                                    </button>
-                                  </form>
+                                    Traceer pakket
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-400 italic">
+                                    Nog geen tracking beschikbaar
+                                  </span>
                                 )}
-                            </div>
-                          </details>
+
+                                {/* Download label */}
+                                {labelHref && (
+                                  <a
+                                    href={labelHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                  >
+                                    Download label
+                                  </a>
+                                )}
+                                {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
+                                {lead.delivery_method === "ship" &&
+                                  (lead.status === "label_created" ||
+                                    lead.status === "shipment_received") &&
+                                  !lead.tracking_code &&
+                                  !lead.tracking_url &&
+                                  !lead.label_pdf_url && (
+                                    <form
+                                      action={resyncSendcloudLabelAction}
+                                      className="inline-flex"
+                                    >
+                                      <input type="hidden" name="id" value={lead.id} />
+                                      <button
+                                        type="submit"
+                                        className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                        title="Resync: label + tracking opslaan en mail opnieuw sturen"
+                                        aria-label="Resync label"
+                                      >
+                                        🔄 Resync
+                                      </button>
+                                    </form>
+                                  )}
+                              </div>
+                            </details>
+                          )}
                         </div>
                       );
                     })()}
@@ -1458,11 +1511,57 @@ export default async function LeadsPage({
         )}
       </div>
 
-      {/* Klein inline script: toont/hidet reden-blok, valideert verplichte velden bij controle en togglet save-knop bij 'cancelled' */}
+      {/* Klein inline script: copy buttons + toont/hidet reden-blok, valideert verplichte velden bij controle en togglet save-knop bij 'cancelled' */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
             (function() {
+              function initCopyButtons() {
+                var btns = document.querySelectorAll('[data-copy-btn]');
+                btns.forEach(function(btn) {
+                  if (btn._copyInited) return;
+                  btn._copyInited = true;
+
+                  btn.addEventListener('click', async function(ev) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+
+                    var txt = (btn.dataset && btn.dataset.copyText) ? String(btn.dataset.copyText) : '';
+                    txt = (txt || '').trim();
+                    if (!txt) return;
+
+                    try {
+                      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(txt);
+                      } else {
+                        // fallback
+                        var ta = document.createElement('textarea');
+                        ta.value = txt;
+                        ta.style.position = 'fixed';
+                        ta.style.left = '-9999px';
+                        ta.style.top = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.focus();
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                      }
+
+                      // kleine visuele feedback
+                      var prev = btn.textContent;
+                      btn.textContent = '✓';
+                      btn.setAttribute('aria-label', 'Gekopieerd');
+                      setTimeout(function() {
+                        btn.textContent = prev || '📋';
+                        btn.setAttribute('aria-label', 'Kopieer');
+                      }, 700);
+                    } catch (e) {
+                      // noop
+                    }
+                  }, { passive: false });
+                });
+              }
+
               function initForm(form) {
                 if (!form) return;
                 var statusSelect = form.querySelector('[data-status-select]');
@@ -1549,6 +1648,7 @@ export default async function LeadsPage({
               }
 
               function initAll() {
+                initCopyButtons();
                 var forms = document.querySelectorAll('form[data-lead-id]');
                 forms.forEach(initForm);
               }
