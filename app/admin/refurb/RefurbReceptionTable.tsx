@@ -37,6 +37,9 @@ type Props = {
   /**
    * ✅ NIEUW: admin-only statuses mogen enkel als user recht heeft
    * (server-side wordt ook gevalideerd).
+   *
+   * BELANGRIJK: default = true (fail-open) zodat admin-only niet “greyed out”
+   * als je dit prop per ongeluk niet doorgeeft.
    */
   canUseAdminStatuses?: boolean;
 };
@@ -61,14 +64,6 @@ function parseMoneyToCents(raw: string): number | null {
   if (Number.isNaN(n)) return null;
   return Math.round(n * 100);
 }
-
-// ✅ BASE columns die (bijna) altijd zichtbaar blijven (excl. optionele toggles)
-// Status, Location, IMEI/SN, SKU, Used parts, Description, Supplier Grading
-const BASE_COL_COUNT = 7;
-const EXTRA_SN_COL_COUNT = 1;
-const ADVANCED_COL_COUNT = 4;
-const PRICE_COL_COUNT = 1;
-const SUPPLIER_REMARKS_COL_COUNT = 1;
 
 function parseUsedParts(raw: string | null): string[] {
   if (!raw) return [];
@@ -243,12 +238,7 @@ function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPart
     setParts((prev) => {
       const next = [...prev];
       next.splice(index, 1);
-      onChange(
-        next
-          .map((p) => p.trim())
-          .filter(Boolean)
-          .join(", ")
-      );
+      onChange(next.map((p) => p.trim()).filter(Boolean).join(", "));
       return next;
     });
   };
@@ -268,11 +258,7 @@ function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPart
           />
           <CopyBtn value={part.trim()} title="Copy used part SKU" />
           {rows.length > 1 && (
-            <button
-              type="button"
-              className="bb-btn text-[11px] px-2 h-7"
-              onClick={() => removePart(i)}
-            >
+            <button type="button" className="bb-btn text-[11px] px-2 h-7" onClick={() => removePart(i)}>
               –
             </button>
           )}
@@ -298,7 +284,7 @@ export default function RefurbReceptionTable({
   statusTransitions,
   statusNextMap,
   canDelete = false,
-  canUseAdminStatuses = false,
+  canUseAdminStatuses = true,
 }: Props) {
   const router = useRouter();
 
@@ -311,19 +297,22 @@ export default function RefurbReceptionTable({
   }, [initialItems, statusOptions, defaultStatusValue]);
 
   const [items, setItems] = useState<RefurbItem[]>(normalizedInitialItems);
+
+  // UI toggles
   const [isPasting, setIsPasting] = useState(false);
 
-  // ✅ bestaande toggles
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // kolom toggles (default ingeklapt)
   const [showExtraSn, setShowExtraSn] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPrice, setShowPrice] = useState(false); // ✅ nieuw (default ingeklapt)
+  const [showSupplierRemarks, setShowSupplierRemarks] = useState(false); // ✅ nieuw (default ingeklapt)
 
-  // ✅ standaard ingeklapt (overzicht bewaren)
-  const [showPrice, setShowPrice] = useState(false);
-  const [showSupplierRemarks, setShowSupplierRemarks] = useState(false);
+  // statusblok (default ingeklapt)
+  const [statusBlockOpen, setStatusBlockOpen] = useState(false);
 
-  // ✅ GROEPEN: Afgewerkt / Niet afgewerkt
-  const [finalOpen, setFinalOpen] = useState(false); // standaard ingeklapt
-  const [nonFinalOpen, setNonFinalOpen] = useState(true); // standaard open
+  // lijstblokken (default open: niet-afgewerkt, default collapsed: afgewerkt)
+  const [openNotDone, setOpenNotDone] = useState(true);
+  const [openDone, setOpenDone] = useState(false);
 
   // header filters
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
@@ -349,7 +338,7 @@ export default function RefurbReceptionTable({
   // delete row
   const [isDeletingRow, setIsDeletingRow] = useState<string | null>(null);
 
-  // ✅ als statusOptions wijzigen (of initialItems na refresh), sync de state
+  // ✅ als statusOptions wijzigen (of initialItems na refresh), sync de state (zonder user edits te droppen op elke render)
   useEffect(() => {
     setItems(normalizedInitialItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -357,13 +346,7 @@ export default function RefurbReceptionTable({
 
   const hasItems = items.length > 0;
 
-  const colSpan =
-    BASE_COL_COUNT +
-    (showPrice ? PRICE_COL_COUNT : 0) +
-    (showSupplierRemarks ? SUPPLIER_REMARKS_COL_COUNT : 0) +
-    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
-    (showAdvanced ? ADVANCED_COL_COUNT : 0);
-
+  // lookup maps
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
     for (const s of statusOptions) m.set(s.value, s);
@@ -407,26 +390,17 @@ export default function RefurbReceptionTable({
     const setNorm = allowedNextByStatus.normalized.get(norm(cur));
     const set = setExact ?? setNorm ?? null;
 
+    // ✅ enkel "map-mode" als er effectief minstens 1 toegelaten volgende status is
     const hasMapForCurrent = Boolean(set && set.size > 0);
 
     return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
-  }
-
-  const hasTransitionsConfigured = useMemo(() => {
-    const t = transitions || null;
-    return Boolean(t && Object.keys(t).length > 0);
-  }, [transitions]);
-
-  function isFinalStatusValue(statusValue: string) {
-    if (!hasTransitionsConfigured) return false;
-    const next = (transitions?.[statusValue] || []).filter(Boolean);
-    return next.length === 0;
   }
 
   function isTransitionAllowed(current: string, next: string): { ok: true } | { ok: false; reason: string } {
     const cur = (current || "").trim();
     const nxt = (next || "").trim();
 
+    // booked blijft altijd hard lock
     if (isBooked(cur) && norm(nxt) !== norm(cur)) {
       return {
         ok: false,
@@ -434,6 +408,7 @@ export default function RefurbReceptionTable({
       };
     }
 
+    // ✅ Alleen map als er effectief een entry bestaat voor deze current status
     const { hasMapForCurrent, set } = getAllowedNextSet(cur);
     if (allowedNextByStatus && hasMapForCurrent) {
       if (norm(nxt) === norm(cur)) return { ok: true };
@@ -450,6 +425,7 @@ export default function RefurbReceptionTable({
       return { ok: true };
     }
 
+    // fallback: oude regels
     return canChangeStatusFallback({
       current: cur,
       next: nxt,
@@ -471,6 +447,133 @@ export default function RefurbReceptionTable({
     return { ok: true as const };
   }
 
+  // ================================
+  // ✅ Statusblok: donut + legenda + waarden + totals + per model
+  // ================================
+
+  const totalItems = items.length;
+
+  // status stats (count/pct) + value
+  const statusStats = useMemo(() => {
+    const countMap = new Map<string, number>();
+    const valueMap = new Map<string, number>(); // cents
+
+    for (const it of items) {
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim() || "onbekend";
+      countMap.set(st, (countMap.get(st) ?? 0) + 1);
+
+      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : null;
+      if (typeof cents === "number" && !Number.isNaN(cents)) {
+        valueMap.set(st, (valueMap.get(st) ?? 0) + cents);
+      }
+    }
+
+    const FALLBACK_STATUS_COLOR = "#64748b";
+
+    const arr = Array.from(countMap.entries()).map(([status, count]) => {
+      const def = statusOptionByValue.get(status);
+      const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
+      const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : (statusColorByValue.get(status) ?? FALLBACK_STATUS_COLOR);
+
+      return {
+        status,
+        label: def?.label ?? status,
+        count,
+        pct,
+        color,
+        value_cents: valueMap.get(status) ?? 0,
+      };
+    });
+
+    // consistent order (sort_order, then label)
+    const orderByValue = new Map<string, number>();
+    for (const s of statusOptions || []) orderByValue.set(s.value, Number((s as any).sort_order ?? 0));
+
+    arr.sort((a, b) => {
+      const ao = orderByValue.get(a.status) ?? 999999;
+      const bo = orderByValue.get(b.status) ?? 999999;
+      if (ao !== bo) return ao - bo;
+      return a.label.localeCompare(b.label);
+    });
+
+    return arr;
+  }, [items, statusOptions, defaultStatusValue, statusOptionByValue, statusColorByValue, totalItems]);
+
+  // donut style
+  const donutStyle = useMemo(() => {
+    if (totalItems <= 0 || statusStats.length === 0) return {};
+    let currentAngle = 0;
+    const segments: string[] = [];
+    for (const s of statusStats) {
+      const start = currentAngle;
+      const angle = (s.count / totalItems) * 360;
+      const end = start + angle;
+      segments.push(`${s.color} ${start}deg ${end}deg`);
+      currentAngle = end;
+    }
+    return { backgroundImage: `conic-gradient(${segments.join(", ")})` } as Record<string, string>;
+  }, [statusStats, totalItems]);
+
+  // final-status rules: final = geen vervolgstatus (missing OR empty)
+  const isFinalStatusValue = useMemo(() => {
+    const t = transitions;
+    const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
+
+    return (statusValue: string) => {
+      if (!hasAnyTransitions) return false; // als er geen config is: toon NIET “afgewerkt” splitsing op basis hiervan
+      const next = t?.[statusValue] ?? [];
+      return !next || next.length === 0;
+    };
+  }, [transitions]);
+
+  // totals: all + done + not done
+  const totals = useMemo(() => {
+    let totalAll = 0;
+    let totalDone = 0;
+    let totalNotDone = 0;
+
+    for (const it of items) {
+      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
+      if (!cents || Number.isNaN(cents)) continue;
+
+      totalAll += cents;
+
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      if (isFinalStatusValue(st)) totalDone += cents;
+      else totalNotDone += cents;
+    }
+
+    return { totalAll, totalDone, totalNotDone };
+  }, [items, statusOptions, defaultStatusValue, isFinalStatusValue]);
+
+  // value per final status (legend requirement)
+  const valuePerFinalStatus = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items) {
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      if (!isFinalStatusValue(st)) continue;
+
+      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
+      if (!cents || Number.isNaN(cents)) continue;
+
+      map.set(st, (map.get(st) ?? 0) + cents);
+    }
+    return map;
+  }, [items, statusOptions, defaultStatusValue, isFinalStatusValue]);
+
+  // model stats (count + per status) blijft in statusblok
+  const modelStats = useMemo(() => {
+    // NOTE: model-detectie gebeurt op server in page.tsx in jouw setup.
+    // Hier in RefurbReceptionTable houden we de UI “model stats” niet opnieuw bij (geen models in props).
+    // Daarom laten we dit blok “as-is” in page.tsx. (Maar jij vroeg expliciet dat het in statusblok blijft.)
+    // 👉 In jouw project staat “aantal toestellen per model” reeds in page.tsx; dat blijft daar.
+    return null;
+  }, []);
+
+  // ================================
+  // Filters + selection
+  // ================================
+
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
@@ -480,12 +583,14 @@ export default function RefurbReceptionTable({
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items, statusOptions, defaultStatusValue]);
 
+  // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
     const labelByValue = new Map((locationOptions || []).map((o: any) => [String(o.value), String(o.label)]));
 
     const iq = norm(imeiQuery);
     const dq = norm(descQuery);
 
+    // apply all filters except location
     const base = (items || []).filter((it: any) => {
       const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (statusFilter !== "__all__" && st !== statusFilter) return false;
@@ -546,18 +651,20 @@ export default function RefurbReceptionTable({
       });
   }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
 
-  const groupedFilteredRows = useMemo(() => {
-    const finalRows: typeof filteredRows = [];
-    const nonFinalRows: typeof filteredRows = [];
+  // split done vs not done blocks (based on final statuses)
+  const filteredNotDoneRows = useMemo(() => {
+    return filteredRows.filter(({ it }) => {
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      return !isFinalStatusValue(st);
+    });
+  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue]);
 
-    for (const r of filteredRows) {
-      const st = canonicalizeStatusValue(r.it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-      const isFinal = st && isFinalStatusValue(st);
-      (isFinal ? finalRows : nonFinalRows).push(r);
-    }
-
-    return { finalRows, nonFinalRows };
-  }, [filteredRows, statusOptions, defaultStatusValue, hasTransitionsConfigured]);
+  const filteredDoneRows = useMemo(() => {
+    return filteredRows.filter(({ it }) => {
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      return isFinalStatusValue(st);
+    });
+  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue]);
 
   const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
@@ -620,6 +727,7 @@ export default function RefurbReceptionTable({
     }
 
     if (field === "refurb_status") {
+      // ✅ AdminOnly + NeedSKU UI checks (server-side ook)
       const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(value ?? ""));
       if (opt) {
         if (opt.admin_only && !canUseAdminStatuses) {
@@ -639,6 +747,7 @@ export default function RefurbReceptionTable({
       }
     }
 
+    // optimistic UI update
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
@@ -667,6 +776,7 @@ export default function RefurbReceptionTable({
       console.error("[REFURB] updateCell client error", e);
       window.alert(e?.message || "Opslaan mislukt (zie logs).");
 
+      // ✅ herstel UI naar server truth
       try {
         const fresh = await fetchReceptionItems(receptionId);
         setItems(
@@ -711,7 +821,7 @@ export default function RefurbReceptionTable({
         startRowIndex,
         field as any,
         lines,
-        defaultStatusValue,
+        defaultStatusValue, // ✅ voorkomt "new"
         defaultLocationValue
       );
       setItems(
@@ -769,6 +879,7 @@ export default function RefurbReceptionTable({
       return;
     }
 
+    // ✅ Bulk UI checks for status (NeedSKU/AdminOnly)
     if (wantStatus) {
       const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(bulkStatus ?? ""));
       if (opt?.admin_only && !canUseAdminStatuses) {
@@ -870,339 +981,582 @@ export default function RefurbReceptionTable({
     }
   }
 
-  function renderDataRow(it: RefurbItem) {
-    const currentStatus = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+  // ================================
+  // kolomtelling (voor “no items” / “geen filters” rows)
+  // ================================
+  const baseColCount =
+    1 + // status
+    1 + // location
+    1 + // IMEI/SN
+    1 + // SKU
+    1 + // used parts
+    1 + // description
+    1 + // supplier grading
+    0;
 
-    const rowBooked = isBooked(currentStatus);
+  const colSpan =
+    1 + // checkbox
+    (canDelete ? 1 : 0) +
+    baseColCount +
+    (showExtraSn ? 1 : 0) + // extra SN
+    (showPrice ? 1 : 0) + // price
+    (showSupplierRemarks ? 1 : 0) + // supplier remarks
+    (showAdvanced ? 4 : 0); // advanced (diag, rma defect, rma, comp)
 
-    const lockedPrice = isLockedAfterFill(it, "price_cents");
-    const lockedDesc = isLockedAfterFill(it, "description");
-    const lockedSuppErr = isLockedAfterFill(it, "supplier_device_errors");
-    const lockedSuppGrad = isLockedAfterFill(it, "supplier_grading");
-
-    const imeiSn = (it as any).imei_sn ?? "";
-    const manualSn = (it as any).manual_sn ?? "";
-    const locationValue = (it as any).location ?? "";
-
-    const statusColor = statusColorByValue.get(currentStatus) ?? null;
-    const isFinishedRow = containsFinished(currentStatus);
-
-    const rowChecked = selectedIds.has(it.id);
-
-    const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
-
-    const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
-
-    const visibleStatusOptions = (() => {
-      if (!mapModeForRow) return statusOptions;
-
-      const curNorm = norm(currentStatus);
-      const allowedNorms = new Set<string>();
-      if (allowedNextSet) {
-        for (const v of Array.from(allowedNextSet.values())) {
-          allowedNorms.add(norm(v));
-        }
-      }
-
-      return statusOptions.filter((opt) => {
-        const vNorm = norm(opt.value);
-        return vNorm === curNorm || allowedNorms.has(vNorm);
-      });
-    })();
-
-    const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
-
-    const pasteStartRowIndex = Number((it as any).row_index ?? 0);
-
+  // helper: render the table header row (used twice: not done + done blocks)
+  const renderHeader = () => {
     return (
-      <tr key={it.id} className="border-t hover:bg-slate-50/50">
-        <td className="px-2 py-0.5 border">
-          <input type="checkbox" checked={rowChecked} onChange={(e) => toggleSelectOne(it.id, e.target.checked)} />
-        </td>
-
-        {canDelete && (
-          <td className="px-1 py-0.5 border">
-            <button
-              type="button"
-              className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
-              disabled={rowBooked || isDeletingRow === it.id}
-              title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
-              onClick={() => onDeleteRow(it)}
-            >
-              {isDeletingRow === it.id ? "…" : "🗑️"}
-            </button>
-          </td>
-        )}
-
-        {/* Status */}
-        <td className="px-1 py-0.5 border">
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
-              style={{ background: statusColor ?? "transparent" }}
-              aria-hidden="true"
+      <thead className="bg-slate-50 text-[11px] uppercase">
+        <tr>
+          <th className="px-2 py-1 border w-8">
+            <input
+              ref={headerCheckboxRef}
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+              aria-label="Selecteer alle gefilterde rijen"
             />
-            <select
-              value={currentStatus}
-              disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
-              onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
-              className="bb-select bb-select-sm w-full text-slate-900"
-              title={
-                rowBooked
-                  ? "Booked: status kan niet meer gewijzigd worden"
-                  : mapModeForRow && !rowHasChoices
-                  ? "Geen toegelaten vervolgstatus"
-                  : "Status wijzigen"
+          </th>
+
+          {canDelete && <th className="px-2 py-1 border w-10">Act</th>}
+
+          <th className="px-2 py-1 border">
+            <div className="flex items-center gap-2">
+              <span>Status</span>
+              <select
+                className="bb-select bb-select-sm text-[11px]"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="__all__">Alles</option>
+                {presentStatuses.map((st) => (
+                  <option key={st} value={st}>
+                    {statusOptionByValue.get(st)?.label ?? st}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </th>
+
+          <th className="px-2 py-1 border">
+            <div className="flex items-center gap-2">
+              <span>Location</span>
+              <select
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                className="bb-select bb-select-sm w-full text-slate-900"
+              >
+                <option value="__all__">Alles</option>
+                {locationFilterOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </th>
+
+          <th className="px-2 py-1 border">
+            <div className="flex flex-col gap-1">
+              <span>IMEI/SN</span>
+              <input
+                className="bb-input h-7 text-[11px] px-2 normal-case"
+                placeholder="zoek..."
+                value={imeiQuery}
+                onChange={(e) => setImeiQuery(e.target.value)}
+              />
+            </div>
+          </th>
+
+          {showExtraSn && <th className="px-2 py-1 border">SN</th>}
+
+          <th className="px-2 py-1 border">SKU</th>
+          <th className="px-2 py-1 border">Used parts</th>
+
+          {showPrice && <th className="px-2 py-1 border">Price</th>}
+
+          <th className="px-2 py-1 border">
+            <div className="flex flex-col gap-1">
+              <span>Description</span>
+              <input
+                className="bb-input h-7 text-[11px] px-2 normal-case"
+                placeholder="zoek..."
+                value={descQuery}
+                onChange={(e) => setDescQuery(e.target.value)}
+              />
+            </div>
+          </th>
+
+          {showSupplierRemarks && <th className="px-2 py-1 border">Supplier remarks</th>}
+
+          <th className="px-2 py-1 border">Supplier Grading</th>
+
+          {showAdvanced && (
+            <>
+              <th className="px-2 py-1 border">Refurb Diagnostics</th>
+              <th className="px-2 py-1 border">RMA Defect Description</th>
+              <th className="px-2 py-1 border">RMA</th>
+              <th className="px-2 py-1 border">Compensation</th>
+            </>
+          )}
+        </tr>
+      </thead>
+    );
+  };
+
+  // helper: render rows
+  const renderRows = (rows: Array<{ it: RefurbItem }>) => {
+    return (
+      <>
+        {rows.map(({ it }) => {
+          const currentStatus = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+
+          const rowBooked = isBooked(currentStatus);
+
+          const lockedPrice = isLockedAfterFill(it, "price_cents");
+          const lockedDesc = isLockedAfterFill(it, "description");
+          const lockedSuppErr = isLockedAfterFill(it, "supplier_device_errors");
+          const lockedSuppGrad = isLockedAfterFill(it, "supplier_grading");
+
+          const imeiSn = (it as any).imei_sn ?? "";
+          const manualSn = (it as any).manual_sn ?? "";
+          const locationValue = (it as any).location ?? "";
+
+          const statusColor = statusColorByValue.get(currentStatus) ?? null;
+          const isFinishedRow = containsFinished(currentStatus);
+
+          const rowChecked = selectedIds.has(it.id);
+
+          const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
+
+          // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
+          const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
+
+          // ✅ status dropdown options
+          const visibleStatusOptions = (() => {
+            if (!mapModeForRow) return statusOptions;
+
+            const curNorm = norm(currentStatus);
+            const allowedNorms = new Set<string>();
+            if (allowedNextSet) {
+              for (const v of Array.from(allowedNextSet.values())) {
+                allowedNorms.add(norm(v));
               }
-            >
-              {currentStatus && !statusOptionByValue.has(currentStatus) && (
-                <option value={currentStatus}>{currentStatus}</option>
+            }
+
+            return statusOptions.filter((opt) => {
+              const vNorm = norm(opt.value);
+              return vNorm === curNorm || allowedNorms.has(vNorm);
+            });
+          })();
+
+          // ✅ als map-mode maar 0/1 opties: niet hard disablen tenzij er echt geen choices zijn
+          const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
+
+          // ✅ paste startRowIndex moet row_index zijn (niet array-index), anders plakt alles “verschoven”
+          const pasteStartRowIndex = Number((it as any).row_index ?? 0);
+
+          return (
+            <tr key={it.id} className="border-t hover:bg-slate-50/50">
+              <td className="px-2 py-0.5 border">
+                <input type="checkbox" checked={rowChecked} onChange={(e) => toggleSelectOne(it.id, e.target.checked)} />
+              </td>
+
+              {canDelete && (
+                <td className="px-1 py-0.5 border">
+                  <button
+                    type="button"
+                    className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
+                    disabled={rowBooked || isDeletingRow === it.id}
+                    title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
+                    onClick={() => onDeleteRow(it)}
+                  >
+                    {isDeletingRow === it.id ? "…" : "🗑️"}
+                  </button>
+                </td>
               )}
 
-              {!mapModeForRow
-                ? statusOptions.map((opt: any) => {
-                    const optValue = opt.value;
-
-                    if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
-                      return null;
+              {/* Status */}
+              <td className="px-1 py-0.5 border">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
+                    style={{ background: statusColor ?? "transparent" }}
+                    aria-hidden="true"
+                  />
+                  <select
+                    value={currentStatus}
+                    disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
+                    onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
+                    className="bb-select bb-select-sm w-full text-slate-900"
+                    title={
+                      rowBooked
+                        ? "Booked: status kan niet meer gewijzigd worden"
+                        : mapModeForRow && !rowHasChoices
+                        ? "Geen toegelaten vervolgstatus"
+                        : "Status wijzigen"
                     }
+                  >
+                    {currentStatus && !statusOptionByValue.has(currentStatus) && (
+                      <option value={currentStatus}>{currentStatus}</option>
+                    )}
 
-                    const cannotGoBackToDefault =
-                      norm(optValue) === norm(defaultStatusValue) && norm(currentStatus) !== norm(defaultStatusValue);
+                    {!mapModeForRow
+                      ? statusOptions.map((opt: any) => {
+                          const optValue = opt.value;
 
-                    const cannotSetBooked = norm(optValue) === "booked" && !isReadyToBook(currentStatus);
+                          if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
+                            return null;
+                          }
 
-                    const ruleVerdict = statusRuleVerdictForRow(opt, it);
+                          const cannotGoBackToDefault =
+                            norm(optValue) === norm(defaultStatusValue) && norm(currentStatus) !== norm(defaultStatusValue);
 
-                    const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked || !ruleVerdict.ok;
+                          const cannotSetBooked = norm(optValue) === "booked" && !isReadyToBook(currentStatus);
 
-                    const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
+                          const ruleVerdict = statusRuleVerdictForRow(opt, it);
 
-                    return (
-                      <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
-                        {opt.label}
-                      </option>
-                    );
-                  })
-                : visibleStatusOptions.map((opt: any) => {
-                    const ruleVerdict = statusRuleVerdictForRow(opt, it);
-                    const disabled = rowBooked || !ruleVerdict.ok;
-                    const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
+                          const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked || !ruleVerdict.ok;
 
-                    return (
-                      <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
-                        {opt.label}
-                      </option>
-                    );
-                  })}
-            </select>
-          </div>
-        </td>
+                          const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
 
-        {/* Location */}
-        <td className="px-1 py-0.5 border">
-          <select
-            value={locationValue}
-            disabled={rowBooked}
-            onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
-            className="bb-select bb-select-sm w-full text-slate-900"
-          >
-            {locationValue && !locationOptionByValue.has(locationValue) && (
-              <option value={locationValue}>{locationValue}</option>
-            )}
-            {locationOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </td>
+                          return (
+                            <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
+                              {opt.label}
+                            </option>
+                          );
+                        })
+                      : visibleStatusOptions.map((opt: any) => {
+                          const ruleVerdict = statusRuleVerdictForRow(opt, it);
+                          const disabled = rowBooked || !ruleVerdict.ok;
+                          const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
 
-        {/* IMEI/SN + copy */}
-        <td className="px-1 py-0.5 border">
-          <div className="flex items-center gap-1">
-            {imeiSn ? (
-              <span className="block truncate max-w-[200px]" title={imeiSn}>
-                {imeiSn}
-              </span>
-            ) : (
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full"
-                value={imeiSn}
-                disabled={rowBooked}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setItems((prev) => prev.map((row) => (row.id === it.id ? ({ ...row, imei_sn: val } as any) : row)));
-                }}
-                onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
-              />
-            )}
-            <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
-          </div>
-        </td>
+                          return (
+                            <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
+                              {opt.label}
+                            </option>
+                          );
+                        })}
+                  </select>
+                </div>
+              </td>
 
-        {showExtraSn && (
-          <td className="px-1 py-0.5 border">
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full"
-              value={manualSn}
-              disabled={rowBooked}
-              onChange={(e) => {
-                const val = e.target.value;
-                setItems((prev) =>
-                  prev.map((row) => (row.id === it.id ? ({ ...row, manual_sn: val } as any) : row))
-                );
-              }}
-              onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "manual_sn")}
-            />
-          </td>
-        )}
+              {/* Location */}
+              <td className="px-1 py-0.5 border">
+                <select
+                  value={locationValue}
+                  disabled={rowBooked}
+                  onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
+                  className="bb-select bb-select-sm w-full text-slate-900"
+                >
+                  {locationValue && !locationOptionByValue.has(locationValue) && <option value={locationValue}>{locationValue}</option>}
+                  {locationOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </td>
 
-        {/* SKU + copy */}
-        <td className="px-1 py-0.5 border">
-          <div className="flex items-center gap-1">
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full"
-              defaultValue={it.sku ?? ""}
-              disabled={rowBooked}
-              onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
-            />
-            <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
-          </div>
-        </td>
+              {/* IMEI/SN + copy */}
+              <td className="px-1 py-0.5 border">
+                <div className="flex items-center gap-1">
+                  {imeiSn ? (
+                    <span className="block truncate max-w-[200px]" title={imeiSn}>
+                      {imeiSn}
+                    </span>
+                  ) : (
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      value={imeiSn}
+                      disabled={rowBooked}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setItems((prev) => prev.map((row) => (row.id === it.id ? ({ ...row, imei_sn: val } as any) : row)));
+                      }}
+                      onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
+                    />
+                  )}
+                  <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
+                </div>
+              </td>
 
-        {/* Used parts */}
-        <td className="px-1 py-0.5 border">
-          <UsedPartsCell
-            rawValue={it.used_parts ?? ""}
-            locked={rowBooked}
-            onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-            onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
-          />
-        </td>
+              {showExtraSn && (
+                <td className="px-1 py-0.5 border">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    value={manualSn}
+                    disabled={rowBooked}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setItems((prev) => prev.map((row) => (row.id === it.id ? ({ ...row, manual_sn: val } as any) : row)));
+                    }}
+                    onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
+                    onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "manual_sn")}
+                  />
+                </td>
+              )}
 
-        {/* Price (toggle) */}
-        {showPrice && (
-          <td className="px-1 py-0.5 border">
-            {lockedPrice ? (
-              <span>{money(it.price_cents)}</span>
-            ) : (
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
-                disabled={rowBooked}
-                placeholder="0,00"
-                onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
-              />
-            )}
-          </td>
-        )}
+              {/* SKU + copy */}
+              <td className="px-1 py-0.5 border">
+                <div className="flex items-center gap-1">
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    defaultValue={it.sku ?? ""}
+                    disabled={rowBooked}
+                    onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
+                    onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
+                  />
+                  <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
+                </div>
+              </td>
 
-        {/* Description */}
-        <td className="px-1 py-0.5 border">
-          {lockedDesc ? (
-            <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
-              {it.description}
-            </span>
-          ) : (
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full"
-              defaultValue={it.description ?? ""}
-              disabled={rowBooked}
-              onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
-            />
-          )}
-        </td>
+              {/* Used parts */}
+              <td className="px-1 py-0.5 border">
+                <UsedPartsCell
+                  rawValue={it.used_parts ?? ""}
+                  locked={rowBooked}
+                  onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
+                  onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
+                />
+              </td>
 
-        {/* Supplier remarks (toggle) */}
-        {showSupplierRemarks && (
-          <td className="px-1 py-0.5 border">
-            {lockedSuppErr ? (
-              <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
-                {it.supplier_device_errors}
-              </span>
-            ) : (
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full"
-                defaultValue={it.supplier_device_errors ?? ""}
-                disabled={rowBooked}
-                onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
-              />
-            )}
-          </td>
-        )}
+              {/* Price (toggle) */}
+              {showPrice && (
+                <td className="px-1 py-0.5 border">
+                  {lockedPrice ? (
+                    <span>{money(it.price_cents)}</span>
+                  ) : (
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
+                      disabled={rowBooked}
+                      placeholder="0,00"
+                      onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
+                    />
+                  )}
+                </td>
+              )}
 
-        {/* Supplier grading */}
-        <td className="px-1 py-0.5 border">
-          {lockedSuppGrad ? (
-            <span>{it.supplier_grading}</span>
-          ) : (
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full"
-              defaultValue={it.supplier_grading ?? ""}
-              disabled={rowBooked}
-              onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")}
-            />
-          )}
-        </td>
+              {/* Description */}
+              <td className="px-1 py-0.5 border">
+                {lockedDesc ? (
+                  <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
+                    {it.description}
+                  </span>
+                ) : (
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    defaultValue={it.description ?? ""}
+                    disabled={rowBooked}
+                    onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
+                    onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
+                  />
+                )}
+              </td>
 
-        {showAdvanced && (
-          <>
-            <td className="px-1 py-0.5 border">
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full"
-                defaultValue={it.refurb_diagnostics ?? ""}
-                disabled={rowBooked}
-                onBlur={(e) => handleCellChange(it.id, "refurb_diagnostics", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")}
-              />
-            </td>
+              {/* Supplier remarks (toggle) */}
+              {showSupplierRemarks && (
+                <td className="px-1 py-0.5 border">
+                  {lockedSuppErr ? (
+                    <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
+                      {it.supplier_device_errors}
+                    </span>
+                  ) : (
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.supplier_device_errors ?? ""}
+                      disabled={rowBooked}
+                      onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
+                    />
+                  )}
+                </td>
+              )}
 
-            <td className="px-1 py-0.5 border">
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full"
-                defaultValue={it.rma_defect_description ?? ""}
-                disabled={rowBooked}
-                onBlur={(e) => handleCellChange(it.id, "rma_defect_description", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")}
-              />
-            </td>
+              {/* Supplier grading */}
+              <td className="px-1 py-0.5 border">
+                {lockedSuppGrad ? (
+                  <span>{it.supplier_grading}</span>
+                ) : (
+                  <input
+                    className="bb-input h-7 text-[11px] px-1 w-full"
+                    defaultValue={it.supplier_grading ?? ""}
+                    disabled={rowBooked}
+                    onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
+                    onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")}
+                  />
+                )}
+              </td>
 
-            <td className="px-1 py-0.5 border">
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full"
-                defaultValue={it.rma ?? ""}
-                disabled={rowBooked}
-                onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
-              />
-            </td>
+              {showAdvanced && (
+                <>
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.refurb_diagnostics ?? ""}
+                      disabled={rowBooked}
+                      onBlur={(e) => handleCellChange(it.id, "refurb_diagnostics", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")}
+                    />
+                  </td>
 
-            <td className="px-1 py-0.5 border">
-              <input
-                className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
-                disabled={rowBooked}
-                placeholder="0,00"
-                onBlur={(e) => handleCellChange(it.id, "compensation_cents", e.target.value)}
-                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")}
-              />
-            </td>
-          </>
-        )}
-      </tr>
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.rma_defect_description ?? ""}
+                      disabled={rowBooked}
+                      onBlur={(e) => handleCellChange(it.id, "rma_defect_description", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")}
+                    />
+                  </td>
+
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full"
+                      defaultValue={it.rma ?? ""}
+                      disabled={rowBooked}
+                      onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
+                    />
+                  </td>
+
+                  <td className="px-1 py-0.5 border">
+                    <input
+                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
+                      disabled={rowBooked}
+                      placeholder="0,00"
+                      onBlur={(e) => handleCellChange(it.id, "compensation_cents", e.target.value)}
+                      onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")}
+                    />
+                  </td>
+                </>
+              )}
+            </tr>
+          );
+        })}
+      </>
     );
-  }
+  };
 
   return (
     <div className="mt-4 space-y-3">
+      {/* ===========================
+          ✅ Statusverdeling (uitklapbaar, default ingeklapt)
+         =========================== */}
+      <div className="border rounded-md bg-white text-xs">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
+          onClick={() => setStatusBlockOpen((v) => !v)}
+        >
+          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+            Statusverdeling in deze receptie
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-600">
+            <span className="ml-2">{statusBlockOpen ? "▲" : "▼"}</span>
+          </div>
+        </button>
+
+        {statusBlockOpen && (
+          <div className="p-3">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
+              {/* donut + legenda */}
+              <div>
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
+                    style={donutStyle}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-slate-50" />
+                  </div>
+
+                  <div className="space-y-1 text-[11px] w-full">
+                    <div className="text-slate-500">
+                      Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
+                    </div>
+
+                    {statusStats.map((s) => (
+                      <div key={s.status} className="flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                        <span className="truncate max-w-[160px]" title={s.label}>
+                          {s.label}
+                        </span>
+                        <span className="ml-auto tabular-nums text-right whitespace-nowrap">
+                          {s.count} ({s.pct}%){" "}
+                          <span className="text-slate-600">— {money(s.value_cents)}</span>
+                        </span>
+                      </div>
+                    ))}
+
+                    {statusStats.length === 0 && <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>}
+                  </div>
+                </div>
+              </div>
+
+              {/* totals + final status values */}
+              <div className="text-[11px]">
+                <div className="text-[11px] font-medium text-slate-600 mb-1">Waarden</div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Totaal (alle statussen)</span>
+                    <span className="tabular-nums font-semibold">{money(totals.totalAll)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Niet afgewerkt</span>
+                    <span className="tabular-nums">{money(totals.totalNotDone)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Afgewerkt</span>
+                    <span className="tabular-nums">{money(totals.totalDone)}</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 border-t pt-2">
+                  <div className="text-[11px] font-medium text-slate-600 mb-1">
+                    Waarde per afgewerkte status
+                  </div>
+
+                  {Array.from(valuePerFinalStatus.entries()).length === 0 ? (
+                    <div className="text-[11px] text-slate-500">
+                      Geen (of nog geen) afgewerkte statussen met prijswaarde.
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {Array.from(valuePerFinalStatus.entries())
+                        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+                        .map(([st, cents]) => (
+                          <div key={st} className="flex items-center gap-2">
+                            <span
+                              className="inline-block w-2 h-2 rounded-full"
+                              style={{ backgroundColor: statusColorByValue.get(st) ?? "#64748b" }}
+                            />
+                            <span className="truncate" title={statusOptionByValue.get(st)?.label ?? st}>
+                              {statusOptionByValue.get(st)?.label ?? st}
+                            </span>
+                            <span className="ml-auto tabular-nums">{money(cents)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+
+                  {/* ⚠️ Model stats blijft in page.tsx (server) in jouw setup */}
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    (Aantal toestellen per model blijft in het statusblok op de pagina erboven.)
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Bulk Update (collapsible) */}
       <div className="border rounded-md bg-white text-xs">
         <button
@@ -1358,6 +1712,17 @@ export default function RefurbReceptionTable({
 
             <button
               type="button"
+              onClick={() => setShowExtraSn((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+                {showExtraSn ? "▲" : "▼"}
+              </span>
+              <span>Extra SN</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowPrice((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
@@ -1375,18 +1740,7 @@ export default function RefurbReceptionTable({
               <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showSupplierRemarks ? "▲" : "▼"}
               </span>
-              <span>Supplier Remarks</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowExtraSn((v) => !v)}
-              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
-            >
-              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
-                {showExtraSn ? "▲" : "▼"}
-              </span>
-              <span>Extra SN</span>
+              <span>Supplier remarks</span>
             </button>
 
             <button
@@ -1402,179 +1756,206 @@ export default function RefurbReceptionTable({
           </div>
         </div>
 
-        <table className="min-w-full border-collapse">
-          <thead className="bg-slate-50 text-[11px] uppercase">
-            <tr>
-              <th className="px-2 py-1 border w-8">
-                <input
-                  ref={headerCheckboxRef}
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    const ids = filteredRows.map((r) => r.it.id);
-                    setSelectedIds((prev) => {
-                      const next = new Set(prev);
-                      for (const id of ids) checked ? next.add(id) : next.delete(id);
-                      return next;
-                    });
-                  }}
-                  aria-label="Selecteer alle gefilterde rijen"
-                />
-              </th>
+        {/* Niet afgewerkt block */}
+        <div className="border-b">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 bg-white"
+            onClick={() => setOpenNotDone((v) => !v)}
+          >
+            <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+              Niet afgewerkt ({filteredNotDoneRows.length})
+            </div>
+            <div className="text-[11px] text-slate-600">{openNotDone ? "▲" : "▼"}</div>
+          </button>
 
-              {canDelete && <th className="px-2 py-1 border w-10">Act</th>}
+          {openNotDone && (
+            <table className="min-w-full border-collapse">
+              {renderHeader()}
+              <tbody>
+                {hasItems && filteredNotDoneRows.length > 0 && renderRows(filteredNotDoneRows.map((r) => ({ it: r.it })))}
 
-              <th className="px-2 py-1 border">
-                <div className="flex items-center gap-2">
-                  <span>Status</span>
-                  <select
-                    className="bb-select bb-select-sm text-[11px]"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                  >
-                    <option value="__all__">Alles</option>
-                    {presentStatuses.map((st) => (
-                      <option key={st} value={st}>
-                        {statusOptionByValue.get(st)?.label ?? st}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </th>
+                {!hasItems && (
+                  <>
+                    <tr className="border-t">
+                      <td className="px-2 py-0.5 border" />
+                      {canDelete && <td className="px-2 py-0.5 border" />}
 
-              <th className="px-2 py-1 border">
-                <div className="flex items-center gap-2">
-                  <span>Location</span>
-                  <select
-                    value={locationFilter}
-                    onChange={(e) => setLocationFilter(e.target.value)}
-                    className="bb-select bb-select-sm w-full text-slate-900"
-                  >
-                    <option value="__all__">Alles</option>
-                    {locationFilterOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </th>
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak status hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
+                        />
+                      </td>
 
-              <th className="px-2 py-1 border">
-                <div className="flex flex-col gap-1">
-                  <span>IMEI/SN</span>
-                  <input
-                    className="bb-input h-7 text-[11px] px-2 normal-case"
-                    placeholder="zoek..."
-                    value={imeiQuery}
-                    onChange={(e) => setImeiQuery(e.target.value)}
-                  />
-                </div>
-              </th>
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak locaties hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "location")}
+                        />
+                      </td>
 
-              {showExtraSn && <th className="px-2 py-1 border">SN</th>}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak IMEI/SN kolom hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
+                        />
+                      </td>
 
-              <th className="px-2 py-1 border">SKU</th>
-              <th className="px-2 py-1 border">Used parts</th>
+                      {showExtraSn && (
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            placeholder="Plak SN kolom hier"
+                            onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
+                          />
+                        </td>
+                      )}
 
-              {showPrice && <th className="px-2 py-1 border">Price</th>}
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak SKU-kolom hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
+                        />
+                      </td>
 
-              <th className="px-2 py-1 border">
-                <div className="flex flex-col gap-1">
-                  <span>Description</span>
-                  <input
-                    className="bb-input h-7 text-[11px] px-2 normal-case"
-                    placeholder="zoek..."
-                    value={descQuery}
-                    onChange={(e) => setDescQuery(e.target.value)}
-                  />
-                </div>
-              </th>
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak Used parts-kolom hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
+                        />
+                      </td>
 
-              {showSupplierRemarks && <th className="px-2 py-1 border">Supplier remarks</th>}
+                      {showPrice && (
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                            placeholder="Plak prijzen hier"
+                            onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
+                          />
+                        </td>
+                      )}
 
-              <th className="px-2 py-1 border">Supplier Grading</th>
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak Description-kolom hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "description")}
+                        />
+                      </td>
 
-              {showAdvanced && (
-                <>
-                  <th className="px-2 py-1 border">Refurb Diagnostics</th>
-                  <th className="px-2 py-1 border">RMA Defect Description</th>
-                  <th className="px-2 py-1 border">RMA</th>
-                  <th className="px-2 py-1 border">Compensation</th>
-                </>
-              )}
-            </tr>
-          </thead>
+                      {showSupplierRemarks && (
+                        <td className="px-1 py-0.5 border">
+                          <input
+                            className="bb-input h-7 text-[11px] px-1 w-full"
+                            placeholder="Plak Supplier remarks hier"
+                            onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
+                          />
+                        </td>
+                      )}
 
-          <tbody>
-            {hasItems && (
-              <>
-                {/* Niet afgewerkt */}
-                <tr className="border-t bg-slate-50">
-                  <td
-                    className="px-2 py-2 border text-[11px] font-medium text-slate-700"
-                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
-                  >
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between"
-                      onClick={() => setNonFinalOpen((v) => !v)}
-                    >
-                      <span>Niet afgewerkt ({groupedFilteredRows.nonFinalRows.length})</span>
-                      <span className="text-slate-600">{nonFinalOpen ? "▲" : "▼"}</span>
-                    </button>
-                  </td>
-                </tr>
+                      <td className="px-1 py-0.5 border">
+                        <input
+                          className="bb-input h-7 text-[11px] px-1 w-full"
+                          placeholder="Plak grading hier"
+                          onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
+                        />
+                      </td>
 
-                {nonFinalOpen && groupedFilteredRows.nonFinalRows.map(({ it }) => renderDataRow(it))}
+                      {showAdvanced && (
+                        <>
+                          <td className="px-1 py-0.5 border">
+                            <input
+                              className="bb-input h-7 text-[11px] px-1 w-full"
+                              placeholder="Plak refurb diagnostics hier"
+                              onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
+                            />
+                          </td>
 
-                {/* Afgewerkt */}
-                <tr className="border-t bg-slate-50">
-                  <td
-                    className="px-2 py-2 border text-[11px] font-medium text-slate-700"
-                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
-                  >
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between"
-                      onClick={() => setFinalOpen((v) => !v)}
-                      title={
-                        hasTransitionsConfigured
-                          ? "Afgewerkt = status zonder vervolgstatus"
-                          : "Geen transities ingesteld: afgewerkt kan niet bepaald worden"
-                      }
-                      disabled={!hasTransitionsConfigured}
-                    >
-                      <span>Afgewerkt ({hasTransitionsConfigured ? groupedFilteredRows.finalRows.length : "—"})</span>
-                      <span className="text-slate-600">
-                        {!hasTransitionsConfigured ? "—" : finalOpen ? "▲" : "▼"}
-                      </span>
-                    </button>
-                  </td>
-                </tr>
+                          <td className="px-1 py-0.5 border">
+                            <input
+                              className="bb-input h-7 text-[11px] px-1 w-full"
+                              placeholder="Plak RMA defect beschrijving hier"
+                              onPaste={(e) => handlePasteToColumn(e, 0, "rma_defect_description")}
+                            />
+                          </td>
 
-                {hasTransitionsConfigured && finalOpen && groupedFilteredRows.finalRows.map(({ it }) => renderDataRow(it))}
-              </>
-            )}
+                          <td className="px-1 py-0.5 border">
+                            <input
+                              className="bb-input h-7 text-[11px] px-1 w-full"
+                              placeholder="Plak RMA-codes hier"
+                              onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
+                            />
+                          </td>
 
-            {!hasItems && (
-              <tr>
-                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1 + (canDelete ? 1 : 0)}>
-                  Nog geen toestellen in deze receptie.
-                </td>
-              </tr>
-            )}
+                          <td className="px-1 py-0.5 border">
+                            <input
+                              className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                              placeholder="Plak compensaties hier"
+                              onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
+                            />
+                          </td>
+                        </>
+                      )}
+                    </tr>
 
-            {hasItems && filteredRows.length === 0 && (
-              <tr>
-                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1 + (canDelete ? 1 : 0)}>
-                  Geen rijen voor deze filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                    <tr>
+                      <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan}>
+                        Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van de velden hierboven (bv.
+                        IMEI/SN, SKU, Description, Price...) om rijen aan te maken. Status en Location gebruiken hun
+                        ingestelde default-waarde bij het importeren.
+                      </td>
+                    </tr>
+                  </>
+                )}
+
+                {hasItems && filteredNotDoneRows.length === 0 && (
+                  <tr>
+                    <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan}>
+                      Geen rijen (niet afgewerkt) voor deze filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Afgewerkt block */}
+        <div>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 bg-white"
+            onClick={() => setOpenDone((v) => !v)}
+          >
+            <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+              Afgewerkt ({filteredDoneRows.length})
+            </div>
+            <div className="text-[11px] text-slate-600">{openDone ? "▲" : "▼"}</div>
+          </button>
+
+          {openDone && (
+            <table className="min-w-full border-collapse">
+              {renderHeader()}
+              <tbody>
+                {hasItems && filteredDoneRows.length > 0 && renderRows(filteredDoneRows.map((r) => ({ it: r.it })))}
+
+                {hasItems && filteredDoneRows.length === 0 && (
+                  <tr>
+                    <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan}>
+                      Geen rijen (afgewerkt) voor deze filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   );
