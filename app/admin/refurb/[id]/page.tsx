@@ -537,124 +537,144 @@ export default async function RefurbReceptionDetailPage({
       </div>
 
       {/* ✅ ENKEL 1 statusblok: uitklapbaar (standaard dicht) met donut + legenda + waardes + modellen */}
-      <details className="border rounded-md bg-white text-xs">
-        <summary className="cursor-pointer select-none px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
-            Status verdeling in deze receptie
+<details className="border rounded-md bg-white text-xs group">
+  <summary className="cursor-pointer select-none px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
+    <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+      Status verdeling in deze receptie
+    </div>
+    <div className="text-[11px] text-slate-600 transition-transform group-open:rotate-180">
+      ▼
+    </div>
+  </summary>
+
+  <div className="p-3">
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
+      <div>
+        <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
+          Statusverdeling in deze receptie
+        </div>
+
+        {/* donut + legenda */}
+        <div className="flex items-start gap-4">
+          {/* ✅ donut blijft rond */}
+          <div
+            className="shrink-0 w-20 h-20 min-w-[80px] min-h-[80px] aspect-square rounded-full border border-slate-200 flex items-center justify-center"
+            style={donutStyle}
+          >
+            <div className="w-12 h-12 aspect-square rounded-full bg-slate-50" />
           </div>
-          <div className="text-[11px] text-slate-600">▼</div>
-        </summary>
 
-        <div className="p-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-            <div>
-              <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-                Statusverdeling in deze receptie
+          {/* ✅ legenda met nette kolommen */}
+          <div className="space-y-2 text-[11px] w-full">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+              <div className="text-slate-500">
+                Totaal:{" "}
+                <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
               </div>
-
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                  style={donutStyle}
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-50" />
-                </div>
-
-                <div className="space-y-1 text-[11px] w-full">
-                  <div className="text-slate-500">
-                    Totaal:{" "}
-                    <span className="font-semibold text-slate-700">
-                      {totalItems} toestellen
-                    </span>{" "}
-                    <span className="ml-2 text-slate-500">
-                      ({moneyEUR(totalValueAllCents)})
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-slate-500">
-                    Niet afgewerkt:{" "}
-                    <span className="font-semibold text-slate-700">{moneyEUR(totalValueNotDoneCents)}</span>
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    Afgewerkt:{" "}
-                    <span className="font-semibold text-slate-700">{moneyEUR(totalValueDoneCents)}</span>
-                  </div>
-
-                  <div className="pt-1" />
-
-                  {statusStats.map((s) => (
-                    <div key={s.status} className="flex items-center gap-2">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full"
-                        style={{ backgroundColor: s.color }}
-                      />
-                      <span className="truncate max-w-[160px]">{s.label}</span>
-                      <span className="ml-auto tabular-nums text-right">
-                        {s.count} ({s.pct}%){" "}
-                        <span className="ml-2 text-slate-600">
-                          {moneyEUR(s.value_cents)}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-
-                  {statusStats.length === 0 && (
-                    <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
-                  )}
-                </div>
-              </div>
+              <div className="text-right tabular-nums text-slate-600">{moneyEUR(totalValueAllCents)}</div>
             </div>
 
-            <div>
-              <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-                Aantal toestellen per model
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+              <div className="text-slate-500">
+                Niet afgewerkt:{" "}
+                <span className="font-semibold text-slate-700">{moneyEUR(totalValueNotDoneCents)}</span>
               </div>
-              {modelStats.length === 0 && unknownCount === 0 ? (
-                <div className="text-[11px] text-slate-500">
-                  Geen toestellen of modellen konden niet worden bepaald.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {modelStats.map((m) => (
-                    <div key={m.modelId} className="flex items-center gap-2">
-                      <span className="truncate text-right w-32 shrink-0">{m.name}</span>
-
-                      <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
-                        {statusStats.map((s) => {
-                          const count = m.perStatus[s.status] ?? 0;
-                          if (!count) return null;
-
-                          const pct = m.total > 0 ? (count / m.total) * 100 : 0;
-
-                          return (
-                            <div
-                              key={s.status}
-                              className="h-full flex items-center justify-center text-[9px] text-white"
-                              style={{ width: `${pct}%`, backgroundColor: s.color }}
-                              title={`${s.label}: ${count}`}
-                            >
-                              {count}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
-                    </div>
-                  ))}
-
-                  {unknownCount > 0 && (
-                    <div className="flex items-center justify-between text-slate-500">
-                      <span className="truncate max-w-[200px]">Onbekend model</span>
-                      <span className="tabular-nums">{unknownCount}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div />
             </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+              <div className="text-slate-500">
+                Afgewerkt:{" "}
+                <span className="font-semibold text-slate-700">{moneyEUR(totalValueDoneCents)}</span>
+              </div>
+              <div />
+            </div>
+
+            <div className="pt-1 border-t" />
+
+            {/* header row */}
+            <div className="grid grid-cols-[14px_minmax(0,1fr)_auto_auto] gap-2 text-[10px] uppercase text-slate-400">
+              <div />
+              <div>Status</div>
+              <div className="text-right">Aantal</div>
+              <div className="text-right">Waarde</div>
+            </div>
+
+            {statusStats.map((s) => (
+              <div key={s.status} className="grid grid-cols-[14px_minmax(0,1fr)_auto_auto] gap-2 items-center">
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
+                <span className="truncate" title={s.label}>
+                  {s.label}
+                </span>
+                <span className="tabular-nums text-right text-slate-700">
+                  {s.count} ({s.pct}%)
+                </span>
+                <span className="tabular-nums text-right text-slate-600">
+                  {moneyEUR(s.value_cents)}
+                </span>
+              </div>
+            ))}
+
+            {statusStats.length === 0 && (
+              <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
+            )}
           </div>
         </div>
-      </details>
+      </div>
+
+      <div>
+        <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
+          Aantal toestellen per model
+        </div>
+        {modelStats.length === 0 && unknownCount === 0 ? (
+          <div className="text-[11px] text-slate-500">
+            Geen toestellen of modellen konden niet worden bepaald.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {modelStats.map((m) => (
+              <div key={m.modelId} className="flex items-center gap-2">
+                <span className="truncate text-right w-32 shrink-0">{m.name}</span>
+
+                <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
+                  {statusStats.map((s) => {
+                    const count = m.perStatus[s.status] ?? 0;
+                    if (!count) return null;
+
+                    const pct = m.total > 0 ? (count / m.total) * 100 : 0;
+
+                    return (
+                      <div
+                        key={s.status}
+                        className="h-full flex items-center justify-center text-[9px] text-white"
+                        style={{ width: `${pct}%`, backgroundColor: s.color }}
+                        title={`${s.label}: ${count}`}
+                      >
+                        {count}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
+              </div>
+            ))}
+
+            {unknownCount > 0 && (
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="truncate max-w-[200px]">Onbekend model</span>
+                <span className="tabular-nums">{unknownCount}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</details>
+
 
       <RefurbReceptionTable
         receptionId={reception.id}
