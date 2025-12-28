@@ -66,8 +66,7 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
     return [];
   }
 
-  return data as RefurbLocationOption[];
-}
+  return data as RefurbLocationOption[]; }
 
 // ===============================
 // STATUS TRANSITIONS (NIEUW)
@@ -139,8 +138,7 @@ function formBool(v: FormDataEntryValue | null): boolean {
   // HTML checkbox: present => "on" (or custom value), absent => null
   if (v === null || v === undefined) return false;
   const s = String(v).toLowerCase().trim();
-  return s === "on" || s === "true" || s === "1" || s === "yes";
-}
+  return s === "on" || s === "true" || s === "1" || s === "yes"; }
 
 export async function saveRefurbStatusRow(formData: FormData) {
   const id = (formData.get("id") as string | null) || null;
