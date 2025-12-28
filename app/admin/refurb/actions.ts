@@ -96,6 +96,61 @@ function hasValidSku(v: string | null | undefined) {
   return Boolean((v ?? "").trim().length > 0);
 }
 
+/**
+ * ✅ ADMIN CHECK (SOURCE OF TRUTH = buyback_admin_users.role)
+ * - Jij gaf aan: roles staan in Supabase tabel buyback_admin_users, kolom "role"
+ * - admin user heeft role === "admin"
+ *
+ * We proberen:
+ * 1) Als getCurrentAdminUser() al .role heeft -> ok (fallback)
+ * 2) Anders lookup in buyback_admin_users op email (meest gangbaar)
+ * 3) En ook op id indien aanwezig (fallback)
+ */
+async function isAdminServer(): Promise<boolean> {
+  const user = await getCurrentAdminUser();
+  if (!user) return false;
+
+  // Fallback: sommige implementaties zetten role al op user
+  if (String((user as any).role || "").toLowerCase() === "admin") return true;
+
+  const email = String((user as any).email || "").trim().toLowerCase();
+  const userId = String((user as any).id || (user as any).user_id || "").trim();
+
+  // 1) lookup by email
+  if (email) {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_admin_users")
+      .select("role")
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[REFURB] isAdminServer lookup by email error", { email, error });
+    } else if (data?.role && String(data.role).toLowerCase() === "admin") {
+      return true;
+    }
+  }
+
+  // 2) lookup by user id (als jouw tabel een user_id kolom heeft)
+  if (userId) {
+    const { data, error } = await supabaseAdmin
+      .from("buyback_admin_users")
+      .select("role")
+      .or(`user_id.eq.${userId},id.eq.${userId}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[REFURB] isAdminServer lookup by id error", { userId, error });
+    } else if (data?.role && String(data.role).toLowerCase() === "admin") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function getStatusOptionFlagsByValue(
   value: string
 ): Promise<{ admin_only: boolean; need_sku: boolean } | null> {
@@ -313,21 +368,19 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
 
 /**
  * Eén cel updaten (inline edit vanuit UI).
- * UI zorgt ervoor dat "locked" kolommen geen input tonen als ze al gevuld zijn.
  *
  * ✅ Statuswijziging wordt server-side gevalideerd via transitions (ID-based).
  * ✅ We slaan altijd de STATUS "value" op (niet label).
- * ✅ NEW: admin_only + need_sku rules
+ * ✅ admin_only + need_sku rules
  *
- * 🔧 FIX: haal user 1x op per action (geen extra helper-calls die kunnen cachen/afwijken)
+ * 🔧 FIX: admin-check via buyback_admin_users
  */
 export async function updateRefurbItemCell(
   itemId: string,
   field: EditableField,
   value: string
 ): Promise<void> {
-  const user = await getCurrentAdminUser();
-  const isAdmin = Boolean(user && (user as any).role === "admin");
+  const isAdmin = await isAdminServer();
 
   // status rules (server-side)
   if (field === "refurb_status") {
@@ -393,11 +446,9 @@ export async function updateRefurbItemCell(
 
 /**
  * ✅ Bulk update
- * - location / used_parts: in één update op alle niet-booked rows
- * - refurb_status: alleen op rows waar statusregels het toelaten
- * ✅ NEW: admin_only + need_sku rules
+ * ✅ admin_only + need_sku rules
  *
- * 🔧 FIX: haal user 1x op per action
+ * 🔧 FIX: admin-check via buyback_admin_users
  */
 export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
@@ -406,8 +457,7 @@ export async function bulkUpdateRefurbItems(input: {
   defaultStatusValue: string;
   readyToBookValue: string;
 }): Promise<{ updated: number; skipped: number; reasons: Record<string, number> }> {
-  const user = await getCurrentAdminUser();
-  const isAdmin = Boolean(user && (user as any).role === "admin");
+  const isAdmin = await isAdminServer();
 
   const { receptionId, itemIds, patch } = input;
 
@@ -530,16 +580,9 @@ export async function bulkUpdateRefurbItems(input: {
 /**
  * Multi-line paste in één kolom (Excel-stijl).
  *
- * - Voor LOCK_AFTER_FILL_FIELDS: alleen invullen als cel nog leeg is.
- * - Voor ALWAYS_EDITABLE_FIELDS: bestaande waarde mag overschreven worden.
+ * ✅ admin_only + need_sku rules
  *
- * Bestaat de rij nog niet? -> nieuwe rij aanmaken met opgegeven waarde.
- *
- * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
- * ✅ Bij plakken in refurb_status: label->value + transitions (ID-based)
- * ✅ NEW: admin_only + need_sku rules
- *
- * 🔧 FIX: haal user 1x op per action
+ * 🔧 FIX: admin-check via buyback_admin_users
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
@@ -549,8 +592,7 @@ export async function pasteIntoRefurbColumn(
   defaultStatusValue?: string,
   defaultLocationValue?: string
 ): Promise<RefurbItem[]> {
-  const user = await getCurrentAdminUser();
-  const isAdmin = Boolean(user && (user as any).role === "admin");
+  const isAdmin = await isAdminServer();
 
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
 
@@ -579,17 +621,15 @@ export async function pasteIntoRefurbColumn(
     }
 
     // ✅ If pasting status, normalize to canonical value
-    let pastedStatusValue: string | null = null;
     let pastedFlags: { admin_only: boolean; need_sku: boolean } | null = null;
 
     if (field === "refurb_status") {
       const resolved = await resolveStatusValueAndId(trimmed);
-      pastedStatusValue = (resolved?.value ?? trimmed).trim();
+      const pastedStatusValue = (resolved?.value ?? trimmed).trim();
       value = pastedStatusValue;
 
       pastedFlags = await getStatusOptionFlagsByValue(pastedStatusValue);
       if (pastedFlags?.admin_only && !isAdmin) {
-        // skip row (do not fail whole paste)
         continue;
       }
     }
@@ -607,17 +647,14 @@ export async function pasteIntoRefurbColumn(
           next: String(value ?? ""),
         });
         if (!verdict.ok) {
-          continue; // skip row, don't fail whole paste
+          continue;
         }
         value = verdict.nextValue;
 
-        // ✅ need_sku check per row
         const flags = pastedFlags ?? (await getStatusOptionFlagsByValue(String(value ?? "")));
         if (flags?.need_sku && !hasValidSku(existingItem.sku)) {
           continue;
         }
-
-        // ✅ admin_only check per row (na canonicalize)
         if (flags?.admin_only && !isAdmin) {
           continue;
         }
@@ -630,14 +667,9 @@ export async function pasteIntoRefurbColumn(
     } else {
       // NEW ROW insert
       if (field === "refurb_status") {
-        // if status requires SKU, we cannot create a new row "in that status" without SKU
         const flags = pastedFlags ?? (await getStatusOptionFlagsByValue(String(value ?? "")));
-        if (flags?.need_sku) {
-          continue;
-        }
-        if (flags?.admin_only && !isAdmin) {
-          continue;
-        }
+        if (flags?.need_sku) continue;
+        if (flags?.admin_only && !isAdmin) continue;
       }
 
       inserts.push({
@@ -718,8 +750,10 @@ export async function createRefurbSupplier(input: {
   vat_number?: string;
   contact_email?: string;
 }): Promise<RefurbSupplier> {
+  const isAdmin = await isAdminServer();
   const user = await getCurrentAdminUser();
-  if (!user || (user as any).role !== "admin") {
+
+  if (!user || !isAdmin) {
     console.warn("[REFURB] createRefurbSupplier forbidden for user", {
       email: (user as any)?.email,
       role: (user as any)?.role,
@@ -884,8 +918,8 @@ export async function deleteRefurbReceptionItem(input: {
   receptionId: string;
   itemId: string;
 }): Promise<RefurbItem[]> {
-  const user = await getCurrentAdminUser();
-  if (!user || (user as any).role !== "admin") {
+  const isAdmin = await isAdminServer();
+  if (!isAdmin) {
     throw new Error("Je hebt geen rechten om rijen te verwijderen.");
   }
 
@@ -909,7 +943,11 @@ export async function deleteRefurbReceptionItem(input: {
 
   const deletedIndex = Number((row as any).row_index);
 
-  const { error: e1 } = await supabaseAdmin.from("refurb_reception_items").delete().eq("id", itemId).eq("reception_id", receptionId);
+  const { error: e1 } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .delete()
+    .eq("id", itemId)
+    .eq("reception_id", receptionId);
 
   if (e1) {
     console.error("[REFURB] deleteRefurbReceptionItem delete error", e1);
@@ -951,8 +989,8 @@ export async function deleteRefurbReceptionItem(input: {
  * ✅ 2) Verwijder een volledige receptie
  */
 export async function deleteRefurbReception(receptionId: string): Promise<void> {
-  const user = await getCurrentAdminUser();
-  if (!user || (user as any).role !== "admin") {
+  const isAdmin = await isAdminServer();
+  if (!isAdmin) {
     throw new Error("Je hebt geen rechten om recepties te verwijderen.");
   }
 
