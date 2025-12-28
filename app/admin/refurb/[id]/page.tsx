@@ -1,5 +1,6 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import RefurbReceptionTable from "../RefurbReceptionTable";
 import {
   getRefurbStatusOptions,
@@ -271,13 +272,6 @@ async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
   return map;
 }
 
-function money(cents: number) {
-  return (cents / 100).toLocaleString("nl-BE", {
-    style: "currency",
-    currency: "EUR",
-  });
-}
-
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -343,7 +337,7 @@ export default async function RefurbReceptionDetailPage({
 
   const readyToBookValue: string = (readyToBook?.value as string) || "";
 
-  // -------- Status stats voor donut + percentages + waarden --------
+  // -------- Status stats voor donut + percentages --------
   const totalItems = items.length;
 
   type StatusStat = {
@@ -352,9 +346,6 @@ export default async function RefurbReceptionDetailPage({
     count: number;
     pct: number;
     color: string;
-    value_cents: number;
-    value_fmt: string;
-    is_final: boolean;
   };
 
   const statusOptionByValue = new Map<string, RefurbStatusOption>(
@@ -365,25 +356,9 @@ export default async function RefurbReceptionDetailPage({
     statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
 
   const statusCountMap = new Map<string, number>();
-  const statusValueMap = new Map<string, number>();
-
-  let totalValueAllCents = 0;
-
-  // Afgewerkt = status zonder vervolgstatus.
-  // (Als er geen entry bestaat in statusTransitions, dan heeft hij "geen vervolgstatus" → afgewerkt)
-  const isFinalStatusValue = (statusValue: string) => {
-    const next = (statusTransitions?.[statusValue] || []).filter(Boolean);
-    return next.length === 0;
-  };
-
   for (const it of items) {
     const key = (it.refurb_status || "onbekend").trim() || "onbekend";
     statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
-
-    const price = typeof it.price_cents === "number" ? it.price_cents : 0;
-    statusValueMap.set(key, (statusValueMap.get(key) ?? 0) + price);
-
-    totalValueAllCents += price;
   }
 
   const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(([status, count]) => {
@@ -392,32 +367,14 @@ export default async function RefurbReceptionDetailPage({
 
     const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
 
-    const value_cents = statusValueMap.get(status) ?? 0;
-    const is_final = status !== "onbekend" ? isFinalStatusValue(status) : false;
-
     return {
       status,
       label: def?.label ?? status,
       count,
       pct,
       color,
-      value_cents,
-      value_fmt: money(value_cents),
-      is_final,
     };
   });
-
-  // sort: meest items eerst, daarna label
-  statusStats.sort((a, b) => (b.count - a.count) || a.label.localeCompare(b.label));
-
-  // totals afgewerkt / niet afgewerkt
-  const totalValueFinalCents = statusStats
-    .filter((s) => s.is_final)
-    .reduce((sum, s) => sum + (s.value_cents || 0), 0);
-
-  const totalValueNonFinalCents = statusStats
-    .filter((s) => !s.is_final)
-    .reduce((sum, s) => sum + (s.value_cents || 0), 0);
 
   let donutStyle: Record<string, string> = {};
   if (totalItems > 0 && statusStats.length > 0) {
@@ -485,6 +442,10 @@ export default async function RefurbReceptionDetailPage({
   // Server actions blijven sowieso admin valideren.
   const canDelete = true;
 
+  // ✅ FIX: admin-only statuses correct enable/disable in UI
+  const user = await getCurrentAdminUser();
+  const canUseAdminStatuses = Boolean(user && (user as any).role === "admin");
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -550,138 +511,85 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
-      {/* ✅ UITKLAPBAAR status-blok (standaard ingeklapt) */}
-      <details className="border rounded-md bg-white text-xs">
-        <summary className="cursor-pointer select-none px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
-            Statusverdeling in deze receptie
-          </div>
-          <div className="text-[11px] text-slate-600">▼</div>
-        </summary>
-
-        <div className="p-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-            {/* donut + legend */}
-            <div>
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                  style={donutStyle}
-                >
-                  <div className="w-12 h-12 rounded-full bg-slate-50" />
-                </div>
-
-                <div className="space-y-1 text-[11px] w-full">
-                  <div className="text-slate-500">
-                    Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
-                  </div>
-
-                  {/* totals */}
-                  <div className="mt-1 grid gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-500">Totale waarde (alles):</span>
-                      <span className="ml-auto tabular-nums font-medium text-slate-700">
-                        {money(totalValueAllCents)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-500">Totale waarde (niet afgewerkt):</span>
-                      <span className="ml-auto tabular-nums font-medium text-slate-700">
-                        {money(totalValueNonFinalCents)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-500">Totale waarde (Afgewerkt):</span>
-                      <span className="ml-auto tabular-nums font-medium text-slate-700">
-                        {money(totalValueFinalCents)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 border-t pt-2" />
-
-                  {statusStats.map((s) => (
-                    <div key={s.status} className="flex items-center gap-2">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full"
-                        style={{ backgroundColor: s.color }}
-                      />
-                      <span className="truncate max-w-[140px]" title={s.label}>
-                        {s.label}
-                      </span>
-                      <span className="ml-auto tabular-nums text-slate-700">
-                        {s.count} ({s.pct}%)
-                      </span>
-                      <span className="tabular-nums text-slate-700 w-[90px] text-right">
-                        {s.value_fmt}
-                      </span>
-                    </div>
-                  ))}
-
-                  {statusStats.length === 0 && (
-                    <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
-                  )}
-                </div>
-              </div>
+      <div className="border rounded-md bg-white p-3 text-xs">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
+              Statusverdeling in deze receptie
             </div>
-
-            {/* Aantal toestellen per model (blijft in status-blok) */}
-            <div>
-              <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-                Aantal toestellen per model
+            <div className="flex items-center gap-3">
+              <div
+                className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
+                style={donutStyle}
+              >
+                <div className="w-12 h-12 rounded-full bg-slate-50" />
               </div>
-              {modelStats.length === 0 && unknownCount === 0 ? (
-                <div className="text-[11px] text-slate-500">
-                  Geen toestellen of modellen konden niet worden bepaald.
+
+              <div className="space-y-1 text-[11px]">
+                <div className="text-slate-500">
+                  Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {modelStats.map((m) => (
-                    <div key={m.modelId} className="flex items-center gap-2">
-                      <span className="truncate text-right w-32 shrink-0">{m.name}</span>
-
-                      <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
-                        {statusStats.map((s) => {
-                          const count = m.perStatus[s.status] ?? 0;
-                          if (!count) return null;
-
-                          const pct = m.total > 0 ? (count / m.total) * 100 : 0;
-
-                          return (
-                            <div
-                              key={s.status}
-                              className="h-full flex items-center justify-center text-[9px] text-white"
-                              style={{ width: `${pct}%`, backgroundColor: s.color }}
-                              title={`${s.label}: ${count}`}
-                            >
-                              {count}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
-                    </div>
-                  ))}
-
-                  {unknownCount > 0 && (
-                    <div className="flex items-center justify-between text-slate-500">
-                      <span className="truncate max-w-[200px]">Onbekend model</span>
-                      <span className="tabular-nums">{unknownCount}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+                {statusStats.map((s) => (
+                  <div key={s.status} className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                    <span className="truncate max-w-[140px]">{s.label}</span>
+                    <span className="ml-auto tabular-nums">
+                      {s.count} ({s.pct}%)
+                    </span>
+                  </div>
+                ))}
+                {statusStats.length === 0 && (
+                  <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-500">
-            <span className="font-medium">Afgewerkt</span> = status zonder vervolgstatus.
+          <div>
+            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">Aantal toestellen per model</div>
+            {modelStats.length === 0 && unknownCount === 0 ? (
+              <div className="text-[11px] text-slate-500">Geen toestellen of modellen konden niet worden bepaald.</div>
+            ) : (
+              <div className="space-y-2">
+                {modelStats.map((m) => (
+                  <div key={m.modelId} className="flex items-center gap-2">
+                    <span className="truncate text-right w-32 shrink-0">{m.name}</span>
+
+                    <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
+                      {statusStats.map((s) => {
+                        const count = m.perStatus[s.status] ?? 0;
+                        if (!count) return null;
+
+                        const pct = m.total > 0 ? (count / m.total) * 100 : 0;
+
+                        return (
+                          <div
+                            key={s.status}
+                            className="h-full flex items-center justify-center text-[9px] text-white"
+                            style={{ width: `${pct}%`, backgroundColor: s.color }}
+                            title={`${s.label}: ${count}`}
+                          >
+                            {count}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
+                  </div>
+                ))}
+
+                {unknownCount > 0 && (
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="truncate max-w-[200px]">Onbekend model</span>
+                    <span className="tabular-nums">{unknownCount}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
-      </details>
+      </div>
 
       <RefurbReceptionTable
         receptionId={reception.id}
@@ -693,6 +601,7 @@ export default async function RefurbReceptionDetailPage({
         defaultLocationValue={defaultLocationValue}
         statusTransitions={statusTransitions}
         canDelete={canDelete}
+        canUseAdminStatuses={canUseAdminStatuses}
       />
     </div>
   );
