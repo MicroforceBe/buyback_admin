@@ -54,10 +54,9 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
+// ✅ Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
+// SKU en used_parts blijven editable => dus eruit
 const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
-  "sku",
-  "used_parts",
   "price_cents",
   "description",
   "supplier_device_errors",
@@ -74,6 +73,10 @@ const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "imei_sn",
   "manual_sn",
   "location",
+
+  // ✅ expliciet editable houden
+  "sku",
+  "used_parts",
 ];
 
 function parseMoneyToCents(raw: string): number | null {
@@ -101,7 +104,9 @@ async function canUseAdminStatusesServer(): Promise<boolean> {
   return Boolean(user && (user as any).role === "admin");
 }
 
-async function getStatusOptionFlagsByValue(value: string): Promise<{ admin_only: boolean; need_sku: boolean } | null> {
+async function getStatusOptionFlagsByValue(
+  value: string
+): Promise<{ admin_only: boolean; need_sku: boolean } | null> {
   const v = (value || "").trim();
   if (!v) return null;
 
@@ -395,6 +400,7 @@ export async function updateRefurbItemCell(
  * - location / used_parts: in één update op alle niet-booked rows
  * - refurb_status: alleen op rows waar statusregels het toelaten
  * ✅ NEW: admin_only + need_sku rules
+ * ✅ FIX: updated telt unieke rijen (niet per veld dubbel)
  */
 export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
@@ -423,9 +429,12 @@ export async function bulkUpdateRefurbItems(input: {
 
   const reasons: Record<string, number> = {};
   let skipped = 0;
-  let updated = 0;
 
-  const notBookedIds = rows.filter((r) => !isBooked(r.refurb_status)).map((r) => r.id);
+  // ✅ track unieke gewijzigde rijen
+  const updatedIds = new Set<string>();
+
+  const notBookedRows = rows.filter((r) => !isBooked(r.refurb_status));
+  const notBookedIds = notBookedRows.map((r) => r.id);
 
   // used_parts
   if (typeof patch.used_parts === "string") {
@@ -436,7 +445,7 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", notBookedIds);
 
       if (e1) throw e1;
-      updated += notBookedIds.length;
+      for (const id of notBookedIds) updatedIds.add(id);
     } else {
       skipped += rows.length;
       reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
@@ -452,7 +461,7 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", notBookedIds);
 
       if (e2) throw e2;
-      updated += notBookedIds.length;
+      for (const id of notBookedIds) updatedIds.add(id);
     } else if (!patch.used_parts) {
       skipped += rows.length;
       reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
@@ -473,7 +482,7 @@ export async function bulkUpdateRefurbItems(input: {
         skipped += rows.length;
         reasons["Je hebt geen rechten om deze status te kiezen."] =
           (reasons["Je hebt geen rechten om deze status te kiezen."] ?? 0) + rows.length;
-        return { updated, skipped, reasons };
+        return { updated: updatedIds.size, skipped, reasons };
       }
     }
 
@@ -516,11 +525,11 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", allowed);
 
       if (e3) throw e3;
-      updated += allowed.length;
+      for (const id of allowed) updatedIds.add(id);
     }
   }
 
-  return { updated, skipped, reasons };
+  return { updated: updatedIds.size, skipped, reasons };
 }
 
 /**
@@ -534,6 +543,7 @@ export async function bulkUpdateRefurbItems(input: {
  * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
  * ✅ Bij plakken in refurb_status: label->value + transitions (ID-based)
  * ✅ NEW: admin_only + need_sku rules
+ * ✅ SKU + used_parts blijven overschrijfbaar (dus niet lock-after-fill)
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
