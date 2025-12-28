@@ -7,6 +7,7 @@ import {
   type RefurbStatusOption,
   type RefurbLocationOption,
 } from "../settingsActions";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -271,6 +272,49 @@ async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
   return map;
 }
 
+/**
+ * ✅ Admin check:
+ * Roles staan in Supabase tabel buyback_admin_users, kolom "role" => "admin"
+ */
+async function getIsAdminUser(): Promise<boolean> {
+  try {
+    const user = await getCurrentAdminUser();
+    if (!user) return false;
+
+    const email = (user as any)?.email ? String((user as any).email) : "";
+    const userId = (user as any)?.id ? String((user as any).id) : "";
+
+    // Probeer in buyback_admin_users te matchen op email en/of id.
+    // (We maken dit robuust omdat kolomnamen kunnen verschillen per setup.)
+    if (email || userId) {
+      const orParts: string[] = [];
+      if (email) orParts.push(`email.eq.${email}`);
+      if (userId) orParts.push(`id.eq.${userId}`, `user_id.eq.${userId}`);
+
+      const q = supabaseAdmin
+        .from("buyback_admin_users")
+        .select("role")
+        .limit(1);
+
+      const { data, error } = await (orParts.length ? q.or(orParts.join(",")) : q);
+
+      if (error) {
+        console.warn("[REFURB] getIsAdminUser buyback_admin_users lookup error", error);
+      } else {
+        const role = (data?.[0] as any)?.role ? String((data?.[0] as any).role) : "";
+        if (role.toLowerCase() === "admin") return true;
+      }
+    }
+
+    // fallback: als getCurrentAdminUser al een role heeft
+    const fallbackRole = String((user as any)?.role ?? "").toLowerCase();
+    return fallbackRole === "admin";
+  } catch (e) {
+    console.warn("[REFURB] getIsAdminUser exception", e);
+    return false;
+  }
+}
+
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -287,12 +331,13 @@ export default async function RefurbReceptionDetailPage({
     );
   }
 
-  const [itemsRaw, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
+  const [itemsRaw, statusOptions, locationOptions, models, statusTransitions, isAdmin] = await Promise.all([
     getReceptionItems(reception.id),
     getRefurbStatusOptions(),
     getRefurbLocationOptions(),
     getRefurbModels(),
     buildStatusTransitionsMap(),
+    getIsAdminUser(),
   ]);
 
   // ✅ Canonicalize status values in the loaded items (fix label-vs-value historical data)
@@ -437,9 +482,8 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  // ✅ Je had dit bewust hardcoded gezet om cookie issues te vermijden.
-  // Server actions blijven sowieso admin valideren.
-  const canDelete = true;
+  // ✅ delete enkel voor admin tonen
+  const canDelete = Boolean(isAdmin);
 
   return (
     <div className="p-4 space-y-4">
@@ -594,6 +638,7 @@ export default async function RefurbReceptionDetailPage({
         defaultLocationValue={defaultLocationValue}
         statusTransitions={statusTransitions}
         canDelete={canDelete}
+        canUseAdminStatuses={Boolean(isAdmin)}
       />
     </div>
   );
