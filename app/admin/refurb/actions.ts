@@ -92,6 +92,38 @@ function isBooked(status: string | null | undefined) {
   return norm(status || "") === "booked";
 }
 
+function hasValidSku(v: string | null | undefined) {
+  return Boolean((v ?? "").trim().length > 0);
+}
+
+async function canUseAdminStatusesServer(): Promise<boolean> {
+  const user = await getCurrentAdminUser();
+  return Boolean(user && (user as any).role === "admin");
+}
+
+async function getStatusOptionFlagsByValue(value: string): Promise<{ admin_only: boolean; need_sku: boolean } | null> {
+  const v = (value || "").trim();
+  if (!v) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("refurb_status_options")
+    .select("admin_only, need_sku")
+    .eq("value", v)
+    .limit(1)
+    .single();
+
+  if (error) {
+    // fail-open but log
+    console.warn("[REFURB] getStatusOptionFlagsByValue error", { value: v, error });
+    return null;
+  }
+
+  return {
+    admin_only: Boolean((data as any)?.admin_only),
+    need_sku: Boolean((data as any)?.need_sku),
+  };
+}
+
 /**
  * Resolve status "value" robust:
  * - Normal case: input is already refurb_status_options.value
@@ -288,6 +320,7 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
  *
  * ✅ Statuswijziging wordt server-side gevalideerd via transitions (ID-based).
  * ✅ We slaan altijd de STATUS "value" op (niet label).
+ * ✅ NEW: admin_only + need_sku rules
  */
 export async function updateRefurbItemCell(
   itemId: string,
@@ -298,7 +331,7 @@ export async function updateRefurbItemCell(
   if (field === "refurb_status") {
     const { data: row, error: e0 } = await supabaseAdmin
       .from("refurb_reception_items")
-      .select("id, refurb_status")
+      .select("id, refurb_status, sku")
       .eq("id", itemId)
       .single();
 
@@ -308,6 +341,8 @@ export async function updateRefurbItemCell(
     }
 
     const currentRaw = (row as any)?.refurb_status ?? "";
+    const currentSku = (row as any)?.sku ?? null;
+
     const verdict = await canChangeStatus({ current: currentRaw, next: value });
 
     if (!verdict.ok) {
@@ -316,6 +351,16 @@ export async function updateRefurbItemCell(
 
     // overwrite value -> canonical status value
     value = verdict.nextValue;
+
+    // ✅ admin_only + need_sku
+    const flags = await getStatusOptionFlagsByValue(value);
+    if (flags?.admin_only) {
+      const ok = await canUseAdminStatusesServer();
+      if (!ok) throw new Error("Je hebt geen rechten om deze status te kiezen.");
+    }
+    if (flags?.need_sku && !hasValidSku(currentSku)) {
+      throw new Error("SKU is verplicht om deze status te kiezen.");
+    }
   }
 
   const patch: Partial<RefurbItem> = {};
@@ -349,6 +394,7 @@ export async function updateRefurbItemCell(
  * ✅ Bulk update
  * - location / used_parts: in één update op alle niet-booked rows
  * - refurb_status: alleen op rows waar statusregels het toelaten
+ * ✅ NEW: admin_only + need_sku rules
  */
 export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
@@ -363,7 +409,7 @@ export async function bulkUpdateRefurbItems(input: {
 
   const { data, error } = await supabaseAdmin
     .from("refurb_reception_items")
-    .select("id, refurb_status")
+    .select("id, refurb_status, sku")
     .eq("reception_id", receptionId)
     .in("id", itemIds);
 
@@ -372,7 +418,7 @@ export async function bulkUpdateRefurbItems(input: {
     throw error;
   }
 
-  const rows = (data || []) as Array<{ id: string; refurb_status: string | null }>;
+  const rows = (data || []) as Array<{ id: string; refurb_status: string | null; sku: string | null }>;
   const now = new Date().toISOString();
 
   const reasons: Record<string, number> = {};
@@ -419,6 +465,18 @@ export async function bulkUpdateRefurbItems(input: {
     const resolvedPatch = await resolveStatusValueAndId(patch.refurb_status.trim());
     const patchValue = resolvedPatch?.value ?? patch.refurb_status.trim();
 
+    // ✅ admin_only + need_sku flags once
+    const flags = await getStatusOptionFlagsByValue(patchValue);
+    if (flags?.admin_only) {
+      const ok = await canUseAdminStatusesServer();
+      if (!ok) {
+        skipped += rows.length;
+        reasons["Je hebt geen rechten om deze status te kiezen."] =
+          (reasons["Je hebt geen rechten om deze status te kiezen."] ?? 0) + rows.length;
+        return { updated, skipped, reasons };
+      }
+    }
+
     const allowed: string[] = [];
 
     for (const r of rows) {
@@ -427,6 +485,13 @@ export async function bulkUpdateRefurbItems(input: {
       if (isBooked(currentRaw)) {
         skipped += 1;
         reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + 1;
+        continue;
+      }
+
+      if (flags?.need_sku && !hasValidSku(r.sku)) {
+        skipped += 1;
+        reasons["SKU is verplicht om deze status te kiezen."] =
+          (reasons["SKU is verplicht om deze status te kiezen."] ?? 0) + 1;
         continue;
       }
 
@@ -468,6 +533,7 @@ export async function bulkUpdateRefurbItems(input: {
  *
  * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
  * ✅ Bij plakken in refurb_status: label->value + transitions (ID-based)
+ * ✅ NEW: admin_only + need_sku rules
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
@@ -490,6 +556,12 @@ export async function pasteIntoRefurbColumn(
 
   const isLockAfterFill = LOCK_AFTER_FILL_FIELDS.includes(field);
 
+  // ✅ status rule helpers for this paste
+  let canUseAdminStatuses = false;
+  if (field === "refurb_status") {
+    canUseAdminStatuses = await canUseAdminStatusesServer();
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const rowIndex = startRowIndex + i;
     const raw = lines[i] ?? "";
@@ -504,9 +576,19 @@ export async function pasteIntoRefurbColumn(
     }
 
     // ✅ If pasting status, normalize to canonical value
+    let pastedStatusValue: string | null = null;
+    let pastedFlags: { admin_only: boolean; need_sku: boolean } | null = null;
+
     if (field === "refurb_status") {
       const resolved = await resolveStatusValueAndId(trimmed);
-      value = resolved?.value ?? trimmed;
+      pastedStatusValue = (resolved?.value ?? trimmed).trim();
+      value = pastedStatusValue;
+
+      pastedFlags = await getStatusOptionFlagsByValue(pastedStatusValue);
+      if (pastedFlags?.admin_only && !canUseAdminStatuses) {
+        // skip row (do not fail whole paste)
+        continue;
+      }
     }
 
     const existingItem = existing.find((it) => it.row_index === rowIndex);
@@ -525,6 +607,12 @@ export async function pasteIntoRefurbColumn(
           continue; // skip row, don't fail whole paste
         }
         value = verdict.nextValue;
+
+        // ✅ need_sku check per row
+        const flags = pastedFlags ?? (await getStatusOptionFlagsByValue(String(value ?? "")));
+        if (flags?.need_sku && !hasValidSku(existingItem.sku)) {
+          continue;
+        }
       }
 
       updates.push({
@@ -532,6 +620,17 @@ export async function pasteIntoRefurbColumn(
         patch: { [field]: value } as Partial<RefurbItem>,
       });
     } else {
+      // NEW ROW insert
+      if (field === "refurb_status") {
+        // if status requires SKU, we cannot create a new row "in that status" without SKU
+        if (pastedFlags?.need_sku) {
+          continue;
+        }
+        if (pastedFlags?.admin_only && !canUseAdminStatuses) {
+          continue;
+        }
+      }
+
       inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
@@ -887,4 +986,3 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
 
   revalidatePath("/admin/refurb");
 }
-
