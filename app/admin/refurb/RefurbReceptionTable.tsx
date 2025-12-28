@@ -62,9 +62,13 @@ function parseMoneyToCents(raw: string): number | null {
   return Math.round(n * 100);
 }
 
-const BASE_COL_COUNT = 9;
+// ✅ BASE columns die (bijna) altijd zichtbaar blijven (excl. optionele toggles)
+// Status, Location, IMEI/SN, SKU, Used parts, Description, Supplier Grading
+const BASE_COL_COUNT = 7;
 const EXTRA_SN_COL_COUNT = 1;
 const ADVANCED_COL_COUNT = 4;
+const PRICE_COL_COUNT = 1;
+const SUPPLIER_REMARKS_COL_COUNT = 1;
 
 function parseUsedParts(raw: string | null): string[] {
   if (!raw) return [];
@@ -308,10 +312,16 @@ export default function RefurbReceptionTable({
 
   const [items, setItems] = useState<RefurbItem[]>(normalizedInitialItems);
   const [isPasting, setIsPasting] = useState(false);
+
+  // ✅ bestaande toggles
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExtraSn, setShowExtraSn] = useState(false);
 
-  // ✅ GROEPEN: finale/niet-finale
+  // ✅ standaard ingeklapt (overzicht bewaren)
+  const [showPrice, setShowPrice] = useState(false);
+  const [showSupplierRemarks, setShowSupplierRemarks] = useState(false);
+
+  // ✅ GROEPEN: Afgewerkt / Niet afgewerkt
   const [finalOpen, setFinalOpen] = useState(false); // standaard ingeklapt
   const [nonFinalOpen, setNonFinalOpen] = useState(true); // standaard open
 
@@ -339,14 +349,20 @@ export default function RefurbReceptionTable({
   // delete row
   const [isDeletingRow, setIsDeletingRow] = useState<string | null>(null);
 
-  // ✅ als statusOptions wijzigen (of initialItems na refresh), sync de state (zonder user edits te droppen op elke render)
+  // ✅ als statusOptions wijzigen (of initialItems na refresh), sync de state
   useEffect(() => {
     setItems(normalizedInitialItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedInitialItems]);
 
   const hasItems = items.length > 0;
-  const colSpan = BASE_COL_COUNT + (showExtraSn ? EXTRA_SN_COL_COUNT : 0) + (showAdvanced ? ADVANCED_COL_COUNT : 0);
+
+  const colSpan =
+    BASE_COL_COUNT +
+    (showPrice ? PRICE_COL_COUNT : 0) +
+    (showSupplierRemarks ? SUPPLIER_REMARKS_COL_COUNT : 0) +
+    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
+    (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
@@ -391,7 +407,6 @@ export default function RefurbReceptionTable({
     const setNorm = allowedNextByStatus.normalized.get(norm(cur));
     const set = setExact ?? setNorm ?? null;
 
-    // ✅ enkel "map-mode" als er effectief minstens 1 toegelaten volgende status is
     const hasMapForCurrent = Boolean(set && set.size > 0);
 
     return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
@@ -412,7 +427,6 @@ export default function RefurbReceptionTable({
     const cur = (current || "").trim();
     const nxt = (next || "").trim();
 
-    // booked blijft altijd hard lock
     if (isBooked(cur) && norm(nxt) !== norm(cur)) {
       return {
         ok: false,
@@ -420,7 +434,6 @@ export default function RefurbReceptionTable({
       };
     }
 
-    // ✅ Alleen map als er effectief een entry bestaat voor deze current status
     const { hasMapForCurrent, set } = getAllowedNextSet(cur);
     if (allowedNextByStatus && hasMapForCurrent) {
       if (norm(nxt) === norm(cur)) return { ok: true };
@@ -437,7 +450,6 @@ export default function RefurbReceptionTable({
       return { ok: true };
     }
 
-    // fallback: oude regels
     return canChangeStatusFallback({
       current: cur,
       next: nxt,
@@ -459,7 +471,6 @@ export default function RefurbReceptionTable({
     return { ok: true as const };
   }
 
-  // statuses present in rows (filter dropdown)
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
@@ -469,14 +480,12 @@ export default function RefurbReceptionTable({
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items, statusOptions, defaultStatusValue]);
 
-  // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
     const labelByValue = new Map((locationOptions || []).map((o: any) => [String(o.value), String(o.label)]));
 
     const iq = norm(imeiQuery);
     const dq = norm(descQuery);
 
-    // apply all filters except location
     const base = (items || []).filter((it: any) => {
       const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (statusFilter !== "__all__" && st !== statusFilter) return false;
@@ -611,7 +620,6 @@ export default function RefurbReceptionTable({
     }
 
     if (field === "refurb_status") {
-      // ✅ AdminOnly + NeedSKU UI checks (server-side ook)
       const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(value ?? ""));
       if (opt) {
         if (opt.admin_only && !canUseAdminStatuses) {
@@ -631,7 +639,6 @@ export default function RefurbReceptionTable({
       }
     }
 
-    // optimistic UI update
     setItems((prev) =>
       prev.map((it) => {
         if (it.id !== itemId) return it;
@@ -660,7 +667,6 @@ export default function RefurbReceptionTable({
       console.error("[REFURB] updateCell client error", e);
       window.alert(e?.message || "Opslaan mislukt (zie logs).");
 
-      // ✅ herstel UI naar server truth
       try {
         const fresh = await fetchReceptionItems(receptionId);
         setItems(
@@ -705,7 +711,7 @@ export default function RefurbReceptionTable({
         startRowIndex,
         field as any,
         lines,
-        defaultStatusValue, // ✅ voorkomt "new"
+        defaultStatusValue,
         defaultLocationValue
       );
       setItems(
@@ -763,7 +769,6 @@ export default function RefurbReceptionTable({
       return;
     }
 
-    // ✅ Bulk UI checks for status (NeedSKU/AdminOnly)
     if (wantStatus) {
       const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(bulkStatus ?? ""));
       if (opt?.admin_only && !canUseAdminStatuses) {
@@ -886,10 +891,8 @@ export default function RefurbReceptionTable({
 
     const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
 
-    // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
     const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
 
-    // ✅ status dropdown options
     const visibleStatusOptions = (() => {
       if (!mapModeForRow) return statusOptions;
 
@@ -907,10 +910,8 @@ export default function RefurbReceptionTable({
       });
     })();
 
-    // ✅ als map-mode maar 0/1 opties: niet hard disablen tenzij er echt geen choices zijn
     const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
 
-    // ✅ paste startRowIndex moet row_index zijn (niet array-index), anders plakt alles “verschoven”
     const pasteStartRowIndex = Number((it as any).row_index ?? 0);
 
     return (
@@ -973,8 +974,7 @@ export default function RefurbReceptionTable({
 
                     const ruleVerdict = statusRuleVerdictForRow(opt, it);
 
-                    const disabled =
-                      rowBooked || cannotGoBackToDefault || cannotSetBooked || !ruleVerdict.ok;
+                    const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked || !ruleVerdict.ok;
 
                     const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
 
@@ -1018,7 +1018,7 @@ export default function RefurbReceptionTable({
           </select>
         </td>
 
-        {/* IMEI/SN + copy (rechts) */}
+        {/* IMEI/SN + copy */}
         <td className="px-1 py-0.5 border">
           <div className="flex items-center gap-1">
             {imeiSn ? (
@@ -1032,9 +1032,7 @@ export default function RefurbReceptionTable({
                 disabled={rowBooked}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setItems((prev) =>
-                    prev.map((row) => (row.id === it.id ? ({ ...row, imei_sn: val } as any) : row))
-                  );
+                  setItems((prev) => prev.map((row) => (row.id === it.id ? ({ ...row, imei_sn: val } as any) : row)));
                 }}
                 onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
                 onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
@@ -1062,7 +1060,7 @@ export default function RefurbReceptionTable({
           </td>
         )}
 
-        {/* SKU + copy (rechts) */}
+        {/* SKU + copy */}
         <td className="px-1 py-0.5 border">
           <div className="flex items-center gap-1">
             <input
@@ -1086,21 +1084,23 @@ export default function RefurbReceptionTable({
           />
         </td>
 
-        {/* Price */}
-        <td className="px-1 py-0.5 border">
-          {lockedPrice ? (
-            <span>{money(it.price_cents)}</span>
-          ) : (
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full text-right"
-              defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
-              disabled={rowBooked}
-              placeholder="0,00"
-              onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
-            />
-          )}
-        </td>
+        {/* Price (toggle) */}
+        {showPrice && (
+          <td className="px-1 py-0.5 border">
+            {lockedPrice ? (
+              <span>{money(it.price_cents)}</span>
+            ) : (
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
+                disabled={rowBooked}
+                placeholder="0,00"
+                onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
+              />
+            )}
+          </td>
+        )}
 
         {/* Description */}
         <td className="px-1 py-0.5 border">
@@ -1119,22 +1119,24 @@ export default function RefurbReceptionTable({
           )}
         </td>
 
-        {/* Supplier remarks */}
-        <td className="px-1 py-0.5 border">
-          {lockedSuppErr ? (
-            <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
-              {it.supplier_device_errors}
-            </span>
-          ) : (
-            <input
-              className="bb-input h-7 text-[11px] px-1 w-full"
-              defaultValue={it.supplier_device_errors ?? ""}
-              disabled={rowBooked}
-              onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
-              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
-            />
-          )}
-        </td>
+        {/* Supplier remarks (toggle) */}
+        {showSupplierRemarks && (
+          <td className="px-1 py-0.5 border">
+            {lockedSuppErr ? (
+              <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
+                {it.supplier_device_errors}
+              </span>
+            ) : (
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full"
+                defaultValue={it.supplier_device_errors ?? ""}
+                disabled={rowBooked}
+                onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
+              />
+            )}
+          </td>
+        )}
 
         {/* Supplier grading */}
         <td className="px-1 py-0.5 border">
@@ -1186,9 +1188,7 @@ export default function RefurbReceptionTable({
             <td className="px-1 py-0.5 border">
               <input
                 className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                defaultValue={
-                  typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""
-                }
+                defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
                 disabled={rowBooked}
                 placeholder="0,00"
                 onBlur={(e) => handleCellChange(it.id, "compensation_cents", e.target.value)}
@@ -1322,12 +1322,7 @@ export default function RefurbReceptionTable({
                   geselecteerde rijen
                 </label>
                 <label className="flex items-center gap-2 text-[11px]">
-                  <input
-                    type="radio"
-                    name="bulkTarget"
-                    checked={bulkTarget === "imei"}
-                    onChange={() => setBulkTarget("imei")}
-                  />
+                  <input type="radio" name="bulkTarget" checked={bulkTarget === "imei"} onChange={() => setBulkTarget("imei")} />
                   rijen met IMEI/SN uit textarea
                 </label>
               </div>
@@ -1349,6 +1344,7 @@ export default function RefurbReceptionTable({
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
           <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
+
           <div className="flex items-center gap-3">
             {isPasting && (
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
@@ -1359,6 +1355,29 @@ export default function RefurbReceptionTable({
                 <span>Bezig met plakken...</span>
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => setShowPrice((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+                {showPrice ? "▲" : "▼"}
+              </span>
+              <span>Price</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowSupplierRemarks((v) => !v)}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+            >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
+                {showSupplierRemarks ? "▲" : "▼"}
+              </span>
+              <span>Supplier Remarks</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowExtraSn((v) => !v)}
@@ -1369,6 +1388,7 @@ export default function RefurbReceptionTable({
               </span>
               <span>Extra SN</span>
             </button>
+
             <button
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
@@ -1390,7 +1410,15 @@ export default function RefurbReceptionTable({
                   ref={headerCheckboxRef}
                   type="checkbox"
                   checked={allFilteredSelected}
-                  onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    const ids = filteredRows.map((r) => r.it.id);
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      for (const id of ids) checked ? next.add(id) : next.delete(id);
+                      return next;
+                    });
+                  }}
                   aria-label="Selecteer alle gefilterde rijen"
                 />
               </th>
@@ -1449,7 +1477,8 @@ export default function RefurbReceptionTable({
 
               <th className="px-2 py-1 border">SKU</th>
               <th className="px-2 py-1 border">Used parts</th>
-              <th className="px-2 py-1 border">Price</th>
+
+              {showPrice && <th className="px-2 py-1 border">Price</th>}
 
               <th className="px-2 py-1 border">
                 <div className="flex flex-col gap-1">
@@ -1463,7 +1492,8 @@ export default function RefurbReceptionTable({
                 </div>
               </th>
 
-              <th className="px-2 py-1 border">Supplier remarks</th>
+              {showSupplierRemarks && <th className="px-2 py-1 border">Supplier remarks</th>}
+
               <th className="px-2 py-1 border">Supplier Grading</th>
 
               {showAdvanced && (
@@ -1480,7 +1510,7 @@ export default function RefurbReceptionTable({
           <tbody>
             {hasItems && (
               <>
-                {/* ✅ GROEP: Niet-finaal */}
+                {/* Niet afgewerkt */}
                 <tr className="border-t bg-slate-50">
                   <td
                     className="px-2 py-2 border text-[11px] font-medium text-slate-700"
@@ -1491,7 +1521,7 @@ export default function RefurbReceptionTable({
                       className="w-full flex items-center justify-between"
                       onClick={() => setNonFinalOpen((v) => !v)}
                     >
-                      <span>Niet-finale statussen ({groupedFilteredRows.nonFinalRows.length})</span>
+                      <span>Niet afgewerkt ({groupedFilteredRows.nonFinalRows.length})</span>
                       <span className="text-slate-600">{nonFinalOpen ? "▲" : "▼"}</span>
                     </button>
                   </td>
@@ -1499,7 +1529,7 @@ export default function RefurbReceptionTable({
 
                 {nonFinalOpen && groupedFilteredRows.nonFinalRows.map(({ it }) => renderDataRow(it))}
 
-                {/* ✅ GROEP: Finaal */}
+                {/* Afgewerkt */}
                 <tr className="border-t bg-slate-50">
                   <td
                     className="px-2 py-2 border text-[11px] font-medium text-slate-700"
@@ -1511,14 +1541,12 @@ export default function RefurbReceptionTable({
                       onClick={() => setFinalOpen((v) => !v)}
                       title={
                         hasTransitionsConfigured
-                          ? "Finale status = status zonder vervolgstatus"
-                          : "Geen transities ingesteld: finale status kan niet bepaald worden"
+                          ? "Afgewerkt = status zonder vervolgstatus"
+                          : "Geen transities ingesteld: afgewerkt kan niet bepaald worden"
                       }
                       disabled={!hasTransitionsConfigured}
                     >
-                      <span>
-                        Finale statussen ({hasTransitionsConfigured ? groupedFilteredRows.finalRows.length : "—"})
-                      </span>
+                      <span>Afgewerkt ({hasTransitionsConfigured ? groupedFilteredRows.finalRows.length : "—"})</span>
                       <span className="text-slate-600">
                         {!hasTransitionsConfigured ? "—" : finalOpen ? "▲" : "▼"}
                       </span>
@@ -1526,156 +1554,21 @@ export default function RefurbReceptionTable({
                   </td>
                 </tr>
 
-                {hasTransitionsConfigured &&
-                  finalOpen &&
-                  groupedFilteredRows.finalRows.map(({ it }) => renderDataRow(it))}
+                {hasTransitionsConfigured && finalOpen && groupedFilteredRows.finalRows.map(({ it }) => renderDataRow(it))}
               </>
             )}
 
             {!hasItems && (
-              <>
-                <tr className="border-t">
-                  <td className="px-2 py-0.5 border" />
-                  {canDelete && <td className="px-2 py-0.5 border" />}
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak status hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak locaties hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "location")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak IMEI/SN kolom hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
-                    />
-                  </td>
-
-                  {showExtraSn && (
-                    <td className="px-1 py-0.5 border">
-                      <input
-                        className="bb-input h-7 text-[11px] px-1 w-full"
-                        placeholder="Plak SN kolom hier"
-                        onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
-                      />
-                    </td>
-                  )}
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak SKU-kolom hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak Used parts-kolom hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                      placeholder="Plak prijzen hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak Description-kolom hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "description")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak Supplier remarks hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
-                    />
-                  </td>
-
-                  <td className="px-1 py-0.5 border">
-                    <input
-                      className="bb-input h-7 text-[11px] px-1 w-full"
-                      placeholder="Plak grading hier"
-                      onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
-                    />
-                  </td>
-
-                  {showAdvanced && (
-                    <>
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          placeholder="Plak refurb diagnostics hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
-                        />
-                      </td>
-
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          placeholder="Plak RMA defect beschrijving hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "rma_defect_description")}
-                        />
-                      </td>
-
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          placeholder="Plak RMA-codes hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
-                        />
-                      </td>
-
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                          placeholder="Plak compensaties hier"
-                          onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
-                        />
-                      </td>
-                    </>
-                  )}
-                </tr>
-
-                <tr>
-                  <td
-                    className="px-2 py-3 border text-[11px] text-slate-500"
-                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
-                  >
-                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van de velden hierboven (bv.
-                    IMEI/SN, SKU, Description, Price...) om rijen aan te maken. Status en Location gebruiken hun
-                    ingestelde default-waarde bij het importeren.
-                  </td>
-                </tr>
-              </>
+              <tr>
+                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1 + (canDelete ? 1 : 0)}>
+                  Nog geen toestellen in deze receptie.
+                </td>
+              </tr>
             )}
 
             {hasItems && filteredRows.length === 0 && (
               <tr>
-                <td
-                  className="px-2 py-3 border text-[11px] text-slate-500"
-                  colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
-                >
+                <td className="px-2 py-3 border text-[11px] text-slate-500" colSpan={colSpan + 1 + (canDelete ? 1 : 0)}>
                   Geen rijen voor deze filters.
                 </td>
               </tr>
