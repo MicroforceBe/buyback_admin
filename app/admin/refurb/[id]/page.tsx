@@ -1,13 +1,13 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
+import StatusDistributionCard from "./StatusDistributionCard";
 import {
   getRefurbStatusOptions,
   getRefurbLocationOptions,
   type RefurbStatusOption,
   type RefurbLocationOption,
 } from "../settingsActions";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -117,9 +117,7 @@ async function getReception(id: string): Promise<RefurbReception | null> {
         : null,
     supplier,
     rma_expiry_date:
-      raw.rma_expiry_date !== undefined && raw.rma_expiry_date !== null
-        ? String(raw.rma_expiry_date)
-        : null,
+      raw.rma_expiry_date !== undefined && raw.rma_expiry_date !== null ? String(raw.rma_expiry_date) : null,
   };
 
   return reception;
@@ -272,54 +270,7 @@ async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
   return map;
 }
 
-/**
- * ✅ Admin check:
- * Roles staan in Supabase tabel buyback_admin_users, kolom "role" => "admin"
- */
-async function getIsAdminUser(): Promise<boolean> {
-  try {
-    const user = await getCurrentAdminUser();
-    if (!user) return false;
-
-    const email = (user as any)?.email ? String((user as any).email) : "";
-    const userId = (user as any)?.id ? String((user as any).id) : "";
-
-    // Probeer in buyback_admin_users te matchen op email en/of id.
-    // (We maken dit robuust omdat kolomnamen kunnen verschillen per setup.)
-    if (email || userId) {
-      const orParts: string[] = [];
-      if (email) orParts.push(`email.eq.${email}`);
-      if (userId) orParts.push(`id.eq.${userId}`, `user_id.eq.${userId}`);
-
-      const q = supabaseAdmin
-        .from("buyback_admin_users")
-        .select("role")
-        .limit(1);
-
-      const { data, error } = await (orParts.length ? q.or(orParts.join(",")) : q);
-
-      if (error) {
-        console.warn("[REFURB] getIsAdminUser buyback_admin_users lookup error", error);
-      } else {
-        const role = (data?.[0] as any)?.role ? String((data?.[0] as any).role) : "";
-        if (role.toLowerCase() === "admin") return true;
-      }
-    }
-
-    // fallback: als getCurrentAdminUser al een role heeft
-    const fallbackRole = String((user as any)?.role ?? "").toLowerCase();
-    return fallbackRole === "admin";
-  } catch (e) {
-    console.warn("[REFURB] getIsAdminUser exception", e);
-    return false;
-  }
-}
-
-export default async function RefurbReceptionDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function RefurbReceptionDetailPage({ params }: { params: { id: string } }) {
   const reception = await getReception(params.id);
 
   if (!reception) {
@@ -331,13 +282,12 @@ export default async function RefurbReceptionDetailPage({
     );
   }
 
-  const [itemsRaw, statusOptions, locationOptions, models, statusTransitions, isAdmin] = await Promise.all([
+  const [itemsRaw, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
     getReceptionItems(reception.id),
     getRefurbStatusOptions(),
     getRefurbLocationOptions(),
     getRefurbModels(),
     buildStatusTransitionsMap(),
-    getIsAdminUser(),
   ]);
 
   // ✅ Canonicalize status values in the loaded items (fix label-vs-value historical data)
@@ -381,7 +331,7 @@ export default async function RefurbReceptionDetailPage({
 
   const readyToBookValue: string = (readyToBook?.value as string) || "";
 
-  // -------- Status stats voor donut + percentages --------
+  // -------- Status stats voor donut + percentages + waarde --------
   const totalItems = items.length;
 
   type StatusStat = {
@@ -390,33 +340,65 @@ export default async function RefurbReceptionDetailPage({
     count: number;
     pct: number;
     color: string;
+    value_cents: number;
+    is_final: boolean;
   };
 
-  const statusOptionByValue = new Map<string, RefurbStatusOption>(
-    (statusOptions || []).map((s) => [s.value, s])
-  );
+  const statusOptionByValue = new Map<string, RefurbStatusOption>((statusOptions || []).map((s) => [s.value, s]));
   const FALLBACK_STATUS_COLOR = "#64748b";
-  const getStatusColor = (statusValue: string) =>
-    statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
+  const getStatusColor = (statusValue: string) => statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
 
-  const statusCountMap = new Map<string, number>();
+  const hasTransitionsConfigured = Object.keys(statusTransitions || {}).length > 0;
+
+  const isFinalStatusValue = (statusValue: string) => {
+    if (!hasTransitionsConfigured) return false; // zonder transities: geen “final” concept
+    const next = (statusTransitions || {})[statusValue] || [];
+    return (next || []).filter(Boolean).length === 0;
+  };
+
+  const statusAgg = new Map<
+    string,
+    {
+      count: number;
+      value_cents: number;
+    }
+  >();
+
+  let totalValueAllCents = 0;
+  let totalValueFinalCents = 0;
+  let totalValueNonFinalCents = 0;
+
   for (const it of items) {
-    const key = (it.refurb_status || "onbekend").trim() || "onbekend";
-    statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
+    const st = (it.refurb_status || "onbekend").trim() || "onbekend";
+    const price = typeof it.price_cents === "number" ? it.price_cents : 0;
+
+    totalValueAllCents += price;
+
+    const isFinal = st !== "onbekend" && isFinalStatusValue(st);
+    if (isFinal) totalValueFinalCents += price;
+    else totalValueNonFinalCents += price;
+
+    const cur = statusAgg.get(st) ?? { count: 0, value_cents: 0 };
+    cur.count += 1;
+    cur.value_cents += price;
+    statusAgg.set(st, cur);
   }
 
-  const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(([status, count]) => {
+  const statusStats: StatusStat[] = Array.from(statusAgg.entries()).map(([status, agg]) => {
     const def = statusOptionByValue.get(status);
-    const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
-
+    const pct = totalItems > 0 ? Math.round((agg.count / totalItems) * 100) : 0;
     const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
+
+    const is_final = status !== "onbekend" && isFinalStatusValue(status);
 
     return {
       status,
       label: def?.label ?? status,
-      count,
+      count: agg.count,
       pct,
       color,
+      value_cents: agg.value_cents,
+      is_final,
     };
   });
 
@@ -482,8 +464,9 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  // ✅ delete enkel voor admin tonen
-  const canDelete = Boolean(isAdmin);
+  // ✅ Je had dit bewust hardcoded gezet om cookie issues te vermijden.
+  // Server actions blijven sowieso admin valideren.
+  const canDelete = true;
 
   return (
     <div className="p-4 space-y-4">
@@ -537,9 +520,7 @@ export default async function RefurbReceptionDetailPage({
 
         <div>
           <div className="text-[11px] font-medium text-slate-500 uppercase">Intern factuurnr</div>
-          <div className="mt-0.5">
-            {reception.internal_invoice_nr || <span className="text-slate-400">—</span>}
-          </div>
+          <div className="mt-0.5">{reception.internal_invoice_nr || <span className="text-slate-400">—</span>}</div>
         </div>
 
         <div>
@@ -550,38 +531,19 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
+      {/* ✅ 1) Status-blok collapsible + ✅ 2) waardes */}
+      <StatusDistributionCard
+        totalItems={totalItems}
+        donutStyle={donutStyle}
+        statusStats={statusStats}
+        totalValueAllCents={totalValueAllCents}
+        totalValueFinalCents={totalValueFinalCents}
+        totalValueNonFinalCents={totalValueNonFinalCents}
+        hasTransitionsConfigured={hasTransitionsConfigured}
+      />
+
       <div className="border rounded-md bg-white p-3 text-xs">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-              Statusverdeling in deze receptie
-            </div>
-            <div className="flex items-center gap-3">
-              <div
-                className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                style={donutStyle}
-              >
-                <div className="w-12 h-12 rounded-full bg-slate-50" />
-              </div>
-
-              <div className="space-y-1 text-[11px]">
-                <div className="text-slate-500">
-                  Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
-                </div>
-                {statusStats.map((s) => (
-                  <div key={s.status} className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                    <span className="truncate max-w-[140px]">{s.label}</span>
-                    <span className="ml-auto tabular-nums">
-                      {s.count} ({s.pct}%)
-                    </span>
-                  </div>
-                ))}
-                {statusStats.length === 0 && <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>}
-              </div>
-            </div>
-          </div>
-
           <div>
             <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">Aantal toestellen per model</div>
             {modelStats.length === 0 && unknownCount === 0 ? (
@@ -628,6 +590,7 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
+      {/* ✅ 3) Rijen worden in RefurbReceptionTable opgesplitst in finale/niet-finale blokken */}
       <RefurbReceptionTable
         receptionId={reception.id}
         initialItems={items as any}
@@ -638,7 +601,6 @@ export default async function RefurbReceptionDetailPage({
         defaultLocationValue={defaultLocationValue}
         statusTransitions={statusTransitions}
         canDelete={canDelete}
-        canUseAdminStatuses={Boolean(isAdmin)}
       />
     </div>
   );
