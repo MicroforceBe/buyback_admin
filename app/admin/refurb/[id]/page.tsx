@@ -87,9 +87,7 @@ async function getReception(id: string): Promise<RefurbReception | null> {
 
   const raw = data as any;
 
-  const supplierRel = Array.isArray(raw.supplier)
-    ? raw.supplier[0] ?? null
-    : raw.supplier ?? null;
+  const supplierRel = Array.isArray(raw.supplier) ? raw.supplier[0] ?? null : raw.supplier ?? null;
 
   const supplier: SupplierInfo | null = supplierRel
     ? {
@@ -100,8 +98,7 @@ async function getReception(id: string): Promise<RefurbReception | null> {
             ? String(supplierRel.vat_number)
             : null,
         contact_email:
-          supplierRel.contact_email !== undefined &&
-          supplierRel.contact_email !== null
+          supplierRel.contact_email !== undefined && supplierRel.contact_email !== null
             ? String(supplierRel.contact_email)
             : null,
       }
@@ -229,6 +226,8 @@ function canonicalizeStatusValue(raw: string | null | undefined, statusOptions: 
  * ✅ Build transitions map using ID-based transitions table:
  * refurb_status_transitions(from_status_id, to_status_id)
  * refurb_status_options(id, value)
+ *
+ * Output: value -> [value...]
  */
 async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
   const [{ data: options, error: e1 }, { data: transitions, error: e2 }] = await Promise.all([
@@ -438,8 +437,8 @@ export default async function RefurbReceptionDetailPage({
     .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  // ✅ We don't call getCurrentAdminUser here (prevents cookies-set error during render).
-  // Server actions still enforce admin on delete.
+  // ✅ Je had dit bewust hardcoded gezet om cookie issues te vermijden.
+  // Server actions blijven sowieso admin valideren.
   const canDelete = true;
 
   return (
@@ -494,7 +493,9 @@ export default async function RefurbReceptionDetailPage({
 
         <div>
           <div className="text-[11px] font-medium text-slate-500 uppercase">Intern factuurnr</div>
-          <div className="mt-0.5">{reception.internal_invoice_nr || <span className="text-slate-400">—</span>}</div>
+          <div className="mt-0.5">
+            {reception.internal_invoice_nr || <span className="text-slate-400">—</span>}
+          </div>
         </div>
 
         <div>
@@ -512,7 +513,10 @@ export default async function RefurbReceptionDetailPage({
               Statusverdeling in deze receptie
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center" style={donutStyle}>
+              <div
+                className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
+                style={donutStyle}
+              >
                 <div className="w-12 h-12 rounded-full bg-slate-50" />
               </div>
 
