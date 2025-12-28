@@ -33,6 +33,12 @@ type Props = {
 
   // ✅ delete-knoppen enkel tonen voor admin
   canDelete?: boolean;
+
+  /**
+   * ✅ NIEUW: admin-only statuses mogen enkel als user recht heeft
+   * (server-side wordt ook gevalideerd).
+   */
+  canUseAdminStatuses?: boolean;
 };
 
 // SKU en used_parts blijven editable (dus NIET locken op fill)
@@ -79,6 +85,10 @@ function isBooked(status: string | null | undefined) {
 }
 function isReadyToBook(status: string | null | undefined) {
   return norm(status || "") === "ready to book";
+}
+
+function hasValidSku(v: string | null | undefined) {
+  return Boolean((v ?? "").trim().length > 0);
 }
 
 /**
@@ -290,6 +300,7 @@ export default function RefurbReceptionTable({
   statusTransitions,
   statusNextMap,
   canDelete = false,
+  canUseAdminStatuses = false,
 }: Props) {
   const router = useRouter();
 
@@ -428,6 +439,19 @@ export default function RefurbReceptionTable({
       defaultStatusValue,
       readyToBookValue,
     });
+  }
+
+  function statusRuleVerdictForRow(opt: any, row: RefurbItem) {
+    const adminOnly = Boolean(opt?.admin_only);
+    const needSku = Boolean(opt?.need_sku);
+
+    if (adminOnly && !canUseAdminStatuses) {
+      return { ok: false as const, reason: "Alleen admin kan deze status kiezen." };
+    }
+    if (needSku && !hasValidSku((row as any).sku)) {
+      return { ok: false as const, reason: "SKU is verplicht voor deze status." };
+    }
+    return { ok: true as const };
   }
 
   // statuses present in rows (filter dropdown)
@@ -577,6 +601,19 @@ export default function RefurbReceptionTable({
     }
 
     if (field === "refurb_status") {
+      // ✅ AdminOnly + NeedSKU UI checks (server-side ook)
+      const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(value ?? ""));
+      if (opt) {
+        if (opt.admin_only && !canUseAdminStatuses) {
+          window.alert("Je hebt geen rechten om deze status te kiezen.");
+          return;
+        }
+        if (opt.need_sku && !hasValidSku((before as any)?.sku)) {
+          window.alert("SKU is verplicht om deze status te kiezen.");
+          return;
+        }
+      }
+
       const verdict = isTransitionAllowed(currentStatus, value);
       if (!verdict.ok) {
         window.alert(verdict.reason);
@@ -718,6 +755,30 @@ export default function RefurbReceptionTable({
       return;
     }
 
+    // ✅ Bulk UI checks for status (NeedSKU/AdminOnly)
+    if (wantStatus) {
+      const opt: any = statusOptions.find((o: any) => String(o?.value ?? "") === String(bulkStatus ?? ""));
+      if (opt?.admin_only && !canUseAdminStatuses) {
+        window.alert("Je hebt geen rechten om deze status in bulk toe te passen.");
+        return;
+      }
+
+      if (opt?.need_sku) {
+        const missingSkuCount = items
+          .filter((it) => itemIds.includes(it.id))
+          .filter((it) => !hasValidSku((it as any).sku)).length;
+
+        if (missingSkuCount > 0) {
+          window.alert(
+            `Deze status vereist een SKU.\n\n` +
+              `${missingSkuCount} van de geselecteerde rijen hebben geen SKU.\n` +
+              `Vul eerst SKU in voor deze rijen, en probeer opnieuw.`
+          );
+          return;
+        }
+      }
+    }
+
     setIsBulkUpdating(true);
 
     try {
@@ -843,12 +904,20 @@ export default function RefurbReceptionTable({
                       onChange={(e) => setBulkStatus(e.target.value)}
                     >
                       <option value="">—</option>
-                      {statusOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
+                      {statusOptions.map((opt: any) => {
+                        const disabled = Boolean(opt?.admin_only) && !canUseAdminStatuses;
+                        return (
+                          <option key={opt.value} value={opt.value} disabled={disabled}>
+                            {opt.label}
+                          </option>
+                        );
+                      })}
                     </select>
+                    {!canUseAdminStatuses && statusOptions.some((o: any) => o?.admin_only) && (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Sommige statussen zijn admin-only.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1182,7 +1251,7 @@ export default function RefurbReceptionTable({
                           )}
 
                           {!mapModeForRow
-                            ? statusOptions.map((opt) => {
+                            ? statusOptions.map((opt: any) => {
                                 const optValue = opt.value;
 
                                 if (
@@ -1200,23 +1269,44 @@ export default function RefurbReceptionTable({
                                   norm(optValue) === "booked" &&
                                   !isReadyToBook(currentStatus);
 
-                                const disabled = rowBooked || cannotGoBackToDefault || cannotSetBooked;
+                                const ruleVerdict = statusRuleVerdictForRow(opt, it);
+
+                                const disabled =
+                                  rowBooked ||
+                                  cannotGoBackToDefault ||
+                                  cannotSetBooked ||
+                                  !ruleVerdict.ok;
+
+                                const title =
+                                  !ruleVerdict.ok ? ruleVerdict.reason : undefined;
 
                                 return (
                                   <option
                                     key={opt.value}
                                     value={opt.value}
                                     disabled={disabled}
+                                    title={title}
                                   >
                                     {opt.label}
                                   </option>
                                 );
                               })
-                            : visibleStatusOptions.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
+                            : visibleStatusOptions.map((opt: any) => {
+                                const ruleVerdict = statusRuleVerdictForRow(opt, it);
+                                const disabled = rowBooked || !ruleVerdict.ok;
+                                const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
+
+                                return (
+                                  <option
+                                    key={opt.value}
+                                    value={opt.value}
+                                    disabled={disabled}
+                                    title={title}
+                                  >
+                                    {opt.label}
+                                  </option>
+                                );
+                              })}
                         </select>
                       </div>
                     </td>
