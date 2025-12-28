@@ -81,6 +81,11 @@ export default async function RefurbStatusesPage() {
           <strong>Nieuw:</strong> per status kan je nu via multi-checkbox aanduiden
           naar welke <strong>vervolgstatussen</strong> deze status mag veranderen.
         </p>
+        <p className="text-xs text-slate-500 mt-1">
+          <strong>Nieuw:</strong> per status kan je ook instellen of deze{" "}
+          <strong>enkel voor admins</strong> is en/of{" "}
+          <strong>SKU verplicht</strong> is.
+        </p>
       </div>
 
       {/* Nieuwe status aanmaken */}
@@ -88,7 +93,7 @@ export default async function RefurbStatusesPage() {
         <h2 className="text-sm font-semibold mb-1">Nieuwe status toevoegen</h2>
         <form
           action={saveStatusRowAction}
-          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_80px_auto] gap-2 items-end"
+          className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_110px_110px_90px_auto] gap-2 items-end"
         >
           <div className="flex flex-col gap-1">
             <label className="text-[11px] text-slate-600">Label*</label>
@@ -125,6 +130,25 @@ export default async function RefurbStatusesPage() {
               defaultValue="0"
             />
           </div>
+
+          {/* ✅ NEW: admin_only */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-600">Admin only</label>
+            <label className="inline-flex items-center gap-2 h-8 px-2 rounded-md bg-slate-50 border">
+              <input type="checkbox" name="admin_only" />
+              <span className="text-[11px] text-slate-600">enkel admin</span>
+            </label>
+          </div>
+
+          {/* ✅ NEW: need_sku */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-600">SKU verplicht</label>
+            <label className="inline-flex items-center gap-2 h-8 px-2 rounded-md bg-slate-50 border">
+              <input type="checkbox" name="need_sku" />
+              <span className="text-[11px] text-slate-600">SKU nodig</span>
+            </label>
+          </div>
+
           <button
             type="submit"
             className="bb-btn bb-btn-primary h-8 px-3 text-xs justify-self-end"
@@ -139,12 +163,14 @@ export default async function RefurbStatusesPage() {
         <table className="min-w-full border-collapse">
           <thead className="bg-slate-50 text-[11px] uppercase">
             <tr>
-              <th className="px-2 py-1 border text-left" colSpan={6}>
-                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_90px_auto] gap-2 items-center">
+              <th className="px-2 py-1 border text-left" colSpan={8}>
+                <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_110px_110px_90px_auto] gap-2 items-center">
                   <span>Label</span>
                   <span>Value / code</span>
                   <span>Kleur</span>
                   <span className="text-center">Sort</span>
+                  <span className="text-center">Admin only</span>
+                  <span className="text-center">SKU nodig</span>
                   <span className="text-center">Default</span>
                   <span className="text-right">Acties</span>
                 </div>
@@ -158,11 +184,11 @@ export default async function RefurbStatusesPage() {
 
               return (
                 <tr key={row.id} className="border-t">
-                  <td className="px-2 py-2 border" colSpan={6}>
+                  <td className="px-2 py-2 border" colSpan={8}>
                     {/* Row edit form */}
                     <form
                       action={saveStatusRowAction}
-                      className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_90px_auto] gap-2 items-center"
+                      className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.5fr)_140px_70px_110px_110px_90px_auto] gap-2 items-center"
                     >
                       <input type="hidden" name="id" value={row.id} />
 
@@ -189,6 +215,26 @@ export default async function RefurbStatusesPage() {
                         className="bb-input h-7 text-[11px] px-1 w-full text-center"
                         type="number"
                       />
+
+                      {/* ✅ NEW: admin_only */}
+                      <label className="inline-flex items-center justify-center gap-2 h-7 px-2 rounded-md bg-slate-50 border">
+                        <input
+                          type="checkbox"
+                          name="admin_only"
+                          defaultChecked={Boolean((row as any).admin_only)}
+                        />
+                        <span className="text-[10px] text-slate-600">admin</span>
+                      </label>
+
+                      {/* ✅ NEW: need_sku */}
+                      <label className="inline-flex items-center justify-center gap-2 h-7 px-2 rounded-md bg-slate-50 border">
+                        <input
+                          type="checkbox"
+                          name="need_sku"
+                          defaultChecked={Boolean((row as any).need_sku)}
+                        />
+                        <span className="text-[10px] text-slate-600">SKU</span>
+                      </label>
 
                       <button
                         type="submit"
@@ -260,7 +306,7 @@ export default async function RefurbStatusesPage() {
             {statuses.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={8}
                   className="px-2 py-3 text-[11px] text-slate-500 text-center"
                 >
                   Nog geen refurb status opties gedefinieerd.
