@@ -189,17 +189,10 @@ type UsedPartsCellProps = {
   rawValue: string | null;
   locked: boolean;
   onChange: (raw: string) => void;
-  onPasteToColumn?: (
-    e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => void;
+  onPasteToColumn?: (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
 };
 
-function UsedPartsCell({
-  rawValue,
-  locked,
-  onChange,
-  onPasteToColumn,
-}: UsedPartsCellProps) {
+function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPartsCellProps) {
   const [parts, setParts] = useState<string[]>(() => parseUsedParts(rawValue));
 
   useEffect(() => {
@@ -246,7 +239,12 @@ function UsedPartsCell({
     setParts((prev) => {
       const next = [...prev];
       next.splice(index, 1);
-      onChange(next.map((p) => p.trim()).filter(Boolean).join(", "));
+      onChange(
+        next
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .join(", ")
+      );
       return next;
     });
   };
@@ -275,11 +273,7 @@ function UsedPartsCell({
             </button>
           )}
           {i === rows.length - 1 && (
-            <button
-              type="button"
-              className="bb-btn text-[11px] px-2 h-7"
-              onClick={addPart}
-            >
+            <button type="button" className="bb-btn text-[11px] px-2 h-7" onClick={addPart}>
               +
             </button>
           )}
@@ -317,6 +311,10 @@ export default function RefurbReceptionTable({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExtraSn, setShowExtraSn] = useState(false);
 
+  // ✅ GROEPEN: finale/niet-finale
+  const [finalOpen, setFinalOpen] = useState(false); // standaard ingeklapt
+  const [nonFinalOpen, setNonFinalOpen] = useState(true); // standaard open
+
   // header filters
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
   const [locationFilter, setLocationFilter] = useState<string>("__all__");
@@ -348,10 +346,7 @@ export default function RefurbReceptionTable({
   }, [normalizedInitialItems]);
 
   const hasItems = items.length > 0;
-  const colSpan =
-    BASE_COL_COUNT +
-    (showExtraSn ? EXTRA_SN_COL_COUNT : 0) +
-    (showAdvanced ? ADVANCED_COL_COUNT : 0);
+  const colSpan = BASE_COL_COUNT + (showExtraSn ? EXTRA_SN_COL_COUNT : 0) + (showAdvanced ? ADVANCED_COL_COUNT : 0);
 
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
@@ -402,6 +397,17 @@ export default function RefurbReceptionTable({
     return { hasMapForCurrent, set: hasMapForCurrent ? set : null };
   }
 
+  const hasTransitionsConfigured = useMemo(() => {
+    const t = transitions || null;
+    return Boolean(t && Object.keys(t).length > 0);
+  }, [transitions]);
+
+  function isFinalStatusValue(statusValue: string) {
+    if (!hasTransitionsConfigured) return false;
+    const next = (transitions?.[statusValue] || []).filter(Boolean);
+    return next.length === 0;
+  }
+
   function isTransitionAllowed(current: string, next: string): { ok: true } | { ok: false; reason: string } {
     const cur = (current || "").trim();
     const nxt = (next || "").trim();
@@ -420,8 +426,7 @@ export default function RefurbReceptionTable({
       if (norm(nxt) === norm(cur)) return { ok: true };
 
       const allowed =
-        (set && set.has(nxt)) ||
-        (set && Array.from(set.values()).some((v) => norm(v) === norm(nxt)));
+        (set && set.has(nxt)) || (set && Array.from(set.values()).some((v) => norm(v) === norm(nxt)));
 
       if (!allowed) {
         return {
@@ -466,9 +471,7 @@ export default function RefurbReceptionTable({
 
   // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
-    const labelByValue = new Map(
-      (locationOptions || []).map((o: any) => [String(o.value), String(o.label)])
-    );
+    const labelByValue = new Map((locationOptions || []).map((o: any) => [String(o.value), String(o.label)]));
 
     const iq = norm(imeiQuery);
     const dq = norm(descQuery);
@@ -534,12 +537,23 @@ export default function RefurbReceptionTable({
       });
   }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
 
+  const groupedFilteredRows = useMemo(() => {
+    const finalRows: typeof filteredRows = [];
+    const nonFinalRows: typeof filteredRows = [];
+
+    for (const r of filteredRows) {
+      const st = canonicalizeStatusValue(r.it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      const isFinal = st && isFinalStatusValue(st);
+      (isFinal ? finalRows : nonFinalRows).push(r);
+    }
+
+    return { finalRows, nonFinalRows };
+  }, [filteredRows, statusOptions, defaultStatusValue, hasTransitionsConfigured]);
+
   const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
-  const allFilteredSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
-  const someFilteredSelected =
-    filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id)) && !allFilteredSelected;
 
   useEffect(() => {
     if (!headerCheckboxRef.current) return;
@@ -589,11 +603,7 @@ export default function RefurbReceptionTable({
     value: string
   ) {
     const before = items.find((x) => x.id === itemId);
-    const currentStatus = canonicalizeStatusValue(
-      before?.refurb_status,
-      statusOptions || [],
-      defaultStatusValue
-    );
+    const currentStatus = canonicalizeStatusValue(before?.refurb_status, statusOptions || [], defaultStatusValue);
 
     if (isBooked(currentStatus)) {
       window.alert("Status is booked en deze rij kan niet meer gewijzigd worden.");
@@ -748,9 +758,7 @@ export default function RefurbReceptionTable({
 
     if (!itemIds.length) {
       window.alert(
-        bulkTarget === "selected"
-          ? "Geen rijen geselecteerd."
-          : "Geen rijen gevonden met IMEI/SN uit de textarea."
+        bulkTarget === "selected" ? "Geen rijen geselecteerd." : "Geen rijen gevonden met IMEI/SN uit de textarea."
       );
       return;
     }
@@ -857,6 +865,342 @@ export default function RefurbReceptionTable({
     }
   }
 
+  function renderDataRow(it: RefurbItem) {
+    const currentStatus = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+
+    const rowBooked = isBooked(currentStatus);
+
+    const lockedPrice = isLockedAfterFill(it, "price_cents");
+    const lockedDesc = isLockedAfterFill(it, "description");
+    const lockedSuppErr = isLockedAfterFill(it, "supplier_device_errors");
+    const lockedSuppGrad = isLockedAfterFill(it, "supplier_grading");
+
+    const imeiSn = (it as any).imei_sn ?? "";
+    const manualSn = (it as any).manual_sn ?? "";
+    const locationValue = (it as any).location ?? "";
+
+    const statusColor = statusColorByValue.get(currentStatus) ?? null;
+    const isFinishedRow = containsFinished(currentStatus);
+
+    const rowChecked = selectedIds.has(it.id);
+
+    const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
+
+    // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
+    const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
+
+    // ✅ status dropdown options
+    const visibleStatusOptions = (() => {
+      if (!mapModeForRow) return statusOptions;
+
+      const curNorm = norm(currentStatus);
+      const allowedNorms = new Set<string>();
+      if (allowedNextSet) {
+        for (const v of Array.from(allowedNextSet.values())) {
+          allowedNorms.add(norm(v));
+        }
+      }
+
+      return statusOptions.filter((opt) => {
+        const vNorm = norm(opt.value);
+        return vNorm === curNorm || allowedNorms.has(vNorm);
+      });
+    })();
+
+    // ✅ als map-mode maar 0/1 opties: niet hard disablen tenzij er echt geen choices zijn
+    const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
+
+    // ✅ paste startRowIndex moet row_index zijn (niet array-index), anders plakt alles “verschoven”
+    const pasteStartRowIndex = Number((it as any).row_index ?? 0);
+
+    return (
+      <tr key={it.id} className="border-t hover:bg-slate-50/50">
+        <td className="px-2 py-0.5 border">
+          <input type="checkbox" checked={rowChecked} onChange={(e) => toggleSelectOne(it.id, e.target.checked)} />
+        </td>
+
+        {canDelete && (
+          <td className="px-1 py-0.5 border">
+            <button
+              type="button"
+              className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
+              disabled={rowBooked || isDeletingRow === it.id}
+              title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
+              onClick={() => onDeleteRow(it)}
+            >
+              {isDeletingRow === it.id ? "…" : "🗑️"}
+            </button>
+          </td>
+        )}
+
+        {/* Status */}
+        <td className="px-1 py-0.5 border">
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
+              style={{ background: statusColor ?? "transparent" }}
+              aria-hidden="true"
+            />
+            <select
+              value={currentStatus}
+              disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
+              onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
+              className="bb-select bb-select-sm w-full text-slate-900"
+              title={
+                rowBooked
+                  ? "Booked: status kan niet meer gewijzigd worden"
+                  : mapModeForRow && !rowHasChoices
+                  ? "Geen toegelaten vervolgstatus"
+                  : "Status wijzigen"
+              }
+            >
+              {currentStatus && !statusOptionByValue.has(currentStatus) && (
+                <option value={currentStatus}>{currentStatus}</option>
+              )}
+
+              {!mapModeForRow
+                ? statusOptions.map((opt: any) => {
+                    const optValue = opt.value;
+
+                    if (isFinishedRow && norm(optValue) !== norm(readyToBookValue)) {
+                      return null;
+                    }
+
+                    const cannotGoBackToDefault =
+                      norm(optValue) === norm(defaultStatusValue) && norm(currentStatus) !== norm(defaultStatusValue);
+
+                    const cannotSetBooked = norm(optValue) === "booked" && !isReadyToBook(currentStatus);
+
+                    const ruleVerdict = statusRuleVerdictForRow(opt, it);
+
+                    const disabled =
+                      rowBooked || cannotGoBackToDefault || cannotSetBooked || !ruleVerdict.ok;
+
+                    const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
+
+                    return (
+                      <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
+                        {opt.label}
+                      </option>
+                    );
+                  })
+                : visibleStatusOptions.map((opt: any) => {
+                    const ruleVerdict = statusRuleVerdictForRow(opt, it);
+                    const disabled = rowBooked || !ruleVerdict.ok;
+                    const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
+
+                    return (
+                      <option key={opt.value} value={opt.value} disabled={disabled} title={title}>
+                        {opt.label}
+                      </option>
+                    );
+                  })}
+            </select>
+          </div>
+        </td>
+
+        {/* Location */}
+        <td className="px-1 py-0.5 border">
+          <select
+            value={locationValue}
+            disabled={rowBooked}
+            onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
+            className="bb-select bb-select-sm w-full text-slate-900"
+          >
+            {locationValue && !locationOptionByValue.has(locationValue) && (
+              <option value={locationValue}>{locationValue}</option>
+            )}
+            {locationOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </td>
+
+        {/* IMEI/SN + copy (rechts) */}
+        <td className="px-1 py-0.5 border">
+          <div className="flex items-center gap-1">
+            {imeiSn ? (
+              <span className="block truncate max-w-[200px]" title={imeiSn}>
+                {imeiSn}
+              </span>
+            ) : (
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full"
+                value={imeiSn}
+                disabled={rowBooked}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setItems((prev) =>
+                    prev.map((row) => (row.id === it.id ? ({ ...row, imei_sn: val } as any) : row))
+                  );
+                }}
+                onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
+              />
+            )}
+            <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
+          </div>
+        </td>
+
+        {showExtraSn && (
+          <td className="px-1 py-0.5 border">
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full"
+              value={manualSn}
+              disabled={rowBooked}
+              onChange={(e) => {
+                const val = e.target.value;
+                setItems((prev) =>
+                  prev.map((row) => (row.id === it.id ? ({ ...row, manual_sn: val } as any) : row))
+                );
+              }}
+              onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "manual_sn")}
+            />
+          </td>
+        )}
+
+        {/* SKU + copy (rechts) */}
+        <td className="px-1 py-0.5 border">
+          <div className="flex items-center gap-1">
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full"
+              defaultValue={it.sku ?? ""}
+              disabled={rowBooked}
+              onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
+            />
+            <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
+          </div>
+        </td>
+
+        {/* Used parts */}
+        <td className="px-1 py-0.5 border">
+          <UsedPartsCell
+            rawValue={it.used_parts ?? ""}
+            locked={rowBooked}
+            onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
+            onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
+          />
+        </td>
+
+        {/* Price */}
+        <td className="px-1 py-0.5 border">
+          {lockedPrice ? (
+            <span>{money(it.price_cents)}</span>
+          ) : (
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full text-right"
+              defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
+              disabled={rowBooked}
+              placeholder="0,00"
+              onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
+            />
+          )}
+        </td>
+
+        {/* Description */}
+        <td className="px-1 py-0.5 border">
+          {lockedDesc ? (
+            <span className="block truncate max-w-[260px]" title={it.description ?? ""}>
+              {it.description}
+            </span>
+          ) : (
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full"
+              defaultValue={it.description ?? ""}
+              disabled={rowBooked}
+              onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
+            />
+          )}
+        </td>
+
+        {/* Supplier remarks */}
+        <td className="px-1 py-0.5 border">
+          {lockedSuppErr ? (
+            <span className="block truncate max-w-[260px]" title={it.supplier_device_errors ?? ""}>
+              {it.supplier_device_errors}
+            </span>
+          ) : (
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full"
+              defaultValue={it.supplier_device_errors ?? ""}
+              disabled={rowBooked}
+              onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
+            />
+          )}
+        </td>
+
+        {/* Supplier grading */}
+        <td className="px-1 py-0.5 border">
+          {lockedSuppGrad ? (
+            <span>{it.supplier_grading}</span>
+          ) : (
+            <input
+              className="bb-input h-7 text-[11px] px-1 w-full"
+              defaultValue={it.supplier_grading ?? ""}
+              disabled={rowBooked}
+              onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
+              onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")}
+            />
+          )}
+        </td>
+
+        {showAdvanced && (
+          <>
+            <td className="px-1 py-0.5 border">
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full"
+                defaultValue={it.refurb_diagnostics ?? ""}
+                disabled={rowBooked}
+                onBlur={(e) => handleCellChange(it.id, "refurb_diagnostics", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")}
+              />
+            </td>
+
+            <td className="px-1 py-0.5 border">
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full"
+                defaultValue={it.rma_defect_description ?? ""}
+                disabled={rowBooked}
+                onBlur={(e) => handleCellChange(it.id, "rma_defect_description", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")}
+              />
+            </td>
+
+            <td className="px-1 py-0.5 border">
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full"
+                defaultValue={it.rma ?? ""}
+                disabled={rowBooked}
+                onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
+              />
+            </td>
+
+            <td className="px-1 py-0.5 border">
+              <input
+                className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                defaultValue={
+                  typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""
+                }
+                disabled={rowBooked}
+                placeholder="0,00"
+                onBlur={(e) => handleCellChange(it.id, "compensation_cents", e.target.value)}
+                onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")}
+              />
+            </td>
+          </>
+        )}
+      </tr>
+    );
+  }
+
   return (
     <div className="mt-4 space-y-3">
       {/* Bulk Update (collapsible) */}
@@ -866,9 +1210,7 @@ export default function RefurbReceptionTable({
           className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
           onClick={() => setBulkOpen((v) => !v)}
         >
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
-            Bulk Update
-          </div>
+          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">Bulk Update</div>
           <div className="flex items-center gap-2 text-[11px] text-slate-600">
             {isBulkUpdating && (
               <>
@@ -914,9 +1256,7 @@ export default function RefurbReceptionTable({
                       })}
                     </select>
                     {!canUseAdminStatuses && statusOptions.some((o: any) => o?.admin_only) && (
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        Sommige statussen zijn admin-only.
-                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">Sommige statussen zijn admin-only.</div>
                     )}
                   </div>
                 </div>
@@ -959,9 +1299,7 @@ export default function RefurbReceptionTable({
 
               {/* rechts */}
               <div className="flex-1 flex flex-col mt-3 md:mt-0">
-                <div className="text-[11px] text-slate-500 mb-1">
-                  IMEI/SN lijst (voor target “op IMEI/SN”)
-                </div>
+                <div className="text-[11px] text-slate-500 mb-1">IMEI/SN lijst (voor target “op IMEI/SN”)</div>
                 <textarea
                   className="bb-input w-full text-[11px] p-2 flex-1 h-full min-h-[calc(110px+72px)]"
                   value={bulkImeiText}
@@ -1007,13 +1345,10 @@ export default function RefurbReceptionTable({
         )}
       </div>
 
-
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-          <span className="font-medium text-[11px] uppercase tracking-wide">
-            Refurb Reception items
-          </span>
+          <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
           <div className="flex items-center gap-3">
             {isPasting && (
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
@@ -1029,10 +1364,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowExtraSn((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showExtraSn ? "▲" : "▼"}
               </span>
               <span>Extra SN</span>
@@ -1042,10 +1374,7 @@ export default function RefurbReceptionTable({
               onClick={() => setShowAdvanced((v) => !v)}
               className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
             >
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 border rounded-full"
-                aria-hidden="true"
-              >
+              <span className="inline-flex items-center justify-center w-4 h-4 border rounded-full" aria-hidden="true">
                 {showAdvanced ? "▲" : "▼"}
               </span>
               <span>RMA</span>
@@ -1149,406 +1478,60 @@ export default function RefurbReceptionTable({
           </thead>
 
           <tbody>
-            {hasItems &&
-              filteredRows.map(({ it }) => {
-                const currentStatus = canonicalizeStatusValue(
-                  it.refurb_status,
-                  statusOptions || [],
-                  defaultStatusValue
-                ).trim();
+            {hasItems && (
+              <>
+                {/* ✅ GROEP: Niet-finaal */}
+                <tr className="border-t bg-slate-50">
+                  <td
+                    className="px-2 py-2 border text-[11px] font-medium text-slate-700"
+                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
+                  >
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between"
+                      onClick={() => setNonFinalOpen((v) => !v)}
+                    >
+                      <span>Niet-finale statussen ({groupedFilteredRows.nonFinalRows.length})</span>
+                      <span className="text-slate-600">{nonFinalOpen ? "▲" : "▼"}</span>
+                    </button>
+                  </td>
+                </tr>
 
-                const rowBooked = isBooked(currentStatus);
+                {nonFinalOpen && groupedFilteredRows.nonFinalRows.map(({ it }) => renderDataRow(it))}
 
-                const lockedPrice = isLockedAfterFill(it, "price_cents");
-                const lockedDesc = isLockedAfterFill(it, "description");
-                const lockedSuppErr = isLockedAfterFill(it, "supplier_device_errors");
-                const lockedSuppGrad = isLockedAfterFill(it, "supplier_grading");
+                {/* ✅ GROEP: Finaal */}
+                <tr className="border-t bg-slate-50">
+                  <td
+                    className="px-2 py-2 border text-[11px] font-medium text-slate-700"
+                    colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
+                  >
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between"
+                      onClick={() => setFinalOpen((v) => !v)}
+                      title={
+                        hasTransitionsConfigured
+                          ? "Finale status = status zonder vervolgstatus"
+                          : "Geen transities ingesteld: finale status kan niet bepaald worden"
+                      }
+                      disabled={!hasTransitionsConfigured}
+                    >
+                      <span>
+                        Finale statussen ({hasTransitionsConfigured ? groupedFilteredRows.finalRows.length : "—"})
+                      </span>
+                      <span className="text-slate-600">
+                        {!hasTransitionsConfigured ? "—" : finalOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
 
-                const imeiSn = (it as any).imei_sn ?? "";
-                const manualSn = (it as any).manual_sn ?? "";
-                const locationValue = (it as any).location ?? "";
+                {hasTransitionsConfigured &&
+                  finalOpen &&
+                  groupedFilteredRows.finalRows.map(({ it }) => renderDataRow(it))}
+              </>
+            )}
 
-                const statusColor = statusColorByValue.get(currentStatus) ?? null;
-                const isFinishedRow = containsFinished(currentStatus);
-
-                const rowChecked = selectedIds.has(it.id);
-
-                const { hasMapForCurrent, set: allowedNextSet } = getAllowedNextSet(currentStatus);
-
-                // ✅ alleen "map-mode" gebruiken als er effectief mapping bestaat voor current
-                const mapModeForRow = Boolean(allowedNextByStatus && hasMapForCurrent);
-
-                // ✅ status dropdown options
-                const visibleStatusOptions = (() => {
-                  if (!mapModeForRow) return statusOptions;
-
-                  const curNorm = norm(currentStatus);
-                  const allowedNorms = new Set<string>();
-                  if (allowedNextSet) {
-                    for (const v of Array.from(allowedNextSet.values())) {
-                      allowedNorms.add(norm(v));
-                    }
-                  }
-
-                  return statusOptions.filter((opt) => {
-                    const vNorm = norm(opt.value);
-                    return vNorm === curNorm || allowedNorms.has(vNorm);
-                  });
-                })();
-
-                // ✅ als map-mode maar 0/1 opties: niet hard disablen tenzij er echt geen choices zijn
-                const rowHasChoices = mapModeForRow ? visibleStatusOptions.length > 1 : statusOptions.length > 0;
-
-                // ✅ paste startRowIndex moet row_index zijn (niet array-index), anders plakt alles “verschoven”
-                const pasteStartRowIndex = Number((it as any).row_index ?? 0);
-
-                return (
-                  <tr key={it.id} className="border-t hover:bg-slate-50/50">
-                    <td className="px-2 py-0.5 border">
-                      <input
-                        type="checkbox"
-                        checked={rowChecked}
-                        onChange={(e) => toggleSelectOne(it.id, e.target.checked)}
-                      />
-                    </td>
-
-                    {canDelete && (
-                      <td className="px-1 py-0.5 border">
-                        <button
-                          type="button"
-                          className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
-                          disabled={rowBooked || isDeletingRow === it.id}
-                          title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
-                          onClick={() => onDeleteRow(it)}
-                        >
-                          {isDeletingRow === it.id ? "…" : "🗑️"}
-                        </button>
-                      </td>
-                    )}
-
-                    {/* Status */}
-                    <td className="px-1 py-0.5 border">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-flex w-3 h-3 rounded-full border border-slate-300 shrink-0"
-                          style={{ background: statusColor ?? "transparent" }}
-                          aria-hidden="true"
-                        />
-                        <select
-                          value={currentStatus}
-                          disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
-                          onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
-                          className="bb-select bb-select-sm w-full text-slate-900"
-                          title={
-                            rowBooked
-                              ? "Booked: status kan niet meer gewijzigd worden"
-                              : mapModeForRow && !rowHasChoices
-                              ? "Geen toegelaten vervolgstatus"
-                              : "Status wijzigen"
-                          }
-                        >
-                          {currentStatus && !statusOptionByValue.has(currentStatus) && (
-                            <option value={currentStatus}>{currentStatus}</option>
-                          )}
-
-                          {!mapModeForRow
-                            ? statusOptions.map((opt: any) => {
-                                const optValue = opt.value;
-
-                                if (
-                                  isFinishedRow &&
-                                  norm(optValue) !== norm(readyToBookValue)
-                                ) {
-                                  return null;
-                                }
-
-                                const cannotGoBackToDefault =
-                                  norm(optValue) === norm(defaultStatusValue) &&
-                                  norm(currentStatus) !== norm(defaultStatusValue);
-
-                                const cannotSetBooked =
-                                  norm(optValue) === "booked" &&
-                                  !isReadyToBook(currentStatus);
-
-                                const ruleVerdict = statusRuleVerdictForRow(opt, it);
-
-                                const disabled =
-                                  rowBooked ||
-                                  cannotGoBackToDefault ||
-                                  cannotSetBooked ||
-                                  !ruleVerdict.ok;
-
-                                const title =
-                                  !ruleVerdict.ok ? ruleVerdict.reason : undefined;
-
-                                return (
-                                  <option
-                                    key={opt.value}
-                                    value={opt.value}
-                                    disabled={disabled}
-                                    title={title}
-                                  >
-                                    {opt.label}
-                                  </option>
-                                );
-                              })
-                            : visibleStatusOptions.map((opt: any) => {
-                                const ruleVerdict = statusRuleVerdictForRow(opt, it);
-                                const disabled = rowBooked || !ruleVerdict.ok;
-                                const title = !ruleVerdict.ok ? ruleVerdict.reason : undefined;
-
-                                return (
-                                  <option
-                                    key={opt.value}
-                                    value={opt.value}
-                                    disabled={disabled}
-                                    title={title}
-                                  >
-                                    {opt.label}
-                                  </option>
-                                );
-                              })}
-                        </select>
-                      </div>
-                    </td>
-
-                    {/* Location */}
-                    <td className="px-1 py-0.5 border">
-                      <select
-                        value={locationValue}
-                        disabled={rowBooked}
-                        onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
-                        className="bb-select bb-select-sm w-full text-slate-900"
-                      >
-                        {locationValue && !locationOptionByValue.has(locationValue) && (
-                          <option value={locationValue}>{locationValue}</option>
-                        )}
-                        {locationOptions.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-
-                    {/* IMEI/SN + copy (rechts) */}
-                    <td className="px-1 py-0.5 border">
-                      <div className="flex items-center gap-1">
-                        {imeiSn ? (
-                          <span className="block truncate max-w-[200px]" title={imeiSn}>
-                            {imeiSn}
-                          </span>
-                        ) : (
-                          <input
-                            className="bb-input h-7 text-[11px] px-1 w-full"
-                            value={imeiSn}
-                            disabled={rowBooked}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setItems((prev) =>
-                                prev.map((row) =>
-                                  row.id === it.id ? ({ ...row, imei_sn: val } as any) : row
-                                )
-                              );
-                            }}
-                            onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
-                            onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
-                          />
-                        )}
-                        <CopyBtn value={imeiSn} title="Copy IMEI/SN" />
-                      </div>
-                    </td>
-
-                    {showExtraSn && (
-                      <td className="px-1 py-0.5 border">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          value={manualSn}
-                          disabled={rowBooked}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((row) =>
-                                row.id === it.id ? ({ ...row, manual_sn: val } as any) : row
-                              )
-                            );
-                          }}
-                          onBlur={(e) => handleCellChange(it.id, "manual_sn", e.target.value.trim())}
-                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "manual_sn")}
-                        />
-                      </td>
-                    )}
-
-                    {/* SKU + copy (rechts) */}
-                    <td className="px-1 py-0.5 border">
-                      <div className="flex items-center gap-1">
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.sku ?? ""}
-                          disabled={rowBooked}
-                          onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
-                        />
-                        <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
-                      </div>
-                    </td>
-
-                    {/* Used parts */}
-                    <td className="px-1 py-0.5 border">
-                      <UsedPartsCell
-                        rawValue={it.used_parts ?? ""}
-                        locked={rowBooked}
-                        onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
-                        onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
-                      />
-                    </td>
-
-                    {/* Price */}
-                    <td className="px-1 py-0.5 border">
-                      {lockedPrice ? (
-                        <span>{money(it.price_cents)}</span>
-                      ) : (
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                          defaultValue={
-                            typeof it.price_cents === "number"
-                              ? (it.price_cents / 100).toString()
-                              : ""
-                          }
-                          disabled={rowBooked}
-                          placeholder="0,00"
-                          onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
-                        />
-                      )}
-                    </td>
-
-                    {/* Description */}
-                    <td className="px-1 py-0.5 border">
-                      {lockedDesc ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.description ?? ""}
-                        >
-                          {it.description}
-                        </span>
-                      ) : (
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.description ?? ""}
-                          disabled={rowBooked}
-                          onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
-                          onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
-                        />
-                      )}
-                    </td>
-
-                    {/* Supplier remarks */}
-                    <td className="px-1 py-0.5 border">
-                      {lockedSuppErr ? (
-                        <span
-                          className="block truncate max-w-[260px]"
-                          title={it.supplier_device_errors ?? ""}
-                        >
-                          {it.supplier_device_errors}
-                        </span>
-                      ) : (
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.supplier_device_errors ?? ""}
-                          disabled={rowBooked}
-                          onBlur={(e) =>
-                            handleCellChange(it.id, "supplier_device_errors", e.target.value)
-                          }
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")
-                          }
-                        />
-                      )}
-                    </td>
-
-                    {/* Supplier grading */}
-                    <td className="px-1 py-0.5 border">
-                      {lockedSuppGrad ? (
-                        <span>{it.supplier_grading}</span>
-                      ) : (
-                        <input
-                          className="bb-input h-7 text-[11px] px-1 w-full"
-                          defaultValue={it.supplier_grading ?? ""}
-                          disabled={rowBooked}
-                          onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
-                          onPaste={(e) =>
-                            handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")
-                          }
-                        />
-                      )}
-                    </td>
-
-                    {showAdvanced && (
-                      <>
-                        <td className="px-1 py-0.5 border">
-                          <input
-                            className="bb-input h-7 text-[11px] px-1 w-full"
-                            defaultValue={it.refurb_diagnostics ?? ""}
-                            disabled={rowBooked}
-                            onBlur={(e) =>
-                              handleCellChange(it.id, "refurb_diagnostics", e.target.value)
-                            }
-                            onPaste={(e) =>
-                              handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")
-                            }
-                          />
-                        </td>
-
-                        <td className="px-1 py-0.5 border">
-                          <input
-                            className="bb-input h-7 text-[11px] px-1 w-full"
-                            defaultValue={it.rma_defect_description ?? ""}
-                            disabled={rowBooked}
-                            onBlur={(e) =>
-                              handleCellChange(it.id, "rma_defect_description", e.target.value)
-                            }
-                            onPaste={(e) =>
-                              handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")
-                            }
-                          />
-                        </td>
-
-                        <td className="px-1 py-0.5 border">
-                          <input
-                            className="bb-input h-7 text-[11px] px-1 w-full"
-                            defaultValue={it.rma ?? ""}
-                            disabled={rowBooked}
-                            onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
-                            onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
-                          />
-                        </td>
-
-                        <td className="px-1 py-0.5 border">
-                          <input
-                            className="bb-input h-7 text-[11px] px-1 w-full text-right"
-                            defaultValue={
-                              typeof it.compensation_cents === "number"
-                                ? (it.compensation_cents / 100).toString()
-                                : ""
-                            }
-                            disabled={rowBooked}
-                            placeholder="0,00"
-                            onBlur={(e) =>
-                              handleCellChange(it.id, "compensation_cents", e.target.value)
-                            }
-                            onPaste={(e) =>
-                              handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")
-                            }
-                          />
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                );
-              })}
-
-            {/* ... (rest van je “no items” blok blijft ongewijzigd) ... */}
             {!hasItems && (
               <>
                 <tr className="border-t">
@@ -1679,10 +1662,9 @@ export default function RefurbReceptionTable({
                     className="px-2 py-3 border text-[11px] text-slate-500"
                     colSpan={colSpan + 1 + (canDelete ? 1 : 0)}
                   >
-                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van
-                    de velden hierboven (bv. IMEI/SN, SKU, Description, Price...) om rijen
-                    aan te maken. Status en Location gebruiken hun ingestelde default-waarde
-                    bij het importeren.
+                    Nog geen toestellen in deze receptie. Plak een kolom uit Excel in één van de velden hierboven (bv.
+                    IMEI/SN, SKU, Description, Price...) om rijen aan te maken. Status en Location gebruiken hun
+                    ingestelde default-waarde bij het importeren.
                   </td>
                 </tr>
               </>
