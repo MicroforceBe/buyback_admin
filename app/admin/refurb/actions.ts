@@ -54,9 +54,10 @@ type EditableField =
 
 type PasteField = EditableField;
 
-// ✅ Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
-// SKU en used_parts blijven editable => dus eruit
+// Kolommen die NA eerste invulling niet meer wijzigbaar zijn (supplier data)
 const LOCK_AFTER_FILL_FIELDS: PasteField[] = [
+  "sku",
+  "used_parts",
   "price_cents",
   "description",
   "supplier_device_errors",
@@ -73,10 +74,6 @@ const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "imei_sn",
   "manual_sn",
   "location",
-
-  // ✅ expliciet editable houden
-  "sku",
-  "used_parts",
 ];
 
 function parseMoneyToCents(raw: string): number | null {
@@ -97,12 +94,6 @@ function isBooked(status: string | null | undefined) {
 
 function hasValidSku(v: string | null | undefined) {
   return Boolean((v ?? "").trim().length > 0);
-}
-
-async function canUseAdminStatusesServer(): Promise<boolean> {
-  const user = await getCurrentAdminUser();
-  console.log("[REFURB] user role debug", { role: (user as any)?.role, user });
-  return Boolean(user && (user as any).role === "admin");
 }
 
 async function getStatusOptionFlagsByValue(
@@ -327,12 +318,17 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
  * ✅ Statuswijziging wordt server-side gevalideerd via transitions (ID-based).
  * ✅ We slaan altijd de STATUS "value" op (niet label).
  * ✅ NEW: admin_only + need_sku rules
+ *
+ * 🔧 FIX: haal user 1x op per action (geen extra helper-calls die kunnen cachen/afwijken)
  */
 export async function updateRefurbItemCell(
   itemId: string,
   field: EditableField,
   value: string
 ): Promise<void> {
+  const user = await getCurrentAdminUser();
+  const isAdmin = Boolean(user && (user as any).role === "admin");
+
   // status rules (server-side)
   if (field === "refurb_status") {
     const { data: row, error: e0 } = await supabaseAdmin
@@ -360,9 +356,8 @@ export async function updateRefurbItemCell(
 
     // ✅ admin_only + need_sku
     const flags = await getStatusOptionFlagsByValue(value);
-    if (flags?.admin_only) {
-      const ok = await canUseAdminStatusesServer();
-      if (!ok) throw new Error("Je hebt geen rechten om deze status te kiezen.");
+    if (flags?.admin_only && !isAdmin) {
+      throw new Error("Je hebt geen rechten om deze status te kiezen.");
     }
     if (flags?.need_sku && !hasValidSku(currentSku)) {
       throw new Error("SKU is verplicht om deze status te kiezen.");
@@ -401,7 +396,8 @@ export async function updateRefurbItemCell(
  * - location / used_parts: in één update op alle niet-booked rows
  * - refurb_status: alleen op rows waar statusregels het toelaten
  * ✅ NEW: admin_only + need_sku rules
- * ✅ FIX: updated telt unieke rijen (niet per veld dubbel)
+ *
+ * 🔧 FIX: haal user 1x op per action
  */
 export async function bulkUpdateRefurbItems(input: {
   receptionId: string;
@@ -410,6 +406,9 @@ export async function bulkUpdateRefurbItems(input: {
   defaultStatusValue: string;
   readyToBookValue: string;
 }): Promise<{ updated: number; skipped: number; reasons: Record<string, number> }> {
+  const user = await getCurrentAdminUser();
+  const isAdmin = Boolean(user && (user as any).role === "admin");
+
   const { receptionId, itemIds, patch } = input;
 
   if (!itemIds?.length) return { updated: 0, skipped: 0, reasons: {} };
@@ -430,12 +429,9 @@ export async function bulkUpdateRefurbItems(input: {
 
   const reasons: Record<string, number> = {};
   let skipped = 0;
+  let updated = 0;
 
-  // ✅ track unieke gewijzigde rijen
-  const updatedIds = new Set<string>();
-
-  const notBookedRows = rows.filter((r) => !isBooked(r.refurb_status));
-  const notBookedIds = notBookedRows.map((r) => r.id);
+  const notBookedIds = rows.filter((r) => !isBooked(r.refurb_status)).map((r) => r.id);
 
   // used_parts
   if (typeof patch.used_parts === "string") {
@@ -446,7 +442,7 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", notBookedIds);
 
       if (e1) throw e1;
-      for (const id of notBookedIds) updatedIds.add(id);
+      updated += notBookedIds.length;
     } else {
       skipped += rows.length;
       reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
@@ -462,7 +458,7 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", notBookedIds);
 
       if (e2) throw e2;
-      for (const id of notBookedIds) updatedIds.add(id);
+      updated += notBookedIds.length;
     } else if (!patch.used_parts) {
       skipped += rows.length;
       reasons["Status is booked (locked)"] = (reasons["Status is booked (locked)"] ?? 0) + rows.length;
@@ -477,14 +473,12 @@ export async function bulkUpdateRefurbItems(input: {
 
     // ✅ admin_only + need_sku flags once
     const flags = await getStatusOptionFlagsByValue(patchValue);
-    if (flags?.admin_only) {
-      const ok = await canUseAdminStatusesServer();
-      if (!ok) {
-        skipped += rows.length;
-        reasons["Je hebt geen rechten om deze status te kiezen."] =
-          (reasons["Je hebt geen rechten om deze status te kiezen."] ?? 0) + rows.length;
-        return { updated: updatedIds.size, skipped, reasons };
-      }
+
+    if (flags?.admin_only && !isAdmin) {
+      skipped += rows.length;
+      reasons["Je hebt geen rechten om deze status te kiezen."] =
+        (reasons["Je hebt geen rechten om deze status te kiezen."] ?? 0) + rows.length;
+      return { updated, skipped, reasons };
     }
 
     const allowed: string[] = [];
@@ -526,11 +520,11 @@ export async function bulkUpdateRefurbItems(input: {
         .in("id", allowed);
 
       if (e3) throw e3;
-      for (const id of allowed) updatedIds.add(id);
+      updated += allowed.length;
     }
   }
 
-  return { updated: updatedIds.size, skipped, reasons };
+  return { updated, skipped, reasons };
 }
 
 /**
@@ -544,7 +538,8 @@ export async function bulkUpdateRefurbItems(input: {
  * ✅ Nieuwe rij krijgt refurb_status = defaultStatusValue (geen "new")
  * ✅ Bij plakken in refurb_status: label->value + transitions (ID-based)
  * ✅ NEW: admin_only + need_sku rules
- * ✅ SKU + used_parts blijven overschrijfbaar (dus niet lock-after-fill)
+ *
+ * 🔧 FIX: haal user 1x op per action
  */
 export async function pasteIntoRefurbColumn(
   receptionId: string,
@@ -554,6 +549,9 @@ export async function pasteIntoRefurbColumn(
   defaultStatusValue?: string,
   defaultLocationValue?: string
 ): Promise<RefurbItem[]> {
+  const user = await getCurrentAdminUser();
+  const isAdmin = Boolean(user && (user as any).role === "admin");
+
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
 
   if (!lines.length) {
@@ -566,12 +564,6 @@ export async function pasteIntoRefurbColumn(
   const inserts: Partial<RefurbItem & { reception_id: string }>[] = [];
 
   const isLockAfterFill = LOCK_AFTER_FILL_FIELDS.includes(field);
-
-  // ✅ status rule helpers for this paste
-  let canUseAdminStatuses = false;
-  if (field === "refurb_status") {
-    canUseAdminStatuses = await canUseAdminStatusesServer();
-  }
 
   for (let i = 0; i < lines.length; i++) {
     const rowIndex = startRowIndex + i;
@@ -596,7 +588,7 @@ export async function pasteIntoRefurbColumn(
       value = pastedStatusValue;
 
       pastedFlags = await getStatusOptionFlagsByValue(pastedStatusValue);
-      if (pastedFlags?.admin_only && !canUseAdminStatuses) {
+      if (pastedFlags?.admin_only && !isAdmin) {
         // skip row (do not fail whole paste)
         continue;
       }
@@ -624,6 +616,11 @@ export async function pasteIntoRefurbColumn(
         if (flags?.need_sku && !hasValidSku(existingItem.sku)) {
           continue;
         }
+
+        // ✅ admin_only check per row (na canonicalize)
+        if (flags?.admin_only && !isAdmin) {
+          continue;
+        }
       }
 
       updates.push({
@@ -634,10 +631,11 @@ export async function pasteIntoRefurbColumn(
       // NEW ROW insert
       if (field === "refurb_status") {
         // if status requires SKU, we cannot create a new row "in that status" without SKU
-        if (pastedFlags?.need_sku) {
+        const flags = pastedFlags ?? (await getStatusOptionFlagsByValue(String(value ?? "")));
+        if (flags?.need_sku) {
           continue;
         }
-        if (pastedFlags?.admin_only && !canUseAdminStatuses) {
+        if (flags?.admin_only && !isAdmin) {
           continue;
         }
       }
@@ -811,11 +809,7 @@ export async function createRefurbReception(
     };
   }
 
-  const existing = await supabaseAdmin
-    .from("refurb_receptions")
-    .select("id")
-    .eq("reception_number", reception_number)
-    .limit(1);
+  const existing = await supabaseAdmin.from("refurb_receptions").select("id").eq("reception_number", reception_number).limit(1);
 
   if (existing.error) {
     console.error("[REFURB] createRefurbReception unique-check error", existing.error);
@@ -837,12 +831,7 @@ export async function createRefurbReception(
   }
 
   let supplierName = "";
-  const supplierRes = await supabaseAdmin
-    .from("refurb_suppliers")
-    .select("name")
-    .eq("id", supplier_id)
-    .limit(1)
-    .single();
+  const supplierRes = await supabaseAdmin.from("refurb_suppliers").select("name").eq("id", supplier_id).limit(1).single();
 
   if (supplierRes.error) {
     console.warn("[REFURB] could not fetch supplier name", supplierRes.error);
@@ -920,11 +909,7 @@ export async function deleteRefurbReceptionItem(input: {
 
   const deletedIndex = Number((row as any).row_index);
 
-  const { error: e1 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .delete()
-    .eq("id", itemId)
-    .eq("reception_id", receptionId);
+  const { error: e1 } = await supabaseAdmin.from("refurb_reception_items").delete().eq("id", itemId).eq("reception_id", receptionId);
 
   if (e1) {
     console.error("[REFURB] deleteRefurbReceptionItem delete error", e1);
@@ -975,20 +960,14 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
     throw new Error("Missing receptionId.");
   }
 
-  const { error: e1 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .delete()
-    .eq("reception_id", receptionId);
+  const { error: e1 } = await supabaseAdmin.from("refurb_reception_items").delete().eq("reception_id", receptionId);
 
   if (e1) {
     console.error("[REFURB] deleteRefurbReception delete items error", e1);
     throw new Error(e1.message || "Kon receptie-items niet verwijderen.");
   }
 
-  const { error: e2 } = await supabaseAdmin
-    .from("refurb_receptions")
-    .delete()
-    .eq("id", receptionId);
+  const { error: e2 } = await supabaseAdmin.from("refurb_receptions").delete().eq("id", receptionId);
 
   if (e2) {
     console.error("[REFURB] deleteRefurbReception delete reception error", e2);
