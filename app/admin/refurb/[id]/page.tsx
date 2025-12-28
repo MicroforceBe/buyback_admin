@@ -1,6 +1,5 @@
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import RefurbReceptionTable from "../RefurbReceptionTable";
 import {
   getRefurbStatusOptions,
@@ -8,6 +7,7 @@ import {
   type RefurbStatusOption,
   type RefurbLocationOption,
 } from "../settingsActions";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -112,14 +112,10 @@ async function getReception(id: string): Promise<RefurbReception | null> {
     vat_scheme: raw.vat_scheme === "normal" ? "normal" : "margin",
     supplier_invoice_nr: String(raw.supplier_invoice_nr),
     internal_invoice_nr:
-      raw.internal_invoice_nr !== undefined && raw.internal_invoice_nr !== null
-        ? String(raw.internal_invoice_nr)
-        : null,
+      raw.internal_invoice_nr !== undefined && raw.internal_invoice_nr !== null ? String(raw.internal_invoice_nr) : null,
     supplier,
     rma_expiry_date:
-      raw.rma_expiry_date !== undefined && raw.rma_expiry_date !== null
-        ? String(raw.rma_expiry_date)
-        : null,
+      raw.rma_expiry_date !== undefined && raw.rma_expiry_date !== null ? String(raw.rma_expiry_date) : null,
   };
 
   return reception;
@@ -272,6 +268,10 @@ async function buildStatusTransitionsMap(): Promise<Record<string, string[]>> {
   return map;
 }
 
+function moneyEUR(cents: number) {
+  return (cents / 100).toLocaleString("nl-BE", { style: "currency", currency: "EUR" });
+}
+
 export default async function RefurbReceptionDetailPage({
   params,
 }: {
@@ -287,6 +287,9 @@ export default async function RefurbReceptionDetailPage({
       </div>
     );
   }
+
+  const user = await getCurrentAdminUser();
+  const canUseAdminStatuses = Boolean(user && user.role === "admin");
 
   const [itemsRaw, statusOptions, locationOptions, models, statusTransitions] = await Promise.all([
     getReceptionItems(reception.id),
@@ -337,8 +340,23 @@ export default async function RefurbReceptionDetailPage({
 
   const readyToBookValue: string = (readyToBook?.value as string) || "";
 
-  // -------- Status stats voor donut + percentages --------
+  // -------- Status stats voor donut + percentages + values --------
   const totalItems = items.length;
+
+  const statusOptionByValue = new Map<string, RefurbStatusOption>((statusOptions || []).map((s) => [s.value, s]));
+  const FALLBACK_STATUS_COLOR = "#64748b";
+  const getStatusColor = (statusValue: string) => statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
+
+  const statusCountMap = new Map<string, number>();
+  const statusValueMap = new Map<string, number>(); // cents
+
+  for (const it of items) {
+    const key = (it.refurb_status || "onbekend").trim() || "onbekend";
+    statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
+
+    const pc = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
+    statusValueMap.set(key, (statusValueMap.get(key) ?? 0) + (Number.isFinite(pc) ? pc : 0));
+  }
 
   type StatusStat = {
     status: string;
@@ -346,26 +364,15 @@ export default async function RefurbReceptionDetailPage({
     count: number;
     pct: number;
     color: string;
+    value_cents: number;
   };
-
-  const statusOptionByValue = new Map<string, RefurbStatusOption>(
-    (statusOptions || []).map((s) => [s.value, s])
-  );
-  const FALLBACK_STATUS_COLOR = "#64748b";
-  const getStatusColor = (statusValue: string) =>
-    statusOptionByValue.get(statusValue)?.color || FALLBACK_STATUS_COLOR;
-
-  const statusCountMap = new Map<string, number>();
-  for (const it of items) {
-    const key = (it.refurb_status || "onbekend").trim() || "onbekend";
-    statusCountMap.set(key, (statusCountMap.get(key) ?? 0) + 1);
-  }
 
   const statusStats: StatusStat[] = Array.from(statusCountMap.entries()).map(([status, count]) => {
     const def = statusOptionByValue.get(status);
     const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
 
     const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : getStatusColor(status);
+    const value_cents = statusValueMap.get(status) ?? 0;
 
     return {
       status,
@@ -373,6 +380,7 @@ export default async function RefurbReceptionDetailPage({
       count,
       pct,
       color,
+      value_cents,
     };
   });
 
@@ -391,6 +399,29 @@ export default async function RefurbReceptionDetailPage({
       backgroundImage: `conic-gradient(${segments.join(", ")})`,
     };
   }
+
+  // -------- Final vs Not Done totals --------
+  const isFinalStatus = (statusValue: string) => {
+    const v = (statusValue || "").trim();
+    if (!v) return false;
+    if (v === "onbekend") return false;
+    const next = (statusTransitions || {})[v] || [];
+    return !next || next.length === 0;
+  };
+
+  const totalValueAllCents = items.reduce((acc, it) => {
+    const pc = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
+    return acc + (Number.isFinite(pc) ? pc : 0);
+  }, 0);
+
+  const totalValueDoneCents = items.reduce((acc, it) => {
+    const st = (it.refurb_status || "onbekend").trim() || "onbekend";
+    if (!isFinalStatus(st)) return acc;
+    const pc = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
+    return acc + (Number.isFinite(pc) ? pc : 0);
+  }, 0);
+
+  const totalValueNotDoneCents = totalValueAllCents - totalValueDoneCents;
 
   // -------- Model stats --------
   type ModelStat = {
@@ -442,10 +473,6 @@ export default async function RefurbReceptionDetailPage({
   // Server actions blijven sowieso admin valideren.
   const canDelete = true;
 
-  // ✅ FIX: admin-only statuses correct enable/disable in UI
-  const user = await getCurrentAdminUser();
-  const canUseAdminStatuses = Boolean(user && (user as any).role === "admin");
-
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -453,9 +480,7 @@ export default async function RefurbReceptionDetailPage({
           <h1 className="text-lg font-semibold">Refurb reception {reception.reception_number}</h1>
           <p className="text-xs text-slate-500">
             Leverancier: <span className="font-medium">{supplierName}</span>
-            {supplierVat && (
-              <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>
-            )}
+            {supplierVat && <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>}
           </p>
           {supplierEmail && (
             <p className="text-[11px] text-slate-500">
@@ -511,85 +536,125 @@ export default async function RefurbReceptionDetailPage({
         </div>
       </div>
 
-      <div className="border rounded-md bg-white p-3 text-xs">
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
-              Statusverdeling in deze receptie
-            </div>
-            <div className="flex items-center gap-3">
-              <div
-                className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                style={donutStyle}
-              >
-                <div className="w-12 h-12 rounded-full bg-slate-50" />
+      {/* ✅ ENKEL 1 statusblok: uitklapbaar (standaard dicht) met donut + legenda + waardes + modellen */}
+      <details className="border rounded-md bg-white text-xs">
+        <summary className="cursor-pointer select-none px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
+          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
+            Status verdeling in deze receptie
+          </div>
+          <div className="text-[11px] text-slate-600">▼</div>
+        </summary>
+
+        <div className="p-3">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
+            <div>
+              <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
+                Statusverdeling in deze receptie
               </div>
 
-              <div className="space-y-1 text-[11px]">
-                <div className="text-slate-500">
-                  Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
+                  style={donutStyle}
+                >
+                  <div className="w-12 h-12 rounded-full bg-slate-50" />
                 </div>
-                {statusStats.map((s) => (
-                  <div key={s.status} className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                    <span className="truncate max-w-[140px]">{s.label}</span>
-                    <span className="ml-auto tabular-nums">
-                      {s.count} ({s.pct}%)
+
+                <div className="space-y-1 text-[11px] w-full">
+                  <div className="text-slate-500">
+                    Totaal:{" "}
+                    <span className="font-semibold text-slate-700">
+                      {totalItems} toestellen
+                    </span>{" "}
+                    <span className="ml-2 text-slate-500">
+                      ({moneyEUR(totalValueAllCents)})
                     </span>
                   </div>
-                ))}
-                {statusStats.length === 0 && (
-                  <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
-                )}
+
+                  <div className="text-[11px] text-slate-500">
+                    Niet afgewerkt:{" "}
+                    <span className="font-semibold text-slate-700">{moneyEUR(totalValueNotDoneCents)}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Afgewerkt:{" "}
+                    <span className="font-semibold text-slate-700">{moneyEUR(totalValueDoneCents)}</span>
+                  </div>
+
+                  <div className="pt-1" />
+
+                  {statusStats.map((s) => (
+                    <div key={s.status} className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <span className="truncate max-w-[160px]">{s.label}</span>
+                      <span className="ml-auto tabular-nums text-right">
+                        {s.count} ({s.pct}%){" "}
+                        <span className="ml-2 text-slate-600">
+                          {moneyEUR(s.value_cents)}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+
+                  {statusStats.length === 0 && (
+                    <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div>
-            <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">Aantal toestellen per model</div>
-            {modelStats.length === 0 && unknownCount === 0 ? (
-              <div className="text-[11px] text-slate-500">Geen toestellen of modellen konden niet worden bepaald.</div>
-            ) : (
-              <div className="space-y-2">
-                {modelStats.map((m) => (
-                  <div key={m.modelId} className="flex items-center gap-2">
-                    <span className="truncate text-right w-32 shrink-0">{m.name}</span>
-
-                    <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
-                      {statusStats.map((s) => {
-                        const count = m.perStatus[s.status] ?? 0;
-                        if (!count) return null;
-
-                        const pct = m.total > 0 ? (count / m.total) * 100 : 0;
-
-                        return (
-                          <div
-                            key={s.status}
-                            className="h-full flex items-center justify-center text-[9px] text-white"
-                            style={{ width: `${pct}%`, backgroundColor: s.color }}
-                            title={`${s.label}: ${count}`}
-                          >
-                            {count}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
-                  </div>
-                ))}
-
-                {unknownCount > 0 && (
-                  <div className="flex items-center justify-between text-slate-500">
-                    <span className="truncate max-w-[200px]">Onbekend model</span>
-                    <span className="tabular-nums">{unknownCount}</span>
-                  </div>
-                )}
+            <div>
+              <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
+                Aantal toestellen per model
               </div>
-            )}
+              {modelStats.length === 0 && unknownCount === 0 ? (
+                <div className="text-[11px] text-slate-500">
+                  Geen toestellen of modellen konden niet worden bepaald.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {modelStats.map((m) => (
+                    <div key={m.modelId} className="flex items-center gap-2">
+                      <span className="truncate text-right w-32 shrink-0">{m.name}</span>
+
+                      <div className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden flex">
+                        {statusStats.map((s) => {
+                          const count = m.perStatus[s.status] ?? 0;
+                          if (!count) return null;
+
+                          const pct = m.total > 0 ? (count / m.total) * 100 : 0;
+
+                          return (
+                            <div
+                              key={s.status}
+                              className="h-full flex items-center justify-center text-[9px] text-white"
+                              style={{ width: `${pct}%`, backgroundColor: s.color }}
+                              title={`${s.label}: ${count}`}
+                            >
+                              {count}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <span className="tabular-nums text-slate-700 w-6 text-right">{m.total}</span>
+                    </div>
+                  ))}
+
+                  {unknownCount > 0 && (
+                    <div className="flex items-center justify-between text-slate-500">
+                      <span className="truncate max-w-[200px]">Onbekend model</span>
+                      <span className="tabular-nums">{unknownCount}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </details>
 
       <RefurbReceptionTable
         receptionId={reception.id}
