@@ -35,7 +35,7 @@ type Props = {
   canDelete?: boolean;
 
   /**
-   * ✅ NIEUW: admin-only statuses mogen enkel als user recht heeft
+   * ✅ admin-only statuses mogen enkel als user recht heeft
    * (server-side wordt ook gevalideerd).
    *
    * BELANGRIJK: default = true (fail-open) zodat admin-only niet “greyed out”
@@ -307,9 +307,6 @@ export default function RefurbReceptionTable({
   const [showPrice, setShowPrice] = useState(false); // ✅ nieuw (default ingeklapt)
   const [showSupplierRemarks, setShowSupplierRemarks] = useState(false); // ✅ nieuw (default ingeklapt)
 
-  // statusblok (default ingeklapt)
-  const [statusBlockOpen, setStatusBlockOpen] = useState(false);
-
   // lijstblokken (default open: niet-afgewerkt, default collapsed: afgewerkt)
   const [openNotDone, setOpenNotDone] = useState(true);
   const [openDone, setOpenDone] = useState(false);
@@ -448,129 +445,6 @@ export default function RefurbReceptionTable({
   }
 
   // ================================
-  // ✅ Statusblok: donut + legenda + waarden + totals + per model
-  // ================================
-
-  const totalItems = items.length;
-
-  // status stats (count/pct) + value
-  const statusStats = useMemo(() => {
-    const countMap = new Map<string, number>();
-    const valueMap = new Map<string, number>(); // cents
-
-    for (const it of items) {
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim() || "onbekend";
-      countMap.set(st, (countMap.get(st) ?? 0) + 1);
-
-      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : null;
-      if (typeof cents === "number" && !Number.isNaN(cents)) {
-        valueMap.set(st, (valueMap.get(st) ?? 0) + cents);
-      }
-    }
-
-    const FALLBACK_STATUS_COLOR = "#64748b";
-
-    const arr = Array.from(countMap.entries()).map(([status, count]) => {
-      const def = statusOptionByValue.get(status);
-      const pct = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0;
-      const color = status === "onbekend" ? FALLBACK_STATUS_COLOR : (statusColorByValue.get(status) ?? FALLBACK_STATUS_COLOR);
-
-      return {
-        status,
-        label: def?.label ?? status,
-        count,
-        pct,
-        color,
-        value_cents: valueMap.get(status) ?? 0,
-      };
-    });
-
-    // consistent order (sort_order, then label)
-    const orderByValue = new Map<string, number>();
-    for (const s of statusOptions || []) orderByValue.set(s.value, Number((s as any).sort_order ?? 0));
-
-    arr.sort((a, b) => {
-      const ao = orderByValue.get(a.status) ?? 999999;
-      const bo = orderByValue.get(b.status) ?? 999999;
-      if (ao !== bo) return ao - bo;
-      return a.label.localeCompare(b.label);
-    });
-
-    return arr;
-  }, [items, statusOptions, defaultStatusValue, statusOptionByValue, statusColorByValue, totalItems]);
-
-  // donut style
-  const donutStyle = useMemo(() => {
-    if (totalItems <= 0 || statusStats.length === 0) return {};
-    let currentAngle = 0;
-    const segments: string[] = [];
-    for (const s of statusStats) {
-      const start = currentAngle;
-      const angle = (s.count / totalItems) * 360;
-      const end = start + angle;
-      segments.push(`${s.color} ${start}deg ${end}deg`);
-      currentAngle = end;
-    }
-    return { backgroundImage: `conic-gradient(${segments.join(", ")})` } as Record<string, string>;
-  }, [statusStats, totalItems]);
-
-  // final-status rules: final = geen vervolgstatus (missing OR empty)
-  const isFinalStatusValue = useMemo(() => {
-    const t = transitions;
-    const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
-
-    return (statusValue: string) => {
-      if (!hasAnyTransitions) return false; // als er geen config is: toon NIET “afgewerkt” splitsing op basis hiervan
-      const next = t?.[statusValue] ?? [];
-      return !next || next.length === 0;
-    };
-  }, [transitions]);
-
-  // totals: all + done + not done
-  const totals = useMemo(() => {
-    let totalAll = 0;
-    let totalDone = 0;
-    let totalNotDone = 0;
-
-    for (const it of items) {
-      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
-      if (!cents || Number.isNaN(cents)) continue;
-
-      totalAll += cents;
-
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-      if (isFinalStatusValue(st)) totalDone += cents;
-      else totalNotDone += cents;
-    }
-
-    return { totalAll, totalDone, totalNotDone };
-  }, [items, statusOptions, defaultStatusValue, isFinalStatusValue]);
-
-  // value per final status (legend requirement)
-  const valuePerFinalStatus = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const it of items) {
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-      if (!isFinalStatusValue(st)) continue;
-
-      const cents = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
-      if (!cents || Number.isNaN(cents)) continue;
-
-      map.set(st, (map.get(st) ?? 0) + cents);
-    }
-    return map;
-  }, [items, statusOptions, defaultStatusValue, isFinalStatusValue]);
-
-  // model stats (count + per status) blijft in statusblok
-  const modelStats = useMemo(() => {
-    // NOTE: model-detectie gebeurt op server in page.tsx in jouw setup.
-    // Hier in RefurbReceptionTable houden we de UI “model stats” niet opnieuw bij (geen models in props).
-    // Daarom laten we dit blok “as-is” in page.tsx. (Maar jij vroeg expliciet dat het in statusblok blijft.)
-    // 👉 In jouw project staat “aantal toestellen per model” reeds in page.tsx; dat blijft daar.
-    return null;
-  }, []);
-
-  // ================================
   // Filters + selection
   // ================================
 
@@ -651,7 +525,19 @@ export default function RefurbReceptionTable({
       });
   }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
 
-  // split done vs not done blocks (based on final statuses)
+  // final-status rules: final = geen vervolgstatus (missing OR empty)
+  const isFinalStatusValue = useMemo(() => {
+    const t = transitions;
+    const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
+
+    return (statusValue: string) => {
+      if (!hasAnyTransitions) return false;
+      const next = t?.[statusValue] ?? [];
+      return !next || next.length === 0;
+    };
+  }, [transitions]);
+
+  // split done vs not done blocks
   const filteredNotDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
       const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
@@ -1001,7 +887,7 @@ export default function RefurbReceptionTable({
     (showExtraSn ? 1 : 0) + // extra SN
     (showPrice ? 1 : 0) + // price
     (showSupplierRemarks ? 1 : 0) + // supplier remarks
-    (showAdvanced ? 4 : 0); // advanced (diag, rma defect, rma, comp)
+    (showAdvanced ? 4 : 0); // advanced
 
   // helper: render the table header row (used twice: not done + done blocks)
   const renderHeader = () => {
@@ -1444,119 +1330,6 @@ export default function RefurbReceptionTable({
 
   return (
     <div className="mt-4 space-y-3">
-      {/* ===========================
-          ✅ Statusverdeling (uitklapbaar, default ingeklapt)
-         =========================== */}
-      <div className="border rounded-md bg-white text-xs">
-        <button
-          type="button"
-          className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
-          onClick={() => setStatusBlockOpen((v) => !v)}
-        >
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
-            Statusverdeling in deze receptie
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-600">
-            <span className="ml-2">{statusBlockOpen ? "▲" : "▼"}</span>
-          </div>
-        </button>
-
-        {statusBlockOpen && (
-          <div className="p-3">
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] items-start">
-              {/* donut + legenda */}
-              <div>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-20 h-20 rounded-full border border-slate-200 flex items-center justify-center"
-                    style={donutStyle}
-                  >
-                    <div className="w-12 h-12 rounded-full bg-slate-50" />
-                  </div>
-
-                  <div className="space-y-1 text-[11px] w-full">
-                    <div className="text-slate-500">
-                      Totaal: <span className="font-semibold text-slate-700">{totalItems} toestellen</span>
-                    </div>
-
-                    {statusStats.map((s) => (
-                      <div key={s.status} className="flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                        <span className="truncate max-w-[160px]" title={s.label}>
-                          {s.label}
-                        </span>
-                        <span className="ml-auto tabular-nums text-right whitespace-nowrap">
-                          {s.count} ({s.pct}%){" "}
-                          <span className="text-slate-600">— {money(s.value_cents)}</span>
-                        </span>
-                      </div>
-                    ))}
-
-                    {statusStats.length === 0 && <div className="text-[11px] text-slate-400">Nog geen toestellen.</div>}
-                  </div>
-                </div>
-              </div>
-
-              {/* totals + final status values */}
-              <div className="text-[11px]">
-                <div className="text-[11px] font-medium text-slate-600 mb-1">Waarden</div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Totaal (alle statussen)</span>
-                    <span className="tabular-nums font-semibold">{money(totals.totalAll)}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Niet afgewerkt</span>
-                    <span className="tabular-nums">{money(totals.totalNotDone)}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Afgewerkt</span>
-                    <span className="tabular-nums">{money(totals.totalDone)}</span>
-                  </div>
-                </div>
-
-                <div className="mt-3 border-t pt-2">
-                  <div className="text-[11px] font-medium text-slate-600 mb-1">
-                    Waarde per afgewerkte status
-                  </div>
-
-                  {Array.from(valuePerFinalStatus.entries()).length === 0 ? (
-                    <div className="text-[11px] text-slate-500">
-                      Geen (of nog geen) afgewerkte statussen met prijswaarde.
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      {Array.from(valuePerFinalStatus.entries())
-                        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
-                        .map(([st, cents]) => (
-                          <div key={st} className="flex items-center gap-2">
-                            <span
-                              className="inline-block w-2 h-2 rounded-full"
-                              style={{ backgroundColor: statusColorByValue.get(st) ?? "#64748b" }}
-                            />
-                            <span className="truncate" title={statusOptionByValue.get(st)?.label ?? st}>
-                              {statusOptionByValue.get(st)?.label ?? st}
-                            </span>
-                            <span className="ml-auto tabular-nums">{money(cents)}</span>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-
-                  {/* ⚠️ Model stats blijft in page.tsx (server) in jouw setup */}
-                  <div className="mt-3 text-[11px] text-slate-500">
-                    (Aantal toestellen per model blijft in het statusblok op de pagina erboven.)
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Bulk Update (collapsible) */}
       <div className="border rounded-md bg-white text-xs">
         <button
