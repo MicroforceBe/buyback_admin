@@ -101,6 +101,7 @@ function hasValidSku(v: string | null | undefined) {
 
 async function canUseAdminStatusesServer(): Promise<boolean> {
   const user = await getCurrentAdminUser();
+  console.log("[REFURB] user role debug", { role: (user as any)?.role, user });
   return Boolean(user && (user as any).role === "admin");
 }
 
