@@ -1007,6 +1007,7 @@ export default function RefurbReceptionTable({
         )}
       </div>
 
+
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
