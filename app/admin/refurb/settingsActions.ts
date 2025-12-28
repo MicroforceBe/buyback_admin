@@ -10,13 +10,12 @@ export type RefurbStatusOption = {
   is_default: boolean;
   sort_order: number;
 
-  // kleur
+  // NIEUW
   color: string | null;
 
-  // ✅ NIEUW (optioneel in DB, maar we selecteren ze alvast)
-  // zodat RefurbReceptionTable ze kan disablen in UI en actions server-side kan valideren.
-  admin_only?: boolean | null;
-  need_sku?: boolean | null;
+  // ✅ NIEUW
+  admin_only: boolean;
+  need_sku: boolean;
 };
 
 export type RefurbLocationOption = {
@@ -43,7 +42,16 @@ export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
     return [];
   }
 
-  return data as RefurbStatusOption[];
+  return (data || []).map((row: any) => ({
+    id: String(row.id),
+    value: String(row.value),
+    label: String(row.label),
+    is_default: Boolean(row.is_default),
+    sort_order: Number(row.sort_order ?? 0),
+    color: row.color !== undefined && row.color !== null ? String(row.color) : null,
+    admin_only: Boolean(row.admin_only),
+    need_sku: Boolean(row.need_sku),
+  })) as RefurbStatusOption[];
 }
 
 export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]> {
@@ -62,7 +70,7 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
 }
 
 // ===============================
-// STATUS TRANSITIONS (ID-based)
+// STATUS TRANSITIONS (NIEUW)
 // ===============================
 
 export type RefurbStatusTransitionsMap = Record<string, string[]>; // from_status_id -> [to_status_id...]
@@ -84,12 +92,6 @@ export async function getRefurbStatusTransitions(): Promise<RefurbStatusTransiti
     if (!map[from]) map[from] = [];
     map[from].push(to);
   }
-
-  // de-dup
-  for (const k of Object.keys(map)) {
-    map[k] = Array.from(new Set(map[k]));
-  }
-
   return map;
 }
 
@@ -98,9 +100,7 @@ export async function saveRefurbStatusTransitions(input: {
   to_status_ids: string[];
 }) {
   const from_status_id = (input.from_status_id || "").toString().trim();
-  const to_status_ids = (input.to_status_ids || [])
-    .map((x) => String(x))
-    .filter(Boolean);
+  const to_status_ids = (input.to_status_ids || []).map((x) => String(x)).filter(Boolean);
 
   if (!from_status_id) throw new Error("Missing from_status_id.");
 
@@ -122,9 +122,7 @@ export async function saveRefurbStatusTransitions(input: {
       to_status_id: to,
     }));
 
-    const { error: e2 } = await supabaseAdmin
-      .from("refurb_status_transitions")
-      .insert(rows);
+    const { error: e2 } = await supabaseAdmin.from("refurb_status_transitions").insert(rows);
 
     if (e2) {
       console.error("[REFURB] saveRefurbStatusTransitions insert error", e2);
@@ -137,6 +135,13 @@ export async function saveRefurbStatusTransitions(input: {
 // STATUS
 // ===============================
 
+function formBool(v: FormDataEntryValue | null): boolean {
+  // HTML checkbox: present => "on" (or custom value), absent => null
+  if (v === null || v === undefined) return false;
+  const s = String(v).toLowerCase().trim();
+  return s === "on" || s === "true" || s === "1" || s === "yes";
+}
+
 export async function saveRefurbStatusRow(formData: FormData) {
   const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
@@ -147,13 +152,12 @@ export async function saveRefurbStatusRow(formData: FormData) {
   // ✅ FIX: kleur correct bepalen
   const colorText = (formData.get("color_text") as string | null)?.trim() ?? "";
   const colorPicker = (formData.get("color") as string | null)?.trim() ?? "";
+
   const color = colorText || colorPicker || null;
 
-  // ✅ optioneel (als je die velden al hebt in DB/UI)
-  const adminOnlyRaw = (formData.get("admin_only") as string | null) ?? "";
-  const needSkuRaw = (formData.get("need_sku") as string | null) ?? "";
-  const admin_only = adminOnlyRaw === "on" || adminOnlyRaw === "true";
-  const need_sku = needSkuRaw === "on" || needSkuRaw === "true";
+  // ✅ NIEUW: boolean flags
+  const admin_only = formBool(formData.get("admin_only"));
+  const need_sku = formBool(formData.get("need_sku"));
 
   if (!value || !label) {
     throw new Error("Value en label zijn verplicht.");
@@ -166,8 +170,6 @@ export async function saveRefurbStatusRow(formData: FormData) {
       label,
       sort_order,
       color,
-
-      // ✅ als kolommen bestaan in DB: mee opslaan
       admin_only,
       need_sku,
     },
@@ -205,10 +207,7 @@ export async function setDefaultRefurbStatus(formData: FormData) {
     console.error("[REFURB] clear default status error", clearErr);
   }
 
-  const { error } = await supabaseAdmin
-    .from("refurb_status_options")
-    .update({ is_default: true })
-    .eq("id", id);
+  const { error } = await supabaseAdmin.from("refurb_status_options").update({ is_default: true }).eq("id", id);
 
   if (error) {
     console.error("[REFURB] setDefaultRefurbStatus error", error);
@@ -272,10 +271,7 @@ export async function setDefaultRefurbLocation(formData: FormData) {
     console.error("[REFURB] clear default location error", clearErr);
   }
 
-  const { error } = await supabaseAdmin
-    .from("refurb_location_options")
-    .update({ is_default: true })
-    .eq("id", id);
+  const { error } = await supabaseAdmin.from("refurb_location_options").update({ is_default: true }).eq("id", id);
 
   if (error) {
     console.error("[REFURB] setDefaultRefurbLocation error", error);
