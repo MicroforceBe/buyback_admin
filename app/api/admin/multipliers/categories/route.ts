@@ -21,4 +21,18 @@ export async function GET() {
 
   const payload = categories.map((name) => ({ name, has_json: has.has(name) }));
   return NextResponse.json({ categories: payload });
+  const { data: imacRows, error: imacErr } = await sb
+  .from('buyback_catalog')
+  .select('category')
+  .ilike('category', '%imac%');
+
+return NextResponse.json({
+  debug: {
+    imacErr: imacErr?.message ?? null,
+    imacRows,
+    totalRows: catRows?.length ?? 0,
+  },
+  categories: payload,
+});
+
 }
