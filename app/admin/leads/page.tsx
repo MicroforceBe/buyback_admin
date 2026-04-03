@@ -289,6 +289,8 @@ export default async function LeadsPage({
     }
   ): Transition[] {
     const hasCust = Boolean((f.customer_number ?? "").trim());
+    const hasSKU = Boolean((f.sku ?? "").trim());
+    const hasIMEI = Boolean((f.imei_sn ?? "").trim());
     const isDropoff = f.delivery_method === "dropoff";
     const isShip = f.delivery_method === "ship";
 
@@ -428,19 +430,19 @@ export default async function LeadsPage({
           {
             value: "check_passed",
             label: "Controle succesvol",
-            ok: true,
+            ok: hasSKU && hasIMEI,
             reason: "SKU + IMEI/SN vereist",
           },
           {
             value: "check_failed_technical",
             label: "Controle gefaald, technisch defect",
-            ok: true,
+            ok: hasIMEI,
             reason: "IMEI/SN vereist",
           },
           {
             value: "check_failed_grading",
             label: "Controle gefaald, gradering",
-            ok: true,
+            ok: hasIMEI,
             reason: "IMEI/SN vereist",
           },
         ];
@@ -451,7 +453,7 @@ export default async function LeadsPage({
           {
             value: "check_passed",
             label: "Controle succesvol",
-            ok: true,
+            ok: hasSKU && hasIMEI,
             reason: "SKU + IMEI/SN vereist",
           },
           {
@@ -1306,11 +1308,7 @@ export default async function LeadsPage({
                               className="space-y-1"
                               data-lead-id={lead.id}
                             >
-                              <input
-                                type="hidden"
-                                name="id"
-                                value={lead.id}
-                              />
+                              <input type="hidden" name="id" value={lead.id} />
                               <input
                                 type="hidden"
                                 name="change_type"
