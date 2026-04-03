@@ -1,5 +1,4 @@
 // app/admin/leads/page.tsx
-// app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -290,26 +289,12 @@ export default async function LeadsPage({
     }
   ): Transition[] {
     const hasCust = Boolean((f.customer_number ?? "").trim());
-    const hasSKU = Boolean((f.sku ?? "").trim());
-    const hasIMEI = Boolean((f.imei_sn ?? "").trim());
     const isDropoff = f.delivery_method === "dropoff";
     const isShip = f.delivery_method === "ship";
 
     switch (curr) {
       case "new": {
         const base: Transition[] = [
-          {
-            value: "received_store",
-            label: "Ontvangen in de winkel",
-            ok: isDropoff ? hasCust : false,
-            reason: "Alleen voor binnenbrengen + klantnummer vereist",
-          },
-          {
-            value: "label_created",
-            label: "Verzendlabel aangemaakt",
-            ok: isShip ? hasCust : false,
-            reason: "Alleen voor verzending + klantnummer vereist",
-          },
           {
             value: "cancelled",
             label: "Geannuleerd",
@@ -318,10 +303,26 @@ export default async function LeadsPage({
         ];
 
         if (isDropoff) {
+          base.push(
+            {
+              value: "received_store",
+              label: "Ontvangen in de winkel",
+              ok: true,
+            },
+            {
+              value: "reminder_1_dropoff",
+              label: "Reminder 1 Binnenbrengen",
+              ok: true,
+            }
+          );
+        }
+
+        if (isShip) {
           base.push({
-            value: "reminder_1_dropoff",
-            label: "Reminder 1 Binnenbrengen",
-            ok: true,
+            value: "label_created",
+            label: "Verzendlabel aangemaakt",
+            ok: hasCust,
+            reason: "Klantnummer vereist",
           });
         }
 
@@ -427,19 +428,19 @@ export default async function LeadsPage({
           {
             value: "check_passed",
             label: "Controle succesvol",
-            ok: hasSKU && hasIMEI,
+            ok: true,
             reason: "SKU + IMEI/SN vereist",
           },
           {
             value: "check_failed_technical",
             label: "Controle gefaald, technisch defect",
-            ok: hasIMEI,
+            ok: true,
             reason: "IMEI/SN vereist",
           },
           {
             value: "check_failed_grading",
             label: "Controle gefaald, gradering",
-            ok: hasIMEI,
+            ok: true,
             reason: "IMEI/SN vereist",
           },
         ];
@@ -450,7 +451,7 @@ export default async function LeadsPage({
           {
             value: "check_passed",
             label: "Controle succesvol",
-            ok: hasSKU && hasIMEI,
+            ok: true,
             reason: "SKU + IMEI/SN vereist",
           },
           {
