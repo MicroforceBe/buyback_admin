@@ -5,11 +5,18 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BuybackStatus =
   | "new"
-  | "received_store"
   | "label_created"
+  | "reminder_1_dropoff"
+  | "reminder_2_dropoff"
+  | "reminder_3_dropoff"
+  | "received_store"
+  | "reminder_1_ship"
+  | "reminder_2_ship"
+  | "reminder_3_ship"
   | "shipment_received"
   | "check_passed"
-  | "check_failed"
+  | "check_failed_technical"
+  | "check_failed_grading"
   | "done";
 
 export type TemplateContext = {
@@ -21,7 +28,7 @@ export type TemplateContext = {
 
   // toestel
   model?: string | null;
-  variant?: string | null;               // 🔹 NIEUW
+  variant?: string | null;
   capacity_gb?: number | null;
 
   // prijs / uitbetaling
@@ -110,7 +117,6 @@ async function getStatusTemplate(
   }
 
   if (!data) {
-    // poging: fallback naar NL
     if (language !== "nl") {
       const { data: fallback, error: fbErr } = await supabaseAdmin
         .from("buyback_email_templates")
@@ -166,8 +172,8 @@ function formatCurrency(
 }
 
 /**
-* Bouwt reusable HTML-snippers (header, details_table, delivery_block, payout_block, next_steps, disclaimer_html)
-*/
+ * Bouwt reusable HTML-snippers
+ */
 function buildBlocks(
   status: BuybackStatus,
   ctx: TemplateContext,
@@ -191,7 +197,6 @@ function buildBlocks(
 
   const priceStr = formatCurrency(ctx.final_price_cents ?? null);
 
-  // 🔹 Toestelregel met model + variant + GB
   let deviceLabel = "";
   const deviceParts: string[] = [];
   if (ctx.model) deviceParts.push(ctx.model);
@@ -241,14 +246,19 @@ function buildBlocks(
   `;
 
   let delivery_block = "";
-  if (ctx.delivery_method === "store") {
+
+  const isDropoff = ctx.delivery_method === "dropoff" || ctx.delivery_method === "store";
+  const isShip = ctx.delivery_method === "ship";
+
+  if (isDropoff) {
     const addr = [ctx.shop_address1, ctx.shop_zip, ctx.shop_city]
       .filter(Boolean)
       .join(" ");
+
     delivery_block = `
-      <h3 style="margin:18px 0 6px;font-size:14px;">Inleveren in de winkel</h3>
+      <h3 style="margin:18px 0 6px;font-size:14px;">Binnenbrengen in de winkel</h3>
       <p style="margin:0 0 10px;">
-        Breng je toestel naar ${
+        Breng je toestel binnen bij ${
           ctx.shop_location
             ? escapeHtml(ctx.shop_location)
             : "de geselecteerde winkel"
@@ -262,7 +272,7 @@ function buildBlocks(
           : ""
       }
     `;
-  } else if (ctx.delivery_method === "ship") {
+  } else if (isShip) {
     const labelUrl = ctx.label_pdf_url || "";
     const trackUrl = ctx.tracking_url || "";
 
@@ -271,7 +281,7 @@ function buildBlocks(
         <h3 style="margin:0 0 8px;font-size:14px;">Verzending</h3>
         <p style="margin:0 0 12px;font-size:14px;color:#374151;">
           Je koos voor <strong>gratis verzending</strong> van jouw toestel naar ons.
-          Hieronder het verzendlabel.
+          Hieronder vind je je verzendlabel.
         </p>
         ${
           labelUrl
@@ -323,19 +333,52 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Volg de instructies in deze e-mail om je toestel af te geven of op te sturen.
-          Na ontvangst en controle brengen we je op de hoogte.
+          Volg de instructies in deze e-mail om je toestel binnen te brengen of op te sturen.
+          Na ontvangst en controle brengen we je verder op de hoogte.
         </p>
       `;
       break;
+
     case "label_created":
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Print het verzendlabel, verpak je toestel veilig en geef het pakket af bij het aangegeven verzendpunt.
+          Print het verzendlabel, verpak je toestel veilig en geef het pakket af bij een verzendpunt.
         </p>
       `;
       break;
+
+    case "reminder_1_dropoff":
+    case "reminder_2_dropoff":
+    case "reminder_3_dropoff":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Herinnering</h3>
+        <p style="margin:0 0 10px;">
+          We wachten nog op je toestel in de winkel. Breng het toestel binnen om je buyback-aanvraag verder te verwerken.
+        </p>
+      `;
+      break;
+
+    case "received_store":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Je toestel werd ontvangen in de winkel. Onze techniekers voeren binnenkort de controle uit.
+        </p>
+      `;
+      break;
+
+    case "reminder_1_ship":
+    case "reminder_2_ship":
+    case "reminder_3_ship":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Herinnering</h3>
+        <p style="margin:0 0 10px;">
+          We wachten nog op je verzending. Gebruik je verzendlabel en stuur je toestel naar ons op.
+        </p>
+      `;
+      break;
+
     case "shipment_received":
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
@@ -344,6 +387,7 @@ function buildBlocks(
         </p>
       `;
       break;
+
     case "check_passed":
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
@@ -352,14 +396,25 @@ function buildBlocks(
         </p>
       `;
       break;
-    case "check_failed":
+
+    case "check_failed_technical":
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          De controle is niet volledig geslaagd. Je wordt apart gecontacteerd over het vervolg.
+          Tijdens de controle werd een technisch defect vastgesteld. Je wordt apart gecontacteerd over het verdere verloop.
         </p>
       `;
       break;
+
+    case "check_failed_grading":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
+        <p style="margin:0 0 10px;">
+          Tijdens de controle werd een afwijking in de gradering vastgesteld. Je wordt apart gecontacteerd over het verdere verloop.
+        </p>
+      `;
+      break;
+
     case "done":
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
@@ -374,7 +429,6 @@ function buildBlocks(
     ? nl2br(brand.email_disclaimer)
     : "";
 
-  // HTML blok met vragen/antwoorden uit lead
   const questions_answers = ctx.questions_answers_html || "";
 
   return {
@@ -390,9 +444,6 @@ function buildBlocks(
   };
 }
 
-/**
-* Eenvoudige {{placeholder}} vervanger.
-*/
 function renderWithPlaceholders(
   text: string,
   replacements: Record<string, string>
@@ -419,7 +470,6 @@ export async function renderStatusEmail(
   ]);
 
   if (!template) {
-    // fallback: heel eenvoudige mail als er geen template is
     const fallbackSubject = `[${brand.brand_name}] Update buyback-order ${
       ctx.order_code || ""
     }`;
@@ -442,38 +492,30 @@ export async function renderStatusEmail(
   const bodyTemplate = template.body_html || "";
 
   const replacements: Record<string, string> = {
-    // basis
     first_name: ctx.first_name || "",
     last_name: ctx.last_name || "",
     full_name: blocks.full_name || "",
     order_code: ctx.order_code || "",
     email: ctx.email || "",
-    // toestel
     model: ctx.model || "",
-    variant: ctx.variant || "", // 🔹 NIEUW
+    variant: ctx.variant || "",
     capacity_gb: ctx.capacity_gb != null ? String(ctx.capacity_gb) : "",
-    // prijs
     final_price: formatCurrency(ctx.final_price_cents ?? null),
-    // brand
     brand_name: brand.brand_name,
     brand_color: brand.brand_color,
     logo_url: brand.logo_url || "",
-    // blocks
     header: blocks.header,
     details_table: blocks.details_table,
     delivery_block: blocks.delivery_block,
     payout_block: blocks.payout_block,
     next_steps: blocks.next_steps,
     disclaimer_html: blocks.disclaimer_html,
-    // tracking
     tracking_code: ctx.tracking_code || "",
     tracking_url: ctx.tracking_url || "",
     label_pdf_url: ctx.label_pdf_url || "",
-    // iban
     iban: ctx.iban || "",
-    // vragen + antwoorden (HTML)
     questions_answers: blocks.questions_answers || "",
-    questions_answers_html: blocks.questions_answers || "", // 🔹 zowel {{questions_answers}} als {{questions_answers_html}}
+    questions_answers_html: blocks.questions_answers || "",
   };
 
   const subject = renderWithPlaceholders(subjectTemplate, replacements);
