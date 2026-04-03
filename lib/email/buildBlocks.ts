@@ -109,7 +109,7 @@ function buildDeliveryBlock(input: EmailBlocksInput): string | undefined {
   }
 
   // Afgeven in de winkel
-  if (method === "store") {
+  if (method === "dropoff" || method === "store") {
     const lines: string[] = [];
 
     lines.push(
@@ -133,7 +133,6 @@ function buildDeliveryBlock(input: EmailBlocksInput): string | undefined {
     return `<p>${lines.join("<br/>")}</p>`;
   }
 
-  // Onbekende / andere methode
   return undefined;
 }
 
@@ -188,6 +187,31 @@ function buildNextStepsBlock(input: EmailBlocksInput): string | undefined {
   <li>Breng je pakket naar het opgegeven afgiftepunt.</li>
 </ul>`.trim();
 
+    case "reminder_1_dropoff":
+    case "reminder_2_dropoff":
+    case "reminder_3_dropoff":
+      return `
+<p>
+  Dit is een herinnering om je toestel binnen te brengen in de gekozen winkel.
+  Zodra we het toestel ontvangen hebben, kunnen we je aanvraag verder verwerken.
+</p>`.trim();
+
+    case "received_store":
+      return `
+<p>
+  We hebben je toestel ontvangen in de winkel. Onze technici zullen het zo snel mogelijk nakijken.
+  Je ontvangt een update zodra de controle is afgerond.
+</p>`.trim();
+
+    case "reminder_1_ship":
+    case "reminder_2_ship":
+    case "reminder_3_ship":
+      return `
+<p>
+  Dit is een herinnering om je toestel naar ons op te sturen.
+  Gebruik je retourlabel en bezorg je pakket zo snel mogelijk aan het afgiftepunt.
+</p>`.trim();
+
     case "shipment_received":
       return `
 <p>
@@ -202,10 +226,17 @@ function buildNextStepsBlock(input: EmailBlocksInput): string | undefined {
   Je ontvangt een bevestiging zodra de betaling is uitgevoerd.
 </p>`.trim();
 
-    case "check_failed":
+    case "check_failed_technical":
       return `
 <p>
-  Tijdens de controle zijn één of meerdere afwijkingen vastgesteld t.o.v. de opgegeven staat.
+  Tijdens de controle werd een <strong>technisch defect</strong> vastgesteld.
+  We nemen contact met je op om de verdere afhandeling te bespreken.
+</p>`.trim();
+
+    case "check_failed_grading":
+      return `
+<p>
+  Tijdens de controle werd een <strong>afwijking in de gradering</strong> vastgesteld ten opzichte van de opgegeven staat.
   We nemen contact met je op om de verdere afhandeling te bespreken.
 </p>`.trim();
 
