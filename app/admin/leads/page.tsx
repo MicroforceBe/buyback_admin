@@ -1,4 +1,5 @@
 // app/admin/leads/page.tsx
+// app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -19,18 +20,49 @@ export const runtime = "nodejs";
 // Eén centrale status-union die matcht met je DB
 type Status =
   | "new"
-  | "received_store"
   | "label_created"
+  | "reminder_1_dropoff"
+  | "reminder_2_dropoff"
+  | "reminder_3_dropoff"
+  | "received_store"
+  | "reminder_1_ship"
+  | "reminder_2_ship"
+  | "reminder_3_ship"
   | "shipment_received"
   | "check_passed"
-  | "check_failed"
+  | "check_failed_technical"
+  | "check_failed_grading"
   | "done"
   | "cancelled";
+
+const STATUS_OPTIONS: { value: Status; label: string }[] = [
+  { value: "new", label: "Nieuw" },
+  { value: "label_created", label: "Verzendlabel aangemaakt" },
+  { value: "reminder_1_dropoff", label: "Reminder 1 Binnenbrengen" },
+  { value: "reminder_2_dropoff", label: "Reminder 2 Binnenbrengen" },
+  { value: "reminder_3_dropoff", label: "Reminder 3 Binnenbrengen" },
+  { value: "received_store", label: "Ontvangen in de winkel" },
+  { value: "reminder_1_ship", label: "Reminder 1 Opzenden" },
+  { value: "reminder_2_ship", label: "Reminder 2 Opzenden" },
+  { value: "reminder_3_ship", label: "Reminder 3 Opzenden" },
+  { value: "shipment_received", label: "Zending ontvangen" },
+  { value: "check_passed", label: "Controle succesvol" },
+  {
+    value: "check_failed_technical",
+    label: "Controle gefaald, technisch defect",
+  },
+  {
+    value: "check_failed_grading",
+    label: "Controle gefaald, gradering",
+  },
+  { value: "done", label: "Afgewerkt" },
+  { value: "cancelled", label: "Geannuleerd" },
+];
 
 async function getLeads(): Promise<Lead[]> {
   const { data, error } = await supabaseAdmin
     .from("buyback_leads")
-    .select("*") // ← alles ophalen
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -71,7 +103,7 @@ type Lead = {
   // prijzen
   base_price_cents: number | null;
   final_price_cents: number | null;
-  final_price_with_voucher_cents: number | null; // ✅ DB-waarde (voucher inbegrepen)
+  final_price_with_voucher_cents: number | null;
 
   // klant
   first_name: string | null;
@@ -108,21 +140,17 @@ type Lead = {
 
   // status-history (JSONB)
   status_history?: StatusHistoryEntry[] | null;
-
-  // NB: answers zit wél in de tabel, maar we selecteren het niet om lijstweergave licht te houden.
 };
 
 type SearchParams = {
-  // globaal
   q?: string;
   from?: string;
   to?: string;
 
-  // kolomfilters
   order?: string;
   customer?: string;
   model?: string;
-  variant?: string; // capacity GB
+  variant?: string;
   status?: string;
   method?: "ship" | "dropoff" | "";
   price_min?: string;
@@ -131,7 +159,6 @@ type SearchParams = {
   shop?: string;
   voucher?: "yes" | "no" | "";
 
-  // sort/paging
   sort?: string;
   dir?: "asc" | "desc";
   page?: string;
@@ -150,7 +177,6 @@ function fmtDate(ts?: string | null) {
   }
 }
 
-// helper om QS te bouwen met overrides
 function qsWith(
   base: Record<string, string>,
   patch: Record<string, string | null | undefined>
@@ -168,15 +194,12 @@ export default async function LeadsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  // 🔐 1) Haal de huidige admin user op
   const adminUser = await getCurrentAdminUser();
 
-  // 🔐 2) Niet ingelogd → altijd naar login
   if (!adminUser) {
     redirect("/admin/login?reason=not_logged_in");
   }
 
-  // 🔐 3) Ingelogd maar geen leesrecht op leads → toon nette fout
   if (!hasPermission(adminUser, "leads", "read")) {
     return (
       <div className="w-full p-6">
@@ -194,10 +217,8 @@ export default async function LeadsPage({
     );
   }
 
-  // === permissions ===
   const canReadLeads = hasPermission(adminUser, "leads", "read");
   const canWriteLeads = hasPermission(adminUser, "leads", "write");
-  // Extra recht om van 'Controle succesvol' naar 'Afgewerkt/Geannuleerd' te gaan
   const canFinalizeLeads = hasPermission(adminUser, "leads_finalize", "write");
 
   if (!canReadLeads) {
@@ -211,7 +232,6 @@ export default async function LeadsPage({
     );
   }
 
-  // === params ===
   const q = (searchParams.q ?? "").trim();
   const from = (searchParams.from ?? "").trim();
   const to = (searchParams.to ?? "").trim();
@@ -237,10 +257,8 @@ export default async function LeadsPage({
   );
   const offset = (page - 1) * limit;
 
-  // ✅ NIEUW: standaard verberg "done" + "cancelled" tenzij expliciet status-filter gebruikt wordt
   const defaultHideFinalStatuses = statusF === "";
 
-  // === winkels ophalen voor de filter dropdown ===
   const { data: shopRows, error: shopsErr } = await supabaseAdmin
     .from("buyback_shops")
     .select("id,name,city")
@@ -252,28 +270,8 @@ export default async function LeadsPage({
     city: (s as any).city as string | null,
   }));
 
-  const statusLabel = (s: Status | null | undefined) => {
-    switch (s) {
-      case "new":
-        return "Nieuw";
-      case "received_store":
-        return "Ontvangen in winkel";
-      case "label_created":
-        return "Verzendlabel aangemaakt";
-      case "shipment_received":
-        return "Zending ontvangen";
-      case "check_passed":
-        return "Controle succesvol";
-      case "check_failed":
-        return "Controle gefaald";
-      case "done":
-        return "Afgewerkt";
-      case "cancelled":
-        return "Geannuleerd";
-      default:
-        return "—";
-    }
-  };
+  const statusLabel = (s: Status | null | undefined) =>
+    STATUS_OPTIONS.find((x) => x.value === s)?.label ?? "—";
 
   type Transition = {
     value: Status;
@@ -295,56 +293,135 @@ export default async function LeadsPage({
     const hasSKU = Boolean((f.sku ?? "").trim());
     const hasIMEI = Boolean((f.imei_sn ?? "").trim());
     const isDropoff = f.delivery_method === "dropoff";
+    const isShip = f.delivery_method === "ship";
 
     switch (curr) {
       case "new": {
         const base: Transition[] = [
           {
             value: "received_store",
-            label: "Ontvangen in winkel",
-            ok: hasCust,
-            reason: "Klantnummer vereist",
+            label: "Ontvangen in de winkel",
+            ok: isDropoff ? hasCust : false,
+            reason: "Alleen voor binnenbrengen + klantnummer vereist",
+          },
+          {
+            value: "label_created",
+            label: "Verzendlabel aangemaakt",
+            ok: isShip ? hasCust : false,
+            reason: "Alleen voor verzending + klantnummer vereist",
+          },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
           },
         ];
 
-        // ⚠ Geen "Verzendlabel aangemaakt" bij binnenbrengen
-        if (!isDropoff) {
+        if (isDropoff) {
           base.push({
-            value: "label_created",
-            label: "Verzendlabel aangemaakt",
-            ok: hasCust,
-            reason: "Klantnummer vereist",
+            value: "reminder_1_dropoff",
+            label: "Reminder 1 Binnenbrengen",
+            ok: true,
           });
         }
 
-        base.push({ value: "cancelled", label: "Geannuleerd", ok: true });
         return base;
       }
-      case "received_store":
+
+      case "reminder_1_dropoff":
         return [
           {
-            value: "check_passed",
-            label: "Controle succesvol",
-            ok: hasSKU && hasIMEI,
-            reason: "SKU + IMEI/SN vereist",
+            value: "reminder_2_dropoff",
+            label: "Reminder 2 Binnenbrengen",
+            ok: true,
           },
           {
-            value: "check_failed",
-            label: "Controle gefaald",
-            ok: hasIMEI,
-            reason: "IMEI/SN vereist",
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
           },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
         ];
+
+      case "reminder_2_dropoff":
+        return [
+          {
+            value: "reminder_3_dropoff",
+            label: "Reminder 3 Binnenbrengen",
+            ok: true,
+          },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
+        ];
+
+      case "reminder_3_dropoff":
+        return [
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
+        ];
+
       case "label_created":
         return [
+          {
+            value: "reminder_1_ship",
+            label: "Reminder 1 Opzenden",
+            ok: true,
+          },
           {
             value: "shipment_received",
             label: "Zending ontvangen",
             ok: true,
           },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
+
+      case "reminder_1_ship":
+        return [
+          {
+            value: "reminder_2_ship",
+            label: "Reminder 2 Opzenden",
+            ok: true,
+          },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
+        ];
+
+      case "reminder_2_ship":
+        return [
+          {
+            value: "reminder_3_ship",
+            label: "Reminder 3 Opzenden",
+            ok: true,
+          },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
+        ];
+
+      case "reminder_3_ship":
+        return [
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
+        ];
+
+      case "received_store":
       case "shipment_received":
         return [
           {
@@ -354,14 +431,21 @@ export default async function LeadsPage({
             reason: "SKU + IMEI/SN vereist",
           },
           {
-            value: "check_failed",
-            label: "Controle gefaald",
+            value: "check_failed_technical",
+            label: "Controle gefaald, technisch defect",
             ok: hasIMEI,
             reason: "IMEI/SN vereist",
           },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
+          {
+            value: "check_failed_grading",
+            label: "Controle gefaald, gradering",
+            ok: hasIMEI,
+            reason: "IMEI/SN vereist",
+          },
         ];
-      case "check_failed":
+
+      case "check_failed_technical":
+      case "check_failed_grading":
         return [
           {
             value: "check_passed",
@@ -369,13 +453,22 @@ export default async function LeadsPage({
             ok: hasSKU && hasIMEI,
             reason: "SKU + IMEI/SN vereist",
           },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
+          {
+            value: "cancelled",
+            label: "Geannuleerd",
+            ok: true,
+          },
         ];
+
       case "check_passed":
         return [
-          { value: "done", label: "Afgewerkt", ok: true },
-          { value: "cancelled", label: "Geannuleerd", ok: true },
+          {
+            value: "done",
+            label: "Afgewerkt",
+            ok: true,
+          },
         ];
+
       case "done":
       case "cancelled":
       default:
@@ -383,7 +476,6 @@ export default async function LeadsPage({
     }
   }
 
-  // ✅ effectieve prijs in cents voor weergave + edit (DB truth)
   const effectiveFinalCents = (lead: Lead) => {
     if (lead.wants_voucher) {
       const v = lead.final_price_with_voucher_cents;
@@ -393,7 +485,6 @@ export default async function LeadsPage({
     return typeof n === "number" && Number.isFinite(n) ? n : null;
   };
 
-  // === query ===
   let query = supabaseAdmin
     .from("buyback_leads")
     .select(
@@ -407,7 +498,7 @@ export default async function LeadsPage({
         "questions_answers_html",
         "base_price_cents",
         "final_price_cents",
-        "final_price_with_voucher_cents", // ✅ erbij
+        "final_price_with_voucher_cents",
         "first_name",
         "last_name",
         "email",
@@ -429,24 +520,19 @@ export default async function LeadsPage({
         "admin_note",
         "updated_at",
         "wants_voucher",
-        // tracking
         "tracking_code",
         "tracking_url",
         "label_pdf_url",
-        // annulatie
         "cancel_reason",
-        // status history
         "status_history",
       ].join(","),
       { count: "exact" }
     );
 
-  // ✅ NIEUW: standaard geen "afgewerkt" of "geannuleerd" tonen
   if (defaultHideFinalStatuses) {
     query = query.not("status", "in", "(done,cancelled)");
   }
 
-  // Globale zoek
   if (q) {
     query = query.or(
       [
@@ -462,11 +548,9 @@ export default async function LeadsPage({
     );
   }
 
-  // Datum range
   if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
   if (to) query = query.lte("created_at", `${to}T23:59:59.999Z`);
 
-  // Kolomfilters
   if (order) query = query.ilike("order_code", `%${order}%`);
   if (customer) {
     query = query.or(
@@ -487,7 +571,6 @@ export default async function LeadsPage({
   if (method === "ship" || method === "dropoff")
     query = query.eq("delivery_method", method);
 
-  // ✅ prijsfilter op effectieve prijs (voucher of niet)
   if (priceMin) {
     const cents = Math.round(parseFloat(priceMin.replace(",", ".")) * 100);
     if (!Number.isNaN(cents)) {
@@ -512,13 +595,8 @@ export default async function LeadsPage({
   }
 
   if (cityF) query = query.ilike("city", `%${cityF}%`);
-
-  // Winkel-filter op basis van shop_location (waarde = winkelnaam uit dropdown)
   if (shop) query = query.ilike("shop_location", `%${shop}%`);
 
-  // Voucher: (optioneel, niet geïmplementeerd voor performance)
-
-  // sorteerbare kolommen
   const sortable = new Set([
     "order_code",
     "created_at",
@@ -530,10 +608,8 @@ export default async function LeadsPage({
   const sortCol = sortable.has(sort) ? sort : "created_at";
   query = query.order(sortCol as any, { ascending: dir === "asc" });
 
-  // paginatie
   query = query.range(offset, offset + limit - 1);
 
-  // execute
   let data: Lead[] | null = null;
   let error: any = null;
   let count: number | null = null;
@@ -567,7 +643,6 @@ export default async function LeadsPage({
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // base QS voor sort/paging behoud
   const qsBase: Record<string, string> = {};
   const kv: Record<string, string | undefined> = {
     q,
@@ -629,7 +704,6 @@ export default async function LeadsPage({
   const selectCls = "bb-select h-9 text-xs px-2 py-1";
   const btnCls = "bb-btn h-9 text-xs px-3";
 
-  // Chips voor actieve filters
   const chipItems: { label: string; param: keyof SearchParams; value: string }[] =
     [];
   const pushChip = (
@@ -687,7 +761,6 @@ export default async function LeadsPage({
     page: "1",
   });
 
-  // helper: genereer fallback tracking-URL op basis van code
   const fallbackTrackingUrl = (code?: string | null) =>
     code
       ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(code)}`
@@ -695,7 +768,6 @@ export default async function LeadsPage({
 
   return (
     <div className="w-full p-4 space-y-3">
-      {/* Kop */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Leads</h1>
         <Link href="/admin" className={btnCls}>
@@ -703,9 +775,7 @@ export default async function LeadsPage({
         </Link>
       </div>
 
-      {/* Chips + togglebare filtersectie */}
       <div className="space-y-2">
-        {/* Actieve filterchips */}
         {chipItems.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-xs text-gray-500">Actieve filters:</span>
@@ -719,7 +789,6 @@ export default async function LeadsPage({
           </div>
         )}
 
-        {/* ✅ NIEUW: filterblok altijd open */}
         <details className="border rounded-lg bg-white" open>
           <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center gap-2">
             Filters{" "}
@@ -731,7 +800,6 @@ export default async function LeadsPage({
           </summary>
 
           <form className="p-3 pt-0">
-            {/* verstopte QS die we willen bewaren */}
             {Object.entries(qsBase).map(([k, v]) =>
               ![
                 "q",
@@ -806,14 +874,11 @@ export default async function LeadsPage({
                 className={selectCls}
               >
                 <option value="">Status</option>
-                <option value="new">Nieuw</option>
-                <option value="received_store">Ontvangen in winkel</option>
-                <option value="label_created">Verzendlabel aangemaakt</option>
-                <option value="shipment_received">Zending ontvangen</option>
-                <option value="check_passed">Controle succesvol</option>
-                <option value="check_failed">Controle gefaald</option>
-                <option value="done">Afgewerkt</option>
-                <option value="cancelled">Geannuleerd</option>
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
 
               <select name="method" defaultValue={method} className={selectCls}>
@@ -843,7 +908,6 @@ export default async function LeadsPage({
                 className={inputCls}
               />
 
-              {/* --- Winkel -> dropdown met winkels uit DB (waarde = naam) --- */}
               <select name="shop" defaultValue={shop} className={selectCls}>
                 <option value="">
                   {shops.length
@@ -892,12 +956,10 @@ export default async function LeadsPage({
         </details>
       </div>
 
-      {/* Tabel */}
       <div className="overflow-auto">
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
-              {/* left nav kolom iets smaller */}
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[200px]">
                 <a
                   href={makeSortHref("created_at")}
@@ -920,7 +982,6 @@ export default async function LeadsPage({
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
                 <span className="font-semibold">Klant</span>
               </th>
-              {/* model-kolom mag wrappen, dus geen harde minimum voor prijs wegkap */}
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
                 <a
                   href={makeSortHref("model")}
@@ -929,7 +990,6 @@ export default async function LeadsPage({
                   Model
                 </a>
               </th>
-              {/* prijs-kolom: min-w + geen wrapping zodat prijs nooit afgekapt wordt */}
               <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px] min-w-[130px] text-right">
                 <a
                   href={makeSortHref("final_price_cents")}
@@ -953,7 +1013,6 @@ export default async function LeadsPage({
                     idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"
                   }`}
                 >
-                  {/* Order ID + uitklap: orderdetails */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top">
                     <details className="group">
                       <summary className="cursor-pointer flex items-center gap-2">
@@ -991,7 +1050,6 @@ export default async function LeadsPage({
                           {fmtDate(lead.created_at)}
                         </div>
 
-                        {/* STATUS LOG */}
                         {Array.isArray(lead.status_history) &&
                           lead.status_history.length > 0 && (
                             <div className="mt-1">
@@ -1006,7 +1064,6 @@ export default async function LeadsPage({
                                     let label: string;
 
                                     if (t === "status") {
-                                      // Enkel de nieuwe status tonen
                                       label = `Status: ${statusLabel(
                                         anyH.to as Status | null
                                       )}`;
@@ -1079,12 +1136,10 @@ export default async function LeadsPage({
                     </details>
                   </td>
 
-                  {/* Datum */}
                   <td className="px-3 py-2 border-r border-gray-175 align-top">
                     {fmtDate(lead.created_at)}
                   </td>
 
-                  {/* Klant: enkel CustomerCell (copy icons zitten IN CustomerCell) */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top">
                     <CustomerCell
                       id={lead.id}
@@ -1099,7 +1154,6 @@ export default async function LeadsPage({
                       country={lead.country}
                       phone={lead.phone}
                       email={lead.email}
-                      // Na 'check_passed' geen edits meer mogelijk
                       canEdit={
                         canWriteLeads &&
                         lead.status !== "cancelled" &&
@@ -1109,7 +1163,6 @@ export default async function LeadsPage({
                     />
                   </td>
 
-                  {/* Model + device details */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
                     <DeviceCell
                       id={lead.id}
@@ -1131,7 +1184,6 @@ export default async function LeadsPage({
                     />
                   </td>
 
-                  {/* Prijs (inline editable / read-only) – nooit afgekapt */}
                   <td className="px-3 py-2 border-r border-gray-200 align-top whitespace-nowrap min-w-[130px]">
                     {canWriteLeads &&
                     lead.status !== "cancelled" &&
@@ -1144,7 +1196,6 @@ export default async function LeadsPage({
                         <input type="hidden" name="id" value={lead.id} />
                         <input type="hidden" name="change_type" value="price" />
 
-                        {/* ✅ nieuw: forceer dat voucher-kolom ook mee update */}
                         <input
                           type="hidden"
                           name="update_voucher_price_too"
@@ -1179,7 +1230,6 @@ export default async function LeadsPage({
                     )}
                   </td>
 
-                  {/* Status (inline editable / read-only) + uitklap 'Verzending & label' */}
                   <td className="px-3 py-2 align-top">
                     {(() => {
                       const curr = (lead.status ?? "new") as Status;
@@ -1200,7 +1250,6 @@ export default async function LeadsPage({
                         fallbackTrackingUrl(lead.tracking_code);
                       const hasTracking = Boolean(trackingHref);
 
-                      // Download label URL:
                       let labelHref: string | null = null;
                       if (lead.label_pdf_url) {
                         if (/^https?:\/\//i.test(lead.label_pdf_url)) {
@@ -1212,27 +1261,27 @@ export default async function LeadsPage({
                         }
                       }
 
-                      // basis: mag de user überhaupt status saven?
                       const canEditStatusBase =
                         canWriteLeads && !isFinal && hasChoices;
 
-                      // extra: na 'check_passed' enkel finaliseren als hij dat recht heeft
                       const saveDisabled =
                         !canEditStatusBase ||
                         (curr === "check_passed" && !canFinalizeLeads);
 
-                      // ✅ "Verzending & label" pas zichtbaar vanaf 'label_created'
                       const shippingVisible = [
                         "label_created",
+                        "reminder_1_ship",
+                        "reminder_2_ship",
+                        "reminder_3_ship",
                         "shipment_received",
                         "check_passed",
-                        "check_failed",
+                        "check_failed_technical",
+                        "check_failed_grading",
                         "done",
                       ].includes(curr);
 
                       return (
                         <div className="space-y-1">
-                          {/* Bovenste deel: status / opslaan */}
                           {isFinal || !canWriteLeads ? (
                             <div className="text-sm font-medium text-gray-700">
                               {curr === "cancelled" ? (
@@ -1261,7 +1310,6 @@ export default async function LeadsPage({
                                 name="id"
                                 value={lead.id}
                               />
-                              {/* hint voor logging statuswijziging */}
                               <input
                                 type="hidden"
                                 name="change_type"
@@ -1323,7 +1371,6 @@ export default async function LeadsPage({
                                 </button>
                               </div>
 
-                              {/* Blok 'Reden annulatie' – alleen tonen bij keuze 'cancelled' (via JS) */}
                               <div
                                 className="mt-1 text-[11px]"
                                 data-cancel-block
@@ -1360,7 +1407,6 @@ export default async function LeadsPage({
                             </form>
                           )}
 
-                          {/* Uitklap: Verzending & label */}
                           {shippingVisible && (
                             <details className="mt-1 text-[11px]">
                               <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
@@ -1369,7 +1415,6 @@ export default async function LeadsPage({
                               </summary>
 
                               <div className="pl-4 mt-1 flex flex-col gap-1">
-                                {/* Traceer pakket */}
                                 {hasTracking ? (
                                   <a
                                     href={trackingHref!}
@@ -1385,7 +1430,6 @@ export default async function LeadsPage({
                                   </span>
                                 )}
 
-                                {/* Download label */}
                                 {labelHref && (
                                   <a
                                     href={labelHref}
@@ -1396,10 +1440,15 @@ export default async function LeadsPage({
                                     Download label
                                   </a>
                                 )}
-                                {/* Resync label + tracking + mail (als er nog niets is opgeslagen) */}
+
                                 {lead.delivery_method === "ship" &&
-                                  (lead.status === "label_created" ||
-                                    lead.status === "shipment_received") &&
+                                  [
+                                    "label_created",
+                                    "reminder_1_ship",
+                                    "reminder_2_ship",
+                                    "reminder_3_ship",
+                                    "shipment_received",
+                                  ].includes((lead.status ?? "") as Status) &&
                                   !lead.tracking_code &&
                                   !lead.tracking_url &&
                                   !lead.label_pdf_url && (
@@ -1440,7 +1489,6 @@ export default async function LeadsPage({
         </table>
       </div>
 
-      {/* Paginatie */}
       <div className="flex items-center justify-center gap-2">
         {page > 1 ? (
           <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page - 1)}>
@@ -1465,7 +1513,6 @@ export default async function LeadsPage({
         )}
       </div>
 
-      {/* Klein inline script: toont/hidet reden-blok, valideert verplichte velden bij controle en togglet save-knop bij 'cancelled' */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
@@ -1484,7 +1531,6 @@ export default async function LeadsPage({
                     cancelBlock.style.display = 'block';
                     if (cancelSelect) {
                       var hasReason = (cancelSelect.value || '').trim().length > 0;
-                      // let de disabled-toestand door permissies bepalen *en* reden
                       if (saveBtn._disabledByPerm === true) {
                         saveBtn.disabled = true;
                       } else {
@@ -1505,12 +1551,20 @@ export default async function LeadsPage({
 
                 function validateDeviceFields() {
                   var status = statusSelect.value;
-                  if (status !== 'check_passed' && status !== 'check_failed') return true;
+                  if (
+                    status !== 'check_passed' &&
+                    status !== 'check_failed_technical' &&
+                    status !== 'check_failed_grading'
+                  ) return true;
 
                   var row = form.closest('tr');
                   if (!row) return true;
 
-                  var requiredKeys = ['sku','imei_sn','battery_percentage','used_parts_skus'];
+                  var requiredKeys =
+                    status === 'check_passed'
+                      ? ['sku','imei_sn','battery_percentage','used_parts_skus']
+                      : ['imei_sn'];
+
                   var ok = true;
 
                   requiredKeys.forEach(function(key) {
@@ -1536,7 +1590,6 @@ export default async function LeadsPage({
                   return ok;
                 }
 
-                // markeer initiële disabled (vb. door finalize-rechten) zodat sync() die respecteert
                 if (saveBtn.disabled) {
                   saveBtn._disabledByPerm = true;
                 }
