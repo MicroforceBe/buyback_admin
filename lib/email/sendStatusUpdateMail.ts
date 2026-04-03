@@ -49,21 +49,19 @@ export async function sendStatusUpdateMail(input: StatusMailInput) {
 
   if (
     normalizedLabelUrl &&
-    /^\d+$/.test(normalizedLabelUrl) && // alleen cijfers? => parcel_id
+    /^\d+$/.test(normalizedLabelUrl) &&
     baseUrl
   ) {
     const trimmedBase = baseUrl.replace(/\/+$/, "");
     normalizedLabelUrl = `${trimmedBase}/api/admin/sendcloud/label?parcel_id=${normalizedLabelUrl}`;
   }
 
-  // Render subject + html o.b.v. Supabase template
   const { subject, html } = await renderStatusEmail({
     status: input.status,
     language,
     context: {
       ...input,
       email: (input as any).email || input.to,
-      // overschrijf label_pdf_url in de context met de genormaliseerde URL
       label_pdf_url: normalizedLabelUrl ?? (input as any).label_pdf_url,
     } as TemplateContext,
   });
