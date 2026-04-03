@@ -24,11 +24,18 @@ type Status = BuybackStatus | "cancelled";
 // Toegestane statussen in de UI
 const ALLOWED_STATUSES: Status[] = [
   "new",
-  "received_store",
   "label_created",
+  "reminder_1_dropoff",
+  "reminder_2_dropoff",
+  "reminder_3_dropoff",
+  "received_store",
+  "reminder_1_ship",
+  "reminder_2_ship",
+  "reminder_3_ship",
   "shipment_received",
   "check_passed",
-  "check_failed",
+  "check_failed_technical",
+  "check_failed_grading",
   "done",
   "cancelled",
 ];
@@ -120,6 +127,7 @@ function getShipWithObject(): any {
     );
     return DEFAULT_SHIP_WITH;
   }
+
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") {
@@ -178,10 +186,10 @@ function getMerchantToAddress() {
       "Microforce Buyback",
     email: clean(process.env.SENDCLOUD_TO_EMAIL),
     telephone: clean(process.env.SENDCLOUD_TO_PHONE),
-    address: clean(process.env.SENDCLOUD_TO_ADDRESS), // verplicht
-    house_number: clean(process.env.SENDCLOUD_TO_HOUSE_NUMBER), // optioneel
-    postal_code: clean(process.env.SENDCLOUD_TO_POSTAL_CODE), // verplicht
-    city: clean(process.env.SENDCLOUD_TO_CITY), // verplicht
+    address: clean(process.env.SENDCLOUD_TO_ADDRESS),
+    house_number: clean(process.env.SENDCLOUD_TO_HOUSE_NUMBER),
+    postal_code: clean(process.env.SENDCLOUD_TO_POSTAL_CODE),
+    city: clean(process.env.SENDCLOUD_TO_CITY),
     country: (clean(process.env.SENDCLOUD_TO_COUNTRY) || "BE")?.toUpperCase(),
   };
 
@@ -551,11 +559,10 @@ async function findExistingSendcloudShipmentByRef(
  * Server action om opnieuw een label + tracking op te halen
  * en opnieuw de statusmail voor 'label_created' te sturen.
  *
- * NIEUW:
- *  - eerst proberen bestaand shipment te vinden op order_code (externalRef)
- *  - pas daarna (fallback) een nieuw label aanmaken
- *  - mail enkel sturen als tracking/label effectief beschikbaar is
- *  - adresvelden worden mee opgehaald (anders faalt create label)
+ * - eerst proberen bestaand shipment te vinden op order_code (externalRef)
+ * - pas daarna (fallback) een nieuw label aanmaken
+ * - mail enkel sturen als tracking/label effectief beschikbaar is
+ * - adresvelden worden mee opgehaald (anders faalt create label)
  */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
@@ -590,14 +597,12 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
         "shop_location",
         "shop_id",
         "questions_answers_html",
-        // ✅ nodig voor Sendcloud from_address
         "street",
         "house_number",
         "postal_code",
         "city",
         "country",
         "phone",
-        // tracking
         "tracking_code",
         "tracking_url",
         "label_pdf_url",
@@ -622,13 +627,11 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
     (lead as any).order_code ||
     String((lead as any).orderId || (lead as any).id || "");
 
-  // 1) eerst zoeken in Sendcloud op referentie
   console.info("[LEADS][RESYNC] attempting Sendcloud lookup by reference", {
     externalRef,
   });
   const existing = await findExistingSendcloudShipmentByRef(externalRef);
 
-  // 2) fallback: nieuw label aanmaken
   let made: CreateLabelResult = existing ?? {};
   if (!existing) {
     console.info("[LEADS][RESYNC] no existing shipment found; attempting label creation");
@@ -661,7 +664,6 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
     });
   }
 
-  // ✅ mail enkel sturen als label/tracking effectief bestaat
   if (lead.email && hasLabelNow) {
     try {
       await sendStatusUpdateMail({
@@ -707,7 +709,6 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
  * Eén action die ALLES kan updaten.
  */
 export async function updateLeadInlineAction(formData: FormData) {
-  // permissies: enkel users met leads:write mogen wijzigen
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
     redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
@@ -716,7 +717,6 @@ export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
 
-  // 1) status + cancel_reason uit het formulier halen
   const statusRaw = String(formData.get("status") ?? "").trim();
 
   const cancelReasonRaw = (formData.get("cancel_reason") as string | null) ?? "";
@@ -726,20 +726,17 @@ export async function updateLeadInlineAction(formData: FormData) {
     if (!isAllowedStatus(statusRaw)) {
       redirect(`/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`);
     }
-    // Als status naar cancelled gaat, moet er een reden zijn
     if (statusRaw === "cancelled" && !cancelReason) {
       redirect(`/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`);
     }
   }
 
-  // 2) Verzamel gewenste wijzigingen uit het formulier
   const desired: Record<string, any> = {};
 
   if (statusRaw) {
     desired.status = statusRaw as Status;
   }
 
-  // prijs (EUR → cents)
   const priceRaw = String(formData.get("final_price_eur") ?? "")
     .replace(",", ".")
     .trim();
@@ -751,24 +748,18 @@ export async function updateLeadInlineAction(formData: FormData) {
     const cents = Math.round(eur * 100);
 
     desired.final_price_cents = cents;
-
-    // ✅ NIEUW: als prijs manueel wordt aangepast, ook voucher-kolom gelijk zetten.
-    // (De widget rekent dit al uit en schrijft dit weg; admin-edit moet beide sync houden.)
     desired.final_price_with_voucher_cents = cents;
   }
 
-  // wants_voucher (boolean in DB)
   const rawWantsVoucher = formData.get("wants_voucher");
   if (rawWantsVoucher !== null) {
     desired.wants_voucher = toBoolOrNull(rawWantsVoucher);
   }
 
-  // expliciet: cancel_reason (alleen zetten als er iets is)
   if (cancelReason !== null) {
     desired.cancel_reason = cancelReason;
   }
 
-  // overige inline velden (TEXT, geen arrays)
   const TEXT_FIELDS = [
     "customer_number",
     "iban",
@@ -792,12 +783,10 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // batterij-percentage (0–100, optioneel)
   const batteryRaw = formData.get("battery_percentage");
   if (typeof batteryRaw === "string") {
     const trimmed = batteryRaw.trim();
     if (trimmed === "") {
-      // leeg expliciet verstuurd → naar null
       desired.battery_percentage = null;
     } else {
       const n = Number(trimmed.replace(",", "."));
@@ -806,8 +795,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // gebruikte onderdelen: komma/enter-gescheiden string → TEXT[]
-  // BELANGRIJK: alleen aanpassen als het veld in het form zit.
   const usedPartsRaw = formData.get("used_parts_skus");
   if (typeof usedPartsRaw === "string") {
     const arr = usedPartsRaw
@@ -815,13 +802,11 @@ export async function updateLeadInlineAction(formData: FormData) {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // lege string => maak kolom NULL, niet overschrijven bij ontbrekend veld
     desired.used_parts_skus = arr.length ? arr : null;
   }
 
   const sb = sbClient();
 
-  // 3) Haal bestaande rij op
   const { data: before, error: selErr } = await sb
     .from("buyback_leads")
     .select("*")
@@ -835,12 +820,10 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent("not_found")}`);
   }
 
-  // Als de lead al geannuleerd is -> niets meer wijzigen
   if ((before as any).status === "cancelled") {
     redirect(`/admin/leads?msg=${encodeURIComponent("already_cancelled")}`);
   }
 
-  // 4) Beperk patch tot bestaande kolommen
   const patch: Record<string, any> = {};
   const ignoredEarly: string[] = [];
   for (const [k, v] of Object.entries(desired)) {
@@ -851,23 +834,69 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // 5) Gating eindstatus (check_passed/check_failed/done)
-  const ending = new Set<Status>(["check_passed", "check_failed", "done"]);
-  if (patch.status && ending.has(patch.status)) {
-    const need = (key: "customer_number" | "sku" | "imei_sn") =>
-      Object.prototype.hasOwnProperty.call(before, key)
-        ? (patch[key] ?? (before as any)[key] ?? "").toString().trim()
-        : "";
-    if (!need("customer_number") || !need("sku") || !need("imei_sn")) {
+  // Server-side validatie voor kritieke statussen
+  const need = (
+    key:
+      | "customer_number"
+      | "sku"
+      | "imei_sn"
+      | "battery_percentage"
+      | "used_parts_skus"
+  ) => {
+    const value = Object.prototype.hasOwnProperty.call(patch, key)
+      ? patch[key]
+      : (before as any)[key];
+
+    if (key === "used_parts_skus") {
+      return Array.isArray(value) ? value.length > 0 : Boolean(value);
+    }
+
+    if (key === "battery_percentage") {
+      return value !== null && value !== undefined && value !== "";
+    }
+
+    return (value ?? "").toString().trim();
+  };
+
+  if (patch.status === "check_passed") {
+    if (
+      !need("customer_number") ||
+      !need("sku") ||
+      !need("imei_sn") ||
+      !need("battery_percentage") ||
+      !need("used_parts_skus")
+    ) {
       redirect(
-        `/admin/leads?msg=${encodeURIComponent("status_requires_customer_sku_imei")}`
+        `/admin/leads?msg=${encodeURIComponent(
+          "check_passed_requires_customer_sku_imei_battery_used_parts"
+        )}`
       );
     }
   }
 
-  // 5.b Automatisch 'ship' zetten als label wordt aangemaakt
-  const endingStatus: Status = "label_created";
-  if (patch.status === endingStatus) {
+  if (
+    patch.status === "check_failed_technical" ||
+    patch.status === "check_failed_grading"
+  ) {
+    if (!need("imei_sn")) {
+      redirect(
+        `/admin/leads?msg=${encodeURIComponent("failed_check_requires_imei")}`
+      );
+    }
+  }
+
+  if (patch.status === "done") {
+    const effectiveStatus = (patch.status ?? (before as any).status) as Status | null;
+    const previousOrCurrentStatus = (before as any).status as Status | null;
+    if (effectiveStatus === "done" && previousOrCurrentStatus !== "check_passed") {
+      redirect(
+        `/admin/leads?msg=${encodeURIComponent("done_requires_check_passed_first")}`
+      );
+    }
+  }
+
+  // delivery_method automatisch synchroniseren op basis van status
+  if (patch.status === "label_created") {
     const currentMethod = (before as any).delivery_method as string | null;
     if (Object.prototype.hasOwnProperty.call(before, "delivery_method")) {
       if (currentMethod !== "ship") {
@@ -877,12 +906,21 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
+  if (patch.status === "received_store") {
+    const currentMethod = (before as any).delivery_method as string | null;
+    if (Object.prototype.hasOwnProperty.call(before, "delivery_method")) {
+      if (currentMethod !== "dropoff") {
+        patch.delivery_method = "dropoff";
+        console.info("[LEADS] delivery_method auto->dropoff (received_store)");
+      }
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
     const note = ignoredEarly.length ? ` (ignored:${ignoredEarly.join(",")})` : "";
     redirect(`/admin/leads?msg=${encodeURIComponent("nothing_to_update" + note)}`);
   }
 
-  // === 5.c HISTORY LOG (status, prijs, SKU/IMEI) ===
   const nowIso = new Date().toISOString();
   const actor = (adminUser as any)?.email || (adminUser as any)?.id || "unknown";
 
@@ -892,7 +930,6 @@ export async function updateLeadInlineAction(formData: FormData) {
 
   const historyToAppend: any[] = [];
 
-  // 1) Statuswijziging loggen
   if (
     Object.prototype.hasOwnProperty.call(patch, "status") &&
     patch.status !== (before as any).status
@@ -906,7 +943,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     });
   }
 
-  // 2) Prijswijziging loggen (final_price_cents)
   if (
     Object.prototype.hasOwnProperty.call(patch, "final_price_cents") &&
     patch.final_price_cents !== (before as any).final_price_cents
@@ -920,7 +956,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     });
   }
 
-  // 3) Wijziging in toestelgegevens (SKU / IMEI / batterij / onderdelen) loggen
   const skuChanged =
     Object.prototype.hasOwnProperty.call(patch, "sku") &&
     patch.sku !== (before as any).sku;
@@ -957,12 +992,11 @@ export async function updateLeadInlineAction(formData: FormData) {
     patch.status_history = [...existingHistory, ...historyToAppend];
   }
 
-  // 6) Update uitvoeren
   const returningCols = [
     "id",
     "status",
     "final_price_cents",
-    "final_price_with_voucher_cents", // ✅ NIEUW: mee teruggeven
+    "final_price_with_voucher_cents",
     "wants_voucher",
     "customer_number",
     "sku",
@@ -986,17 +1020,13 @@ export async function updateLeadInlineAction(formData: FormData) {
     "shop_location",
     "created_at",
     "updated_at",
-    // batterij + onderdelen
     "battery_percentage",
     "used_parts_skus",
-    // trackingvelden
     "tracking_code",
     "tracking_url",
     "label_pdf_url",
     "questions_answers_html",
-    // reden annulatie
     "cancel_reason",
-    // history
     "status_history",
   ].join(", ");
 
@@ -1011,29 +1041,35 @@ export async function updateLeadInlineAction(formData: FormData) {
     redirect(`/admin/leads?msg=${encodeURIComponent(`update_error:${updErr.message}`)}`);
   }
 
-  // 7) Status change → Sendcloud + mail (SYNCHROON / AWAIT, NIET fire-and-forget)
   const prevStatus = (before as any)?.status as Status | undefined;
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
 
-  // Alleen deze statussen sturen mails (géén mail bij 'cancelled')
+  // Alle mailbare statussen. 'cancelled' blijft hier bewust buiten totdat
+  // je mailtemplate/type dit ook ondersteunt.
   const NOTIFY_STATUSES: BuybackStatus[] = [
     "received_store",
     "label_created",
+    "reminder_1_dropoff",
+    "reminder_2_dropoff",
+    "reminder_3_dropoff",
+    "reminder_1_ship",
+    "reminder_2_ship",
+    "reminder_3_ship",
     "shipment_received",
     "check_passed",
-    "check_failed",
+    "check_failed_technical",
+    "check_failed_grading",
     "done",
   ];
 
   const statusChanged =
-    newStatus &&
+    !!newStatus &&
     newStatus !== prevStatus &&
     NOTIFY_STATUSES.includes(newStatus as BuybackStatus);
 
   if (statusChanged && after?.email) {
     try {
-      // Bij 'label_created' → maak verzendlabel + tracking via Sendcloud
       let tracking_code: string | null | undefined =
         (after as any).tracking_code ?? null;
       let tracking_url: string | null | undefined =
@@ -1054,6 +1090,7 @@ export async function updateLeadInlineAction(formData: FormData) {
             .from("buyback_leads")
             .update({ tracking_code, tracking_url, label_pdf_url })
             .eq("id", id);
+
           if (trackErr) {
             console.error("[LEADS][SENDCLOUD] tracking upsert failed:", trackErr.message);
           } else {
@@ -1066,7 +1103,6 @@ export async function updateLeadInlineAction(formData: FormData) {
         }
       }
 
-      // Shopdetails ophalen indien beschikbaar
       let shop_address1: string | null = null;
       let shop_zip: string | null = null;
       let shop_city: string | null = null;
@@ -1092,7 +1128,7 @@ export async function updateLeadInlineAction(formData: FormData) {
         first_name: (after as any).first_name,
         last_name: (after as any).last_name,
         order_code: (after as any).order_code,
-        status: newStatus as BuybackStatus, // 'cancelled' komt hier nooit
+        status: newStatus as BuybackStatus,
         language: "nl",
         model: (after as any).model,
         capacity_gb: (after as any).capacity_gb,
@@ -1112,7 +1148,6 @@ export async function updateLeadInlineAction(formData: FormData) {
         label_pdf_url: label_pdf_url ?? undefined,
       });
 
-      // Finance-mail met aankoopborderel (bij geslaagde controle / done)
       const shouldSendFinance = newStatus === "check_passed" || newStatus === "done";
       if (shouldSendFinance) {
         const { finance_email, brand_name } = await getNotificationSettings();
@@ -1121,49 +1156,39 @@ export async function updateLeadInlineAction(formData: FormData) {
             await sendFinanceBorderelMail({
               to: finance_email,
               status: newStatus === "check_passed" ? "check_passed" : "done",
-              // basis + identificatie
               first_name: (after as any).first_name,
               last_name: (after as any).last_name,
               order_code: (after as any).order_code,
               email: (after as any).email,
-              // toestel
               model: (after as any).model,
               capacity_gb: (after as any).capacity_gb,
               variant: (after as any).variant ?? null,
               sku: (after as any).sku ?? null,
               imei_sn: (after as any).imei_sn ?? null,
-              // prijs / uitbetaling
               final_price_cents: (after as any).final_price_cents,
               wants_voucher: (after as any).wants_voucher ?? null,
               iban: (after as any).iban ?? null,
-              // klant & adres
               street: (after as any).street ?? null,
               house_number: (after as any).house_number ?? null,
               postal_code: (after as any).postal_code ?? null,
               city: (after as any).city ?? null,
               country: (after as any).country ?? null,
               phone: (after as any).phone ?? null,
-              // levering / shop
               delivery_method: (after as any).delivery_method,
               shop_location: (after as any).shop_location,
               shop_address1,
               shop_zip,
               shop_city,
               opening_hours,
-              // tracking
               tracking_code: tracking_code ?? undefined,
               tracking_url: tracking_url ?? undefined,
               label_pdf_url: label_pdf_url ?? undefined,
-              // extra voor finance
               customer_number: (after as any).customer_number ?? null,
               brand_name_override: brand_name,
-              // datums
               created_at: (after as any).created_at ?? null,
               done_at: (after as any).updated_at ?? null,
-              // batterij + onderdelen
               battery_percentage: (after as any).battery_percentage ?? null,
               used_parts_skus: (after as any).used_parts_skus ?? null,
-              // vragen/antwoorden (optioneel)
               questions_answers_html: (after as any).questions_answers_html ?? null,
             });
           } catch (e: any) {
@@ -1180,7 +1205,6 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // 8) Diagnose/feedback
   const setKeys = Object.keys(patch).sort();
   const ignoredFinal = Object.keys(desired).filter((k) => !setKeys.includes(k));
   const tagIgnored = ignoredFinal.length ? ` • ignored:${ignoredFinal.join(",")}` : "";
@@ -1193,7 +1217,6 @@ export async function updateLeadInlineAction(formData: FormData) {
 }
 
 export async function deleteLeadAction(formData: FormData) {
-  // permissies: enkel users met leads:write mogen verwijderen
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
     redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
@@ -1201,11 +1224,14 @@ export async function deleteLeadAction(formData: FormData) {
 
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
+
   const sb = sbClient();
   const { error } = await sb.from("buyback_leads").delete().eq("id", id);
-  if (error)
-    redirect(
-      `/admin/leads?msg=${encodeURIComponent(`delete_error:${error.message}`)}`
-    );
+
+  if (error) {
+    redirect(`/admin/leads?msg=${encodeURIComponent(`delete_error:${error.message}`)}`);
+  }
+
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
+
