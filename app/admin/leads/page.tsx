@@ -201,18 +201,41 @@ export default async function LeadsPage({
 
   if (!hasPermission(adminUser, "leads", "read")) {
     return (
-      <div className="w-full p-6">
-        <h1 className="text-2xl font-semibold mb-4">Leads</h1>
-        <div className="p-3 bg-red-50 border border-red-200 rounded">
-          <div className="text-red-700 font-medium">
-            Je hebt geen rechten om deze pagina te bekijken.
-          </div>
-          <p className="text-xs text-red-600 mt-1">
-            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
-            de settings &gt; Users.
-          </p>
-        </div>
-      </div>
+      <div className="flex items-center justify-between">
+  <div className="flex items-center gap-2">
+    <h1 className="text-xl font-semibold">Leads</h1>
+    <Link
+      href="/admin/leads/help"
+      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-sm hover:bg-gray-50"
+      title="Help voor Leads"
+      aria-label="Help voor Leads"
+    >
+      ?
+    </Link>
+  </div>
+
+  <div className="flex items-center gap-2">
+    <Link href="/admin/leads/help" className="bb-btn h-9 text-xs px-3">
+      Help
+    </Link>
+    <Link href="/admin" className="bb-btn h-9 text-xs px-3">
+      ← Terug
+    </Link>
+  </div>
+</div>
+
+    //  <div className="w-full p-6">
+    //    <h1 className="text-2xl font-semibold mb-4">Leads</h1>
+    //    <div className="p-3 bg-red-50 border border-red-200 rounded">
+     //     <div className="text-red-700 font-medium">
+      //      Je hebt geen rechten om deze pagina te bekijken.
+     //     </div>
+     //     <p className="text-xs text-red-600 mt-1">
+     //       Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
+     //       de settings &gt; Users.
+     //     </p>
+     //   </div>
+     // </div>
     );
   }
 
