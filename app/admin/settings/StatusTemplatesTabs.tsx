@@ -58,7 +58,7 @@ const VARIABLE_GROUPS: { title: string; vars: VariableDef[] }[] = [
     title: "Toestel & details",
     vars: [
       { code: "{{model}}", label: "Modelnaam" },
-      { code: "{{variant}}", label: "Variant" }, // 🔹 NIEUW
+      { code: "{{variant}}", label: "Variant" },
       { code: "{{capacity_gb}}", label: "Opslag (GB)" },
       {
         code: "{{details_table}}",
@@ -121,14 +121,10 @@ export default function StatusTemplatesTabs({
     statusTemplates[0]?.key ?? ""
   );
 
-  // Huidig actieve statusgroep
   const activeGroup =
     statusTemplates.find((g) => g.key === activeKey) ?? statusTemplates[0];
 
-  // Laatst gefocuste input/textarea (voor variabele insert & preview & editor-buttons)
   const [activeFieldEl, setActiveFieldEl] = useState<ActiveField>(null);
-
-  // HTML preview content
   const [previewHtml, setPreviewHtml] = useState<string>("");
 
   function handleVariableClick(code: string) {
@@ -155,7 +151,6 @@ export default function StatusTemplatesTabs({
     const el = activeFieldEl;
     if (!el) return;
 
-    // alleen preview uit de HTML body textarea
     if (
       el.tagName === "TEXTAREA" &&
       el.getAttribute("name") === "body_html"
@@ -164,7 +159,6 @@ export default function StatusTemplatesTabs({
     }
   }
 
-  /** Eenvoudige “HTML editor”-functie: wrap selectie in een tag */
   function wrapSelection(tag: string, attrs?: string) {
     if (!canEdit) return;
     const el = activeFieldEl;
@@ -235,7 +229,6 @@ export default function StatusTemplatesTabs({
 
   return (
     <div className="space-y-4">
-      {/* Tabs */}
       <div className="border-b border-gray-200 flex flex-wrap gap-2">
         {statusTemplates.map((status) => {
           const isActive = status.key === activeKey;
@@ -257,7 +250,6 @@ export default function StatusTemplatesTabs({
         })}
       </div>
 
-      {/* Beschrijving */}
       <div className="text-xs text-gray-500">
         <p>{activeGroup.description}</p>
         <p className="mt-1">
@@ -271,11 +263,8 @@ export default function StatusTemplatesTabs({
         </p>
       </div>
 
-      {/* Hoofd-grid: links templates + preview, rechts variabelen */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Linkerzijde: templates + preview */}
         <div className="md:col-span-2 space-y-4">
-          {/* Forms (breed) */}
           <div className="grid grid-cols-1 gap-4">
             {activeGroup.rows.map((tpl) => (
               <form
@@ -304,7 +293,6 @@ export default function StatusTemplatesTabs({
                   </span>
                 </div>
 
-                {/* Onderwerp */}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Onderwerp</span>
                   <input
@@ -322,12 +310,10 @@ export default function StatusTemplatesTabs({
                   </span>
                 </label>
 
-                {/* HTML-editor toolbar + textarea */}
                 <label className="flex flex-col gap-1 text-sm">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-medium">HTML body</span>
                     <div className="flex flex-wrap items-center gap-1">
-                      {/* Simpele “HTML editor” knoppen */}
                       <button
                         type="button"
                         onClick={() => wrapSelection("strong")}
@@ -437,7 +423,6 @@ export default function StatusTemplatesTabs({
             ))}
           </div>
 
-          {/* HTML preview – onder het template blok (links) */}
           <section className="border border-gray-200 rounded-lg bg-white">
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
               <h3 className="text-sm font-semibold">HTML preview</h3>
@@ -450,7 +435,6 @@ export default function StatusTemplatesTabs({
               {previewHtml ? (
                 <div
                   className="text-sm leading-relaxed"
-                  // Admin-only: HTML komt van jou, dus ok
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               ) : (
@@ -463,7 +447,6 @@ export default function StatusTemplatesTabs({
           </section>
         </div>
 
-        {/* Rechterzijde: beschikbare variabelen */}
         <section className="border border-gray-200 rounded-lg p-3 bg-gray-50/80 space-y-3">
           <h3 className="text-sm font-semibold">Beschikbare variabelen</h3>
           <p className="text-xs text-gray-500">
@@ -502,3 +485,4 @@ export default function StatusTemplatesTabs({
     </div>
   );
 }
+
