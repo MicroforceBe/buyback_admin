@@ -303,7 +303,7 @@ export default async function LeadsPage({
             ok: true,
           },
         ];
-      
+
         if (isDropoff) {
           base.push(
             {
@@ -320,7 +320,7 @@ export default async function LeadsPage({
             }
           );
         }
-      
+
         if (isShip) {
           base.push({
             value: "label_created",
@@ -329,7 +329,7 @@ export default async function LeadsPage({
             reason: "Klantnummer vereist",
           });
         }
-      
+
         return base;
       }
 
@@ -338,6 +338,11 @@ export default async function LeadsPage({
           {
             value: "reminder_2_dropoff",
             label: "Reminder 2 Binnenbrengen",
+            ok: true,
+          },
+          {
+            value: "received_store",
+            label: "Ontvangen in de winkel",
             ok: true,
           },
           {
@@ -355,6 +360,11 @@ export default async function LeadsPage({
             ok: true,
           },
           {
+            value: "received_store",
+            label: "Ontvangen in de winkel",
+            ok: true,
+          },
+          {
             value: "cancelled",
             label: "Geannuleerd",
             ok: true,
@@ -363,6 +373,11 @@ export default async function LeadsPage({
 
       case "reminder_3_dropoff":
         return [
+          {
+            value: "received_store",
+            label: "Ontvangen in de winkel",
+            ok: true,
+          },
           {
             value: "cancelled",
             label: "Geannuleerd",
@@ -397,6 +412,11 @@ export default async function LeadsPage({
             ok: true,
           },
           {
+            value: "shipment_received",
+            label: "Zending ontvangen",
+            ok: true,
+          },
+          {
             value: "cancelled",
             label: "Geannuleerd",
             ok: true,
@@ -411,6 +431,11 @@ export default async function LeadsPage({
             ok: true,
           },
           {
+            value: "shipment_received",
+            label: "Zending ontvangen",
+            ok: true,
+          },
+          {
             value: "cancelled",
             label: "Geannuleerd",
             ok: true,
@@ -419,6 +444,11 @@ export default async function LeadsPage({
 
       case "reminder_3_ship":
         return [
+          {
+            value: "shipment_received",
+            label: "Zending ontvangen",
+            ok: true,
+          },
           {
             value: "cancelled",
             label: "Geannuleerd",
