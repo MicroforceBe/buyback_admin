@@ -188,6 +188,49 @@ function qsWith(
   return `?${sp.toString()}`;
 }
 
+function overdueThresholdHours(status: Status | null | undefined): number | null {
+  switch (status) {
+    case "new":
+      return 48;
+    case "reminder_1_dropoff":
+    case "reminder_1_ship":
+      return 96;
+    case "reminder_2_dropoff":
+    case "reminder_2_ship":
+    case "reminder_3_dropoff":
+    case "reminder_3_ship":
+      return 144;
+    default:
+      return null;
+  }
+}
+
+function isStatusOverdue(
+  status: Status | null | undefined,
+  createdAt?: string | null
+): boolean {
+  const threshold = overdueThresholdHours(status);
+  if (!threshold || !createdAt) return false;
+
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return false;
+
+  const diffHours = (Date.now() - createdMs) / (1000 * 60 * 60);
+  return diffHours >= threshold;
+}
+
+function hoursSinceCreated(createdAt?: string | null): number | null {
+  if (!createdAt) return null;
+
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return null;
+
+  const diffHours = (Date.now() - createdMs) / (1000 * 60 * 60);
+  if (!Number.isFinite(diffHours) || diffHours < 0) return null;
+
+  return Math.floor(diffHours);
+}
+
 export default async function LeadsPage({
   searchParams,
 }: {
@@ -201,41 +244,18 @@ export default async function LeadsPage({
 
   if (!hasPermission(adminUser, "leads", "read")) {
     return (
-      <div className="flex items-center justify-between">
-  <div className="flex items-center gap-2">
-    <h1 className="text-xl font-semibold">Leads</h1>
-    <Link
-      href="/admin/leads/help"
-      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-sm hover:bg-gray-50"
-      title="Help voor Leads"
-      aria-label="Help voor Leads"
-    >
-      ?
-    </Link>
-  </div>
-
-  <div className="flex items-center gap-2">
-    <Link href="/admin/leads/help" className="bb-btn h-9 text-xs px-3">
-      Help
-    </Link>
-    <Link href="/admin" className="bb-btn h-9 text-xs px-3">
-      ← Terug
-    </Link>
-  </div>
-</div>
-
-    //  <div className="w-full p-6">
-    //    <h1 className="text-2xl font-semibold mb-4">Leads</h1>
-    //    <div className="p-3 bg-red-50 border border-red-200 rounded">
-     //     <div className="text-red-700 font-medium">
-      //      Je hebt geen rechten om deze pagina te bekijken.
-     //     </div>
-     //     <p className="text-xs text-red-600 mt-1">
-     //       Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
-     //       de settings &gt; Users.
-     //     </p>
-     //   </div>
-     // </div>
+      <div className="w-full p-6">
+        <h1 className="text-2xl font-semibold mb-4">Leads</h1>
+        <div className="p-3 bg-red-50 border border-red-200 rounded">
+          <div className="text-red-700 font-medium">
+            Je hebt geen rechten om deze pagina te bekijken.
+          </div>
+          <p className="text-xs text-red-600 mt-1">
+            Vraag een beheerder om je &quot;leads&quot;-rechten aan te passen in
+            de settings &gt; Users.
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -827,10 +847,26 @@ export default async function LeadsPage({
   return (
     <div className="w-full p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Leads</h1>
-        <Link href="/admin" className={btnCls}>
-          ← Terug
-        </Link>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold">Leads</h1>
+          <Link
+            href="/admin/leads/help"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-sm font-semibold hover:bg-gray-50"
+            title="Help voor Leads"
+            aria-label="Help voor Leads"
+          >
+            ?
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link href="/admin/leads/help" className="bb-btn h-9 text-xs px-3">
+            Help
+          </Link>
+          <Link href="/admin" className={btnCls}>
+            ← Terug
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -1064,6 +1100,14 @@ export default async function LeadsPage({
           <tbody>
             {(data ?? []).map((lead, idx) => {
               const shownCents = effectiveFinalCents(lead);
+              const overdue = isStatusOverdue(lead.status, lead.created_at);
+              const overdueThreshold = overdueThresholdHours(lead.status);
+              const elapsedHours = hoursSinceCreated(lead.created_at);
+              const overdueTitle =
+                overdue && overdueThreshold != null && elapsedHours != null
+                  ? `Te lang in huidige opvolgstatus • Verstreken sinds aanmelding: ${elapsedHours} uur • Drempel: ${overdueThreshold} uur`
+                  : undefined;
+
               return (
                 <tr
                   key={lead.id}
@@ -1181,6 +1225,16 @@ export default async function LeadsPage({
                         <div>
                           <span className="text-gray-500">Huidige status: </span>
                           {statusLabel(lead.status)}
+                          {overdue && overdueTitle && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center ml-2 w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold align-middle cursor-help"
+                              title={overdueTitle}
+                              aria-label={overdueTitle}
+                            >
+                              !
+                            </button>
+                          )}
                         </div>
                         {lead.status === "cancelled" && lead.cancel_reason && (
                           <div>
@@ -1354,7 +1408,19 @@ export default async function LeadsPage({
                                   )}
                                 </div>
                               ) : (
-                                statusLabel(curr)
+                                <div className="inline-flex items-center gap-2">
+                                  <span>{statusLabel(curr)}</span>
+                                  {overdue && overdueTitle && (
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold cursor-help"
+                                      title={overdueTitle}
+                                      aria-label={overdueTitle}
+                                    >
+                                      !
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           ) : (
@@ -1409,6 +1475,18 @@ export default async function LeadsPage({
                                     );
                                   })}
                                 </select>
+
+                                {overdue && overdueTitle && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold cursor-help"
+                                    title={overdueTitle}
+                                    aria-label={overdueTitle}
+                                  >
+                                    !
+                                  </button>
+                                )}
+
                                 <button
                                   className="bb-btn subtle h-8 text-xs px-2"
                                   type="submit"
