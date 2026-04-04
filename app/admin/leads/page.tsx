@@ -303,22 +303,24 @@ export default async function LeadsPage({
             ok: true,
           },
         ];
-
+      
         if (isDropoff) {
           base.push(
             {
               value: "received_store",
               label: "Ontvangen in de winkel",
-              ok: true,
+              ok: hasCust,
+              reason: "Klantnummer vereist",
             },
             {
               value: "reminder_1_dropoff",
               label: "Reminder 1 Binnenbrengen",
-              ok: true,
+              ok: hasCust,
+              reason: "Klantnummer vereist",
             }
           );
         }
-
+      
         if (isShip) {
           base.push({
             value: "label_created",
@@ -327,7 +329,7 @@ export default async function LeadsPage({
             reason: "Klantnummer vereist",
           });
         }
-
+      
         return base;
       }
 
