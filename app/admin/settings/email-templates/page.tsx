@@ -36,14 +36,50 @@ const ORDER_STATUS_KEYS: StatusMeta[] = [
     description: "E-mail wanneer een nieuwe buyback-aanvraag wordt aangemaakt.",
   },
   {
+    key: "label_created",
+    label: "Verzendlabel aangemaakt",
+    description: "E-mail wanneer het verzendlabel is aangemaakt.",
+  },
+  {
+    key: "reminder_1_dropoff",
+    label: "Reminder 1 Binnenbrengen",
+    description:
+      "E-mailherinnering wanneer het toestel nog niet in de winkel werd binnengebracht.",
+  },
+  {
+    key: "reminder_2_dropoff",
+    label: "Reminder 2 Binnenbrengen",
+    description:
+      "Tweede e-mailherinnering wanneer het toestel nog niet in de winkel werd binnengebracht.",
+  },
+  {
+    key: "reminder_3_dropoff",
+    label: "Reminder 3 Binnenbrengen",
+    description:
+      "Laatste e-mailherinnering wanneer het toestel nog niet in de winkel werd binnengebracht.",
+  },
+  {
     key: "received_store",
-    label: "Ontvangen in winkel",
+    label: "Ontvangen in de winkel",
     description: "E-mail wanneer het toestel in de winkel werd ontvangen.",
   },
   {
-    key: "label_created",
-    label: "Label aangemaakt",
-    description: "E-mail wanneer het verzendlabel is aangemaakt.",
+    key: "reminder_1_ship",
+    label: "Reminder 1 Opzenden",
+    description:
+      "Eerste e-mailherinnering wanneer het toestel nog niet werd opgestuurd.",
+  },
+  {
+    key: "reminder_2_ship",
+    label: "Reminder 2 Opzenden",
+    description:
+      "Tweede e-mailherinnering wanneer het toestel nog niet werd opgestuurd.",
+  },
+  {
+    key: "reminder_3_ship",
+    label: "Reminder 3 Opzenden",
+    description:
+      "Laatste e-mailherinnering wanneer het toestel nog niet werd opgestuurd.",
   },
   {
     key: "shipment_received",
@@ -53,18 +89,30 @@ const ORDER_STATUS_KEYS: StatusMeta[] = [
   },
   {
     key: "check_passed",
-    label: "Controle OK",
+    label: "Controle succesvol",
     description: "E-mail wanneer de controle is goedgekeurd.",
   },
   {
-    key: "check_failed",
-    label: "Controle NOK",
-    description: "E-mail wanneer de controle niet is goedgekeurd.",
+    key: "check_failed_technical",
+    label: "Controle gefaald, technisch defect",
+    description:
+      "E-mail wanneer de controle faalt omwille van een technisch defect.",
+  },
+  {
+    key: "check_failed_grading",
+    label: "Controle gefaald, gradering",
+    description:
+      "E-mail wanneer de controle faalt door een afwijking in de gradering.",
   },
   {
     key: "done",
-    label: "Afgehandeld",
+    label: "Afgewerkt",
     description: "Slotsituatie: buyback-order is volledig afgehandeld.",
+  },
+  {
+    key: "cancelled",
+    label: "Geannuleerd",
+    description: "E-mail wanneer een buyback-order wordt geannuleerd.",
   },
 ];
 
@@ -139,13 +187,11 @@ export default async function EmailTemplatesSettingsPage() {
     );
   }
 
-  // Notificatie-instellingen + templates parallel laden
   const [notificationSettings, templates] = await Promise.all([
     getNotificationSettings(),
     loadEmailTemplates(),
   ]);
 
-  // ---- Server Action notificatie e-mailadressen bewaren ----
   async function actionSaveNotificationSettings(formData: FormData) {
     "use server";
 
@@ -199,7 +245,6 @@ export default async function EmailTemplatesSettingsPage() {
     return { ok: true as const, message: "Notificatie-instellingen bewaard." };
   }
 
-  // ---- Server Action e-mailtemplate bewaren ----
   async function actionSaveTemplate(formData: FormData) {
     "use server";
 
@@ -226,8 +271,6 @@ export default async function EmailTemplatesSettingsPage() {
     const key = keyInput;
     const language = languageInput;
 
-    // Alleen kolommen gebruiken die echt in de tabel staan:
-    // id, key, language, subject, body_html, updated_at
     const payload: any = {
       key,
       language,
@@ -262,8 +305,6 @@ export default async function EmailTemplatesSettingsPage() {
     revalidatePath("/admin/settings/email-templates");
     return { ok: true as const, message: "Template bewaard." };
   }
-
-  // ====== AFLEIDINGEN VOOR STATUS + TALEN ======
 
   const languagesFromData = Array.from(
     new Set(templates.map((t) => t.language))
@@ -313,7 +354,6 @@ export default async function EmailTemplatesSettingsPage() {
         </Link>
       </div>
 
-      {/* NOTIFICATIE-E-MAILADRESSEN */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header>
           <h2 className="text-lg font-medium">Notificatie e-mailadressen</h2>
@@ -378,7 +418,6 @@ export default async function EmailTemplatesSettingsPage() {
         </form>
       </section>
 
-      {/* E-MAIL TEMPLATES (statussen met tabs + variabelen + preview) */}
       <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <header>
           <h2 className="text-lg font-medium">E-mailtemplates per orderstatus</h2>
@@ -404,11 +443,9 @@ export default async function EmailTemplatesSettingsPage() {
           statusTemplates={statusTemplates}
           languages={LANGUAGES}
           onSaveTemplate={actionSaveTemplate}
-          // optioneel: kun je nog gebruiken in de component om knoppen te disablen
           canEdit={canWrite}
         />
 
-        {/* OVERIGE / GEVANCEERDE TEMPLATES */}
         <div className="pt-6 space-y-4">
           <div className="flex items-baseline justify-between">
             <h3 className="text-md font-semibold">
