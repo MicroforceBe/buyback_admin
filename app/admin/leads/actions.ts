@@ -18,11 +18,7 @@ function sbClient() {
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-// Status in de leads: alle mailbare statussen + 'cancelled'
-type Status = BuybackStatus | "cancelled";
-
-// Toegestane statussen in de UI
-const ALLOWED_STATUSES: Status[] = [
+const ALLOWED_STATUSES = [
   "new",
   "label_created",
   "reminder_1_dropoff",
@@ -38,10 +34,18 @@ const ALLOWED_STATUSES: Status[] = [
   "check_failed_grading",
   "done",
   "cancelled",
-];
+] as const;
+
+type Status = (typeof ALLOWED_STATUSES)[number];
+
+function normalizeStatus(v: unknown): string {
+  return String(v ?? "")
+    .trim()
+    .replace(/\u00A0/g, "");
+}
 
 function isAllowedStatus(v: string): v is Status {
-  return ALLOWED_STATUSES.includes(v as Status);
+  return (ALLOWED_STATUSES as readonly string[]).includes(v);
 }
 
 // === Helper: converteer form-waarden naar boolean/null (voorkomt "Boolean('false')" valkuil) ===
@@ -717,14 +721,18 @@ export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
 
-  const statusRaw = String(formData.get("status") ?? "").trim();
+  const statusRaw = normalizeStatus(formData.get("status"));
 
   const cancelReasonRaw = (formData.get("cancel_reason") as string | null) ?? "";
   const cancelReason = cancelReasonRaw.trim() || null;
 
   if (statusRaw) {
     if (!isAllowedStatus(statusRaw)) {
-      redirect(`/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`);
+      redirect(
+        `/admin/leads?msg=${encodeURIComponent(
+          `invalid_status:${JSON.stringify(statusRaw)}`
+        )}`
+      );
     }
     if (statusRaw === "cancelled" && !cancelReason) {
       redirect(`/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`);
@@ -1234,4 +1242,3 @@ export async function deleteLeadAction(formData: FormData) {
 
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
-
