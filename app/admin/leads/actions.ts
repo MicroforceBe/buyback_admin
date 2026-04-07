@@ -18,7 +18,11 @@ function sbClient() {
   return typeof anySb === "function" ? anySb() : anySb;
 }
 
-const ALLOWED_STATUSES = [
+// Status in de leads
+type Status = BuybackStatus;
+
+// Toegestane statussen in de UI
+const ALLOWED_STATUSES: Status[] = [
   "new",
   "label_created",
   "reminder_1_dropoff",
@@ -34,18 +38,10 @@ const ALLOWED_STATUSES = [
   "check_failed_grading",
   "done",
   "cancelled",
-] as const;
-
-type Status = (typeof ALLOWED_STATUSES)[number];
-
-function normalizeStatus(v: unknown): string {
-  return String(v ?? "")
-    .trim()
-    .replace(/\u00A0/g, "");
-}
+];
 
 function isAllowedStatus(v: string): v is Status {
-  return (ALLOWED_STATUSES as readonly string[]).includes(v);
+  return ALLOWED_STATUSES.includes(v as Status);
 }
 
 // === Helper: converteer form-waarden naar boolean/null (voorkomt "Boolean('false')" valkuil) ===
@@ -562,11 +558,6 @@ async function findExistingSendcloudShipmentByRef(
 /**
  * Server action om opnieuw een label + tracking op te halen
  * en opnieuw de statusmail voor 'label_created' te sturen.
- *
- * - eerst proberen bestaand shipment te vinden op order_code (externalRef)
- * - pas daarna (fallback) een nieuw label aanmaken
- * - mail enkel sturen als tracking/label effectief beschikbaar is
- * - adresvelden worden mee opgehaald (anders faalt create label)
  */
 export async function resyncSendcloudLabelAction(formData: FormData) {
   const adminUser = await getCurrentAdminUser();
@@ -610,6 +601,7 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
         "tracking_code",
         "tracking_url",
         "label_pdf_url",
+        "cancel_reason",
       ].join(",")
     )
     .eq("id", id)
@@ -693,6 +685,7 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
         tracking_code: tracking_code ?? undefined,
         tracking_url: tracking_url ?? undefined,
         label_pdf_url: label_pdf_url ?? undefined,
+        cancel_reason: (lead as any).cancel_reason ?? null,
       });
       console.info("[LEADS][RESYNC] status mail (label_created) sent");
     } catch (e: any) {
@@ -721,18 +714,14 @@ export async function updateLeadInlineAction(formData: FormData) {
   const id = String(formData.get("id") || "").trim();
   if (!id) redirect(`/admin/leads?msg=${encodeURIComponent("missing_id")}`);
 
-  const statusRaw = normalizeStatus(formData.get("status"));
+  const statusRaw = String(formData.get("status") ?? "").trim();
 
   const cancelReasonRaw = (formData.get("cancel_reason") as string | null) ?? "";
   const cancelReason = cancelReasonRaw.trim() || null;
 
   if (statusRaw) {
     if (!isAllowedStatus(statusRaw)) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          `invalid_status:${JSON.stringify(statusRaw)}`
-        )}`
-      );
+      redirect(`/admin/leads?msg=${encodeURIComponent(`invalid_status:${statusRaw}`)}`);
     }
     if (statusRaw === "cancelled" && !cancelReason) {
       redirect(`/admin/leads?msg=${encodeURIComponent("cancel_reason_required")}`);
@@ -1053,8 +1042,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
 
-  // Alle mailbare statussen. 'cancelled' blijft hier bewust buiten totdat
-  // je mailtemplate/type dit ook ondersteunt.
+  // Alle mailbare statussen
   const NOTIFY_STATUSES: BuybackStatus[] = [
     "received_store",
     "label_created",
@@ -1069,6 +1057,7 @@ export async function updateLeadInlineAction(formData: FormData) {
     "check_failed_technical",
     "check_failed_grading",
     "done",
+    "cancelled",
   ];
 
   const statusChanged =
@@ -1154,6 +1143,7 @@ export async function updateLeadInlineAction(formData: FormData) {
         tracking_code: tracking_code ?? undefined,
         tracking_url: tracking_url ?? undefined,
         label_pdf_url: label_pdf_url ?? undefined,
+        cancel_reason: (after as any).cancel_reason ?? null,
       });
 
       const shouldSendFinance = newStatus === "check_passed" || newStatus === "done";
