@@ -1,15 +1,15 @@
-//lib/email/templates.ts
+// lib/email/templates.ts
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BuybackStatus =
   | "new"
+  | "received_store"
   | "label_created"
   | "reminder_1_dropoff"
   | "reminder_2_dropoff"
   | "reminder_3_dropoff"
-  | "received_store"
   | "reminder_1_ship"
   | "reminder_2_ship"
   | "reminder_3_ship"
@@ -17,7 +17,8 @@ export type BuybackStatus =
   | "check_passed"
   | "check_failed_technical"
   | "check_failed_grading"
-  | "done";
+  | "done"
+  | "cancelled";
 
 export type TemplateContext = {
   // basis
@@ -48,6 +49,9 @@ export type TemplateContext = {
   tracking_code?: string | null;
   tracking_url?: string | null;
   label_pdf_url?: string | null;
+
+  // annulatie
+  cancel_reason?: string | null;
 
   // HTML met vragen/antwoorden uit lead
   questions_answers_html?: string | null;
@@ -246,19 +250,14 @@ function buildBlocks(
   `;
 
   let delivery_block = "";
-
-  const isDropoff = ctx.delivery_method === "dropoff" || ctx.delivery_method === "store";
-  const isShip = ctx.delivery_method === "ship";
-
-  if (isDropoff) {
+  if (ctx.delivery_method === "store" || ctx.delivery_method === "dropoff") {
     const addr = [ctx.shop_address1, ctx.shop_zip, ctx.shop_city]
       .filter(Boolean)
       .join(" ");
-
     delivery_block = `
-      <h3 style="margin:18px 0 6px;font-size:14px;">Binnenbrengen in de winkel</h3>
+      <h3 style="margin:18px 0 6px;font-size:14px;">Inleveren in de winkel</h3>
       <p style="margin:0 0 10px;">
-        Breng je toestel binnen bij ${
+        Breng je toestel naar ${
           ctx.shop_location
             ? escapeHtml(ctx.shop_location)
             : "de geselecteerde winkel"
@@ -272,7 +271,7 @@ function buildBlocks(
           : ""
       }
     `;
-  } else if (isShip) {
+  } else if (ctx.delivery_method === "ship") {
     const labelUrl = ctx.label_pdf_url || "";
     const trackUrl = ctx.tracking_url || "";
 
@@ -281,7 +280,7 @@ function buildBlocks(
         <h3 style="margin:0 0 8px;font-size:14px;">Verzending</h3>
         <p style="margin:0 0 12px;font-size:14px;color:#374151;">
           Je koos voor <strong>gratis verzending</strong> van jouw toestel naar ons.
-          Hieronder vind je je verzendlabel.
+          Hieronder het verzendlabel.
         </p>
         ${
           labelUrl
@@ -333,8 +332,8 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Volg de instructies in deze e-mail om je toestel binnen te brengen of op te sturen.
-          Na ontvangst en controle brengen we je verder op de hoogte.
+          Volg de instructies in deze e-mail om je toestel af te geven of op te sturen.
+          Na ontvangst en controle brengen we je op de hoogte.
         </p>
       `;
       break;
@@ -343,7 +342,7 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Print het verzendlabel, verpak je toestel veilig en geef het pakket af bij een verzendpunt.
+          Print het verzendlabel, verpak je toestel veilig en geef het pakket af bij het aangegeven verzendpunt.
         </p>
       `;
       break;
@@ -354,16 +353,7 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Herinnering</h3>
         <p style="margin:0 0 10px;">
-          We wachten nog op je toestel in de winkel. Breng het toestel binnen om je buyback-aanvraag verder te verwerken.
-        </p>
-      `;
-      break;
-
-    case "received_store":
-      next_steps = `
-        <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
-        <p style="margin:0 0 10px;">
-          Je toestel werd ontvangen in de winkel. Onze techniekers voeren binnenkort de controle uit.
+          We hebben je toestel nog niet ontvangen in de winkel. Breng het toestel binnen met vermelding van je ordercode.
         </p>
       `;
       break;
@@ -374,7 +364,7 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Herinnering</h3>
         <p style="margin:0 0 10px;">
-          We wachten nog op je verzending. Gebruik je verzendlabel en stuur je toestel naar ons op.
+          We hebben je toestel nog niet ontvangen. Verzend je pakket zo snel mogelijk met het eerder bezorgde label.
         </p>
       `;
       break;
@@ -401,7 +391,7 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Tijdens de controle werd een technisch defect vastgesteld. Je wordt apart gecontacteerd over het verdere verloop.
+          Tijdens de controle werd een technisch defect vastgesteld. We contacteren je over het verdere verloop.
         </p>
       `;
       break;
@@ -410,7 +400,7 @@ function buildBlocks(
       next_steps = `
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
-          Tijdens de controle werd een afwijking in de gradering vastgesteld. Je wordt apart gecontacteerd over het verdere verloop.
+          Tijdens de controle werd een afwijking in gradering vastgesteld. We contacteren je over het verdere verloop.
         </p>
       `;
       break;
@@ -420,6 +410,20 @@ function buildBlocks(
         <h3 style="margin:18px 0 6px;font-size:14px;">Volgende stappen</h3>
         <p style="margin:0 0 10px;">
           Je buyback-aanvraag werd volledig afgehandeld. Bedankt!
+        </p>
+      `;
+      break;
+
+    case "cancelled":
+      next_steps = `
+        <h3 style="margin:18px 0 6px;font-size:14px;">Annulatie</h3>
+        <p style="margin:0 0 10px;">
+          Je buyback-aanvraag werd geannuleerd.
+          ${
+            ctx.cancel_reason
+              ? ` Reden: <strong>${escapeHtml(ctx.cancel_reason)}</strong>.`
+              : ""
+          }
         </p>
       `;
       break;
@@ -444,6 +448,9 @@ function buildBlocks(
   };
 }
 
+/**
+ * Eenvoudige {{placeholder}} vervanger.
+ */
 function renderWithPlaceholders(
   text: string,
   replacements: Record<string, string>
@@ -481,6 +488,11 @@ export async function renderStatusEmail(
         <p>De status van je buyback-aanvraag is gewijzigd naar: <strong>${escapeHtml(
           status
         )}</strong>.</p>
+        ${
+          status === "cancelled" && ctx.cancel_reason
+            ? `<p>Reden van annulatie: <strong>${escapeHtml(ctx.cancel_reason)}</strong>.</p>`
+            : ""
+        }
       </div>
     `;
     return { subject: fallbackSubject, html: fallbackHtml };
@@ -492,28 +504,38 @@ export async function renderStatusEmail(
   const bodyTemplate = template.body_html || "";
 
   const replacements: Record<string, string> = {
+    // basis
     first_name: ctx.first_name || "",
     last_name: ctx.last_name || "",
     full_name: blocks.full_name || "",
     order_code: ctx.order_code || "",
     email: ctx.email || "",
+    // toestel
     model: ctx.model || "",
     variant: ctx.variant || "",
     capacity_gb: ctx.capacity_gb != null ? String(ctx.capacity_gb) : "",
+    // prijs
     final_price: formatCurrency(ctx.final_price_cents ?? null),
+    // brand
     brand_name: brand.brand_name,
     brand_color: brand.brand_color,
     logo_url: brand.logo_url || "",
+    // blocks
     header: blocks.header,
     details_table: blocks.details_table,
     delivery_block: blocks.delivery_block,
     payout_block: blocks.payout_block,
     next_steps: blocks.next_steps,
     disclaimer_html: blocks.disclaimer_html,
+    // tracking
     tracking_code: ctx.tracking_code || "",
     tracking_url: ctx.tracking_url || "",
     label_pdf_url: ctx.label_pdf_url || "",
+    // iban
     iban: ctx.iban || "",
+    // annulatie
+    cancel_reason: ctx.cancel_reason || "",
+    // vragen + antwoorden (HTML)
     questions_answers: blocks.questions_answers || "",
     questions_answers_html: blocks.questions_answers || "",
   };
