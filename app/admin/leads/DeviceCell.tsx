@@ -1,19 +1,26 @@
 // app/admin/leads/DeviceCell.tsx
 
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { updateLeadInlineAction } from './actions';
+import { useState } from "react";
+import { updateLeadInlineAction } from "./actions";
 
 type Status =
-  | 'new'
-  | 'received_store'
-  | 'label_created'
-  | 'shipment_received'
-  | 'check_passed'
-  | 'check_failed'
-  | 'done'
-  | 'cancelled';
+  | "new"
+  | "label_created"
+  | "reminder_1_dropoff"
+  | "reminder_2_dropoff"
+  | "reminder_3_dropoff"
+  | "received_store"
+  | "reminder_1_ship"
+  | "reminder_2_ship"
+  | "reminder_3_ship"
+  | "shipment_received"
+  | "check_passed"
+  | "check_failed_technical"
+  | "check_failed_grading"
+  | "done"
+  | "cancelled";
 
 type Props = {
   id: string;
@@ -33,34 +40,33 @@ type Props = {
   canEdit?: boolean;
 };
 
-const input = 'bb-input h-9 text-xs px-2 py-1';
-const label = 'text-[11px] text-gray-500';
+const input = "bb-input h-9 text-xs px-2 py-1";
+const label = "text-[11px] text-gray-500";
 
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
 
-  const status: Status = (p.status ?? 'new') as Status;
+  const status: Status = (p.status ?? "new") as Status;
   const isEditable = !!p.canEdit;
 
   // Model/details tonen zodra toestel effectief binnen is:
   // - Ontvangen in winkel (received_store)
   // - Zending ontvangen (shipment_received)
-  // - + alle latere statussen
+  // - + alle latere statussen, incl. beide gefaalde controles
   const afterShipment =
-    status === 'received_store' ||
-    status === 'shipment_received' ||
-    status === 'check_passed' ||
-    status === 'check_failed' ||
-    status === 'done' ||
-    status === 'cancelled';
+    status === "received_store" ||
+    status === "shipment_received" ||
+    status === "check_passed" ||
+    status === "check_failed_technical" ||
+    status === "check_failed_grading" ||
+    status === "done" ||
+    status === "cancelled";
 
   // Init-lijst voor gebruikte onderdelen uit array
-  const initialParts = Array.isArray(p.used_parts_skus)
-    ? p.used_parts_skus
-    : [];
+  const initialParts = Array.isArray(p.used_parts_skus) ? p.used_parts_skus : [];
 
   const [parts, setParts] = useState<string[]>(
-    initialParts.length ? initialParts : ['']
+    initialParts.length ? initialParts : [""]
   );
 
   // Bovenste regel: model • variant • 128 GB
@@ -71,14 +77,14 @@ export default function DeviceCell(p: Props) {
       p.capacity_gb ? `${p.capacity_gb} GB` : undefined,
     ]
       .filter(Boolean)
-      .join(' • ') || '—';
+      .join(" • ") || "—";
 
   // Helper voor weergave van gebruikte onderdelen (read-only blok)
   const partsDisplay =
     parts
       .map((s) => s.trim())
       .filter(Boolean)
-      .join(', ') || '—';
+      .join(", ") || "—";
 
   return (
     <div className="space-y-1">
@@ -89,11 +95,11 @@ export default function DeviceCell(p: Props) {
 
           {/* subregel met SKU / IMEI / batterij */}
           <div className="text-[11px] text-gray-500 truncate">
-            {p.sku ? `SKU: ${p.sku}` : 'SKU: —'}{' '}
-            {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : '• IMEI/SN: —'}
-            {typeof p.battery_percentage === 'number'
+            {p.sku ? `SKU: ${p.sku}` : "SKU: —"}{" "}
+            {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : "• IMEI/SN: —"}
+            {typeof p.battery_percentage === "number"
               ? ` • Batterij: ${p.battery_percentage}%`
-              : ''}
+              : ""}
           </div>
         </div>
 
@@ -106,18 +112,18 @@ export default function DeviceCell(p: Props) {
           title={
             !afterShipment
               ? open
-                ? 'Sluiten'
-                : 'Toon info'
+                ? "Sluiten"
+                : "Toon info"
               : isEditable
               ? open
-                ? 'Sluiten'
-                : 'Bewerken / details'
+                ? "Sluiten"
+                : "Bewerken / details"
               : open
-              ? 'Sluiten'
-              : 'Toon details (alleen lezen)'
+              ? "Sluiten"
+              : "Toon details (alleen lezen)"
           }
         >
-          {open ? '▴' : '▾'}
+          {open ? "▴" : "▾"}
         </button>
       </div>
 
@@ -139,7 +145,7 @@ export default function DeviceCell(p: Props) {
               {/* SKU */}
               <div className="flex flex-col">
                 <label className={label}>
-                  SKU{' '}
+                  SKU{" "}
                   <span
                     data-device-warning="sku"
                     className="text-orange-500 ml-1 hidden"
@@ -151,7 +157,7 @@ export default function DeviceCell(p: Props) {
                 <input
                   name="sku"
                   className={input}
-                  defaultValue={p.sku ?? ''}
+                  defaultValue={p.sku ?? ""}
                   placeholder="SKU"
                 />
               </div>
@@ -159,7 +165,7 @@ export default function DeviceCell(p: Props) {
               {/* IMEI / serienummer */}
               <div className="flex flex-col">
                 <label className={label}>
-                  IMEI (15c) of Serienummer{' '}
+                  IMEI (15c) of Serienummer{" "}
                   <span
                     data-device-warning="imei_sn"
                     className="text-orange-500 ml-1 hidden"
@@ -171,7 +177,7 @@ export default function DeviceCell(p: Props) {
                 <input
                   name="imei_sn"
                   className={input}
-                  defaultValue={p.imei_sn ?? ''}
+                  defaultValue={p.imei_sn ?? ""}
                   placeholder="IMEI of SN"
                 />
               </div>
@@ -195,9 +201,9 @@ export default function DeviceCell(p: Props) {
                   min={0}
                   max={100}
                   defaultValue={
-                    typeof p.battery_percentage === 'number'
+                    typeof p.battery_percentage === "number"
                       ? p.battery_percentage
-                      : ''
+                      : ""
                   }
                   placeholder="0–100 of '-'"
                 />
@@ -206,7 +212,7 @@ export default function DeviceCell(p: Props) {
               {/* Gebruikte onderdelen (SKU's) */}
               <div className="flex flex-col mt-1">
                 <label className={label}>
-                  Gebruikte onderdelen (SKU&apos;s){' '}
+                  Gebruikte onderdelen (SKU&apos;s){" "}
                   <span
                     data-device-warning="used_parts_skus"
                     className="text-orange-500 ml-1 hidden"
@@ -232,7 +238,7 @@ export default function DeviceCell(p: Props) {
                       <button
                         type="button"
                         className="text-xs px-2 h-7 border rounded"
-                        onClick={() => setParts([...parts, ''])}
+                        onClick={() => setParts([...parts, ""])}
                         title="Extra onderdeel toevoegen"
                       >
                         +
@@ -248,7 +254,7 @@ export default function DeviceCell(p: Props) {
                   value={parts
                     .map((s) => s.trim())
                     .filter(Boolean)
-                    .join(', ')}
+                    .join(", ")}
                 />
               </div>
 
@@ -288,19 +294,19 @@ export default function DeviceCell(p: Props) {
             // ====== READ-ONLY MODE (bv. na check_passed/done) ======
             <div className="mt-2 flex flex-col gap-1 border-t border-gray-200 pt-2 text-xs text-gray-700">
               <div>
-                <span className="font-semibold">SKU:</span> {p.sku || '—'}
+                <span className="font-semibold">SKU:</span> {p.sku || "—"}
               </div>
               <div>
-                <span className="font-semibold">IMEI/SN:</span> {p.imei_sn || '—'}
+                <span className="font-semibold">IMEI/SN:</span> {p.imei_sn || "—"}
               </div>
               <div>
-                <span className="font-semibold">Batterij:</span>{' '}
-                {typeof p.battery_percentage === 'number'
+                <span className="font-semibold">Batterij:</span>{" "}
+                {typeof p.battery_percentage === "number"
                   ? `${p.battery_percentage}%`
-                  : '—'}
+                  : "—"}
               </div>
               <div>
-                <span className="font-semibold">Gebruikte onderdelen:</span>{' '}
+                <span className="font-semibold">Gebruikte onderdelen:</span>{" "}
                 {partsDisplay}
               </div>
 
