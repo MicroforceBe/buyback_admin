@@ -9,10 +9,15 @@ export const revalidate = 0;
 
 export default async function RefurbLayout({
   children,
+  searchParams,
 }: {
   children: React.ReactNode;
+  searchParams?: {
+    q?: string;
+  };
 }) {
   const user = await getCurrentAdminUser();
+
   const role = (user as any)?.role || null;
 
   return (
@@ -20,18 +25,23 @@ export default async function RefurbLayout({
       <div className="rounded-md border bg-slate-50 px-4 py-2 text-sm text-slate-700">
         Ingelogd als{" "}
         <span className="font-medium">
-          {(user as any)?.email || (user as any)?.name || "admin"}
+          {(user as any)?.email ||
+            (user as any)?.name ||
+            "admin"}
         </span>
 
         {role && (
           <>
             {" "}
-            · rol: <span className="font-medium">{role}</span>
+            · rol:{" "}
+            <span className="font-medium">
+              {role}
+            </span>
           </>
         )}
       </div>
 
-      <RefurbTools />
+      <RefurbTools searchParams={searchParams} />
 
       <RefurbTabs role={role} />
 
