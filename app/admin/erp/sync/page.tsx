@@ -15,7 +15,7 @@ type ErpSettings = {
   ftp_host: string | null;
   ftp_port: number | null;
   ftp_secure: boolean | null;
-  ftp_user: string | null;
+  ftp_user: string |null;
   ftp_password: string | null;
   ftp_directory: string | null;
   ftp_filename: string | null;
@@ -38,25 +38,49 @@ async function getSettings(): Promise<ErpSettings | null> {
 }
 
 function toCents(value: any) {
-  if (value === null || value === undefined || value === "") return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
   const n = Number(String(value).replace(",", "."));
-  if (Number.isNaN(n)) return null;
+
+  if (Number.isNaN(n)) {
+    return null;
+  }
+
   return Math.round(n * 100);
 }
 
 function toInt(value: any) {
-  if (value === null || value === undefined || value === "") return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
   const n = Number(String(value).replace(",", "."));
-  if (Number.isNaN(n)) return null;
+
+  if (Number.isNaN(n)) {
+    return null;
+  }
+
   return Math.round(n);
 }
 
 function toBool(value: any) {
   const v = String(value ?? "").trim().toLowerCase();
-  return ["true", "yes", "ja", "1", "active", "published"].includes(v);
+
+  return [
+    "true",
+    "yes",
+    "ja",
+    "1",
+    "active",
+    "published",
+  ].includes(v);
 }
 
-async function downloadFtpFile(settings: ErpSettings): Promise<Buffer> {
+async function downloadFtpFile(
+  settings: ErpSettings
+): Promise<Buffer> {
   const client = new Client();
 
   try {
@@ -81,7 +105,10 @@ async function downloadFtpFile(settings: ErpSettings): Promise<Buffer> {
       },
     });
 
-    await client.downloadTo(writable, settings.ftp_filename || "");
+    await client.downloadTo(
+      writable,
+      settings.ftp_filename || ""
+    );
 
     return Buffer.concat(chunks);
   } finally {
@@ -94,89 +121,182 @@ async function syncErpArticlesAction() {
 
   const settings = await getSettings();
 
-  if (!settings?.ftp_host || !settings?.ftp_user || !settings?.ftp_password || !settings?.ftp_filename) {
+  if (
+    !settings?.ftp_host ||
+    !settings?.ftp_user ||
+    !settings?.ftp_password ||
+    !settings?.ftp_filename
+  ) {
     redirect("/admin/erp/sync?msg=missing_ftp_settings");
   }
 
-  let inserted = 0;
-  let updated = 0;
-  let skipped = 0;
-
   try {
     const fileBuffer = await downloadFtpFile(settings);
-    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+
+    const workbook = XLSX.read(fileBuffer, {
+      type: "buffer",
+    });
+
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, {
+    const rows = XLSX.utils.sheet_to_json<
+      Record<string, any>
+    >(sheet, {
       defval: "",
     });
 
+    const payloads: any[] = [];
+
+    let skipped = 0;
+
     for (const row of rows) {
-      const sku = String(row["Variant SKU [ID]"] || "").trim();
-      const title = String(row["Title"] || "").trim();
+      const sku = String(
+        row["Variant SKU [ID]"] || ""
+      ).trim();
+
+      const title = String(
+        row["Title"] || ""
+      ).trim();
 
       if (!sku || !title) {
         skipped++;
         continue;
       }
 
-      const payload: any = {
+      payloads.push({
         sku,
         title,
-        category: String(row["Type"] || "").trim() || null,
-        active: String(row["Status"] || "").trim().toLowerCase() === "active",
-        price_cents: toCents(row["Variant Price"]),
-        compare_price_cents: toCents(row["Variant Compare At Price"]),
-        inventory_qty: toInt(row["Variant Inventory Qty"]),
-        inventory_tracker: String(row["Variant Inventory Tracker"] || "").trim() || null,
-        taxable: toBool(row["Variant Taxable"]),
-        vat_margin: toBool(row["Metafield: custom.vat_margin"]),
-        refurbished_product: toBool(row["Metafield: custom.refurbished_product"]),
-        stock_gentbrugge: toInt(row["Inventory Available: Microforce Gentbrugge"]),
-        stock_oudenaarde: toInt(row["Inventory Available: Microforce Oudenaarde"]),
-        stock_antwerpen: toInt(row["Inventory Available: Microforce Antwerpen"]),
-        published: toBool(row["Published"]),
-        published_scope: String(row["Published Scope"] || "").trim() || null,
-        requires_shipping: toBool(row["Variant Requires Shipping"]),
-        gift_card: toBool(row["Gift Card"]),
+
+        category:
+          String(row["Type"] || "").trim() || null,
+
+        active:
+          String(row["Status"] || "")
+            .trim()
+            .toLowerCase() === "active",
+
+        price_cents: toCents(
+          row["Variant Price"]
+        ),
+
+        compare_price_cents: toCents(
+          row["Variant Compare At Price"]
+        ),
+
+        inventory_qty: toInt(
+          row["Variant Inventory Qty"]
+        ),
+
+        inventory_tracker:
+          String(
+            row["Variant Inventory Tracker"] || ""
+          ).trim() || null,
+
+        taxable: toBool(
+          row["Variant Taxable"]
+        ),
+
+        vat_margin: toBool(
+          row["Metafield: custom.vat_margin"]
+        ),
+
+        refurbished_product: toBool(
+          row["Metafield: custom.refurbished_product"]
+        ),
+
+        stock_gentbrugge: toInt(
+          row[
+            "Inventory Available: Microforce Gentbrugge"
+          ]
+        ),
+
+        stock_oudenaarde: toInt(
+          row[
+            "Inventory Available: Microforce Oudenaarde"
+          ]
+        ),
+
+        stock_antwerpen: toInt(
+          row[
+            "Inventory Available: Microforce Antwerpen"
+          ]
+        ),
+
+        published: toBool(
+          row["Published"]
+        ),
+
+        published_scope:
+          String(
+            row["Published Scope"] || ""
+          ).trim() || null,
+
+        requires_shipping: toBool(
+          row["Variant Requires Shipping"]
+        ),
+
+        gift_card: toBool(
+          row["Gift Card"]
+        ),
+
         raw_erp_row: row,
+
         updated_at: new Date().toISOString(),
-      };
+      });
+    }
 
-      const { data: existing } = await supabaseAdmin
+    // ✅ bulk chunked upsert
+    const chunkSize = 500;
+
+    let processed = 0;
+
+    for (
+      let i = 0;
+      i < payloads.length;
+      i += chunkSize
+    ) {
+      const chunk = payloads.slice(
+        i,
+        i + chunkSize
+      );
+
+      const { error } = await supabaseAdmin
         .from("erp_articles")
-        .select("id")
-        .eq("sku", sku)
-        .maybeSingle();
+        .upsert(chunk, {
+          onConflict: "sku",
+        });
 
-      if (existing?.id) {
-        const { error } = await supabaseAdmin
-          .from("erp_articles")
-          .update(payload)
-          .eq("id", existing.id);
+      if (error) {
+        console.error(
+          "[ERP SYNC] bulk upsert error",
+          error
+        );
 
-        if (error) skipped++;
-        else updated++;
-      } else {
-        const { error } = await supabaseAdmin
-          .from("erp_articles")
-          .insert(payload);
-
-        if (error) skipped++;
-        else inserted++;
+        redirect(
+          `/admin/erp/sync?msg=${encodeURIComponent(
+            error.message
+          )}`
+        );
       }
+
+      processed += chunk.length;
     }
 
     revalidatePath("/admin/erp/articles");
     revalidatePath("/admin/erp/sync");
 
     redirect(
-      `/admin/erp/sync?msg=synced&inserted=${inserted}&updated=${updated}&skipped=${skipped}`
+      `/admin/erp/sync?msg=synced&inserted=${processed}&updated=bulk&skipped=${skipped}`
     );
   } catch (e: any) {
     console.error("[ERP SYNC] error", e);
-    redirect(`/admin/erp/sync?msg=${encodeURIComponent(e?.message || "sync_failed")}`);
+
+    redirect(
+      `/admin/erp/sync?msg=${encodeURIComponent(
+        e?.message || "sync_failed"
+      )}`
+    );
   }
 }
 
@@ -191,6 +311,7 @@ export default async function ErpSyncPage({
   };
 }) {
   const settings = await getSettings();
+
   const msg = String(searchParams?.msg || "");
 
   return (
@@ -200,19 +321,29 @@ export default async function ErpSyncPage({
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             ERP
           </div>
+
           <h1 className="mt-1 text-2xl font-semibold text-slate-900">
             ERP XLSX synchronisatie
           </h1>
+
           <p className="mt-2 text-sm text-slate-500 max-w-3xl">
-            Download het XLSX artikelbestand via FTP en synchroniseer de SKU database.
+            Download het XLSX artikelbestand via FTP
+            en synchroniseer de SKU database.
           </p>
         </div>
 
         <div className="flex gap-2">
-          <Link href="/admin/erp/settings" className="bb-btn text-sm">
+          <Link
+            href="/admin/erp/settings"
+            className="bb-btn text-sm"
+          >
             FTP settings
           </Link>
-          <Link href="/admin/erp/articles" className="bb-btn text-sm">
+
+          <Link
+            href="/admin/erp/articles"
+            className="bb-btn text-sm"
+          >
             Artikelen
           </Link>
         </div>
@@ -220,8 +351,11 @@ export default async function ErpSyncPage({
 
       {msg === "synced" && (
         <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-          Sync voltooid. Nieuw: {searchParams?.inserted || 0} · Bijgewerkt:{" "}
-          {searchParams?.updated || 0} · Overgeslagen: {searchParams?.skipped || 0}
+          Sync voltooid. Verwerkt:{" "}
+          {searchParams?.inserted || 0} ·
+          Updated: {searchParams?.updated || 0} ·
+          Overgeslagen:{" "}
+          {searchParams?.skipped || 0}
         </div>
       )}
 
@@ -233,38 +367,68 @@ export default async function ErpSyncPage({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-slate-500">FTP host</div>
-          <div className="mt-2 text-sm font-medium break-all">{settings?.ftp_host || "—"}</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            FTP host
+          </div>
+
+          <div className="mt-2 text-sm font-medium break-all">
+            {settings?.ftp_host || "—"}
+          </div>
         </div>
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Bestand</div>
-          <div className="mt-2 text-sm font-medium break-all">{settings?.ftp_filename || "—"}</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Bestand
+          </div>
+
+          <div className="mt-2 text-sm font-medium break-all">
+            {settings?.ftp_filename || "—"}
+          </div>
         </div>
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Directory</div>
-          <div className="mt-2 text-sm font-medium break-all">{settings?.ftp_directory || "/"}</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Directory
+          </div>
+
+          <div className="mt-2 text-sm font-medium break-all">
+            {settings?.ftp_directory || "/"}
+          </div>
         </div>
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Type</div>
-          <div className="mt-2 text-sm font-medium">XLSX</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Type
+          </div>
+
+          <div className="mt-2 text-sm font-medium">
+            XLSX
+          </div>
         </div>
       </div>
 
-      <form action={syncErpArticlesAction} className="rounded-xl border bg-white p-5 shadow-sm">
+      <form
+        action={syncErpArticlesAction}
+        className="rounded-xl border bg-white p-5 shadow-sm"
+      >
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-base font-semibold text-slate-900">
               Artikelbestand synchroniseren
             </div>
+
             <p className="mt-1 text-sm text-slate-500">
-              SKU’s worden gematcht op <b>Variant SKU [ID]</b>. Bestaande artikelen worden bijgewerkt.
+              SKU matching gebeurt op{" "}
+              <b>Variant SKU [ID]</b>.
+              Bestaande artikelen worden automatisch
+              bijgewerkt.
             </p>
           </div>
 
-          <button type="submit" className="bb-btn bb-btn-primary text-sm">
+          <button
+            type="submit"
+            className="bb-btn bb-btn-primary text-sm"
+          >
             Start sync
           </button>
         </div>
