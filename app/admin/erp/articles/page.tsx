@@ -96,10 +96,11 @@ async function getArticles(params: any) {
     .range(from, to);
 
   if (params.q) {
-    query = query.or(`
-      sku.ilike.%${params.q}%,
-      title.ilike.%${params.q}%
-    `);
+    const safeQ = String(params.q).replace(/[%_,]/g, "").trim();
+
+    if (safeQ) {
+      query = query.or(`sku.ilike.%${safeQ}%,title.ilike.%${safeQ}%`);
+    }
   }
 
   if (params.status === "inactive") {
@@ -108,103 +109,51 @@ async function getArticles(params: any) {
     query = query.eq("active", true);
   }
 
-  if (params.grade === "3") {
-    query = query.ilike("title", "%3*%");
-  }
+  if (params.grade === "3") query = query.ilike("title", "%3*%");
+  if (params.grade === "4") query = query.ilike("title", "%4*%");
+  if (params.grade === "5") query = query.ilike("title", "%5*%");
 
-  if (params.grade === "4") {
-    query = query.ilike("title", "%4*%");
-  }
+  if (params.stock === "in_stock") query = query.gt("inventory_qty", 0);
+  if (params.stock === "out_of_stock") query = query.lte("inventory_qty", 0);
 
-  if (params.grade === "5") {
-    query = query.ilike("title", "%5*%");
-  }
+  if (params.refurbished === "yes") query = query.eq("refurbished_product", true);
+  if (params.refurbished === "no") query = query.eq("refurbished_product", false);
 
-  if (params.stock === "in_stock") {
-    query = query.gt("inventory_qty", 0);
-  }
+  if (params.vat === "margin") query = query.eq("vat_margin", true);
+  if (params.vat === "normal") query = query.eq("vat_margin", false);
 
-  if (params.stock === "out_of_stock") {
-    query = query.lte("inventory_qty", 0);
-  }
+  if (params.location === "gentbrugge") query = query.gt("stock_gentbrugge", 0);
+  if (params.location === "oudenaarde") query = query.gt("stock_oudenaarde", 0);
+  if (params.location === "antwerpen") query = query.gt("stock_antwerpen", 0);
 
-  if (params.refurbished === "yes") {
-    query = query.eq("refurbished_product", true);
-  }
-
-  if (params.refurbished === "no") {
-    query = query.eq("refurbished_product", false);
-  }
-
-  if (params.vat === "margin") {
-    query = query.eq("vat_margin", true);
-  }
-
-  if (params.vat === "normal") {
-    query = query.eq("vat_margin", false);
-  }
-
-  if (params.location === "gentbrugge") {
-    query = query.gt("stock_gentbrugge", 0);
-  }
-
-  if (params.location === "oudenaarde") {
-    query = query.gt("stock_oudenaarde", 0);
-  }
-
-  if (params.location === "antwerpen") {
-    query = query.gt("stock_antwerpen", 0);
-  }
-
-  if (params.core === "yes") {
-    query = query.eq("core_assortment", true);
-  }
-
-  if (params.core === "no") {
-    query = query.eq("core_assortment", false);
-  }
+  if (params.core === "yes") query = query.eq("core_assortment", true);
+  if (params.core === "no") query = query.eq("core_assortment", false);
 
   if (params.missingCoreLocation === "gentbrugge") {
-    query = query
-      .eq("core_assortment", true)
-      .lte("stock_gentbrugge", 0);
+    query = query.eq("core_assortment", true).lte("stock_gentbrugge", 0);
   }
 
   if (params.missingCoreLocation === "oudenaarde") {
-    query = query
-      .eq("core_assortment", true)
-      .lte("stock_oudenaarde", 0);
+    query = query.eq("core_assortment", true).lte("stock_oudenaarde", 0);
   }
 
   if (params.missingCoreLocation === "antwerpen") {
-    query = query
-      .eq("core_assortment", true)
-      .lte("stock_antwerpen", 0);
+    query = query.eq("core_assortment", true).lte("stock_antwerpen", 0);
   }
 
   if (params.minPrice) {
-    query = query.gte(
-      "price_cents",
-      Number(params.minPrice) * 100
-    );
+    query = query.gte("price_cents", Number(params.minPrice) * 100);
   }
 
   if (params.maxPrice) {
-    query = query.lte(
-      "price_cents",
-      Number(params.maxPrice) * 100
-    );
+    query = query.lte("price_cents", Number(params.maxPrice) * 100);
   }
 
   const { data, error, count } = await query;
 
   if (error) {
     console.error("[ERP ARTICLES] fetch error", error);
-
-    return {
-      articles: [],
-      count: 0,
-    };
+    return { articles: [], count: 0 };
   }
 
   return {
@@ -219,20 +168,12 @@ function buildHref(
 ) {
   const sp = new URLSearchParams();
 
-  Object.entries({
-    ...base,
-    ...overrides,
-  }).forEach(([key, value]) => {
-    if (value) {
-      sp.set(key, value);
-    }
+  Object.entries({ ...base, ...overrides }).forEach(([key, value]) => {
+    if (value) sp.set(key, value);
   });
 
   const qs = sp.toString();
-
-  return qs
-    ? `/admin/erp/articles?${qs}`
-    : "/admin/erp/articles";
+  return qs ? `/admin/erp/articles?${qs}` : "/admin/erp/articles";
 }
 
 function ToggleButton({
@@ -244,10 +185,10 @@ function ToggleButton({
 }) {
   return (
     <span
-      className={`inline-flex rounded-full px-3 py-1.5 text-xs font-medium border ${
+      className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
         active
-          ? "bg-slate-900 text-white border-slate-900"
-          : "bg-white text-slate-600 border-slate-200"
+          ? "border-slate-900 bg-slate-900 text-white shadow-sm"
+          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
       }`}
     >
       {children}
@@ -258,52 +199,23 @@ function ToggleButton({
 export default async function ErpArticlesPage({
   searchParams,
 }: {
-  searchParams?: Record<
-    string,
-    string | string[] | undefined
-  >;
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const q = p(searchParams?.q).trim();
-
   const grade = p(searchParams?.grade).trim();
-
-  const status =
-    p(searchParams?.status).trim() || "active";
-
+  const status = p(searchParams?.status).trim() || "active";
   const stock = p(searchParams?.stock).trim();
-
-  const refurbished = p(
-    searchParams?.refurbished
-  ).trim();
-
+  const refurbished = p(searchParams?.refurbished).trim();
   const vat = p(searchParams?.vat).trim();
-
-  const location = p(
-    searchParams?.location
-  ).trim();
-
+  const location = p(searchParams?.location).trim();
   const core = p(searchParams?.core).trim();
+  const missingCoreLocation = p(searchParams?.missingCoreLocation).trim();
+  const minPrice = p(searchParams?.minPrice).trim();
+  const maxPrice = p(searchParams?.maxPrice).trim();
 
-  const missingCoreLocation = p(
-    searchParams?.missingCoreLocation
-  ).trim();
-
-  const minPrice = p(
-    searchParams?.minPrice
-  ).trim();
-
-  const maxPrice = p(
-    searchParams?.maxPrice
-  ).trim();
-
-  const pageRaw = Number(
-    p(searchParams?.page) || "1"
-  );
-
+  const pageRaw = Number(p(searchParams?.page) || "1");
   const page =
-    Number.isFinite(pageRaw) && pageRaw > 0
-      ? Math.floor(pageRaw)
-      : 1;
+    Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
 
   const baseParams = {
     q,
@@ -334,444 +246,268 @@ export default async function ErpArticlesPage({
     page,
   });
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(count / PAGE_SIZE)
-  );
-
-  const fromRecord =
-    count === 0
-      ? 0
-      : (page - 1) * PAGE_SIZE + 1;
-
-  const toRecord = Math.min(
-    page * PAGE_SIZE,
-    count
-  );
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  const fromRecord = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const toRecord = Math.min(page * PAGE_SIZE, count);
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border bg-slate-950 p-8 text-white">
-        <div className="max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide text-sky-200">
-            ERP Artikeldatabase
+      <div className="overflow-hidden rounded-3xl border bg-slate-950 shadow-sm">
+        <div className="bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.22),transparent_32%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.18),transparent_30%)] p-8 text-white">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100">
+                ERP Artikeldatabase
+              </div>
+
+              <h1 className="mt-4 text-3xl font-bold tracking-tight">
+                Centrale ERP artikels
+              </h1>
+
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                Doorzoek, filter en beheer de gesynchroniseerde SKU database
+                voor voorraad, core assortiment, refurb en labelprinting.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs text-slate-300">Records</div>
+                <div className="mt-1 text-2xl font-bold">{count}</div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs text-slate-300">Pagina</div>
+                <div className="mt-1 text-2xl font-bold">{page}</div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                <div className="text-xs text-slate-300">Toont</div>
+                <div className="mt-1 text-2xl font-bold">
+                  {fromRecord}-{toRecord}
+                </div>
+              </div>
+            </div>
           </div>
-
-          <h1 className="mt-3 text-3xl font-bold">
-            Centrale ERP artikels
-          </h1>
-
-          <p className="mt-3 text-sm text-slate-300">
-            Doorzoek, filter en beheer de
-            gesynchroniseerde SKU database.
-          </p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3">
+      <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b bg-slate-50/80 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm font-semibold text-slate-900">
               Artikelen
             </div>
 
             <div className="text-xs text-slate-500">
-              {count} records · toont{" "}
-              {fromRecord}-{toRecord} · pagina{" "}
-              {page} van {totalPages}
+              {count} records · toont {fromRecord}-{toRecord} · pagina {page} van{" "}
+              {totalPages}
             </div>
           </div>
 
           <div className="flex gap-2">
-            <Link
-              href="/admin/erp/sync"
-              className="bb-btn text-sm"
-            >
+            <Link href="/admin/erp/sync" className="bb-btn text-sm">
               Sync
             </Link>
 
-            <Link
-              href="/admin/erp/import"
-              className="bb-btn text-sm"
-            >
+            <Link href="/admin/erp/import" className="bb-btn text-sm">
               Import
             </Link>
           </div>
         </div>
 
-        <div className="border-b bg-white p-5">
-          <form
-            action="/admin/erp/articles"
-            className="space-y-5"
-          >
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="Zoek SKU of titel..."
-              className="w-full rounded-2xl border px-4 py-3 text-sm"
-            />
+        <div className="border-b bg-white p-4">
+          <form action="/admin/erp/articles" className="space-y-4">
+            <div className="flex flex-col gap-2 lg:flex-row">
+              <div className="relative flex-1">
+                <span className="pointer-events-none absolute left-3 top-2.5 text-sm text-slate-400">
+                  🔍
+                </span>
 
-            <div className="space-y-3">
-              <div className="text-xs font-semibold uppercase text-slate-500">
-                Status
+                <input
+                  name="q"
+                  defaultValue={q}
+                  placeholder="Zoek op SKU of titel..."
+                  className="w-full rounded-2xl border bg-slate-50 px-9 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:bg-white"
+                />
+              </div>
+
+              <button type="submit" className="bb-btn bb-btn-primary text-sm">
+                Zoeken
+              </button>
+
+              <Link href="/admin/erp/articles" className="bb-btn text-sm">
+                Reset
+              </Link>
+            </div>
+
+            <div className="rounded-2xl border bg-slate-50 p-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Snelle filters
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Link
-                  href={buildHref(baseParams, {
-                    status: "active",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={status === "active"}>
-                    ✅ Actief
-                  </ToggleButton>
+                <Link href={buildHref(baseParams, { status: "active", page: "" })}>
+                  <ToggleButton active={status === "active"}>✅ Actief</ToggleButton>
                 </Link>
 
-                <Link
-                  href={buildHref(baseParams, {
-                    status: "inactive",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={status === "inactive"}>
-                    ⛔ Niet actief
-                  </ToggleButton>
+                <Link href={buildHref(baseParams, { status: "inactive", page: "" })}>
+                  <ToggleButton active={status === "inactive"}>⛔ Niet actief</ToggleButton>
                 </Link>
 
-                <Link
-                  href={buildHref(baseParams, {
-                    status: "all",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={status === "all"}>
-                    📋 Alles
-                  </ToggleButton>
+                <Link href={buildHref(baseParams, { status: "all", page: "" })}>
+                  <ToggleButton active={status === "all"}>📋 Alles</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { grade: "", page: "" })}>
+                  <ToggleButton active={!grade}>Alle grades</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { grade: "3", page: "" })}>
+                  <ToggleButton active={grade === "3"}>3*</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { grade: "4", page: "" })}>
+                  <ToggleButton active={grade === "4"}>4*</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { grade: "5", page: "" })}>
+                  <ToggleButton active={grade === "5"}>5*</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { vat: "", page: "" })}>
+                  <ToggleButton active={!vat}>BTW alles</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { vat: "margin", page: "" })}>
+                  <ToggleButton active={vat === "margin"}>Margin VAT</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { vat: "normal", page: "" })}>
+                  <ToggleButton active={vat === "normal"}>Normal VAT</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { core: "", page: "" })}>
+                  <ToggleButton active={!core}>Core alles</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { core: "yes", page: "" })}>
+                  <ToggleButton active={core === "yes"}>Core</ToggleButton>
+                </Link>
+
+                <Link href={buildHref(baseParams, { core: "no", page: "" })}>
+                  <ToggleButton active={core === "no"}>Geen core</ToggleButton>
                 </Link>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="text-xs font-semibold uppercase text-slate-500">
-                Grade uit omschrijving
-              </div>
+            <div className="grid gap-2 lg:grid-cols-5">
+              <select
+                name="stock"
+                defaultValue={stock}
+                className="rounded-2xl border bg-white px-3 py-2 text-sm"
+              >
+                <option value="">📦 Voorraad alles</option>
+                <option value="in_stock">Op voorraad</option>
+                <option value="out_of_stock">Geen voorraad</option>
+              </select>
 
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  href={buildHref(baseParams, {
-                    grade: "",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={!grade}>
-                    Alle grades
-                  </ToggleButton>
-                </Link>
+              <select
+                name="location"
+                defaultValue={location}
+                className="rounded-2xl border bg-white px-3 py-2 text-sm"
+              >
+                <option value="">📍 Alle locaties</option>
+                <option value="gentbrugge">Gentbrugge</option>
+                <option value="oudenaarde">Oudenaarde</option>
+                <option value="antwerpen">Antwerpen</option>
+              </select>
 
-                <Link
-                  href={buildHref(baseParams, {
-                    grade: "3",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={grade === "3"}>
-                    3*
-                  </ToggleButton>
-                </Link>
+              <select
+                name="refurbished"
+                defaultValue={refurbished}
+                className="rounded-2xl border bg-white px-3 py-2 text-sm"
+              >
+                <option value="">♻️ Refurb alles</option>
+                <option value="yes">Alleen refurb</option>
+                <option value="no">Niet refurb</option>
+              </select>
 
-                <Link
-                  href={buildHref(baseParams, {
-                    grade: "4",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={grade === "4"}>
-                    4*
-                  </ToggleButton>
-                </Link>
+              <input
+                type="number"
+                name="minPrice"
+                defaultValue={minPrice}
+                placeholder="Min prijs"
+                className="rounded-2xl border bg-white px-3 py-2 text-sm"
+              />
 
-                <Link
-                  href={buildHref(baseParams, {
-                    grade: "5",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={grade === "5"}>
-                    5*
-                  </ToggleButton>
-                </Link>
-              </div>
+              <input
+                type="number"
+                name="maxPrice"
+                defaultValue={maxPrice}
+                placeholder="Max prijs"
+                className="rounded-2xl border bg-white px-3 py-2 text-sm"
+              />
             </div>
 
-            <div className="space-y-3">
-              <div className="text-xs font-semibold uppercase text-slate-500">
-                BTW
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  href={buildHref(baseParams, {
-                    vat: "",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={!vat}>
-                    Alles
-                  </ToggleButton>
-                </Link>
-
-                <Link
-                  href={buildHref(baseParams, {
-                    vat: "margin",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={vat === "margin"}>
-                    Margin VAT
-                  </ToggleButton>
-                </Link>
-
-                <Link
-                  href={buildHref(baseParams, {
-                    vat: "normal",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={vat === "normal"}>
-                    Normal VAT
-                  </ToggleButton>
-                </Link>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-xs font-semibold uppercase text-slate-500">
-                Core assortiment
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  href={buildHref(baseParams, {
-                    core: "",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={!core}>
-                    Alles
-                  </ToggleButton>
-                </Link>
-
-                <Link
-                  href={buildHref(baseParams, {
-                    core: "yes",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={core === "yes"}>
-                    Core assortiment
-                  </ToggleButton>
-                </Link>
-
-                <Link
-                  href={buildHref(baseParams, {
-                    core: "no",
-                    page: "",
-                  })}
-                >
-                  <ToggleButton active={core === "no"}>
-                    Geen core
-                  </ToggleButton>
-                </Link>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-xs font-semibold uppercase text-slate-500">
+            <details className="rounded-2xl border bg-slate-50 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Core ontbreekt in locatie
-              </div>
+              </summary>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={buildHref(baseParams, {
                     missingCoreLocation: "",
                     page: "",
                   })}
                 >
-                  <ToggleButton active={!missingCoreLocation}>
-                    Alles
-                  </ToggleButton>
+                  <ToggleButton active={!missingCoreLocation}>Alles</ToggleButton>
                 </Link>
 
                 <Link
                   href={buildHref(baseParams, {
-                    missingCoreLocation:
-                      "gentbrugge",
+                    missingCoreLocation: "gentbrugge",
                     core: "",
                     location: "",
                     stock: "",
                     page: "",
                   })}
                 >
-                  <ToggleButton
-                    active={
-                      missingCoreLocation ===
-                      "gentbrugge"
-                    }
-                  >
+                  <ToggleButton active={missingCoreLocation === "gentbrugge"}>
                     Core niet in Gentbrugge
                   </ToggleButton>
                 </Link>
 
                 <Link
                   href={buildHref(baseParams, {
-                    missingCoreLocation:
-                      "oudenaarde",
+                    missingCoreLocation: "oudenaarde",
                     core: "",
                     location: "",
                     stock: "",
                     page: "",
                   })}
                 >
-                  <ToggleButton
-                    active={
-                      missingCoreLocation ===
-                      "oudenaarde"
-                    }
-                  >
+                  <ToggleButton active={missingCoreLocation === "oudenaarde"}>
                     Core niet in Oudenaarde
                   </ToggleButton>
                 </Link>
 
                 <Link
                   href={buildHref(baseParams, {
-                    missingCoreLocation:
-                      "antwerpen",
+                    missingCoreLocation: "antwerpen",
                     core: "",
                     location: "",
                     stock: "",
                     page: "",
                   })}
                 >
-                  <ToggleButton
-                    active={
-                      missingCoreLocation ===
-                      "antwerpen"
-                    }
-                  >
+                  <ToggleButton active={missingCoreLocation === "antwerpen"}>
                     Core niet in Antwerpen
                   </ToggleButton>
                 </Link>
               </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-3">
-              <select
-                name="stock"
-                defaultValue={stock}
-                className="rounded-xl border px-4 py-2 text-sm"
-              >
-                <option value="">
-                  📦 Alle voorraad
-                </option>
-
-                <option value="in_stock">
-                  Op voorraad
-                </option>
-
-                <option value="out_of_stock">
-                  Geen voorraad
-                </option>
-              </select>
-
-              <select
-                name="location"
-                defaultValue={location}
-                className="rounded-xl border px-4 py-2 text-sm"
-              >
-                <option value="">
-                  📍 Alle locaties
-                </option>
-
-                <option value="gentbrugge">
-                  Gentbrugge
-                </option>
-
-                <option value="oudenaarde">
-                  Oudenaarde
-                </option>
-
-                <option value="antwerpen">
-                  Antwerpen
-                </option>
-              </select>
-
-              <select
-                name="refurbished"
-                defaultValue={refurbished}
-                className="rounded-xl border px-4 py-2 text-sm"
-              >
-                <option value="">
-                  ♻️ Refurb: alles
-                </option>
-
-                <option value="yes">
-                  Alleen refurb
-                </option>
-
-                <option value="no">
-                  Niet refurb
-                </option>
-              </select>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="text-sm text-slate-600">
-                Min prijs: €{minPrice || 0}
-
-                <input
-                  type="range"
-                  name="minPrice"
-                  min="0"
-                  max="3000"
-                  step="25"
-                  defaultValue={minPrice || "0"}
-                  className="mt-2 w-full"
-                />
-              </label>
-
-              <label className="text-sm text-slate-600">
-                Max prijs: €{maxPrice || 3000}
-
-                <input
-                  type="range"
-                  name="maxPrice"
-                  min="0"
-                  max="3000"
-                  step="25"
-                  defaultValue={
-                    maxPrice || "3000"
-                  }
-                  className="mt-2 w-full"
-                />
-              </label>
-            </div>
-
-            <div className="flex justify-between">
-              <Link
-                href="/admin/erp/articles"
-                className="bb-btn text-sm"
-              >
-                Reset
-              </Link>
-
-              <button
-                type="submit"
-                className="bb-btn bb-btn-primary text-sm"
-              >
-                Filters toepassen
-              </button>
-            </div>
+            </details>
           </form>
         </div>
 
@@ -779,42 +515,19 @@ export default async function ErpArticlesPage({
           <table className="min-w-full text-sm">
             <thead className="bg-white text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-left">
-                  SKU
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Titel
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Grade
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Voorraad
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Locaties
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Core assortiment
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Prijs
-                </th>
+                <th className="px-4 py-3 text-left">SKU</th>
+                <th className="px-4 py-3 text-left">Titel</th>
+                <th className="px-4 py-3 text-left">Grade</th>
+                <th className="px-4 py-3 text-left">Voorraad</th>
+                <th className="px-4 py-3 text-left">Locaties</th>
+                <th className="px-4 py-3 text-left">Core assortiment</th>
+                <th className="px-4 py-3 text-left">Prijs</th>
               </tr>
             </thead>
 
             <tbody>
               {articles.map((article) => (
-                <tr
-                  key={article.id}
-                  className="border-t hover:bg-slate-50"
-                >
+                <tr key={article.id} className="border-t hover:bg-slate-50">
                   <td className="px-4 py-3 align-top font-mono text-xs font-semibold">
                     {article.sku}
                   </td>
@@ -838,9 +551,7 @@ export default async function ErpArticlesPage({
                             : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {article.active
-                          ? "Actief"
-                          : "Inactief"}
+                        {article.active ? "Actief" : "Inactief"}
                       </span>
 
                       {article.published && (
@@ -856,9 +567,7 @@ export default async function ErpArticlesPage({
                             : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {article.vat_margin
-                          ? "Margin VAT"
-                          : "Normal VAT"}
+                        {article.vat_margin ? "Margin VAT" : "Normal VAT"}
                       </span>
                     </div>
                   </td>
@@ -870,8 +579,7 @@ export default async function ErpArticlesPage({
                   <td className="px-4 py-3 align-top">
                     <span
                       className={`rounded-full px-2 py-1 text-xs font-medium ${
-                        (article.inventory_qty ||
-                          0) > 0
+                        (article.inventory_qty || 0) > 0
                           ? "bg-green-100 text-green-700"
                           : "bg-red-100 text-red-700"
                       }`}
@@ -882,27 +590,13 @@ export default async function ErpArticlesPage({
 
                   <td className="px-4 py-3 align-top text-xs space-y-1">
                     <div>
-                      Gentbrugge:{" "}
-                      <b>
-                        {article.stock_gentbrugge ||
-                          0}
-                      </b>
+                      Gentbrugge: <b>{article.stock_gentbrugge || 0}</b>
                     </div>
-
                     <div>
-                      Oudenaarde:{" "}
-                      <b>
-                        {article.stock_oudenaarde ||
-                          0}
-                      </b>
+                      Oudenaarde: <b>{article.stock_oudenaarde || 0}</b>
                     </div>
-
                     <div>
-                      Antwerpen:{" "}
-                      <b>
-                        {article.stock_antwerpen ||
-                          0}
-                      </b>
+                      Antwerpen: <b>{article.stock_antwerpen || 0}</b>
                     </div>
                   </td>
 
@@ -913,46 +607,33 @@ export default async function ErpArticlesPage({
                       </span>
                     ) : (
                       <form action={toggleCoreAction}>
-                        <input
-                          type="hidden"
-                          name="id"
-                          value={article.id}
-                        />
-
+                        <input type="hidden" name="id" value={article.id} />
                         <input
                           type="hidden"
                           name="current"
-                          value={String(
-                            !!article.core_assortment
-                          )}
+                          value={String(!!article.core_assortment)}
                         />
 
                         <button
                           type="submit"
-                          className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                             article.core_assortment
-                              ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                              : "bg-slate-50 text-slate-500 border-slate-200"
+                              ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                              : "border-slate-200 bg-slate-50 text-slate-500"
                           }`}
                         >
-                          {article.core_assortment
-                            ? "Core"
-                            : "Geen core"}
+                          {article.core_assortment ? "Core" : "Geen core"}
                         </button>
                       </form>
                     )}
                   </td>
 
                   <td className="px-4 py-3 align-top">
-                    <div className="font-medium">
-                      {money(article.price_cents)}
-                    </div>
+                    <div className="font-medium">{money(article.price_cents)}</div>
 
                     {article.compare_price_cents && (
                       <div className="text-xs text-slate-400 line-through">
-                        {money(
-                          article.compare_price_cents
-                        )}
+                        {money(article.compare_price_cents)}
                       </div>
                     )}
                   </td>
@@ -977,14 +658,10 @@ export default async function ErpArticlesPage({
       <div className="flex items-center justify-between rounded-2xl border bg-white p-4 shadow-sm">
         <Link
           href={buildHref(baseParams, {
-            page: String(
-              Math.max(1, page - 1)
-            ),
+            page: String(Math.max(1, page - 1)),
           })}
           className={`bb-btn text-sm ${
-            page <= 1
-              ? "pointer-events-none opacity-40"
-              : ""
+            page <= 1 ? "pointer-events-none opacity-40" : ""
           }`}
         >
           Vorige
@@ -996,17 +673,10 @@ export default async function ErpArticlesPage({
 
         <Link
           href={buildHref(baseParams, {
-            page: String(
-              Math.min(
-                totalPages,
-                page + 1
-              )
-            ),
+            page: String(Math.min(totalPages, page + 1)),
           })}
           className={`bb-btn text-sm ${
-            page >= totalPages
-              ? "pointer-events-none opacity-40"
-              : ""
+            page >= totalPages ? "pointer-events-none opacity-40" : ""
           }`}
         >
           Volgende
