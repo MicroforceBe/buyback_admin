@@ -38,6 +38,14 @@ const modules = [
     status: "Gepland",
   },
   {
+  title: "CSV import",
+  description:
+    "Importeer ERP artikelbestanden handmatig en werk bestaande SKU’s automatisch bij.",
+  href: "/admin/erp/import",
+  emoji: "📥",
+  status: "Actief",
+},
+  {
   title: "FTP instellingen",
   description:
     "Configureer de FTP locatie, bestandsnaam en login waarmee ERP artikels worden opgehaald.",
