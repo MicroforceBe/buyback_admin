@@ -1,7 +1,6 @@
 // app/admin/refurb/layout.tsx
 import React from "react";
 import RefurbTabs from "./RefurbTabs";
-import RefurbTools from "./RefurbTools";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export const dynamic = "force-dynamic";
@@ -9,12 +8,8 @@ export const revalidate = 0;
 
 export default async function RefurbLayout({
   children,
-  searchParams,
 }: {
   children: React.ReactNode;
-  searchParams?: {
-    q?: string;
-  };
 }) {
   const user = await getCurrentAdminUser();
 
@@ -40,8 +35,6 @@ export default async function RefurbLayout({
           </>
         )}
       </div>
-
-      <RefurbTools searchParams={searchParams} />
 
       <RefurbTabs role={role} />
 
