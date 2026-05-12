@@ -15,7 +15,7 @@ type ErpSettings = {
   ftp_host: string | null;
   ftp_port: number | null;
   ftp_secure: boolean | null;
-  ftp_user: string |null;
+  ftp_user: string | null;
   ftp_password: string | null;
   ftp_directory: string | null;
   ftp_filename: string | null;
@@ -130,6 +130,10 @@ async function syncErpArticlesAction() {
     redirect("/admin/erp/sync?msg=missing_ftp_settings");
   }
 
+  let processed = 0;
+  let skipped = 0;
+  let errorMessage: string | null = null;
+
   try {
     const fileBuffer = await downloadFtpFile(settings);
 
@@ -147,8 +151,6 @@ async function syncErpArticlesAction() {
     });
 
     const payloads: any[] = [];
-
-    let skipped = 0;
 
     for (const row of rows) {
       const sku = String(
@@ -246,10 +248,7 @@ async function syncErpArticlesAction() {
       });
     }
 
-    // ✅ bulk chunked upsert
     const chunkSize = 500;
-
-    let processed = 0;
 
     for (
       let i = 0;
@@ -273,11 +272,8 @@ async function syncErpArticlesAction() {
           error
         );
 
-        redirect(
-          `/admin/erp/sync?msg=${encodeURIComponent(
-            error.message
-          )}`
-        );
+        errorMessage = error.message;
+        break;
       }
 
       processed += chunk.length;
@@ -285,19 +281,24 @@ async function syncErpArticlesAction() {
 
     revalidatePath("/admin/erp/articles");
     revalidatePath("/admin/erp/sync");
-
-    redirect(
-      `/admin/erp/sync?msg=synced&inserted=${processed}&updated=bulk&skipped=${skipped}`
-    );
   } catch (e: any) {
     console.error("[ERP SYNC] error", e);
 
+    errorMessage =
+      e?.message || "sync_failed";
+  }
+
+  if (errorMessage) {
     redirect(
       `/admin/erp/sync?msg=${encodeURIComponent(
-        e?.message || "sync_failed"
+        errorMessage
       )}`
     );
   }
+
+  redirect(
+    `/admin/erp/sync?msg=synced&inserted=${processed}&updated=bulk&skipped=${skipped}`
+  );
 }
 
 export default async function ErpSyncPage({
