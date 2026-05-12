@@ -22,7 +22,6 @@ type ErpArticle = {
   stock_antwerpen: number | null;
   price_cents: number | null;
   compare_price_cents: number | null;
-  updated_at: string | null;
 };
 
 const PAGE_SIZE = 100;
@@ -49,26 +48,20 @@ async function getFilterOptions() {
 
   if (error) {
     console.error("[ERP ARTICLES] filter options error", error);
-    return {
-      brands: [],
-      models: [],
-      grades: [],
-    };
+    return { brands: [], models: [], grades: [] };
   }
 
-  const brands = Array.from(
-    new Set((data || []).map((x: any) => x.brand).filter(Boolean))
-  ).sort();
-
-  const models = Array.from(
-    new Set((data || []).map((x: any) => x.model).filter(Boolean))
-  ).sort();
-
-  const grades = Array.from(
-    new Set((data || []).map((x: any) => x.condition_grade).filter(Boolean))
-  ).sort();
-
-  return { brands, models, grades };
+  return {
+    brands: Array.from(
+      new Set((data || []).map((x: any) => x.brand).filter(Boolean))
+    ).sort(),
+    models: Array.from(
+      new Set((data || []).map((x: any) => x.model).filter(Boolean))
+    ).sort(),
+    grades: Array.from(
+      new Set((data || []).map((x: any) => x.condition_grade).filter(Boolean))
+    ).sort(),
+  };
 }
 
 async function getArticles(params: {
@@ -79,6 +72,8 @@ async function getArticles(params: {
   status: string;
   stock: string;
   refurbished: string;
+  vat: string;
+  location: string;
   page: number;
 }) {
   const from = (params.page - 1) * PAGE_SIZE;
@@ -103,8 +98,7 @@ async function getArticles(params: {
       stock_oudenaarde,
       stock_antwerpen,
       price_cents,
-      compare_price_cents,
-      updated_at
+      compare_price_cents
     `,
       { count: "exact" }
     )
@@ -119,48 +113,32 @@ async function getArticles(params: {
 
   if (params.status === "inactive") {
     query = query.eq("active", false);
-  } else if (params.status === "all") {
-    // niets filteren
-  } else {
+  } else if (params.status !== "all") {
     query = query.eq("active", true);
   }
 
-  if (params.brand) {
-    query = query.eq("brand", params.brand);
-  }
+  if (params.brand) query = query.eq("brand", params.brand);
+  if (params.model) query = query.eq("model", params.model);
+  if (params.grade) query = query.eq("condition_grade", params.grade);
 
-  if (params.model) {
-    query = query.eq("model", params.model);
-  }
+  if (params.stock === "in_stock") query = query.gt("inventory_qty", 0);
+  if (params.stock === "out_of_stock") query = query.lte("inventory_qty", 0);
 
-  if (params.grade) {
-    query = query.eq("condition_grade", params.grade);
-  }
+  if (params.refurbished === "yes") query = query.eq("refurbished_product", true);
+  if (params.refurbished === "no") query = query.eq("refurbished_product", false);
 
-  if (params.stock === "in_stock") {
-    query = query.gt("inventory_qty", 0);
-  }
+  if (params.vat === "margin") query = query.eq("vat_margin", true);
+  if (params.vat === "normal") query = query.eq("vat_margin", false);
 
-  if (params.stock === "out_of_stock") {
-    query = query.lte("inventory_qty", 0);
-  }
-
-  if (params.refurbished === "yes") {
-    query = query.eq("refurbished_product", true);
-  }
-
-  if (params.refurbished === "no") {
-    query = query.eq("refurbished_product", false);
-  }
+  if (params.location === "gentbrugge") query = query.gt("stock_gentbrugge", 0);
+  if (params.location === "oudenaarde") query = query.gt("stock_oudenaarde", 0);
+  if (params.location === "antwerpen") query = query.gt("stock_antwerpen", 0);
 
   const { data, error, count } = await query;
 
   if (error) {
     console.error("[ERP ARTICLES] fetch error", error);
-    return {
-      articles: [],
-      count: 0,
-    };
+    return { articles: [], count: 0 };
   }
 
   return {
@@ -172,10 +150,7 @@ async function getArticles(params: {
 function buildHref(baseParams: Record<string, string>, overrides: Record<string, string>) {
   const sp = new URLSearchParams();
 
-  Object.entries({
-    ...baseParams,
-    ...overrides,
-  }).forEach(([key, value]) => {
+  Object.entries({ ...baseParams, ...overrides }).forEach(([key, value]) => {
     if (value) sp.set(key, value);
   });
 
@@ -195,6 +170,8 @@ export default async function ErpArticlesPage({
   const status = getStringParam(searchParams?.status).trim() || "active";
   const stock = getStringParam(searchParams?.stock).trim();
   const refurbished = getStringParam(searchParams?.refurbished).trim();
+  const vat = getStringParam(searchParams?.vat).trim();
+  const location = getStringParam(searchParams?.location).trim();
 
   const pageRaw = Number(getStringParam(searchParams?.page) || "1");
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
@@ -207,6 +184,8 @@ export default async function ErpArticlesPage({
     status,
     stock,
     refurbished,
+    vat,
+    location,
   };
 
   const [{ articles, count }, filterOptions] = await Promise.all([
@@ -218,6 +197,8 @@ export default async function ErpArticlesPage({
       status,
       stock,
       refurbished,
+      vat,
+      location,
       page,
     }),
     getFilterOptions(),
@@ -233,103 +214,182 @@ export default async function ErpArticlesPage({
             ERP Artikeldatabase
           </div>
 
-          <h1 className="mt-3 text-3xl font-bold">
-            Centrale ERP artikels
-          </h1>
+          <h1 className="mt-3 text-3xl font-bold">Centrale ERP artikels</h1>
 
           <p className="mt-3 text-sm text-slate-300">
-            Beheer en doorzoek de gesynchroniseerde SKU database voor refurb,
-            leads en labelprinting.
+            Doorzoek, filter en beheer de gesynchroniseerde SKU database voor
+            refurb, leads en labelprinting.
           </p>
         </div>
       </div>
 
       <form
         action="/admin/erp/articles"
-        className="rounded-2xl border bg-white p-5 shadow-sm space-y-4"
+        className="rounded-2xl border bg-white p-5 shadow-sm space-y-5"
       >
-        <div className="grid gap-3 lg:grid-cols-4">
-          <input
-            name="q"
-            defaultValue={q}
-            placeholder="Zoek SKU, titel, merk, model..."
-            className="rounded-xl border px-4 py-2 text-sm lg:col-span-2"
-          />
+        <div className="flex items-center justify-between gap-4 border-b pb-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              🔎 Filters
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Verfijn op SKU, artikelstatus, voorraad, BTW-regeling, locatie,
+              merk, model en grade.
+            </p>
+          </div>
 
-          <select
-            name="status"
-            defaultValue={status}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="active">Alleen actief</option>
-            <option value="all">Alle artikels</option>
-            <option value="inactive">Alleen niet actief</option>
-          </select>
-
-          <select
-            name="stock"
-            defaultValue={stock}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">Alle voorraad</option>
-            <option value="in_stock">Op voorraad</option>
-            <option value="out_of_stock">Geen voorraad</option>
-          </select>
-
-          <select
-            name="brand"
-            defaultValue={brand}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">Alle merken</option>
-            {filterOptions.brands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-
-          <select
-            name="model"
-            defaultValue={model}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">Alle modellen</option>
-            {filterOptions.models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-
-          <select
-            name="grade"
-            defaultValue={grade}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">Alle grades</option>
-            {filterOptions.grades.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-
-          <select
-            name="refurbished"
-            defaultValue={refurbished}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">Refurb: alles</option>
-            <option value="yes">Alleen refurb</option>
-            <option value="no">Niet refurb</option>
-          </select>
+          <div className="text-sm text-slate-500">
+            {count} artikel{count === 1 ? "" : "en"}
+          </div>
         </div>
 
-        <div className="flex justify-between gap-2">
+        <div className="grid gap-4 xl:grid-cols-4">
+          <label className="space-y-1 xl:col-span-2">
+            <span className="text-xs font-medium text-slate-500">
+              🔍 Zoekterm
+            </span>
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="SKU, titel, merk, model of grade..."
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              ✅ Artikelstatus
+            </span>
+            <select
+              name="status"
+              defaultValue={status}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="active">Alleen actief</option>
+              <option value="all">Alle artikels</option>
+              <option value="inactive">Alleen niet actief</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              📦 Voorraad
+            </span>
+            <select
+              name="stock"
+              defaultValue={stock}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle voorraad</option>
+              <option value="in_stock">Op voorraad</option>
+              <option value="out_of_stock">Geen voorraad</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              🧾 BTW-regeling
+            </span>
+            <select
+              name="vat"
+              defaultValue={vat}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle BTW-regelingen</option>
+              <option value="margin">Margin VAT</option>
+              <option value="normal">Normal VAT</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              📍 Locatie
+            </span>
+            <select
+              name="location"
+              defaultValue={location}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle locaties</option>
+              <option value="gentbrugge">Microforce Gentbrugge</option>
+              <option value="oudenaarde">Microforce Oudenaarde</option>
+              <option value="antwerpen">Microforce Antwerpen</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              ♻️ Refurb
+            </span>
+            <select
+              name="refurbished"
+              defaultValue={refurbished}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Refurb: alles</option>
+              <option value="yes">Alleen refurb</option>
+              <option value="no">Niet refurb</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              🏷️ Merk
+            </span>
+            <select
+              name="brand"
+              defaultValue={brand}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle merken</option>
+              {filterOptions.brands.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              📱 Model
+            </span>
+            <select
+              name="model"
+              defaultValue={model}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle modellen</option>
+              {filterOptions.models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">
+              ⭐ Grade
+            </span>
+            <select
+              name="grade"
+              defaultValue={grade}
+              className="w-full rounded-xl border px-4 py-2 text-sm"
+            >
+              <option value="">Alle grades</option>
+              {filterOptions.grades.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex justify-between gap-2 border-t pt-4">
           <div className="text-sm text-slate-500">
-            {count} artikel{count === 1 ? "" : "en"} gevonden · pagina {page} van{" "}
-            {totalPages}
+            Pagina {page} van {totalPages} · meest recente SKU’s bovenaan
           </div>
 
           <div className="flex gap-2">
@@ -344,20 +404,14 @@ export default async function ErpArticlesPage({
         </div>
       </form>
 
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">
-          Meest recente SKU’s bovenaan
-        </div>
+      <div className="flex justify-end gap-2">
+        <Link href="/admin/erp/sync" className="bb-btn text-sm">
+          Sync
+        </Link>
 
-        <div className="flex gap-2">
-          <Link href="/admin/erp/sync" className="bb-btn text-sm">
-            Sync
-          </Link>
-
-          <Link href="/admin/erp/import" className="bb-btn text-sm">
-            Import
-          </Link>
-        </div>
+        <Link href="/admin/erp/import" className="bb-btn text-sm">
+          Import
+        </Link>
       </div>
 
       <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -367,14 +421,10 @@ export default async function ErpArticlesPage({
               <tr>
                 <th className="px-4 py-3 text-left">SKU</th>
                 <th className="px-4 py-3 text-left">Titel</th>
-                <th className="px-4 py-3 text-left">Merk</th>
-                <th className="px-4 py-3 text-left">Model</th>
                 <th className="px-4 py-3 text-left">Grade</th>
                 <th className="px-4 py-3 text-left">Voorraad</th>
                 <th className="px-4 py-3 text-left">Locaties</th>
                 <th className="px-4 py-3 text-left">Prijs</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Update</th>
               </tr>
             </thead>
 
@@ -392,19 +442,45 @@ export default async function ErpArticlesPage({
                       {article.title || "—"}
                     </div>
 
-                    {article.refurbished_product && (
-                      <div className="mt-1 inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
-                        Refurb
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {article.refurbished_product && (
+                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                          Refurb
+                        </span>
+                      )}
+
+                      {article.active ? (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+                          Actief
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                          Inactief
+                        </span>
+                      )}
+
+                      {article.published && (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                          Published
+                        </span>
+                      )}
+
+                      {article.vat_margin ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                          Margin VAT
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                          Normal VAT
+                        </span>
+                      )}
+                    </div>
+
+                    {(article.brand || article.model) && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        {[article.brand, article.model].filter(Boolean).join(" · ")}
                       </div>
                     )}
-                  </td>
-
-                  <td className="px-4 py-3 align-top">
-                    {article.brand || "—"}
-                  </td>
-
-                  <td className="px-4 py-3 align-top">
-                    {article.model || "—"}
                   </td>
 
                   <td className="px-4 py-3 align-top">
@@ -448,45 +524,13 @@ export default async function ErpArticlesPage({
                       </div>
                     )}
                   </td>
-
-                  <td className="px-4 py-3 align-top">
-                    <div className="flex flex-wrap gap-1">
-                      {article.active ? (
-                        <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-medium text-green-700">
-                          Actief
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-red-100 px-2 py-1 text-[11px] font-medium text-red-700">
-                          Inactief
-                        </span>
-                      )}
-
-                      {article.published && (
-                        <span className="rounded-full bg-indigo-100 px-2 py-1 text-[11px] font-medium text-indigo-700">
-                          Published
-                        </span>
-                      )}
-
-                      {article.vat_margin && (
-                        <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
-                          Margin VAT
-                        </span>
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-3 align-top text-xs text-slate-500">
-                    {article.updated_at
-                      ? new Date(article.updated_at).toLocaleString("nl-BE")
-                      : "—"}
-                  </td>
                 </tr>
               ))}
 
               {articles.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={6}
                     className="px-4 py-10 text-center text-sm text-slate-500"
                   >
                     Geen artikelen gevonden.
