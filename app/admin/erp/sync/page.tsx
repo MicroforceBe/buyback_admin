@@ -15,7 +15,8 @@ type ErpSettingsRow = {
   ftp_port: number | null;
   ftp_user: string | null;
   ftp_password: string | null;
-  ftp_path: string | null;
+  ftp_directory: string | null;
+  ftp_filename: string | null;
   ftp_secure: boolean | null;
 };
 
@@ -37,7 +38,7 @@ async function syncErpAction() {
       !settings.ftp_host ||
       !settings.ftp_user ||
       !settings.ftp_password ||
-      !settings.ftp_path
+      !settings.ftp_filename
     ) {
       throw new Error(
         "FTP instellingen zijn onvolledig."
@@ -61,6 +62,11 @@ async function syncErpAction() {
 
     const chunks: Buffer[] = [];
 
+    const remotePath = `${settings.ftp_directory || ""}/${settings.ftp_filename}`.replace(
+      /^\/+/,
+      ""
+    );
+
     await client.downloadTo(
       {
         write(chunk: Buffer) {
@@ -73,7 +79,7 @@ async function syncErpAction() {
           return this;
         },
       } as any,
-      settings.ftp_path
+      remotePath
     );
 
     await client.close();
