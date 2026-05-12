@@ -56,20 +56,23 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
     .select(`
       id,
       reception_id,
-      imei,
-      serial_number,
       sku,
       description,
       used_parts,
-      battery_status,
+      imei_sn,
+      manual_sn,
+      created_at,
+      location,
+      refurb_status,
       refurb_receptions (
         id,
+        reception_number,
         reception_date,
         supplier
       )
     `)
-    .or(`imei.ilike.%${q}%,serial_number.ilike.%${q}%`)
-    .limit(25);
+    .or(`imei_sn.ilike.%${q}%,manual_sn.ilike.%${q}%`)
+    .limit(50);
 
   if (receptionErr) {
     console.error("[REFURB] search reception items error", receptionErr);
@@ -85,42 +88,56 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
       sku: (item as any).sku || null,
       description: (item as any).description || null,
       used_parts: (item as any).used_parts || null,
-      battery_status: (item as any).battery_status || null,
-      purchase_date: reception?.reception_date || null,
+      battery_status: null,
+      purchase_date: reception?.reception_date || (item as any).created_at || null,
       supplier: reception?.supplier || null,
       link: reception?.id ? `/admin/refurb/${reception.id}` : undefined,
     });
   }
 
   const { data: leads, error: leadsErr } = await supabaseAdmin
-    .from("leads")
+    .from("buyback_leads")
     .select(`
       id,
-      imei,
-      serial_number,
+      created_at,
+      source,
+      model,
+      capacity_gb,
       sku,
-      description,
-      used_parts,
-      battery_status,
-      purchase_date,
-      supplier
+      imei_sn,
+      battery_percentage,
+      used_parts_skus,
+      order_code,
+      customer_number,
+      status
     `)
-    .or(`imei.ilike.%${q}%,serial_number.ilike.%${q}%`)
-    .limit(25);
+    .ilike("imei_sn", `%${q}%`)
+    .limit(50);
 
   if (leadsErr) {
-    console.error("[REFURB] search leads error", leadsErr);
+    console.error("[REFURB] search buyback leads error", leadsErr);
   }
 
   for (const lead of leads || []) {
     results.push({
       source: "Lead",
       sku: (lead as any).sku || null,
-      description: (lead as any).description || null,
-      used_parts: (lead as any).used_parts || null,
-      battery_status: (lead as any).battery_status || null,
-      purchase_date: (lead as any).purchase_date || null,
-      supplier: (lead as any).supplier || null,
+      description:
+        [
+          (lead as any).model,
+          (lead as any).capacity_gb ? `${(lead as any).capacity_gb}GB` : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || null,
+      used_parts: Array.isArray((lead as any).used_parts_skus)
+        ? (lead as any).used_parts_skus.join(", ")
+        : null,
+      battery_status:
+        (lead as any).battery_percentage != null
+          ? `${(lead as any).battery_percentage}%`
+          : null,
+      purchase_date: (lead as any).created_at || null,
+      supplier: (lead as any).source || null,
       link: (lead as any).id ? `/admin/leads/${(lead as any).id}` : undefined,
     });
   }
@@ -147,7 +164,12 @@ async function deleteRefurbReceptionAction(formData: FormData) {
     .eq("reception_id", receptionId);
 
   if (delItemsErr) {
-    redirect(`/admin/refurb?msg=delete_items_error:${encodeURIComponent(delItemsErr.message)}`);
+    console.error("[REFURB] delete reception items error", delItemsErr);
+    redirect(
+      `/admin/refurb?msg=delete_items_error:${encodeURIComponent(
+        delItemsErr.message
+      )}`
+    );
   }
 
   const { error: delRecErr } = await supabaseAdmin
@@ -156,7 +178,12 @@ async function deleteRefurbReceptionAction(formData: FormData) {
     .eq("id", receptionId);
 
   if (delRecErr) {
-    redirect(`/admin/refurb?msg=delete_reception_error:${encodeURIComponent(delRecErr.message)}`);
+    console.error("[REFURB] delete reception error", delRecErr);
+    redirect(
+      `/admin/refurb?msg=delete_reception_error:${encodeURIComponent(
+        delRecErr.message
+      )}`
+    );
   }
 
   revalidatePath("/admin/refurb");
@@ -169,6 +196,7 @@ export default async function RefurbListPage({
   searchParams?: { q?: string };
 }) {
   const q = String(searchParams?.q || "").trim();
+
   const [receptions, searchResults, user] = await Promise.all([
     getReceptions(),
     searchRefurbDevice(q),
@@ -181,12 +209,26 @@ export default async function RefurbListPage({
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Refurb receptions</h1>
+
         <Link href="/admin/refurb/new" className="bb-btn bb-btn-primary text-sm">
           Nieuwe receptie
         </Link>
       </div>
 
-      <details className="rounded-md border bg-white">
+      <div className="rounded-md border bg-slate-50 px-4 py-2 text-sm text-slate-700">
+        Ingelogd als{" "}
+        <span className="font-medium">
+          {(user as any)?.email || (user as any)?.name || "admin"}
+        </span>
+        {(user as any)?.role && (
+          <>
+            {" "}
+            · rol: <span className="font-medium">{(user as any).role}</span>
+          </>
+        )}
+      </div>
+
+      <details className="rounded-md border bg-white" open={!!q}>
         <summary className="cursor-pointer select-none px-4 py-3 font-medium">
           Refurb tools
         </summary>
@@ -205,6 +247,7 @@ export default async function RefurbListPage({
               placeholder="Zoek op IMEI / SN"
               className="w-full rounded-md border px-3 py-2 text-sm"
             />
+
             <button type="submit" className="bb-btn bb-btn-primary text-sm">
               Zoek
             </button>
@@ -223,7 +266,10 @@ export default async function RefurbListPage({
               )}
 
               {searchResults.map((result, index) => (
-                <div key={index} className="rounded-md border p-4 text-sm space-y-1">
+                <div
+                  key={`${result.source}-${index}`}
+                  className="rounded-md border p-4 text-sm space-y-1"
+                >
                   <div>
                     <b>Bron:</b> {result.source}
                   </div>
@@ -247,7 +293,10 @@ export default async function RefurbListPage({
                   </div>
 
                   {result.link && (
-                    <Link href={result.link} className="inline-block pt-2 text-blue-600 underline">
+                    <Link
+                      href={result.link}
+                      className="inline-block pt-2 text-blue-600 underline"
+                    >
                       Open
                     </Link>
                   )}
@@ -275,15 +324,21 @@ export default async function RefurbListPage({
           {receptions.map((r) => (
             <tr key={r.id} className="border-b hover:bg-slate-50">
               <td className="px-2 py-1">
-                <Link href={`/admin/refurb/${r.id}`} className="text-blue-600 underline">
+                <Link
+                  href={`/admin/refurb/${r.id}`}
+                  className="text-blue-600 underline"
+                >
                   {r.reception_number}
                 </Link>
               </td>
+
               <td className="px-2 py-1">{r.reception_date}</td>
               <td className="px-2 py-1">{r.supplier}</td>
+
               <td className="px-2 py-1">
                 {r.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT"}
               </td>
+
               <td className="px-2 py-1">{r.supplier_invoice_nr}</td>
               <td className="px-2 py-1">{r.internal_invoice_nr || "—"}</td>
 
@@ -297,16 +352,25 @@ export default async function RefurbListPage({
                     <div className="mt-2 p-2 border rounded-md bg-white text-xs space-y-2">
                       <div className="text-slate-700">
                         Ben je zeker dat je receptie{" "}
-                        <span className="font-semibold">{r.reception_number}</span>{" "}
+                        <span className="font-semibold">
+                          {r.reception_number}
+                        </span>{" "}
                         definitief wil verwijderen?
                         <div className="text-[11px] text-slate-500">
                           (Dit verwijdert ook alle rijen/items.)
                         </div>
                       </div>
 
-                      <form action={deleteRefurbReceptionAction} className="flex items-center gap-2">
+                      <form
+                        action={deleteRefurbReceptionAction}
+                        className="flex items-center gap-2"
+                      >
                         <input type="hidden" name="reception_id" value={r.id} />
-                        <button type="submit" className="bb-btn text-[11px] px-2 h-7">
+
+                        <button
+                          type="submit"
+                          className="bb-btn text-[11px] px-2 h-7"
+                        >
                           Ja, definitief verwijderen
                         </button>
                       </form>
@@ -319,7 +383,10 @@ export default async function RefurbListPage({
 
           {receptions.length === 0 && (
             <tr>
-              <td className="px-2 py-4 text-slate-500" colSpan={isAdmin ? 7 : 6}>
+              <td
+                className="px-2 py-4 text-slate-500"
+                colSpan={isAdmin ? 7 : 6}
+              >
                 Geen recepties gevonden.
               </td>
             </tr>
