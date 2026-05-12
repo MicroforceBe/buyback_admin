@@ -37,6 +37,14 @@ const modules = [
     emoji: "🖨️",
     status: "Gepland",
   },
+  {
+  title: "FTP instellingen",
+  description:
+    "Configureer de FTP locatie, bestandsnaam en login waarmee ERP artikels worden opgehaald.",
+  href: "/admin/erp/settings",
+  emoji: "🔐",
+  status: "Actief",
+},
 ];
 
 export default function ErpPage() {
