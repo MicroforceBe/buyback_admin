@@ -30,6 +30,16 @@ type SearchResult = {
   link?: string;
 };
 
+function formatDate(date: string | null | undefined) {
+  if (!date) return "—";
+
+  try {
+    return new Date(date).toLocaleDateString("nl-BE");
+  } catch {
+    return date;
+  }
+}
+
 async function getReceptions(): Promise<RefurbReception[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
@@ -54,7 +64,7 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
 
   // RECEPTIES
-  const { data: receptionItems, error: receptionErr } = await supabaseAdmin
+  const { data: receptionItems } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(`
       id,
@@ -65,8 +75,6 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
       imei_sn,
       manual_sn,
       created_at,
-      location,
-      refurb_status,
       refurb_receptions (
         id,
         reception_number,
@@ -76,10 +84,6 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
     `)
     .or(`imei_sn.ilike.%${q}%,manual_sn.ilike.%${q}%`)
     .limit(50);
-
-  if (receptionErr) {
-    console.error("[REFURB] search reception items error", receptionErr);
-  }
 
   for (const item of receptionItems || []) {
     const reception = Array.isArray((item as any).refurb_receptions)
@@ -101,7 +105,7 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
   }
 
   // LEADS
-  const { data: leads, error: leadsErr } = await supabaseAdmin
+  const { data: leads } = await supabaseAdmin
     .from("buyback_leads")
     .select(`
       id,
@@ -115,16 +119,17 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
       used_parts_skus,
       order_code,
       customer_number,
-      status
+      first_name,
+      last_name
     `)
     .ilike("imei_sn", `%${q}%`)
     .limit(50);
 
-  if (leadsErr) {
-    console.error("[REFURB] search buyback leads error", leadsErr);
-  }
-
   for (const lead of leads || []) {
+    const firstName = (lead as any).first_name || "";
+    const lastName = (lead as any).last_name || "";
+    const fullName = `${firstName} ${lastName}`.trim();
+
     results.push({
       source: "Lead",
       reference_number: (lead as any).order_code || null,
@@ -145,8 +150,14 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
         (lead as any).battery_percentage != null
           ? `${(lead as any).battery_percentage}%`
           : null,
-      purchase_date: (lead as any).created_at || null,
-      supplier: (lead as any).source || null,
+      purchase_date: formatDate((lead as any).created_at),
+      supplier:
+        [
+          (lead as any).customer_number,
+          fullName,
+        ]
+          .filter(Boolean)
+          .join(" - ") || null,
       link: (lead as any).id ? `/admin/leads/${(lead as any).id}` : undefined,
     });
   }
@@ -154,7 +165,6 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-// DELETE
 async function deleteRefurbReceptionAction(formData: FormData) {
   "use server";
 
@@ -449,20 +459,8 @@ export default async function RefurbListPage({
               )}
             </tr>
           ))}
-
-          {receptions.length === 0 && (
-            <tr>
-              <td
-                className="px-2 py-4 text-slate-500"
-                colSpan={isAdmin ? 7 : 6}
-              >
-                Geen recepties gevonden.
-              </td>
-            </tr>
-          )}
         </tbody>
       </table>
     </div>
   );
 }
-
