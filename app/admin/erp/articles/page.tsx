@@ -53,8 +53,7 @@ async function toggleCoreAction(formData: FormData) {
   "use server";
 
   const id = String(formData.get("id") || "");
-  const current =
-    String(formData.get("current") || "") === "true";
+  const current = String(formData.get("current") || "") === "true";
 
   if (!id) return;
 
@@ -71,9 +70,7 @@ async function toggleCoreAction(formData: FormData) {
 async function getFilterOptions() {
   const { data } = await supabaseAdmin
     .from("erp_articles")
-    .select(
-      "brand, model, condition_grade"
-    )
+    .select("brand, model, condition_grade")
     .eq("active", true);
 
   return {
@@ -104,16 +101,37 @@ async function getFilterOptions() {
 }
 
 async function getArticles(params: any) {
-  const from =
-    (params.page - 1) * PAGE_SIZE;
-
-  const to =
-    from + PAGE_SIZE - 1;
+  const from = (params.page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
 
   let query = supabaseAdmin
     .from("erp_articles")
     .select(
-            id,       sku,       title,        brand,       model,       condition_grade,        active,       published,       refurbished_product,       vat_margin,        inventory_qty,        stock_gentbrugge,       stock_oudenaarde,       stock_antwerpen,        price_cents,       compare_price_cents,        core_assortment    ,
+      `
+      id,
+      sku,
+      title,
+
+      brand,
+      model,
+      condition_grade,
+
+      active,
+      published,
+      refurbished_product,
+      vat_margin,
+
+      inventory_qty,
+
+      stock_gentbrugge,
+      stock_oudenaarde,
+      stock_antwerpen,
+
+      price_cents,
+      compare_price_cents,
+
+      core_assortment
+    `,
       { count: "exact" }
     )
     .order("sku", {
@@ -122,165 +140,95 @@ async function getArticles(params: any) {
     .range(from, to);
 
   if (params.q) {
-    query = query.or(
-      `
+    query = query.or(`
       sku.ilike.%${params.q}%,
       title.ilike.%${params.q}%,
       brand.ilike.%${params.q}%,
       model.ilike.%${params.q}%,
       condition_grade.ilike.%${params.q}%
-    `
-    );
+    `);
   }
 
   if (params.status === "inactive") {
     query = query.eq("active", false);
-  } else if (
-    params.status !== "all"
-  ) {
+  } else if (params.status !== "all") {
     query = query.eq("active", true);
   }
 
   if (params.brand) {
-    query = query.eq(
-      "brand",
-      params.brand
-    );
+    query = query.eq("brand", params.brand);
   }
 
   if (params.model) {
-    query = query.eq(
-      "model",
-      params.model
-    );
+    query = query.eq("model", params.model);
   }
 
   if (params.grade) {
-    query = query.eq(
-      "condition_grade",
-      params.grade
-    );
+    query = query.eq("condition_grade", params.grade);
   }
 
   if (params.stock === "in_stock") {
-    query = query.gt(
-      "inventory_qty",
-      0
-    );
+    query = query.gt("inventory_qty", 0);
   }
 
-  if (
-    params.stock === "out_of_stock"
-  ) {
-    query = query.lte(
-      "inventory_qty",
-      0
-    );
+  if (params.stock === "out_of_stock") {
+    query = query.lte("inventory_qty", 0);
   }
 
-  if (
-    params.refurbished === "yes"
-  ) {
-    query = query.eq(
-      "refurbished_product",
-      true
-    );
+  if (params.refurbished === "yes") {
+    query = query.eq("refurbished_product", true);
   }
 
-  if (
-    params.refurbished === "no"
-  ) {
-    query = query.eq(
-      "refurbished_product",
-      false
-    );
+  if (params.refurbished === "no") {
+    query = query.eq("refurbished_product", false);
   }
 
   if (params.vat === "margin") {
-    query = query.eq(
-      "vat_margin",
-      true
-    );
+    query = query.eq("vat_margin", true);
   }
 
   if (params.vat === "normal") {
-    query = query.eq(
-      "vat_margin",
-      false
-    );
+    query = query.eq("vat_margin", false);
   }
 
-  if (
-    params.location ===
-    "gentbrugge"
-  ) {
-    query = query.gt(
-      "stock_gentbrugge",
-      0
-    );
+  if (params.location === "gentbrugge") {
+    query = query.gt("stock_gentbrugge", 0);
   }
 
-  if (
-    params.location ===
-    "oudenaarde"
-  ) {
-    query = query.gt(
-      "stock_oudenaarde",
-      0
-    );
+  if (params.location === "oudenaarde") {
+    query = query.gt("stock_oudenaarde", 0);
   }
 
-  if (
-    params.location ===
-    "antwerpen"
-  ) {
-    query = query.gt(
-      "stock_antwerpen",
-      0
-    );
+  if (params.location === "antwerpen") {
+    query = query.gt("stock_antwerpen", 0);
   }
 
   if (params.core === "yes") {
-    query = query.eq(
-      "core_assortment",
-      true
-    );
+    query = query.eq("core_assortment", true);
   }
 
   if (params.core === "no") {
-    query = query.eq(
-      "core_assortment",
-      false
-    );
+    query = query.eq("core_assortment", false);
   }
 
   if (params.minPrice) {
     query = query.gte(
       "price_cents",
-      Number(params.minPrice) *
-        100
+      Number(params.minPrice) * 100
     );
   }
 
   if (params.maxPrice) {
     query = query.lte(
       "price_cents",
-      Number(params.maxPrice) *
-        100
+      Number(params.maxPrice) * 100
     );
   }
 
-  const {
-    data,
-    error,
-    count,
-  } = await query;
+  const { data, error, count } = await query;
 
   if (error) {
-    console.error(
-      "[ERP ARTICLES] fetch error",
-      error
-    );
+    console.error("[ERP ARTICLES] fetch error", error);
 
     return {
       articles: [],
@@ -344,45 +292,30 @@ export default async function ErpArticlesPage({
     string | string[] | undefined
   >;
 }) {
-  const q = p(
-    searchParams?.q
-  ).trim();
+  const q = p(searchParams?.q).trim();
 
-  const brand = p(
-    searchParams?.brand
-  ).trim();
+  const brand = p(searchParams?.brand).trim();
 
-  const model = p(
-    searchParams?.model
-  ).trim();
+  const model = p(searchParams?.model).trim();
 
-  const grade = p(
-    searchParams?.grade
-  ).trim();
+  const grade = p(searchParams?.grade).trim();
 
   const status =
-    p(searchParams?.status).trim() ||
-    "active";
+    p(searchParams?.status).trim() || "active";
 
-  const stock = p(
-    searchParams?.stock
-  ).trim();
+  const stock = p(searchParams?.stock).trim();
 
   const refurbished = p(
     searchParams?.refurbished
   ).trim();
 
-  const vat = p(
-    searchParams?.vat
-  ).trim();
+  const vat = p(searchParams?.vat).trim();
 
   const location = p(
     searchParams?.location
   ).trim();
 
-  const core = p(
-    searchParams?.core
-  ).trim();
+  const core = p(searchParams?.core).trim();
 
   const minPrice = p(
     searchParams?.minPrice
@@ -397,8 +330,7 @@ export default async function ErpArticlesPage({
   );
 
   const page =
-    Number.isFinite(pageRaw) &&
-    pageRaw > 0
+    Number.isFinite(pageRaw) && pageRaw > 0
       ? Math.floor(pageRaw)
       : 1;
 
@@ -417,28 +349,26 @@ export default async function ErpArticlesPage({
     maxPrice,
   };
 
-  const [
-    { articles, count },
-    filterOptions,
-  ] = await Promise.all([
-    getArticles({
-      q,
-      brand,
-      model,
-      grade,
-      status,
-      stock,
-      refurbished,
-      vat,
-      location,
-      core,
-      minPrice,
-      maxPrice,
-      page,
-    }),
+  const [{ articles, count }, filterOptions] =
+    await Promise.all([
+      getArticles({
+        q,
+        brand,
+        model,
+        grade,
+        status,
+        stock,
+        refurbished,
+        vat,
+        location,
+        core,
+        minPrice,
+        maxPrice,
+        page,
+      }),
 
-    getFilterOptions(),
-  ]);
+      getFilterOptions(),
+    ]);
 
   const totalPages = Math.max(
     1,
@@ -468,475 +398,13 @@ export default async function ErpArticlesPage({
           </h1>
 
           <p className="mt-3 text-sm text-slate-300">
-            Doorzoek, filter en
-            beheer de
-            gesynchroniseerde SKU
-            database voor refurb,
-            leads en
+            Doorzoek, filter en beheer de
+            gesynchroniseerde SKU database
+            voor refurb, leads en
             labelprinting.
           </p>
         </div>
       </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold text-slate-900">
-            ⭐ Grade beheer
-          </div>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Gedetecteerde grades:{" "}
-            {
-              filterOptions.grades
-                .length
-            }
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-1">
-            {filterOptions.grades
-              .slice(0, 10)
-              .map((g) => (
-                <span
-                  key={g}
-                  className="rounded-full bg-slate-100 px-2 py-1 text-xs"
-                >
-                  {g}
-                </span>
-              ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold text-slate-900">
-            📱 Modellen
-          </div>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Gedetecteerde modellen:{" "}
-            {
-              filterOptions.models
-                .length
-            }
-          </p>
-
-          <div className="mt-3 flex flex-wrap gap-1">
-            {filterOptions.models
-              .slice(0, 8)
-              .map((m) => (
-                <span
-                  key={m}
-                  className="rounded-full bg-slate-100 px-2 py-1 text-xs"
-                >
-                  {m}
-                </span>
-              ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="text-sm font-semibold text-slate-900">
-            🏬 Core assortiment
-          </div>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Duid aan of een
-            niet-refurb artikel
-            tot het core
-            assortiment behoort.
-          </p>
-        </div>
-      </div>
-
-      <form
-        action="/admin/erp/articles"
-        className="rounded-3xl border bg-white p-5 shadow-sm space-y-5"
-      >
-        <div className="flex items-center justify-between border-b pb-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              🔎 Slim
-              filterpaneel
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Gebruik snelle
-              toggles,
-              locatiekeuze en
-              prijsbereik.
-            </p>
-          </div>
-
-          <Link
-            href="/admin/erp/articles"
-            className="bb-btn text-sm"
-          >
-            Reset
-          </Link>
-        </div>
-
-        <input
-          name="q"
-          defaultValue={q}
-          placeholder="Zoek SKU, titel, merk, model of grade..."
-          className="w-full rounded-2xl border px-4 py-3 text-sm"
-        />
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <div className="mb-3 text-xs font-semibold uppercase text-slate-500">
-              Status
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    status:
-                      "active",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={
-                    status ===
-                    "active"
-                  }
-                >
-                  ✅ Actief
-                </ToggleButton>
-              </Link>
-
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    status:
-                      "all",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={
-                    status ===
-                    "all"
-                  }
-                >
-                  📋 Alles
-                </ToggleButton>
-              </Link>
-
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    status:
-                      "inactive",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={
-                    status ===
-                    "inactive"
-                  }
-                >
-                  ⛔ Niet
-                  actief
-                </ToggleButton>
-              </Link>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <div className="mb-3 text-xs font-semibold uppercase text-slate-500">
-              BTW
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    vat: "",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={!vat}
-                >
-                  🧾 Alles
-                </ToggleButton>
-              </Link>
-
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    vat: "margin",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={
-                    vat ===
-                    "margin"
-                  }
-                >
-                  Margin VAT
-                </ToggleButton>
-              </Link>
-
-              <Link
-                href={buildHref(
-                  baseParams,
-                  {
-                    vat: "normal",
-                    page: "",
-                  }
-                )}
-              >
-                <ToggleButton
-                  active={
-                    vat ===
-                    "normal"
-                  }
-                >
-                  Normal VAT
-                </ToggleButton>
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-5">
-          <select
-            name="brand"
-            defaultValue={brand}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">
-              🏷️ Alle merken
-            </option>
-
-            {filterOptions.brands.map(
-              (b) => (
-                <option
-                  key={b}
-                  value={b}
-                >
-                  {b}
-                </option>
-              )
-            )}
-          </select>
-
-          <select
-            name="model"
-            defaultValue={model}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">
-              📱 Alle modellen
-            </option>
-
-            {filterOptions.models.map(
-              (m) => (
-                <option
-                  key={m}
-                  value={m}
-                >
-                  {m}
-                </option>
-              )
-            )}
-          </select>
-
-          <select
-            name="grade"
-            defaultValue={grade}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">
-              ⭐ Alle grades
-            </option>
-
-            {filterOptions.grades.map(
-              (g) => (
-                <option
-                  key={g}
-                  value={g}
-                >
-                  {g}
-                </option>
-              )
-            )}
-          </select>
-
-          <select
-            name="stock"
-            defaultValue={stock}
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">
-              📦 Alle voorraad
-            </option>
-
-            <option value="in_stock">
-              Op voorraad
-            </option>
-
-            <option value="out_of_stock">
-              Geen voorraad
-            </option>
-          </select>
-
-          <select
-            name="refurbished"
-            defaultValue={
-              refurbished
-            }
-            className="rounded-xl border px-4 py-2 text-sm"
-          >
-            <option value="">
-              ♻️ Refurb:
-              alles
-            </option>
-
-            <option value="yes">
-              Alleen refurb
-            </option>
-
-            <option value="no">
-              Niet refurb
-            </option>
-          </select>
-        </div>
-
-        <div className="rounded-2xl border bg-slate-50 p-4">
-          <div className="mb-3 text-xs font-semibold uppercase text-slate-500">
-            Core assortiment
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={buildHref(
-                baseParams,
-                {
-                  core: "",
-                  page: "",
-                }
-              )}
-            >
-              <ToggleButton
-                active={!core}
-              >
-                Alles
-              </ToggleButton>
-            </Link>
-
-            <Link
-              href={buildHref(
-                baseParams,
-                {
-                  core: "yes",
-                  page: "",
-                }
-              )}
-            >
-              <ToggleButton
-                active={
-                  core ===
-                  "yes"
-                }
-              >
-                Core
-                assortiment
-              </ToggleButton>
-            </Link>
-
-            <Link
-              href={buildHref(
-                baseParams,
-                {
-                  core: "no",
-                  page: "",
-                }
-              )}
-            >
-              <ToggleButton
-                active={
-                  core ===
-                  "no"
-                }
-              >
-                Geen core
-              </ToggleButton>
-            </Link>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border bg-slate-50 p-4">
-          <div className="mb-3 text-xs font-semibold uppercase text-slate-500">
-            Prijsbereik
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="text-sm text-slate-600">
-              Min prijs:
-              €{minPrice || 0}
-
-              <input
-                type="range"
-                name="minPrice"
-                min="0"
-                max="3000"
-                step="25"
-                defaultValue={
-                  minPrice ||
-                  "0"
-                }
-                className="mt-2 w-full"
-              />
-            </label>
-
-            <label className="text-sm text-slate-600">
-              Max prijs:
-              €
-              {maxPrice ||
-                3000}
-
-              <input
-                type="range"
-                name="maxPrice"
-                min="0"
-                max="3000"
-                step="25"
-                defaultValue={
-                  maxPrice ||
-                  "3000"
-                }
-                className="mt-2 w-full"
-              />
-            </label>
-          </div>
-        </div>
-
-        <div className="flex justify-end border-t pt-4">
-          <button
-            type="submit"
-            className="bb-btn bb-btn-primary text-sm"
-          >
-            Filters
-            toepassen
-          </button>
-        </div>
-      </form>
 
       <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
         <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3">
@@ -946,12 +414,9 @@ export default async function ErpArticlesPage({
             </div>
 
             <div className="text-xs text-slate-500">
-              {count} records ·
-              toont{" "}
-              {fromRecord}-
-              {toRecord} ·
-              pagina {page} van{" "}
-              {totalPages}
+              {count} records · toont{" "}
+              {fromRecord}-{toRecord} · pagina{" "}
+              {page} van {totalPages}
             </div>
           </div>
 
@@ -970,6 +435,165 @@ export default async function ErpArticlesPage({
               Import
             </Link>
           </div>
+        </div>
+
+        <div className="border-b bg-white p-5">
+          <form
+            action="/admin/erp/articles"
+            className="space-y-5"
+          >
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="Zoek SKU, titel, merk, model of grade..."
+              className="w-full rounded-2xl border px-4 py-3 text-sm"
+            />
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <select
+                name="brand"
+                defaultValue={brand}
+                className="rounded-xl border px-4 py-2 text-sm"
+              >
+                <option value="">
+                  🏷️ Alle merken
+                </option>
+
+                {filterOptions.brands.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                name="model"
+                defaultValue={model}
+                className="rounded-xl border px-4 py-2 text-sm"
+              >
+                <option value="">
+                  📱 Alle modellen
+                </option>
+
+                {filterOptions.models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                name="grade"
+                defaultValue={grade}
+                className="rounded-xl border px-4 py-2 text-sm"
+              >
+                <option value="">
+                  ⭐ Alle grades
+                </option>
+
+                {filterOptions.grades.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={buildHref(baseParams, {
+                  vat: "",
+                  page: "",
+                })}
+              >
+                <ToggleButton active={!vat}>
+                  Alles
+                </ToggleButton>
+              </Link>
+
+              <Link
+                href={buildHref(baseParams, {
+                  vat: "margin",
+                  page: "",
+                })}
+              >
+                <ToggleButton
+                  active={vat === "margin"}
+                >
+                  Margin VAT
+                </ToggleButton>
+              </Link>
+
+              <Link
+                href={buildHref(baseParams, {
+                  vat: "normal",
+                  page: "",
+                })}
+              >
+                <ToggleButton
+                  active={vat === "normal"}
+                >
+                  Normal VAT
+                </ToggleButton>
+              </Link>
+
+              <Link
+                href={buildHref(baseParams, {
+                  core: "yes",
+                  page: "",
+                })}
+              >
+                <ToggleButton
+                  active={core === "yes"}
+                >
+                  Core assortiment
+                </ToggleButton>
+              </Link>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="text-sm text-slate-600">
+                Min prijs: €
+                {minPrice || 0}
+
+                <input
+                  type="range"
+                  name="minPrice"
+                  min="0"
+                  max="3000"
+                  step="25"
+                  defaultValue={minPrice || "0"}
+                  className="mt-2 w-full"
+                />
+              </label>
+
+              <label className="text-sm text-slate-600">
+                Max prijs: €
+                {maxPrice || 3000}
+
+                <input
+                  type="range"
+                  name="maxPrice"
+                  min="0"
+                  max="3000"
+                  step="25"
+                  defaultValue={
+                    maxPrice || "3000"
+                  }
+                  className="mt-2 w-full"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="bb-btn bb-btn-primary text-sm"
+              >
+                Filters toepassen
+              </button>
+            </div>
+          </form>
         </div>
 
         <div className="overflow-x-auto">
@@ -997,8 +621,7 @@ export default async function ErpArticlesPage({
                 </th>
 
                 <th className="px-4 py-3 text-left">
-                  Core
-                  assortiment
+                  Core assortiment
                 </th>
 
                 <th className="px-4 py-3 text-left">
@@ -1008,199 +631,175 @@ export default async function ErpArticlesPage({
             </thead>
 
             <tbody>
-              {articles.map(
-                (article) => (
-                  <tr
-                    key={
-                      article.id
-                    }
-                    className="border-t hover:bg-slate-50"
-                  >
-                    <td className="px-4 py-3 align-top font-mono text-xs font-semibold">
-                      {
-                        article.sku
-                      }
-                    </td>
+              {articles.map((article) => (
+                <tr
+                  key={article.id}
+                  className="border-t hover:bg-slate-50"
+                >
+                  <td className="px-4 py-3 align-top font-mono text-xs font-semibold">
+                    {article.sku}
+                  </td>
 
-                    <td className="px-4 py-3 align-top">
-                      <div className="font-medium text-slate-900">
-                        {article.title ||
-                          "—"}
-                      </div>
+                  <td className="px-4 py-3 align-top">
+                    <div className="font-medium text-slate-900">
+                      {article.title || "—"}
+                    </div>
 
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {article.refurbished_product && (
-                          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
-                            Refurb
-                          </span>
-                        )}
-
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            article.active
-                              ? "bg-green-100 text-green-700"
-                              : "bg-red-100 text-red-700"
-                          }`}
-                        >
-                          {article.active
-                            ? "Actief"
-                            : "Inactief"}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {article.refurbished_product && (
+                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                          Refurb
                         </span>
-
-                        {article.published && (
-                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                            Published
-                          </span>
-                        )}
-
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            article.vat_margin
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {article.vat_margin
-                            ? "Margin VAT"
-                            : "Normal VAT"}
-                        </span>
-                      </div>
-
-                      {(article.brand ||
-                        article.model) && (
-                        <div className="mt-1 text-xs text-slate-500">
-                          {[
-                            article.brand,
-                            article.model,
-                          ]
-                            .filter(
-                              Boolean
-                            )
-                            .join(
-                              " · "
-                            )}
-                        </div>
                       )}
-                    </td>
 
-                    <td className="px-4 py-3 align-top">
-                      {article.condition_grade ||
-                        "—"}
-                    </td>
-
-                    <td className="px-4 py-3 align-top">
                       <span
-                        className={`rounded-full px-2 py-1 text-xs font-medium ${
-                          (article.inventory_qty ||
-                            0) > 0
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          article.active
                             ? "bg-green-100 text-green-700"
                             : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {article.inventory_qty ||
-                          0}
+                        {article.active
+                          ? "Actief"
+                          : "Inactief"}
                       </span>
-                    </td>
 
-                    <td className="px-4 py-3 align-top text-xs space-y-1">
-                      <div>
-                        Gentbrugge:{" "}
-                        <b>
-                          {article.stock_gentbrugge ||
-                            0}
-                        </b>
-                      </div>
-
-                      <div>
-                        Oudenaarde:{" "}
-                        <b>
-                          {article.stock_oudenaarde ||
-                            0}
-                        </b>
-                      </div>
-
-                      <div>
-                        Antwerpen:{" "}
-                        <b>
-                          {article.stock_antwerpen ||
-                            0}
-                        </b>
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-3 align-top">
-                      {article.refurbished_product ? (
-                        <span className="text-xs text-slate-400">
-                          Niet van
-                          toepassing
+                      {article.published && (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                          Published
                         </span>
-                      ) : (
-                        <form
-                          action={
-                            toggleCoreAction
-                          }
-                        >
-                          <input
-                            type="hidden"
-                            name="id"
-                            value={
-                              article.id
-                            }
-                          />
-
-                          <input
-                            type="hidden"
-                            name="current"
-                            value={String(
-                              !!article.core_assortment
-                            )}
-                          />
-
-                          <button
-                            type="submit"
-                            className={`rounded-full px-3 py-1 text-xs font-medium border ${
-                              article.core_assortment
-                                ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                                : "bg-slate-50 text-slate-500 border-slate-200"
-                            }`}
-                          >
-                            {article.core_assortment
-                              ? "Core"
-                              : "Geen core"}
-                          </button>
-                        </form>
                       )}
-                    </td>
 
-                    <td className="px-4 py-3 align-top">
-                      <div className="font-medium">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          article.vat_margin
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {article.vat_margin
+                          ? "Margin VAT"
+                          : "Normal VAT"}
+                      </span>
+                    </div>
+
+                    {(article.brand ||
+                      article.model) && (
+                      <div className="mt-1 text-xs text-slate-500">
+                        {[
+                          article.brand,
+                          article.model,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 align-top">
+                    {article.condition_grade ||
+                      "—"}
+                  </td>
+
+                  <td className="px-4 py-3 align-top">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${
+                        (article.inventory_qty ||
+                          0) > 0
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {article.inventory_qty || 0}
+                    </span>
+                  </td>
+
+                  <td className="px-4 py-3 align-top text-xs space-y-1">
+                    <div>
+                      Gentbrugge:{" "}
+                      <b>
+                        {article.stock_gentbrugge ||
+                          0}
+                      </b>
+                    </div>
+
+                    <div>
+                      Oudenaarde:{" "}
+                      <b>
+                        {article.stock_oudenaarde ||
+                          0}
+                      </b>
+                    </div>
+
+                    <div>
+                      Antwerpen:{" "}
+                      <b>
+                        {article.stock_antwerpen ||
+                          0}
+                      </b>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3 align-top">
+                    {article.refurbished_product ? (
+                      <span className="text-xs text-slate-400">
+                        Niet van toepassing
+                      </span>
+                    ) : (
+                      <form action={toggleCoreAction}>
+                        <input
+                          type="hidden"
+                          name="id"
+                          value={article.id}
+                        />
+
+                        <input
+                          type="hidden"
+                          name="current"
+                          value={String(
+                            !!article.core_assortment
+                          )}
+                        />
+
+                        <button
+                          type="submit"
+                          className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                            article.core_assortment
+                              ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                              : "bg-slate-50 text-slate-500 border-slate-200"
+                          }`}
+                        >
+                          {article.core_assortment
+                            ? "Core"
+                            : "Geen core"}
+                        </button>
+                      </form>
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 align-top">
+                    <div className="font-medium">
+                      {money(article.price_cents)}
+                    </div>
+
+                    {article.compare_price_cents && (
+                      <div className="text-xs text-slate-400 line-through">
                         {money(
-                          article.price_cents
+                          article.compare_price_cents
                         )}
                       </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
 
-                      {article.compare_price_cents && (
-                        <div className="text-xs text-slate-400 line-through">
-                          {money(
-                            article.compare_price_cents
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )
-              )}
-
-              {articles.length ===
-                0 && (
+              {articles.length === 0 && (
                 <tr>
                   <td
                     colSpan={7}
                     className="px-4 py-10 text-center text-sm text-slate-500"
                   >
-                    Geen
-                    artikelen
-                    gevonden.
+                    Geen artikelen gevonden.
                   </td>
                 </tr>
               )}
@@ -1211,17 +810,11 @@ export default async function ErpArticlesPage({
 
       <div className="flex items-center justify-between rounded-2xl border bg-white p-4 shadow-sm">
         <Link
-          href={buildHref(
-            baseParams,
-            {
-              page: String(
-                Math.max(
-                  1,
-                  page - 1
-                )
-              ),
-            }
-          )}
+          href={buildHref(baseParams, {
+            page: String(
+              Math.max(1, page - 1)
+            ),
+          })}
           className={`bb-btn text-sm ${
             page <= 1
               ? "pointer-events-none opacity-40"
@@ -1232,25 +825,20 @@ export default async function ErpArticlesPage({
         </Link>
 
         <div className="text-sm text-slate-500">
-          Pagina {page} van{" "}
-          {totalPages}
+          Pagina {page} van {totalPages}
         </div>
 
         <Link
-          href={buildHref(
-            baseParams,
-            {
-              page: String(
-                Math.min(
-                  totalPages,
-                  page + 1
-                )
-              ),
-            }
-          )}
+          href={buildHref(baseParams, {
+            page: String(
+              Math.min(
+                totalPages,
+                page + 1
+              )
+            ),
+          })}
           className={`bb-btn text-sm ${
-            page >=
-            totalPages
+            page >= totalPages
               ? "pointer-events-none opacity-40"
               : ""
           }`}
