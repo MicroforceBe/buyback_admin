@@ -63,7 +63,7 @@ async function syncErpAction() {
 
     await client.downloadTo(
       {
-        write(chunk) {
+        write(chunk: Buffer) {
           chunks.push(Buffer.from(chunk));
         },
 
