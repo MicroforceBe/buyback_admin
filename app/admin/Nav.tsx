@@ -8,6 +8,7 @@ type NavPermissions = {
   dashboard?: boolean;
   leads?: boolean;
   refurb?: boolean;
+  erp?: boolean;
   catalog?: boolean;
   multipliers?: boolean;
   uploads?: boolean;
@@ -25,6 +26,7 @@ const items: Item[] = [
   { href: "/admin", label: "Dashboard", emoji: "🏠", permKey: "dashboard" },
   { href: "/admin/leads", label: "Leads", emoji: "📋", permKey: "leads" },
   { href: "/admin/refurb", label: "Refurb", emoji: "🔧", permKey: "refurb" },
+  { href: "/admin/erp", label: "ERP", emoji: "🏷️", permKey: "erp" },
   { href: "/admin/catalog", label: "Catalogus", emoji: "📦", permKey: "catalog" },
   { href: "/admin/multipliers", label: "Multipliers", emoji: "⚙️", permKey: "multipliers" },
   { href: "/admin/uploads", label: "Uploads", emoji: "⤴️", permKey: "uploads" },
@@ -43,19 +45,15 @@ export default function Nav({
   const links = useMemo(() => {
     return items
       .filter((it) => {
-        // PERMISSIES (optioneel, backward compatible)
         if (it.permKey && permissions && permissions[it.permKey] === false) {
           return false;
         }
 
-        // ROLE-BASED filtering
         if (role === "technician") {
-          // Technicians zien alleen Dashboard, Leads en Refurb
           const allowed = ["/admin", "/admin/leads", "/admin/refurb"];
           return allowed.includes(it.href);
         }
 
-        // Andere rollen: alles tonen (of verfijnen indien gewenst)
         return true;
       })
       .map((it) => {
@@ -63,7 +61,6 @@ export default function Nav({
           pathname === it.href ||
           (pathname?.startsWith(it.href + "/") ?? false);
 
-        // ⭐ Extra smalle knoppen
         const base =
           "flex items-center gap-1 px-2 py-1.5 rounded border text-[12px] leading-tight transition-colors whitespace-nowrap overflow-hidden";
 
@@ -79,18 +76,12 @@ export default function Nav({
             aria-current={active ? "page" : undefined}
             className={`${base} ${active ? activeCls : inactiveCls}`}
           >
-            {/* Emoji altijd zichtbaar */}
             <span className="text-[14px] flex-shrink-0">{it.emoji}</span>
-            {/* Label verdwijnt als de sidebar te smal is (overflow-hidden + group-hover in layout) */}
             <span className="truncate">{it.label}</span>
           </Link>
         );
       });
   }, [pathname, permissions, role]);
 
-  return (
-    <nav className="flex flex-col gap-1.5 p-3">
-      {links}
-    </nav>
-  );
+  return <nav className="flex flex-col gap-1.5 p-3">{links}</nav>;
 }
