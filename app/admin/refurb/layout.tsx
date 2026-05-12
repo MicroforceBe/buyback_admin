@@ -1,34 +1,40 @@
 // app/admin/refurb/layout.tsx
-import type { ReactNode } from "react";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
+import React from "react";
 import RefurbTabs from "./RefurbTabs";
+import RefurbTools from "./RefurbTools";
+import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function RefurbLayout({
   children,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
   const user = await getCurrentAdminUser();
-  const role = user?.role ?? null;
+  const role = (user as any)?.role || null;
 
   return (
-    <div className="space-y-3">
-      {/* Refurb header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Refurb</h1>
-          <p className="text-xs text-slate-500">
-            Binnenkomende refurb-toestellen verwerken per receptie.
-          </p>
-        </div>
+    <div className="p-4 space-y-4">
+      <div className="rounded-md border bg-slate-50 px-4 py-2 text-sm text-slate-700">
+        Ingelogd als{" "}
+        <span className="font-medium">
+          {(user as any)?.email || (user as any)?.name || "admin"}
+        </span>
+
+        {role && (
+          <>
+            {" "}
+            · rol: <span className="font-medium">{role}</span>
+          </>
+        )}
       </div>
 
-      {/* Tabs voor Refurb-subsecties */}
+      <RefurbTools />
+
       <RefurbTabs role={role} />
 
-      {/* Eigenlijke inhoud van de pagina (receptions, suppliers, detail, new, ...) */}
       {children}
     </div>
   );
