@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireAdminUser } from "@/lib/requireAdminUser";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -182,6 +183,7 @@ export default async function ErpImportPage({
     skipped?: string;
   };
 }) {
+  await requireAdminUser();
   const msg = String(searchParams?.msg || "");
 
   return (
