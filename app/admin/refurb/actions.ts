@@ -745,6 +745,9 @@ export async function searchErpArticlesForSku(
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 
+  // gebruik eerste term voor DB prefilter
+  const primaryTerm = terms[0] || "";
+
   let query = supabaseAdmin
     .from("erp_articles")
     .select(`
@@ -755,10 +758,11 @@ export async function searchErpArticlesForSku(
       inventory_qty
     `)
     .eq("refurbished_product", true)
-    .limit(200);
+    .or(`title.ilike.%${primaryTerm}%,sku.ilike.%${primaryTerm}%`)
+    .limit(2000);
 
-  // GEEN active filter meer:
-  // dus zowel actieve als inactieve artikels
+  // zowel actieve als inactieve artikels
+  // GEEN active=true filter
 
   query =
     vatScheme === "margin"
@@ -779,22 +783,33 @@ export async function searchErpArticlesForSku(
     const normalizedSku = sku.replace(/[^a-z0-9]/g, "");
     const haystack = `${sku} ${title}`;
 
-    // alle zoektermen moeten voorkomen
+    // ALLE zoektermen moeten voorkomen
     const allTermsMatch = terms.every((term) =>
       haystack.includes(term)
     );
 
-    // SKU match telt enkel mee vanaf 4 opeenvolgende chars
+    // SKU-match telt enkel vanaf 4 opeenvolgende chars
     const hasStrongSkuMatch =
       compactSearch.length >= 4 &&
       normalizedSku.includes(compactSearch);
 
-    // titelmatch
+    // Titel bevat alle termen
     const hasTitleMatch = terms.every((term) =>
       title.includes(term)
     );
 
     return allTermsMatch && (hasTitleMatch || hasStrongSkuMatch);
+  });
+
+  // sorteer beste matches eerst
+  filtered.sort((a, b) => {
+    const aTitle = String(a.title || "").toLowerCase();
+    const bTitle = String(b.title || "").toLowerCase();
+
+    const aExact = terms.every((t) => aTitle.includes(t)) ? 1 : 0;
+    const bExact = terms.every((t) => bTitle.includes(t)) ? 1 : 0;
+
+    return bExact - aExact;
   });
 
   return filtered.slice(0, 20) as ErpSkuSearchResult[];
