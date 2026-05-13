@@ -310,6 +310,7 @@ export default async function ErpLabelsPage({
         .label-card {
           width: 89mm;
           height: 36mm;
+          box-sizing: border-box;
           border: 1px solid #111827;
           background: white;
           color: #111827;
@@ -464,27 +465,53 @@ export default async function ErpLabelsPage({
           line-height: 1;
         }
 
-        @media print {
-          body * {
-            visibility: hidden;
-          }
+@media print {
+  html,
+  body {
+    width: 89mm;
+    height: 36mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
 
-          .label-sheet,
-          .label-sheet * {
-            visibility: visible;
-          }
+  body * {
+    visibility: hidden !important;
+  }
 
-          .label-sheet {
-            position: fixed;
-            left: 0;
-            top: 0;
-          }
+  .label-sheet,
+  .label-sheet * {
+    visibility: visible !important;
+  }
 
-          @page {
-            size: 89mm 36mm;
-            margin: 0;
-          }
-        }
+  .label-sheet {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 89mm !important;
+    height: 36mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .label-card {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 89mm !important;
+    height: 36mm !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    border: none !important;
+  }
+
+  @page {
+    size: 89mm 36mm;
+    margin: 0;
+  }
+}
+
       `}</style>
     </div>
   );
