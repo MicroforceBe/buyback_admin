@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import PrintButton from "./PrintButton";
+import Barcode from "./Barcode";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,8 +22,8 @@ function parseArticleTitle(title: string | null) {
     upper.match(/\b(64GB|128GB|256GB|512GB|1TB|2TB)\b/)?.[1] || "";
 
   const grade =
-    upper.match(/\b(3\*|4\*|5\*|OEM|PREMIUM|GRADE A|GRADE B|GRADE C)\b/)?.[1] ||
-    "";
+    upper.match(/\b(NIEUW|3\*|4\*|5\*|OEM|PREMIUM|GRADE A|GRADE B|GRADE C)\b/)
+      ?.[1] || "";
 
   const colors = [
     "BLACK",
@@ -85,14 +86,17 @@ export default async function ErpLabelsPage({
     sku?: string;
     imei?: string;
     battery?: string;
+    grade?: string;
   };
 }) {
   const sku = String(searchParams?.sku || "").trim();
   const imei = String(searchParams?.imei || "").trim();
   const battery = String(searchParams?.battery || "").trim();
+  const manualGrade = String(searchParams?.grade || "").trim();
 
   const article = await getArticleBySku(sku);
   const parsed = parseArticleTitle(article?.title || null);
+  const finalGrade = manualGrade || parsed.grade;
 
   return (
     <div className="space-y-6">
@@ -105,8 +109,7 @@ export default async function ErpLabelsPage({
           <h1 className="mt-3 text-3xl font-bold">Productlabels printen</h1>
 
           <p className="mt-3 text-sm text-slate-300">
-            Geef een SKU in, haal automatisch de ERP-omschrijving op en print
-            een label met model, kleur, capaciteit, grade en IMEI/SN.
+            Standaard DYMO LabelWriter 450 · 99012 Large Address · 89mm × 36mm.
           </p>
         </div>
       </div>
@@ -153,6 +156,28 @@ export default async function ErpLabelsPage({
               />
             </div>
 
+            <div>
+              <label className="text-xs font-semibold uppercase text-slate-500">
+                Grade
+              </label>
+
+              <select
+                name="grade"
+                defaultValue={manualGrade}
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+              >
+                <option value="">Automatisch uit omschrijving</option>
+                <option value="Nieuw">Nieuw</option>
+                <option value="3*">3*</option>
+                <option value="4*">4*</option>
+                <option value="5*">5*</option>
+                <option value="OEM">OEM</option>
+                <option value="A">Grade A</option>
+                <option value="B">Grade B</option>
+                <option value="C">Grade C</option>
+              </select>
+            </div>
+
             <button
               type="submit"
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -182,16 +207,13 @@ export default async function ErpLabelsPage({
                   </div>
                 </div>
 
-            <PrintButton />
-                
+                <PrintButton />
               </div>
 
               <div className="label-sheet">
                 <div className="label-card">
-                  <div>
-                    <div className="label-model">
-                      {parsed.model}
-                    </div>
+                  <div className="label-main">
+                    <div className="label-model">{parsed.model}</div>
 
                     <div className="label-sub">
                       {[parsed.capacity, parsed.color]
@@ -207,7 +229,7 @@ export default async function ErpLabelsPage({
 
                       <div>
                         <span>Grade</span>
-                        <b>{parsed.grade || "—"}</b>
+                        <b>{finalGrade || "—"}</b>
                       </div>
 
                       <div>
@@ -221,11 +243,28 @@ export default async function ErpLabelsPage({
                       </div>
                     </div>
 
-                    <div className="label-footer">
-                      {article.vat_margin
-                        ? "Margin VAT"
-                        : "Normal VAT"}
+                    <div className="label-barcodes">
+                      <div>
+                        <span>SKU</span>
+                        <Barcode value={article.sku} />
+                      </div>
+
+                      {imei && (
+                        <div>
+                          <span>IMEI/SN</span>
+                          <Barcode value={imei} />
+                        </div>
+                      )}
                     </div>
+
+                    <div className="label-footer">
+                      {article.vat_margin ? "Margin VAT" : "Normal VAT"}
+                    </div>
+                  </div>
+
+                  <div className="label-brand">
+                    <div className="label-logo">MICROFORCE</div>
+                    <div className="label-ce">CE</div>
                   </div>
                 </div>
               </div>
@@ -249,61 +288,113 @@ export default async function ErpLabelsPage({
           width: 89mm;
           height: 36mm;
           border: 1px solid #111827;
-          padding: 3mm 4mm;
+          padding: 2.5mm 3mm;
           background: white;
           color: #111827;
           font-family: Arial, sans-serif;
-
           display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 3mm;
+          grid-template-columns: 1fr 18mm;
+          gap: 2mm;
+          overflow: hidden;
+        }
 
+        .label-main {
+          min-width: 0;
           overflow: hidden;
         }
 
         .label-model {
-          font-size: 15px;
+          font-size: 13px;
           font-weight: 800;
           line-height: 1.05;
           text-transform: uppercase;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .label-sub {
-          margin-top: 1mm;
-          font-size: 10px;
+          margin-top: 0.7mm;
+          font-size: 9px;
           font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .label-grid {
-          margin-top: 2mm;
+          margin-top: 1.5mm;
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 1.5mm;
-          font-size: 8px;
+          gap: 1mm 2mm;
+          font-size: 7px;
         }
 
         .label-grid span {
           display: block;
           color: #64748b;
-          font-size: 7px;
+          font-size: 6px;
           text-transform: uppercase;
         }
 
         .label-grid b {
           display: block;
-          font-size: 9px;
+          font-size: 8px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
+        .label-barcodes {
+          margin-top: 1.5mm;
+          display: grid;
+          gap: 0.8mm;
+        }
+
+        .label-barcodes span {
+          display: block;
+          font-size: 5.5px;
+          color: #64748b;
+          text-transform: uppercase;
+        }
+
+        .label-barcode {
+          width: 100%;
+          max-height: 6mm;
+          display: block;
+        }
+
         .label-footer {
-          margin-top: 2mm;
+          margin-top: 1mm;
           border-top: 1px solid #e5e7eb;
-          padding-top: 1mm;
-          font-size: 7px;
+          padding-top: 0.6mm;
+          font-size: 6px;
           text-transform: uppercase;
           color: #64748b;
+        }
+
+        .label-brand {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          justify-content: space-between;
+          height: 100%;
+        }
+
+        .label-logo {
+          border: 1px solid #111827;
+          padding: 1mm 1.3mm;
+          font-size: 6px;
+          font-weight: 800;
+          letter-spacing: 0.3px;
+          max-width: 17mm;
+          overflow: hidden;
+        }
+
+        .label-ce {
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: -1px;
         }
 
         @media print {
