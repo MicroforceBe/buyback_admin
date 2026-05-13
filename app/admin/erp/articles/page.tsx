@@ -91,15 +91,22 @@ async function getArticles(params: any) {
       core_assortment
     `,
       { count: "exact" }
-    )
-    .order("sku", { ascending: false })
-    .range(from, to);
+    );
 
   if (params.q) {
-    const safeQ = String(params.q).replace(/[%_,]/g, "").trim();
+    const safeQ = String(params.q)
+      .replace(/[%_,]/g, "")
+      .trim();
 
     if (safeQ) {
-      query = query.or(`sku.ilike.%${safeQ}%,title.ilike.%${safeQ}%`);
+      const terms = safeQ
+        .split(/\s+/)
+        .map((term) => term.trim())
+        .filter(Boolean);
+
+      for (const term of terms) {
+        query = query.or(`sku.ilike.%${term}%,title.ilike.%${term}%`);
+      }
     }
   }
 
@@ -149,7 +156,9 @@ async function getArticles(params: any) {
     query = query.lte("price_cents", Number(params.maxPrice) * 100);
   }
 
-  const { data, error, count } = await query;
+  const { data, error, count } = await query
+    .order("sku", { ascending: false })
+    .range(from, to);
 
   if (error) {
     console.error("[ERP ARTICLES] fetch error", error);
@@ -456,12 +465,7 @@ export default async function ErpArticlesPage({
               </summary>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link
-                  href={buildHref(baseParams, {
-                    missingCoreLocation: "",
-                    page: "",
-                  })}
-                >
+                <Link href={buildHref(baseParams, { missingCoreLocation: "", page: "" })}>
                   <ToggleButton active={!missingCoreLocation}>Alles</ToggleButton>
                 </Link>
 
