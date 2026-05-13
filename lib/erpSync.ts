@@ -242,3 +242,63 @@ export async function runErpSync(): Promise<ErpSyncResult> {
     duration_seconds: duration,
   };
 }
+
+export async function findMissingErpArticles() {
+  const settings = await getErpSettings();
+  const { buffer } = await downloadErpXlsx(settings);
+  const rows = parseRows(buffer);
+
+  const xlsxSkus = new Set<string>();
+
+  for (const row of rows) {
+    const sku = String(row["Variant SKU [ID]"] || "").trim();
+    if (sku) xlsxSkus.add(sku);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("erp_articles")
+    .select("id, sku, title, active, missing_from_erp")
+    .order("sku", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  const missing = (data || []).filter((article: any) => {
+    const sku = String(article.sku || "").trim();
+    return sku && !xlsxSkus.has(sku);
+  });
+
+  return {
+    totalInXlsx: xlsxSkus.size,
+    missing,
+  };
+}
+
+export async function markMissingErpArticlesInactive() {
+  const result = await findMissingErpArticles();
+  const ids = result.missing.map((x: any) => x.id).filter(Boolean);
+
+  if (!ids.length) {
+    return {
+      updated: 0,
+      totalInXlsx: result.totalInXlsx,
+    };
+  }
+
+  const { error } = await supabaseAdmin
+    .from("erp_articles")
+    .update({
+      active: false,
+      missing_from_erp: true,
+      missing_from_erp_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", ids);
+
+  if (error) throw new Error(error.message);
+
+  return {
+    updated: ids.length,
+    totalInXlsx: result.totalInXlsx,
+  };
+}
+
