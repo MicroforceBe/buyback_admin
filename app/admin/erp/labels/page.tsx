@@ -117,6 +117,7 @@ export default async function ErpLabelsPage({
               <label className="text-xs font-semibold uppercase text-slate-500">
                 SKU
               </label>
+
               <input
                 name="sku"
                 defaultValue={sku}
@@ -129,6 +130,7 @@ export default async function ErpLabelsPage({
               <label className="text-xs font-semibold uppercase text-slate-500">
                 IMEI / SN
               </label>
+
               <input
                 name="imei"
                 defaultValue={imei}
@@ -141,6 +143,7 @@ export default async function ErpLabelsPage({
               <label className="text-xs font-semibold uppercase text-slate-500">
                 Batterij %
               </label>
+
               <input
                 name="battery"
                 defaultValue={battery}
@@ -149,7 +152,10 @@ export default async function ErpLabelsPage({
               />
             </div>
 
-            <button type="submit" className="bb-btn bb-btn-primary text-sm">
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
               Label tonen
             </button>
           </form>
@@ -169,15 +175,20 @@ export default async function ErpLabelsPage({
                   <div className="text-sm font-semibold text-slate-900">
                     Label preview
                   </div>
-                  <div className="text-xs text-slate-500">{article.title}</div>
+
+                  <div className="text-xs text-slate-500">
+                    {article.title}
+                  </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => {
-                    if (typeof window !== "undefined") window.print();
+                    if (typeof window !== "undefined") {
+                      window.print();
+                    }
                   }}
-                  className="bb-btn text-sm"
+                  className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-slate-50"
                 >
                   Print label
                 </button>
@@ -185,36 +196,44 @@ export default async function ErpLabelsPage({
 
               <div className="label-sheet">
                 <div className="label-card">
-                  <div className="label-model">{parsed.model}</div>
-
-                  <div className="label-sub">
-                    {[parsed.capacity, parsed.color].filter(Boolean).join(" · ")}
-                  </div>
-
-                  <div className="label-grid">
-                    <div>
-                      <span>SKU</span>
-                      <b>{article.sku}</b>
+                  <div>
+                    <div className="label-model">
+                      {parsed.model}
                     </div>
 
-                    <div>
-                      <span>Grade</span>
-                      <b>{parsed.grade || "—"}</b>
+                    <div className="label-sub">
+                      {[parsed.capacity, parsed.color]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </div>
 
-                    <div>
-                      <span>IMEI/SN</span>
-                      <b>{imei || "—"}</b>
+                    <div className="label-grid">
+                      <div>
+                        <span>SKU</span>
+                        <b>{article.sku}</b>
+                      </div>
+
+                      <div>
+                        <span>Grade</span>
+                        <b>{parsed.grade || "—"}</b>
+                      </div>
+
+                      <div>
+                        <span>IMEI/SN</span>
+                        <b>{imei || "—"}</b>
+                      </div>
+
+                      <div>
+                        <span>Battery</span>
+                        <b>{battery ? `${battery}%` : "—"}</b>
+                      </div>
                     </div>
 
-                    <div>
-                      <span>Battery</span>
-                      <b>{battery ? `${battery}%` : "—"}</b>
+                    <div className="label-footer">
+                      {article.vat_margin
+                        ? "Margin VAT"
+                        : "Normal VAT"}
                     </div>
-                  </div>
-
-                  <div className="label-footer">
-                    {article.vat_margin ? "Margin VAT" : "Normal VAT"}
                   </div>
                 </div>
               </div>
@@ -235,22 +254,25 @@ export default async function ErpLabelsPage({
         }
 
         .label-card {
-          width: 58mm;
-          height: 40mm;
+          width: 89mm;
+          height: 36mm;
           border: 1px solid #111827;
-          padding: 4mm;
+          padding: 3mm 4mm;
           background: white;
           color: #111827;
           font-family: Arial, sans-serif;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
+
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 3mm;
+
+          overflow: hidden;
         }
 
         .label-model {
-          font-size: 13px;
+          font-size: 15px;
           font-weight: 800;
-          line-height: 1.15;
+          line-height: 1.05;
           text-transform: uppercase;
         }
 
@@ -261,10 +283,10 @@ export default async function ErpLabelsPage({
         }
 
         .label-grid {
-          margin-top: 3mm;
+          margin-top: 2mm;
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 2mm;
+          gap: 1.5mm;
           font-size: 8px;
         }
 
@@ -309,7 +331,7 @@ export default async function ErpLabelsPage({
           }
 
           @page {
-            size: 58mm 40mm;
+            size: 89mm 36mm;
             margin: 0;
           }
         }
