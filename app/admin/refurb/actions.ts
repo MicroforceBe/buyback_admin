@@ -733,9 +733,7 @@ export async function searchErpArticlesForSku(
 ): Promise<ErpSkuSearchResult[]> {
   const search = (q || "").trim();
 
-  if (search.length < 2) {
-    return [];
-  }
+  if (search.length < 2) return [];
 
   const terms = search
     .toLowerCase()
@@ -743,20 +741,20 @@ export async function searchErpArticlesForSku(
     .map((t) => t.trim())
     .filter(Boolean);
 
+  const compactSearch = search
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
   let query = supabaseAdmin
     .from("erp_articles")
-    .select(
-      "sku, title, price_cents, vat_margin, inventory_qty"
-    )
+    .select("sku, title, price_cents, vat_margin, inventory_qty")
     .eq("refurbished_product", true)
-    .limit(50);
+    .limit(100);
 
-  // VAT filter
-  if (vatScheme === "margin") {
-    query = query.eq("vat_margin", true);
-  } else {
-    query = query.eq("vat_margin", false);
-  }
+  query =
+    vatScheme === "margin"
+      ? query.eq("vat_margin", true)
+      : query.eq("vat_margin", false);
 
   const { data, error } = await query;
 
@@ -766,22 +764,22 @@ export async function searchErpArticlesForSku(
   }
 
   const filtered = (data || []).filter((row) => {
-    const haystack =
-      `${row.sku || ""} ${row.title || ""}`.toLowerCase();
+    const sku = String(row.sku || "").toLowerCase();
+    const title = String(row.title || "").toLowerCase();
+    const haystack = `${sku} ${title}`;
 
-    return terms.every((term) =>
-      haystack.includes(term)
-    );
+    const allTermsMatch = terms.every((term) => haystack.includes(term));
+
+    const hasStrongSkuMatch =
+      compactSearch.length >= 4 &&
+      sku.replace(/[^a-z0-9]/g, "").includes(compactSearch.slice(0, 4));
+
+    const hasTitleMatch = terms.every((term) => title.includes(term));
+
+    return allTermsMatch && (hasTitleMatch || hasStrongSkuMatch);
   });
 
-  return filtered
-    .sort((a, b) => {
-      const aSku = (a.sku || "").toLowerCase();
-      const bSku = (b.sku || "").toLowerCase();
-
-      return aSku.localeCompare(bSku);
-    })
-    .slice(0, 8) as ErpSkuSearchResult[];
+  return filtered.slice(0, 8) as ErpSkuSearchResult[];
 }
 
 
