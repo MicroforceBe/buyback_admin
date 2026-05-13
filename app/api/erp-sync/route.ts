@@ -22,15 +22,24 @@ type ErpSettingsRow = {
 };
 
 export async function GET() {
+  const startedAt = Date.now();
+
+  console.log(
+    "[ERP AUTO SYNC] Sync gestart"
+  );
+
   try {
-    const { data: settings } = await supabaseAdmin
-      .from("erp_settings")
-      .select("*")
-      .limit(1)
-      .maybeSingle<ErpSettingsRow>();
+    const { data: settings } =
+      await supabaseAdmin
+        .from("erp_settings")
+        .select("*")
+        .limit(1)
+        .maybeSingle<ErpSettingsRow>();
 
     if (!settings) {
-      throw new Error("ERP settings ontbreken");
+      throw new Error(
+        "ERP settings ontbreken"
+      );
     }
 
     const client = new Client(30000);
@@ -42,14 +51,22 @@ export async function GET() {
         .replace("ftp://", "")
         .replace("ftps://", ""),
 
-      port: settings.ftp_port || 21,
+      port:
+        settings.ftp_port || 21,
 
       user: settings.ftp_user!,
 
-      password: settings.ftp_password!,
+      password:
+        settings.ftp_password!,
 
-      secure: settings.ftp_secure || false,
+      secure:
+        settings.ftp_secure ||
+        false,
     });
+
+    console.log(
+      "[ERP AUTO SYNC] FTP verbonden"
+    );
 
     const chunks: Buffer[] = [];
 
@@ -58,25 +75,42 @@ export async function GET() {
       ""
     );
 
-    const writable = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(Buffer.from(chunk));
-        callback();
-      },
-    });
+    const writable =
+      new Writable({
+        write(
+          chunk,
+          _encoding,
+          callback
+        ) {
+          chunks.push(
+            Buffer.from(chunk)
+          );
+
+          callback();
+        },
+      });
 
     await client.downloadTo(
       writable,
       remotePath
     );
 
+    console.log(
+      "[ERP AUTO SYNC] Bestand gedownload:",
+      remotePath
+    );
+
     await client.close();
 
-    const buffer = Buffer.concat(chunks);
+    const buffer =
+      Buffer.concat(chunks);
 
-    const workbook = XLSX.read(buffer, {
-      type: "buffer",
-    });
+    const workbook = XLSX.read(
+      buffer,
+      {
+        type: "buffer",
+      }
+    );
 
     const sheet =
       workbook.Sheets[
@@ -91,11 +125,17 @@ export async function GET() {
         }
       );
 
+    console.log(
+      "[ERP AUTO SYNC] Rows gevonden:",
+      rows.length
+    );
+
     let imported = 0;
 
     for (const row of rows) {
       const sku = String(
-        row["Variant SKU [ID]"] || ""
+        row["Variant SKU [ID]"] ||
+          ""
       ).trim();
 
       if (!sku) continue;
@@ -107,7 +147,8 @@ export async function GET() {
       const price =
         Number(
           String(
-            row["Variant Price"] || "0"
+            row["Variant Price"] ||
+              "0"
           ).replace(",", ".")
         ) || 0;
 
@@ -172,7 +213,8 @@ export async function GET() {
             refurbished_product:
               refurbished,
 
-            vat_margin: vatMargin,
+            vat_margin:
+              vatMargin,
 
             inventory_qty:
               inventoryQty,
@@ -198,14 +240,16 @@ export async function GET() {
                 ] || 0
               ) || 0,
 
-            price_cents: Math.round(
-              price * 100
-            ),
+            price_cents:
+              Math.round(
+                price * 100
+              ),
 
             compare_price_cents:
               comparePrice > 0
                 ? Math.round(
-                    comparePrice * 100
+                    comparePrice *
+                      100
                   )
                 : null,
           },
@@ -217,9 +261,21 @@ export async function GET() {
       imported++;
     }
 
+    const duration =
+      Math.round(
+        (Date.now() - startedAt) /
+          1000
+      );
+
+    console.log(
+      `[ERP AUTO SYNC] Sync succesvol. ${imported} artikels geïmporteerd in ${duration}s`
+    );
+
     return NextResponse.json({
       success: true,
       imported,
+      duration_seconds:
+        duration,
     });
   } catch (e: any) {
     console.error(
