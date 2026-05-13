@@ -4,9 +4,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { runErpSync } from "@/lib/erpSync";
+import {
+  runErpSync,
+  findMissingErpArticles,
+  markMissingErpArticlesInactive,
+} from "@/lib/erpSync";
+
 import SyncButton from "./SyncButton";
-import { requireAdminUser } from "@/lib/requireAdminUser";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -31,10 +35,58 @@ async function syncErpAction() {
   } catch (e: any) {
     console.error("[ERP MANUAL SYNC]", e);
 
+    redirectUrl = `/admin/erp/sync?error=${encodeURIComponent(
+      e?.message || "Sync mislukt"
+    )}`;
+  }
+
+  redirect(redirectUrl);
+}
+
+async function checkMissingAction() {
+  "use server";
+
+  let redirectUrl = "";
+
+  try {
+    const result = await findMissingErpArticles();
+
     redirectUrl =
-      `/admin/erp/sync?error=${encodeURIComponent(
-        e?.message || "Sync mislukt"
-      )}`;
+      `/admin/erp/sync?cleanup=1` +
+      `&xlsx=${result.totalInXlsx}` +
+      `&missing=${result.missing.length}`;
+  } catch (e: any) {
+    console.error("[ERP CLEANUP CHECK]", e);
+
+    redirectUrl = `/admin/erp/sync?error=${encodeURIComponent(
+      e?.message || "Controle mislukt"
+    )}`;
+  }
+
+  redirect(redirectUrl);
+}
+
+async function markMissingInactiveAction() {
+  "use server";
+
+  let redirectUrl = "";
+
+  try {
+    const result = await markMissingErpArticlesInactive();
+
+    revalidatePath("/admin/erp/articles");
+    revalidatePath("/admin/erp/sync");
+
+    redirectUrl =
+      `/admin/erp/sync?cleanupDone=1` +
+      `&updated=${result.updated}` +
+      `&xlsx=${result.totalInXlsx}`;
+  } catch (e: any) {
+    console.error("[ERP CLEANUP MARK]", e);
+
+    redirectUrl = `/admin/erp/sync?error=${encodeURIComponent(
+      e?.message || "Opkuisen mislukt"
+    )}`;
   }
 
   redirect(redirectUrl);
@@ -50,15 +102,26 @@ export default async function ErpSyncPage({
     rows?: string;
     duration?: string;
     error?: string;
+
+    cleanup?: string;
+    cleanupDone?: string;
+    xlsx?: string;
+    missing?: string;
+    updated?: string;
   };
 }) {
-  await requireAdminUser();
   const success = searchParams?.success === "1";
   const imported = searchParams?.imported || null;
   const skipped = searchParams?.skipped || null;
   const rows = searchParams?.rows || null;
   const duration = searchParams?.duration || null;
   const error = searchParams?.error || null;
+
+  const cleanup = searchParams?.cleanup === "1";
+  const cleanupDone = searchParams?.cleanupDone === "1";
+  const xlsx = searchParams?.xlsx || null;
+  const missing = searchParams?.missing || null;
+  const updated = searchParams?.updated || null;
 
   return (
     <div className="space-y-6">
@@ -74,8 +137,9 @@ export default async function ErpSyncPage({
             </h1>
 
             <p className="mt-3 text-sm leading-6 text-slate-300">
-              Synchroniseer automatisch de ERP artikeldatabase vanuit het XLSX
-              bestand op de FTP server naar Supabase.
+              Synchroniseer de ERP artikeldatabase vanuit het XLSX bestand op
+              de FTP server. Artikels die niet meer in het XLSX bestand staan
+              kunnen veilig slapend gezet worden.
             </p>
           </div>
         </div>
@@ -93,7 +157,6 @@ export default async function ErpSyncPage({
               <div className="text-2xl font-bold text-green-700">
                 {imported || 0}
               </div>
-
               <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
                 Geïmporteerd
               </div>
@@ -103,7 +166,6 @@ export default async function ErpSyncPage({
               <div className="text-2xl font-bold text-amber-600">
                 {skipped || 0}
               </div>
-
               <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
                 Overgeslagen
               </div>
@@ -113,7 +175,6 @@ export default async function ErpSyncPage({
               <div className="text-2xl font-bold text-slate-900">
                 {rows || 0}
               </div>
-
               <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
                 Rows gelezen
               </div>
@@ -123,7 +184,6 @@ export default async function ErpSyncPage({
               <div className="text-2xl font-bold text-sky-700">
                 {duration || 0}s
               </div>
-
               <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
                 Duur
               </div>
@@ -132,32 +192,107 @@ export default async function ErpSyncPage({
         </div>
       )}
 
+      {cleanup && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm">
+          <div className="flex items-center gap-2 text-base font-semibold">
+            <span>⚠️</span>
+            <span>Controle voltooid</span>
+          </div>
+
+          <div className="mt-3">
+            XLSX bevat <b>{xlsx || 0}</b> SKU’s. Er werden{" "}
+            <b>{missing || 0}</b> artikels gevonden die niet meer in het XLSX
+            bestand staan.
+          </div>
+
+          {Number(missing || 0) > 0 && (
+            <form action={markMissingInactiveAction} className="mt-4">
+              <button
+                type="submit"
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              >
+                Markeer ontbrekende artikels als slapend
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {cleanupDone && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-5 text-sm text-green-800 shadow-sm">
+          <div className="flex items-center gap-2 text-base font-semibold">
+            <span>✅</span>
+            <span>Database opgekuist</span>
+          </div>
+
+          <div className="mt-3">
+            <b>{updated || 0}</b> artikels werden slapend gezet. XLSX bevat{" "}
+            <b>{xlsx || 0}</b> SKU’s.
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-sm">
           <div className="flex items-center gap-2 font-semibold">
             <span>❌</span>
-            <span>Synchronisatie mislukt</span>
+            <span>Actie mislukt</span>
           </div>
 
           <div className="mt-2 text-sm">{error}</div>
         </div>
       )}
 
-      <div className="rounded-3xl border bg-white shadow-sm">
-        <div className="border-b px-6 py-5">
-          <h2 className="text-lg font-semibold text-slate-900">
-            ERP sync starten
-          </h2>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-3xl border bg-white shadow-sm">
+          <div className="border-b px-6 py-5">
+            <h2 className="text-lg font-semibold text-slate-900">
+              ERP sync starten
+            </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
-            Start een manuele synchronisatie van de ERP artikeldatabase.
-          </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Start een manuele synchronisatie van de ERP artikeldatabase.
+            </p>
+          </div>
+
+          <div className="p-6">
+            <form action={syncErpAction}>
+              <SyncButton />
+            </form>
+          </div>
         </div>
 
-        <div className="p-6">
-          <form action={syncErpAction}>
-            <SyncButton />
-          </form>
+        <div className="rounded-3xl border bg-white shadow-sm">
+          <div className="border-b px-6 py-5">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Opkuisen database
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Controleer welke artikels nog in Supabase staan, maar niet meer
+              in het huidige ERP XLSX bestand voorkomen.
+            </p>
+          </div>
+
+          <div className="space-y-4 p-6">
+            <div className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-600">
+              Artikels worden niet verwijderd. Ze worden slapend gezet:
+              <div className="mt-2 rounded-xl bg-white p-3 font-mono text-xs text-slate-700">
+                active = false
+                <br />
+                missing_from_erp = true
+              </div>
+            </div>
+
+            <form action={checkMissingAction}>
+              <button
+                type="submit"
+                className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+              >
+                Controleer ontbrekende artikels
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -168,8 +303,8 @@ export default async function ErpSyncPage({
           </h2>
 
           <p className="mt-1 text-sm text-slate-500">
-            Zowel de automatische cronjob als de manuele sync gebruiken exact
-            dezelfde ERP synchronisatie-engine.
+            Zowel de automatische cronjob als de manuele sync gebruiken dezelfde
+            ERP synchronisatie-engine. De opkuisactie draait enkel manueel.
           </p>
         </div>
 
@@ -190,34 +325,12 @@ export default async function ErpSyncPage({
 
           <div className="rounded-2xl border bg-slate-50 p-5">
             <div className="text-sm font-semibold text-slate-900">
-              Bulk database updates
+              Veilige cleanup
             </div>
 
             <div className="mt-2 text-sm leading-6 text-slate-500">
-              Artikels worden in grote chunks verwerkt voor maximale snelheid en
-              stabiliteit.
-            </div>
-          </div>
-
-          <div className="rounded-2xl border bg-slate-50 p-5">
-            <div className="text-sm font-semibold text-slate-900">
-              FTP + XLSX verwerking
-            </div>
-
-            <div className="mt-2 text-sm leading-6 text-slate-500">
-              Het XLSX exportbestand wordt automatisch via FTP opgehaald en
-              verwerkt.
-            </div>
-          </div>
-
-          <div className="rounded-2xl border bg-slate-50 p-5">
-            <div className="text-sm font-semibold text-slate-900">
-              Volledig automatische cron sync
-            </div>
-
-            <div className="mt-2 text-sm leading-6 text-slate-500">
-              Vercel Cron synchroniseert automatisch de ERP database op vaste
-              intervallen.
+              Ontbrekende artikels blijven bestaan voor historiek en koppelingen,
+              maar worden als slapend gemarkeerd.
             </div>
           </div>
         </div>
