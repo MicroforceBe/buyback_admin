@@ -19,23 +19,8 @@ type ErpSettingsRow = {
   ftp_secure: boolean | null;
 };
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const authHeader = req.headers.get("authorization");
-
-    if (
-      authHeader !== `Bearer ${process.env.ERP_SYNC_SECRET}`
-    ) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
     const { data: settings } = await supabaseAdmin
       .from("erp_settings")
       .select("*")
