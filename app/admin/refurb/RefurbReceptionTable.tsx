@@ -10,7 +10,10 @@ import {
   bulkUpdateRefurbItems,
   fetchReceptionItems,
   deleteRefurbReceptionItem,
+  searchErpArticlesForSku,
+  type ErpSkuSearchResult,
 } from "./actions";
+
 import type { RefurbStatusOption, RefurbLocationOption } from "./settingsActions";
 
 type StatusTransitionsMap = Record<string, string[]>;
@@ -23,7 +26,8 @@ type Props = {
   defaultStatusValue: string;
   defaultLocationValue: string;
   readyToBookValue: string;
-
+  caseUseAdminStatuses?: boolean;
+  vatScheme: "margin" | "normal";
   /**
    * ✅ NIEUW: vervolgstatussen-map (value -> allowed next values).
    * We ondersteunen BEIDE namen zodat TS build niet faalt.
@@ -273,6 +277,146 @@ function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPart
   );
 }
 
+function SkuAutocompleteCell({
+  value,
+  vatScheme,
+  disabled,
+  onChange,
+  onPaste,
+}: {
+  value: string;
+  vatScheme: "margin" | "normal";
+  disabled: boolean;
+  onChange: (value: string) => Promise<void>;
+  onPaste: (
+    e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
+}) {
+  const [input, setInput] = useState(value);
+  const [results, setResults] = useState<ErpSkuSearchResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setInput(value);
+  }, [value]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      const q = input.trim();
+
+      if (q.length < 2) {
+        setResults([]);
+        return;
+      }
+
+      try {
+        setLoading(true);
+
+        const rows = await searchErpArticlesForSku(
+          q,
+          vatScheme
+        );
+
+        if (!cancelled) {
+          setResults(rows || []);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    const t = setTimeout(run, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [input, vatScheme]);
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-1">
+        <input
+          className="bb-input h-7 text-[11px] px-1 w-full"
+          value={input}
+          disabled={disabled}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={async () => {
+            setTimeout(() => setOpen(false), 150);
+            await onChange(input.trim());
+          }}
+          onPaste={onPaste}
+        />
+
+        <CopyBtn value={input.trim()} title="Copy SKU" />
+      </div>
+
+      {open && (results.length > 0 || loading) && (
+        <div className="absolute z-50 mt-1 w-[520px] overflow-hidden rounded-xl border bg-white shadow-2xl">
+          {loading && (
+            <div className="px-3 py-2 text-[11px] text-slate-500">
+              Zoeken...
+            </div>
+          )}
+
+          {!loading &&
+            results.map((r) => (
+              <button
+                key={`${r.sku}-${r.title}`}
+                type="button"
+                className="flex w-full flex-col border-b px-3 py-2 text-left hover:bg-slate-50"
+                onMouseDown={async (e) => {
+                  e.preventDefault();
+
+                  setInput(r.sku);
+                  setOpen(false);
+
+                  await onChange(r.sku);
+                }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-[11px] text-slate-900">
+                    {r.sku}
+                  </div>
+
+                  <div className="text-[10px] text-slate-500">
+                    Stock: {r.inventory_qty ?? 0}
+                  </div>
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-600 line-clamp-2">
+                  {r.title || "—"}
+                </div>
+
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
+                  <span>
+                    {(r.price_cents || 0) / 100}€
+                  </span>
+
+                  <span>
+                    {r.vat_margin ? "Margin VAT" : "Normal VAT"}
+                  </span>
+                </div>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function RefurbReceptionTable({
   receptionId,
   initialItems,
@@ -285,6 +429,7 @@ export default function RefurbReceptionTable({
   statusNextMap,
   canDelete = false,
   canUseAdminStatuses = true,
+  vatScheme,
 }: Props) {
   const router = useRouter();
 
@@ -1049,17 +1194,21 @@ export default function RefurbReceptionTable({
               </td>
 
               {canDelete && (
-                <td className="px-1 py-0.5 border">
-                  <button
-                    type="button"
-                    className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
-                    disabled={rowBooked || isDeletingRow === it.id}
-                    title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
-                    onClick={() => onDeleteRow(it)}
-                  >
-                    {isDeletingRow === it.id ? "…" : "🗑️"}
-                  </button>
-                </td>
+              {/* SKU + autocomplete */}
+              <td className="px-1 py-0.5 border">
+                <SkuAutocompleteCell
+                  value={it.sku ?? ""}
+                  vatScheme={vatScheme}
+                  disabled={rowBooked}
+                  onChange={async (nextSku) => {
+                    await handleCellChange(it.id, "sku", nextSku);
+                  }}
+                  onPaste={(e) =>
+                    handlePasteToColumn(e, pasteStartRowIndex, "sku")
+                  }
+                />
+              </td>
+
               )}
 
               {/* Status */}
