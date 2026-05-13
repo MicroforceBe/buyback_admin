@@ -154,7 +154,7 @@ export default function PrintButton() {
             }
 
             .label-footer {
-              margin-top: auto;
+              margin-top: 1mm;
               border-top: 1px solid #d1d5db;
               padding-top: 0.5mm;
               text-align: center;
