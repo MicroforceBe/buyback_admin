@@ -687,6 +687,7 @@ export default async function RefurbReceptionDetailPage({
         statusTransitions={statusTransitions}
         canDelete={canDelete}
         canUseAdminStatuses={canUseAdminStatuses}
+        vatScheme={reception.vat_scheme === "normal" ? "normal" : "margin"}
       />
     </div>
   );
