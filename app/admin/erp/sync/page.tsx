@@ -51,10 +51,16 @@ async function checkMissingAction() {
   try {
     const result = await findMissingErpArticles();
 
+    const preview = result.missing
+      .slice(0, 50)
+      .map((x: any) => `${x.sku} — ${x.title || ""}`)
+      .join("|||");
+
     redirectUrl =
       `/admin/erp/sync?cleanup=1` +
       `&xlsx=${result.totalInXlsx}` +
-      `&missing=${result.missing.length}`;
+      `&missing=${result.missing.length}` +
+      `&missingPreview=${encodeURIComponent(preview)}`;
   } catch (e: any) {
     console.error("[ERP CLEANUP CHECK]", e);
 
@@ -108,6 +114,8 @@ export default async function ErpSyncPage({
     xlsx?: string;
     missing?: string;
     updated?: string;
+
+    missingPreview?: string;
   };
 }) {
   const success = searchParams?.success === "1";
@@ -122,6 +130,10 @@ export default async function ErpSyncPage({
   const xlsx = searchParams?.xlsx || null;
   const missing = searchParams?.missing || null;
   const updated = searchParams?.updated || null;
+
+  const missingPreview = searchParams?.missingPreview
+    ? decodeURIComponent(searchParams.missingPreview).split("|||")
+    : [];
 
   return (
     <div className="space-y-6">
@@ -204,6 +216,31 @@ export default async function ErpSyncPage({
             <b>{missing || 0}</b> artikels gevonden die niet meer in het XLSX
             bestand staan.
           </div>
+
+          {missingPreview.length > 0 && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-white p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Artikels die slapend gezet zullen worden
+              </div>
+
+              <div className="mt-3 max-h-[320px] overflow-auto rounded-lg border bg-slate-50">
+                {missingPreview.map((row, i) => (
+                  <div
+                    key={`${row}-${i}`}
+                    className="border-b px-3 py-2 text-xs text-slate-700 last:border-b-0"
+                  >
+                    {row}
+                  </div>
+                ))}
+              </div>
+
+              {Number(missing || 0) > 50 && (
+                <div className="mt-2 text-xs text-slate-500">
+                  Enkel de eerste 50 artikels worden weergegeven.
+                </div>
+              )}
+            </div>
+          )}
 
           {Number(missing || 0) > 0 && (
             <form action={markMissingInactiveAction} className="mt-4">
