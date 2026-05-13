@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/erp-sync",
+      "schedule": "0 */1 * * *" //synchroniseert elke 1 uur
+    }
+  ]
+}
