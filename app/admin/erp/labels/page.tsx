@@ -349,16 +349,22 @@ export default async function ErpLabelsPage({
           margin-top: 1.8mm;
         }
 
-        .label-row {
+         .label-row {
           display: grid;
-          grid-template-columns: 26mm 38mm;
-          gap: 2mm;
+          grid-template-columns: 24mm 1fr;
+          column-gap: 2mm;
           align-items: center;
+          width: 100%;
         }
 
+
         .label-text {
-          min-width: 0;
+          width: 24mm;
+          min-width: 24mm;
+          max-width: 24mm;
+          overflow: hidden;
         }
+
 
         .label-caption {
           font-size: 5.5px;
@@ -376,9 +382,11 @@ export default async function ErpLabelsPage({
         }
 
         .label-barcode-wrap {
+          width: 100%;
           overflow: hidden;
-          width: 38mm;
-          justify-self: start;
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
         }
 
         .label-barcode {
