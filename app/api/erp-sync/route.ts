@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import ftp from "basic-ftp";
+import { Client } from "basic-ftp";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -31,7 +31,7 @@ export async function GET() {
       throw new Error("ERP settings ontbreken");
     }
 
-    const client = new ftp.Client(30000);
+    const client = new Client(30000);
 
     client.ftp.verbose = false;
 
