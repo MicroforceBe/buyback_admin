@@ -92,7 +92,9 @@ async function getArticles(params: any) {
     `,
       { count: "exact" }
     );
-
+  
+  query = query.eq("missing_from_erp", false);
+  
   if (params.q) {
     const safeQ = String(params.q)
       .replace(/[%_,]/g, "")
