@@ -1,6 +1,7 @@
 // app/admin/erp/labels/page.tsx
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import PrintButton from "./PrintButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -181,17 +182,8 @@ export default async function ErpLabelsPage({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      window.print();
-                    }
-                  }}
-                  className="rounded-xl border px-4 py-2 text-sm font-medium hover:bg-slate-50"
-                >
-                  Print label
-                </button>
+            <PrintButton />
+                
               </div>
 
               <div className="label-sheet">
