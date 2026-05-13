@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { runErpSync } from "@/lib/erpSync";
 import SyncButton from "./SyncButton";
+import { requireAdminUser } from "@/lib/requireAdminUser";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -51,6 +52,7 @@ export default async function ErpSyncPage({
     error?: string;
   };
 }) {
+  await requireAdminUser();
   const success = searchParams?.success === "1";
   const imported = searchParams?.imported || null;
   const skipped = searchParams?.skipped || null;
