@@ -758,6 +758,7 @@ export async function searchErpArticlesForSku(
       inventory_qty
     `)
     .eq("refurbished_product", true)
+    .eq("missing_from_erp", false)
     .or(`title.ilike.%${primaryTerm}%,sku.ilike.%${primaryTerm}%`)
     .limit(2000);
 
