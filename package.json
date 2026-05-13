@@ -23,6 +23,7 @@
   "pdf-lib": "^1.17.1",
   "basic-ftp": "^5.0.5",
   "xlsx": "^0.18.5"
+  "jsbarcode:" "^3.11.6"
   },
   "devDependencies": {
     "@types/node": "20.11.30",
