@@ -78,8 +78,7 @@ export default function PrintButton() {
             .label-left {
               padding: 1.2mm 2mm;
               overflow: hidden;
-              display: flex;
-              flex-direction: column;
+              display: block;
               min-width: 0;
             }
 
