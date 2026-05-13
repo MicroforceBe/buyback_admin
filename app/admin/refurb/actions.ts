@@ -728,39 +728,60 @@ export type ErpSkuSearchResult = {
 };
 
 export async function searchErpArticlesForSku(
-  input: string,
+  q: string,
   vatScheme: "margin" | "normal"
 ): Promise<ErpSkuSearchResult[]> {
-  "use server";
+  const search = (q || "").trim();
 
-  const q = String(input || "")
-    .trim()
-    .replace(/[%_,]/g, "");
+  if (search.length < 2) {
+    return [];
+  }
 
-  if (q.length < 2) return [];
+  const terms = search
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
 
-let query = supabaseAdmin
-  .from("erp_articles")
-  .select("sku, title, price_cents, vat_margin, inventory_qty")
-  .eq("refurbished_product", true)
-  .or(`sku.ilike.%${q}%,title.ilike.%${q}%`)
-  .order("sku", { ascending: false })
-  .limit(8);
+  let query = supabaseAdmin
+    .from("erp_articles")
+    .select(
+      "sku, title, price_cents, vat_margin, inventory_qty"
+    )
+    .eq("refurbished_product", true)
+    .limit(50);
 
-
-  query =
-    vatScheme === "margin"
-      ? query.eq("vat_margin", true)
-      : query.eq("vat_margin", false);
+  // VAT filter
+  if (vatScheme === "margin") {
+    query = query.eq("vat_margin", true);
+  } else {
+    query = query.eq("vat_margin", false);
+  }
 
   const { data, error } = await query;
 
   if (error) {
-    console.error("[REFURB] ERP SKU search error", error);
+    console.error("[REFURB] searchErpArticlesForSku error", error);
     return [];
   }
 
-  return (data || []) as ErpSkuSearchResult[];
+  const filtered = (data || []).filter((row) => {
+    const haystack =
+      `${row.sku || ""} ${row.title || ""}`.toLowerCase();
+
+    return terms.every((term) =>
+      haystack.includes(term)
+    );
+  });
+
+  return filtered
+    .sort((a, b) => {
+      const aSku = (a.sku || "").toLowerCase();
+      const bSku = (b.sku || "").toLowerCase();
+
+      return aSku.localeCompare(bSku);
+    })
+    .slice(0, 8) as ErpSkuSearchResult[];
 }
 
 
