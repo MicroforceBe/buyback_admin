@@ -1,6 +1,8 @@
 // app/api/erp-sync/route.ts
 
 import { NextResponse } from "next/server";
+import { Writable } from "stream";
+
 import * as XLSX from "xlsx";
 import { Client } from "basic-ftp";
 
@@ -36,13 +38,16 @@ export async function GET() {
     client.ftp.verbose = false;
 
     await client.access({
-      host: settings.ftp_host!.replace(
-        "ftp://",
-        ""
-      ),
+      host: settings.ftp_host!
+        .replace("ftp://", "")
+        .replace("ftps://", ""),
+
       port: settings.ftp_port || 21,
+
       user: settings.ftp_user!,
+
       password: settings.ftp_password!,
+
       secure: settings.ftp_secure || false,
     });
 
@@ -53,18 +58,15 @@ export async function GET() {
       ""
     );
 
+    const writable = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    });
+
     await client.downloadTo(
-      {
-        write(chunk: Buffer) {
-          chunks.push(Buffer.from(chunk));
-        },
-
-        end() {},
-
-        on() {
-          return this;
-        },
-      } as any,
+      writable,
       remotePath
     );
 
@@ -77,14 +79,17 @@ export async function GET() {
     });
 
     const sheet =
-      workbook.Sheets[workbook.SheetNames[0]];
+      workbook.Sheets[
+        workbook.SheetNames[0]
+      ];
 
-    const rows = XLSX.utils.sheet_to_json<any>(
-      sheet,
-      {
-        defval: "",
-      }
-    );
+    const rows =
+      XLSX.utils.sheet_to_json<any>(
+        sheet,
+        {
+          defval: "",
+        }
+      );
 
     let imported = 0;
 
@@ -109,23 +114,30 @@ export async function GET() {
       const comparePrice =
         Number(
           String(
-            row["Variant Compare At Price"] ||
-              "0"
+            row[
+              "Variant Compare At Price"
+            ] || "0"
           ).replace(",", ".")
         ) || 0;
 
       const inventoryQty =
         Number(
-          row["Variant Inventory Qty"] || 0
+          row[
+            "Variant Inventory Qty"
+          ] || 0
         ) || 0;
 
       const active =
-        String(row["Status"] || "")
+        String(
+          row["Status"] || ""
+        )
           .toLowerCase()
           .trim() === "active";
 
       const published =
-        String(row["Published"] || "")
+        String(
+          row["Published"] || ""
+        )
           .toLowerCase()
           .trim() === "true";
 
@@ -162,7 +174,8 @@ export async function GET() {
 
             vat_margin: vatMargin,
 
-            inventory_qty: inventoryQty,
+            inventory_qty:
+              inventoryQty,
 
             stock_gentbrugge:
               Number(
@@ -209,12 +222,17 @@ export async function GET() {
       imported,
     });
   } catch (e: any) {
-    console.error("[ERP AUTO SYNC]", e);
+    console.error(
+      "[ERP AUTO SYNC]",
+      e
+    );
 
     return NextResponse.json(
       {
         success: false,
-        error: e?.message || "Sync mislukt",
+        error:
+          e?.message ||
+          "Sync mislukt",
       },
       {
         status: 500,
