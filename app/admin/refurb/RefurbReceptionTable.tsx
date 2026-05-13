@@ -26,7 +26,6 @@ type Props = {
   defaultStatusValue: string;
   defaultLocationValue: string;
   readyToBookValue: string;
-  caseUseAdminStatuses?: boolean;
   vatScheme: "margin" | "normal";
   /**
    * ✅ NIEUW: vervolgstatussen-map (value -> allowed next values).
@@ -1193,24 +1192,19 @@ export default function RefurbReceptionTable({
                 <input type="checkbox" checked={rowChecked} onChange={(e) => toggleSelectOne(it.id, e.target.checked)} />
               </td>
 
-              {canDelete && (
-              {/* SKU + autocomplete */}
+            {canDelete && (
               <td className="px-1 py-0.5 border">
-                <SkuAutocompleteCell
-                  value={it.sku ?? ""}
-                  vatScheme={vatScheme}
-                  disabled={rowBooked}
-                  onChange={async (nextSku) => {
-                    await handleCellChange(it.id, "sku", nextSku);
-                  }}
-                  onPaste={(e) =>
-                    handlePasteToColumn(e, pasteStartRowIndex, "sku")
-                  }
-                />
+                <button
+                  type="button"
+                  className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
+                  disabled={rowBooked || isDeletingRow === it.id}
+                  title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
+                  onClick={() => onDeleteRow(it)}
+                >
+                  {isDeletingRow === it.id ? "…" : "🗑️"}
+                </button>
               </td>
-
-              )}
-
+            )}
               {/* Status */}
               <td className="px-1 py-0.5 border">
                 <div className="flex items-center gap-2">
@@ -1333,18 +1327,17 @@ export default function RefurbReceptionTable({
                 </td>
               )}
 
-              {/* SKU + copy */}
+             {/* SKU + autocomplete */}
               <td className="px-1 py-0.5 border">
-                <div className="flex items-center gap-1">
-                  <input
-                    className="bb-input h-7 text-[11px] px-1 w-full"
-                    defaultValue={it.sku ?? ""}
-                    disabled={rowBooked}
-                    onBlur={(e) => handleCellChange(it.id, "sku", e.target.value)}
-                    onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
-                  />
-                  <CopyBtn value={(it.sku ?? "").trim()} title="Copy SKU" />
-                </div>
+                <SkuAutocompleteCell
+                  value={it.sku ?? ""}
+                  vatScheme={vatScheme}
+                  disabled={rowBooked}
+                  onChange={async (nextSku) => {
+                    await handleCellChange(it.id, "sku", nextSku);
+                  }}
+                  onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "sku")}
+                />
               </td>
 
               {/* Used parts */}
