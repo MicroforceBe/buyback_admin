@@ -54,12 +54,7 @@ function parseArticleTitle(title: string | null) {
 
   const model = modelMatch?.[1]?.trim() || raw;
 
-  return {
-    model,
-    capacity,
-    color,
-    grade,
-  };
+  return { model, capacity, color, grade };
 }
 
 async function getArticleBySku(sku: string): Promise<Article | null> {
@@ -97,7 +92,6 @@ export default async function ErpLabelsPage({
 
   const article = await getArticleBySku(sku);
   const parsed = parseArticleTitle(article?.title || null);
-
   const finalGrade = manualGrade || parsed.grade;
 
   return (
@@ -123,7 +117,6 @@ export default async function ErpLabelsPage({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr] print:block">
-        {/* Sidebar */}
         <div className="rounded-2xl border bg-white p-6 shadow-sm print:hidden">
           <form className="space-y-4">
             <div>
@@ -154,7 +147,7 @@ export default async function ErpLabelsPage({
 
             <div>
               <label className="text-xs font-semibold uppercase text-slate-500">
-                Batterij %
+                Battery %
               </label>
 
               <input
@@ -175,7 +168,7 @@ export default async function ErpLabelsPage({
                 defaultValue={manualGrade}
                 className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
               >
-                <option value="">Automatisch uit omschrijving</option>
+                <option value="">Automatically from description</option>
                 <option value="Nieuw">Nieuw</option>
                 <option value="3*">3*</option>
                 <option value="4*">4*</option>
@@ -194,9 +187,24 @@ export default async function ErpLabelsPage({
               Label tonen
             </button>
           </form>
+
+          {sku && !article && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              Geen artikel gevonden voor deze SKU.
+            </div>
+          )}
+
+          {article && (
+            <div className="mt-6 rounded-2xl border bg-green-50 p-4 text-sm text-green-800">
+              <div className="font-semibold">Artikel gevonden</div>
+              <div className="mt-2 text-green-900">{article.title}</div>
+              <div className="mt-1">
+                {article.vat_margin ? "Margin VAT" : "Normal VAT"}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Preview */}
         <div className="rounded-2xl border bg-white p-6 shadow-sm print:border-0 print:p-0 print:shadow-none">
           {article ? (
             <>
@@ -210,15 +218,14 @@ export default async function ErpLabelsPage({
                     {article.title}
                   </div>
                 </div>
+
+                <PrintButton />
               </div>
 
               <div className="label-sheet">
                 <div className="label-card">
-                  {/* LEFT */}
                   <div className="label-left">
-                    <div className="label-model">
-                      {parsed.model}
-                    </div>
+                    <div className="label-model">{parsed.model}</div>
 
                     <div className="label-sub">
                       {[parsed.capacity, parsed.color]
@@ -226,78 +233,63 @@ export default async function ErpLabelsPage({
                         .join(" · ")}
                     </div>
 
-                    {/* SKU */}
-                    <div className="label-row">
-                      <div className="label-row-left">
-                        <div className="label-caption">SKU</div>
+                    <div className="label-lines">
+                      <div className="label-row">
+                        <div className="label-text">
+                          <div className="label-caption">SKU</div>
+                          <div className="label-value">{article.sku}</div>
+                        </div>
 
-                        <div className="label-value">
-                          {article.sku}
+                        <div className="label-barcode-wrap">
+                          <Barcode value={article.sku} />
                         </div>
                       </div>
 
-                      <div className="label-row-barcode">
-                        <Barcode value={article.sku} />
-                      </div>
-                    </div>
+                      <div className="label-divider" />
 
-                    {/* IMEI */}
-                    <div className="label-row">
-                      <div className="label-row-left">
-                        <div className="label-caption">
-                          IMEI / SN
+                      <div className="label-row">
+                        <div className="label-text">
+                          <div className="label-caption">IMEI / SN</div>
+                          <div className="label-value">{imei || "—"}</div>
                         </div>
 
-                        <div className="label-value">
-                          {imei || "—"}
+                        <div className="label-barcode-wrap">
+                          <Barcode value={imei} />
                         </div>
-                      </div>
-
-                      <div className="label-row-barcode">
-                        <Barcode value={imei} />
                       </div>
                     </div>
 
                     <div className="label-footer">
-                      {article.vat_margin
-                        ? "Margin VAT"
-                        : "Normal VAT"}
+                      {article.vat_margin ? "Margin VAT" : "Normal VAT"}
                     </div>
                   </div>
 
-                  {/* RIGHT */}
                   <div className="label-right">
-                    <div className="label-logo">
-                      MICROFORCE
-                    </div>
+                    <div className="label-logo">MICROFORCE</div>
 
-                    <div className="label-ce">
-                      CE
-                    </div>
-
-                    <div className="label-side-block">
-                      <div className="label-side-title">
-                        Grade
+                    <div className="label-side-content">
+                      <div className="label-side-block">
+                        <div className="label-side-title">Grade</div>
+                        <div className="label-side-value">
+                          {finalGrade || "—"}
+                        </div>
                       </div>
 
-                      <div className="label-side-value">
-                        {finalGrade || "—"}
+                      <div className="label-side-block">
+                        <div className="label-side-title">Battery</div>
+                        <div className="label-side-value">
+                          {battery ? `${battery}%` : "—"}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="label-side-block">
-                      <div className="label-side-title">
-                        Batterij
-                      </div>
-
-                      <div className="label-side-value">
-                        {battery
-                          ? `${battery}%`
-                          : "—"}
-                      </div>
-                    </div>
+                    <div className="label-ce">CE</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-4 text-xs text-slate-500 print:hidden">
+                Label formaat: 89mm × 36mm · DYMO 99012 Large Address Label
               </div>
             </>
           ) : (
@@ -330,6 +322,9 @@ export default async function ErpLabelsPage({
         .label-left {
           padding: 2.2mm 2.5mm;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
         }
 
         .label-model {
@@ -345,16 +340,24 @@ export default async function ErpLabelsPage({
           margin-top: 0.6mm;
           font-size: 8px;
           font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .label-lines {
+          margin-top: 1.8mm;
         }
 
         .label-row {
-          margin-top: 1.8mm;
           display: grid;
           grid-template-columns: 24mm 1fr;
-          gap: 1.5mm;
+          gap: 2mm;
           align-items: center;
-          border-top: 1px solid #e5e7eb;
-          padding-top: 1.2mm;
+        }
+
+        .label-text {
+          min-width: 0;
         }
 
         .label-caption {
@@ -365,15 +368,16 @@ export default async function ErpLabelsPage({
         }
 
         .label-value {
-          margin-top: 0.2mm;
+          margin-top: 0.3mm;
           font-size: 8px;
           font-weight: 700;
           line-height: 1.1;
           word-break: break-all;
         }
 
-        .label-row-barcode {
+        .label-barcode-wrap {
           overflow: hidden;
+          width: 100%;
         }
 
         .label-barcode {
@@ -382,10 +386,15 @@ export default async function ErpLabelsPage({
           display: block;
         }
 
+        .label-divider {
+          margin: 1.3mm 0;
+          border-top: 1px solid #d1d5db;
+        }
+
         .label-footer {
-          margin-top: 1.2mm;
-          border-top: 1px solid #e5e7eb;
-          padding-top: 0.7mm;
+          margin-top: auto;
+          border-top: 1px solid #d1d5db;
+          padding-top: 0.8mm;
           text-align: center;
           font-size: 6px;
           text-transform: uppercase;
@@ -398,7 +407,7 @@ export default async function ErpLabelsPage({
           padding: 1.5mm;
           display: flex;
           flex-direction: column;
-          align-items: center;
+          align-items: stretch;
           justify-content: space-between;
         }
 
@@ -412,11 +421,10 @@ export default async function ErpLabelsPage({
           width: 100%;
         }
 
-        .label-ce {
-          font-size: 13px;
-          font-weight: 900;
-          line-height: 1;
-          margin-top: 0.5mm;
+        .label-side-content {
+          display: flex;
+          flex-direction: column;
+          gap: 2.5mm;
         }
 
         .label-side-block {
@@ -433,9 +441,17 @@ export default async function ErpLabelsPage({
         }
 
         .label-side-value {
-          margin-top: 0.3mm;
+          margin-top: 0.4mm;
           font-size: 11px;
           font-weight: 900;
+          line-height: 1;
+        }
+
+        .label-ce {
+          align-self: flex-end;
+          font-size: 7px;
+          font-weight: 800;
+          letter-spacing: -0.4px;
           line-height: 1;
         }
 
