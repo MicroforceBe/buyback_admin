@@ -739,21 +739,14 @@ export async function searchErpArticlesForSku(
 
   if (q.length < 2) return [];
 
-  let query = supabaseAdmin
-    .from("erp_articles")
-    .select(
-      `
-      sku,
-      title,
-      price_cents,
-      vat_margin,
-      inventory_qty
-    `
-    )
-    .eq("active", true)
-    .or(`sku.ilike.%${q}%,title.ilike.%${q}%`)
-    .order("sku", { ascending: false })
-    .limit(8);
+let query = supabaseAdmin
+  .from("erp_articles")
+  .select("sku, title, price_cents, vat_margin, inventory_qty")
+  .eq("refurbished_product", true)
+  .or(`sku.ilike.%${q}%,title.ilike.%${q}%`)
+  .order("sku", { ascending: false })
+  .limit(8);
+
 
   query =
     vatScheme === "margin"
