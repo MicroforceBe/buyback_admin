@@ -351,7 +351,7 @@ export default async function ErpLabelsPage({
 
         .label-row {
           display: grid;
-          grid-template-columns: 24mm 1fr;
+          grid-template-columns: 26mm 38mm;
           gap: 2mm;
           align-items: center;
         }
@@ -377,7 +377,8 @@ export default async function ErpLabelsPage({
 
         .label-barcode-wrap {
           overflow: hidden;
-          width: 100%;
+          width: 38mm;
+          justify-self: start;
         }
 
         .label-barcode {
