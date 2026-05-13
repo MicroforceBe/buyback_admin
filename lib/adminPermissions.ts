@@ -8,6 +8,8 @@ export type AdminFeature =
   | "dashboard"
   | "leads"
   | "leads_finalize"
+  | "refurb"
+  | "erp"
   | "catalog"
   | "multipliers"
   | "uploads"
@@ -46,7 +48,9 @@ export type PermissionsMap = {
 export const ALL_FEATURES: AdminFeature[] = [
   "dashboard",
   "leads",
-  "leads_finalize", // ⬅ nieuw recht ook in de lijst
+  "leads_finalize",
+  "refurb",
+  "erp",
   "catalog",
   "multipliers",
   "uploads",
@@ -75,9 +79,11 @@ export function hasPermission(
   if (user.role === "admin") return true;
 
   const featurePerm = user.permissions?.[feature];
+
   if (!featurePerm) return false;
 
   const val = featurePerm[mode];
+
   return !!val;
 }
 
@@ -86,13 +92,15 @@ export function hasPermission(
  * Handig om bv. delete / role-change op de hoofdadmin te blokkeren.
  *
  * Gebruik een env-var met komma-gescheiden e-mails, bijvoorbeeld:
- *   BUYBACK_ROOT_ADMINS=olivier@microforce.be, iemand@anders.be
+ * BUYBACK_ROOT_ADMINS=olivier@microforce.be,iemand@anders.be
  */
 export function isRootAdminEmail(
   email: string | null | undefined
 ): boolean {
   if (!email) return false;
+
   const normalized = email.trim().toLowerCase();
+
   if (!normalized) return false;
 
   const raw =
