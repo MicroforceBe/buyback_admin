@@ -719,6 +719,58 @@ export async function pasteIntoRefurbColumn(
   return fetchItemsForReception(receptionId);
 }
 
+export type ErpSkuSearchResult = {
+  sku: string;
+  title: string | null;
+  price_cents: number | null;
+  vat_margin: boolean | null;
+  inventory_qty: number | null;
+};
+
+export async function searchErpArticlesForSku(
+  input: string,
+  vatScheme: "margin" | "normal"
+): Promise<ErpSkuSearchResult[]> {
+  "use server";
+
+  const q = String(input || "")
+    .trim()
+    .replace(/[%_,]/g, "");
+
+  if (q.length < 2) return [];
+
+  let query = supabaseAdmin
+    .from("erp_articles")
+    .select(
+      `
+      sku,
+      title,
+      price_cents,
+      vat_margin,
+      inventory_qty
+    `
+    )
+    .eq("active", true)
+    .or(`sku.ilike.%${q}%,title.ilike.%${q}%`)
+    .order("sku", { ascending: false })
+    .limit(8);
+
+  query =
+    vatScheme === "margin"
+      ? query.eq("vat_margin", true)
+      : query.eq("vat_margin", false);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[REFURB] ERP SKU search error", error);
+    return [];
+  }
+
+  return (data || []) as ErpSkuSearchResult[];
+}
+
+
 /**
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
