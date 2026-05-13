@@ -747,9 +747,18 @@ export async function searchErpArticlesForSku(
 
   let query = supabaseAdmin
     .from("erp_articles")
-    .select("sku, title, price_cents, vat_margin, inventory_qty")
+    .select(`
+      sku,
+      title,
+      price_cents,
+      vat_margin,
+      inventory_qty
+    `)
     .eq("refurbished_product", true)
-    .limit(100);
+    .limit(200);
+
+  // GEEN active filter meer:
+  // dus zowel actieve als inactieve artikels
 
   query =
     vatScheme === "margin"
@@ -766,21 +775,31 @@ export async function searchErpArticlesForSku(
   const filtered = (data || []).filter((row) => {
     const sku = String(row.sku || "").toLowerCase();
     const title = String(row.title || "").toLowerCase();
+
+    const normalizedSku = sku.replace(/[^a-z0-9]/g, "");
     const haystack = `${sku} ${title}`;
 
-    const allTermsMatch = terms.every((term) => haystack.includes(term));
+    // alle zoektermen moeten voorkomen
+    const allTermsMatch = terms.every((term) =>
+      haystack.includes(term)
+    );
 
+    // SKU match telt enkel mee vanaf 4 opeenvolgende chars
     const hasStrongSkuMatch =
       compactSearch.length >= 4 &&
-      sku.replace(/[^a-z0-9]/g, "").includes(compactSearch.slice(0, 4));
+      normalizedSku.includes(compactSearch);
 
-    const hasTitleMatch = terms.every((term) => title.includes(term));
+    // titelmatch
+    const hasTitleMatch = terms.every((term) =>
+      title.includes(term)
+    );
 
     return allTermsMatch && (hasTitleMatch || hasStrongSkuMatch);
   });
 
-  return filtered.slice(0, 8) as ErpSkuSearchResult[];
+  return filtered.slice(0, 20) as ErpSkuSearchResult[];
 }
+
 
 
 /**
