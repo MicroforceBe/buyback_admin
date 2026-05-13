@@ -21,10 +21,10 @@ function parseArticleTitle(title: string | null) {
   const capacity =
     upper.match(/\b(64GB|128GB|256GB|512GB|1TB|2TB)\b/)?.[1] || "";
 
-  const grade =
-    upper.match(
-      /\b(NIEUW|3\*|4\*|5\*|OEM|PREMIUM|GRADE A|GRADE B|GRADE C)\b/
-    )?.[1] || "";
+const grade =
+  upper.match(/(^|[\s\-_/])(NIEUW|NEW|3\*|4\*|5\*|OEM|PREMIUM|GRADE A|GRADE B|GRADE C)(?=$|[\s\-_/])/)
+    ?.[2] || "";
+
 
   const colors = [
     "BLACK",
