@@ -1,5 +1,4 @@
-//app/admin/leads/analytics/AnalyticsClient.tsx
-
+// app/admin/leads/analytics/AnalyticsClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -31,10 +30,7 @@ import {
   Activity,
   Download,
   RefreshCw,
-  Store,
   Sparkles,
-  MapPinned,
-  Globe2,
   Truck,
 } from "lucide-react";
 import type { AnalyticsLead } from "./page";
@@ -48,6 +44,15 @@ type Props = {
   previousFrom: string;
   previousTo: string;
 };
+
+type DrilldownType =
+  | "channel"
+  | "province"
+  | "country"
+  | "category"
+  | "model"
+  | "status"
+  | null;
 
 const COLORS = [
   "#2563eb",
@@ -118,7 +123,10 @@ function categoryLabel(model: string | null) {
 
 function channelLabel(lead: AnalyticsLead) {
   if (lead.delivery_method === "ship") return "Verzending";
-  if (lead.delivery_method === "dropoff") return lead.shop_location || "Onbekend winkel";
+  if (lead.delivery_method === "dropoff") {
+    return lead.shop_location || "Onbekend winkel";
+  }
+
   return lead.shop_location || "Onbekend";
 }
 
@@ -248,7 +256,8 @@ function buildBasicStats(rows: AnalyticsLead[]) {
     cancelled: cancelledLeads.length,
     total: rows.length,
     totalValue,
-    avgValue: doneLeads.length > 0 ? Math.round(totalValue / doneLeads.length) : 0,
+    avgValue:
+      doneLeads.length > 0 ? Math.round(totalValue / doneLeads.length) : 0,
   };
 }
 
@@ -261,12 +270,21 @@ export default function AnalyticsClient({
   previousFrom,
   previousTo,
 }: Props) {
+  const [selectedPreset, setSelectedPreset] = useState(preset);
+
   const [channelFilter, setChannelFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [provinceFilter, setProvinceFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
-  const [selectedPreset, setSelectedPreset] = useState(preset);
+
+  const [drilldown, setDrilldown] = useState<{
+    type: DrilldownType;
+    value: string | null;
+  }>({
+    type: null,
+    value: null,
+  });
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -275,6 +293,7 @@ export default function AnalyticsClient({
       const status = lead.status || "Onbekend";
       const province = provinceLabel(lead);
       const country = countryLabel(lead);
+      const model = modelLabel(lead);
 
       if (channelFilter !== "all" && channel !== channelFilter) return false;
       if (categoryFilter !== "all" && category !== categoryFilter) return false;
@@ -282,9 +301,36 @@ export default function AnalyticsClient({
       if (provinceFilter !== "all" && province !== provinceFilter) return false;
       if (countryFilter !== "all" && country !== countryFilter) return false;
 
+      if (drilldown.type === "channel" && channel !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "category" && category !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "status" && status !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "province" && province !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "country" && country !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "model" && model !== drilldown.value) {
+        return false;
+      }
+
       return true;
     });
-  }, [leads, channelFilter, categoryFilter, statusFilter, provinceFilter, countryFilter]);
+  }, [
+    leads,
+    channelFilter,
+    categoryFilter,
+    statusFilter,
+    provinceFilter,
+    countryFilter,
+    drilldown,
+  ]);
 
   const previousFilteredLeads = useMemo(() => {
     return previousLeads.filter((lead) => {
@@ -293,12 +339,32 @@ export default function AnalyticsClient({
       const status = lead.status || "Onbekend";
       const province = provinceLabel(lead);
       const country = countryLabel(lead);
+      const model = modelLabel(lead);
 
       if (channelFilter !== "all" && channel !== channelFilter) return false;
       if (categoryFilter !== "all" && category !== categoryFilter) return false;
       if (statusFilter !== "all" && status !== statusFilter) return false;
       if (provinceFilter !== "all" && province !== provinceFilter) return false;
       if (countryFilter !== "all" && country !== countryFilter) return false;
+
+      if (drilldown.type === "channel" && channel !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "category" && category !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "status" && status !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "province" && province !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "country" && country !== drilldown.value) {
+        return false;
+      }
+      if (drilldown.type === "model" && model !== drilldown.value) {
+        return false;
+      }
 
       return true;
     });
@@ -309,6 +375,7 @@ export default function AnalyticsClient({
     statusFilter,
     provinceFilter,
     countryFilter,
+    drilldown,
   ]);
 
   const previousStats = useMemo(
@@ -467,7 +534,10 @@ export default function AnalyticsClient({
       }));
 
     const channelScoreRows = Array.from(
-      new Set([...Array.from(channelDone.keys()), ...Array.from(channelCancelled.keys())])
+      new Set([
+        ...Array.from(channelDone.keys()),
+        ...Array.from(channelCancelled.keys()),
+      ])
     )
       .map((channel) => {
         const done = channelDone.get(channel) || 0;
@@ -533,9 +603,10 @@ export default function AnalyticsClient({
     const bestChannel = channelScoreRows[0] || null;
     const bestModel = modelRows[0] || null;
     const bestCategory = categoryRows[0] || null;
-    const highestCancelChannel = [...channelScoreRows]
-      .filter((x) => x.done + x.cancelled >= 3)
-      .sort((a, b) => b.cancelRate - a.cancelRate)[0] || null;
+    const highestCancelChannel =
+      [...channelScoreRows]
+        .filter((x) => x.done + x.cancelled >= 3)
+        .sort((a, b) => b.cancelRate - a.cancelRate)[0] || null;
 
     return {
       doneLeads,
@@ -587,13 +658,21 @@ export default function AnalyticsClient({
 
   const insights = [
     stats.bestChannel
-      ? `Beste kanaal/winkel op waarde: ${stats.bestChannel.channel} met ${euro(stats.bestChannel.value)} uit ${stats.bestChannel.done} afgewerkte leads.`
+      ? `Beste kanaal/winkel op waarde: ${
+          stats.bestChannel.channel
+        } met ${euro(stats.bestChannel.value)} uit ${
+          stats.bestChannel.done
+        } afgewerkte leads.`
       : null,
     stats.bestModel
-      ? `Topmodel op waarde: ${stats.bestModel.name} met ${euro(stats.bestModel.value_cents)} en ${stats.bestModel.count} leads.`
+      ? `Topmodel op waarde: ${stats.bestModel.name} met ${euro(
+          stats.bestModel.value_cents
+        )} en ${stats.bestModel.count} leads.`
       : null,
     stats.bestCategory
-      ? `Sterkste categorie: ${stats.bestCategory.name} met ${euro(stats.bestCategory.value_cents)} totaal.`
+      ? `Sterkste categorie: ${stats.bestCategory.name} met ${euro(
+          stats.bestCategory.value_cents
+        )} totaal.`
       : null,
     stats.highestCancelChannel
       ? `Hoogste annulatiegraad: ${stats.highestCancelChannel.channel} met ${stats.highestCancelChannel.cancelRate}%.`
@@ -614,7 +693,8 @@ export default function AnalyticsClient({
             </h1>
 
             <p className="mt-2 text-sm text-blue-100">
-              Analyse met aparte vergelijking voor winkels, verzending, provincie en land.
+              Analyse met aparte vergelijking voor winkels, verzending,
+              provincie en land.
             </p>
 
             <p className="mt-2 text-xs text-blue-200">
@@ -654,75 +734,73 @@ export default function AnalyticsClient({
         </div>
       </div>
 
-<form
-  action="/admin/leads/analytics"
-  className="rounded-3xl border bg-white p-4 shadow-sm"
->
-  <div className="grid gap-3 md:grid-cols-5">
-    <select
-      name="preset"
-      value={selectedPreset}
-      className="bb-select h-10 text-sm"
-      onChange={(e) => {
-        const next = e.target.value;
-        const form = e.currentTarget.form;
-      
-        setSelectedPreset(next);
-      
-        if (next !== "custom") {
-          window.setTimeout(() => {
-            form?.requestSubmit();
-          }, 0);
-        }
-      }}
+      <form
+        action="/admin/leads/analytics"
+        className="rounded-3xl border bg-white p-4 shadow-sm"
+      >
+        <div className="grid gap-3 md:grid-cols-5">
+          <select
+            name="preset"
+            value={selectedPreset}
+            className="bb-select h-10 text-sm"
+            onChange={(e) => {
+              const next = e.target.value;
+              const form = e.currentTarget.form;
 
-    >
-      <option value="this_year">Dit jaar</option>
-      <option value="this_month">Deze maand</option>
-      <option value="last_60_days">Laatste 60 dagen</option>
-      <option value="last_90_days">Laatste 90 dagen</option>
-      <option value="last_12_months">Laatste 12 maanden</option>
-      <option value="all_time">All time</option>
-      <option value="custom">Custom</option>
-    </select>
+              setSelectedPreset(next);
 
-    {selectedPreset === "custom" && (
-      <>
-        <input
-          type="date"
-          name="from"
-          defaultValue={from}
-          className="bb-input h-10 text-sm"
-        />
+              if (next !== "custom") {
+                window.setTimeout(() => {
+                  form?.requestSubmit();
+                }, 0);
+              }
+            }}
+          >
+            <option value="this_year">Dit jaar</option>
+            <option value="this_month">Deze maand</option>
+            <option value="last_60_days">Laatste 60 dagen</option>
+            <option value="last_90_days">Laatste 90 dagen</option>
+            <option value="last_12_months">Laatste 12 maanden</option>
+            <option value="all_time">All time</option>
+            <option value="custom">Custom</option>
+          </select>
 
-        <input
-          type="date"
-          name="to"
-          defaultValue={to}
-          className="bb-input h-10 text-sm"
-        />
+          {selectedPreset === "custom" && (
+            <>
+              <input
+                type="date"
+                name="from"
+                defaultValue={from}
+                className="bb-input h-10 text-sm"
+              />
 
-        <button className="bb-btn h-10 text-sm" type="submit">
-          Filter
-        </button>
-      </>
-    )}
+              <input
+                type="date"
+                name="to"
+                defaultValue={to}
+                className="bb-input h-10 text-sm"
+              />
 
-    {selectedPreset !== "custom" && (
-      <div className="md:col-span-3 flex items-center text-sm text-slate-500">
-        Periode wordt automatisch bepaald door de gekozen preset.
-      </div>
-    )}
+              <button className="bb-btn h-10 text-sm" type="submit">
+                Filter
+              </button>
+            </>
+          )}
 
-    <Link
-      href="/admin/leads/analytics"
-      className="bb-btn h-10 text-sm flex items-center justify-center"
-    >
-      Reset
-    </Link>
-  </div>
-</form>
+          {selectedPreset !== "custom" && (
+            <div className="md:col-span-3 flex items-center text-sm text-slate-500">
+              Periode wordt automatisch bepaald door de gekozen preset.
+            </div>
+          )}
 
+          <Link
+            href="/admin/leads/analytics"
+            className="bb-btn h-10 text-sm flex items-center justify-center"
+          >
+            Reset
+          </Link>
+        </div>
+      </form>
 
       <div className="rounded-3xl border bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-5">
@@ -793,6 +871,24 @@ export default function AnalyticsClient({
         </div>
       </div>
 
+      {drilldown.type && drilldown.value && (
+        <div className="rounded-3xl border bg-white p-4 shadow-sm flex items-center justify-between">
+          <div className="text-sm font-medium text-slate-700">
+            Actieve drill-down:{" "}
+            <span className="font-bold">{drilldown.type}</span> ={" "}
+            <span className="font-bold">{drilldown.value}</span>
+          </div>
+
+          <button
+            type="button"
+            className="bb-btn h-9 text-sm px-3"
+            onClick={() => setDrilldown({ type: null, value: null })}
+          >
+            Toon alles
+          </button>
+        </div>
+      )}
+
       <section className="rounded-3xl border bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
           <Sparkles size={18} />
@@ -850,8 +946,18 @@ export default function AnalyticsClient({
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="leads" name="Leads huidig jaar" radius={[8, 8, 0, 0]} fill="#2563eb" />
-              <Bar dataKey="leads_vorig_jaar" name="Leads vorig jaar" radius={[8, 8, 0, 0]} fill="#94a3b8" />
+              <Bar
+                dataKey="leads"
+                name="Leads huidig jaar"
+                radius={[8, 8, 0, 0]}
+                fill="#2563eb"
+              />
+              <Bar
+                dataKey="leads_vorig_jaar"
+                name="Leads vorig jaar"
+                radius={[8, 8, 0, 0]}
+                fill="#94a3b8"
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -864,8 +970,20 @@ export default function AnalyticsClient({
               <YAxis />
               <Tooltip formatter={(value) => `${value}€`} />
               <Legend />
-              <Area type="monotone" dataKey="value_eur" name="Waarde huidig jaar (€)" stroke="#7c3aed" fill="#c4b5fd" />
-              <Area type="monotone" dataKey="value_vorig_jaar_eur" name="Waarde vorig jaar (€)" stroke="#64748b" fill="#cbd5e1" />
+              <Area
+                type="monotone"
+                dataKey="value_eur"
+                name="Waarde huidig jaar (€)"
+                stroke="#7c3aed"
+                fill="#c4b5fd"
+              />
+              <Area
+                type="monotone"
+                dataKey="value_vorig_jaar_eur"
+                name="Waarde vorig jaar (€)"
+                stroke="#64748b"
+                fill="#cbd5e1"
+              />
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -878,8 +996,26 @@ export default function AnalyticsClient({
               <YAxis type="category" dataKey="name" width={140} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="value_eur" fill="#7c3aed" name="Waarde (€)" />
-              <Bar dataKey="count" fill="#06b6d4" name="Aantal" />
+              <Bar
+                dataKey="value_eur"
+                fill="#7c3aed"
+                name="Waarde (€)"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "model", value: data.name });
+                  }
+                }}
+              />
+              <Bar
+                dataKey="count"
+                fill="#06b6d4"
+                name="Aantal"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "model", value: data.name });
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -892,8 +1028,26 @@ export default function AnalyticsClient({
               <YAxis type="category" dataKey="name" width={140} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="value_eur" fill="#2563eb" name="Waarde (€)" />
-              <Bar dataKey="count" fill="#16a34a" name="Aantal" />
+              <Bar
+                dataKey="value_eur"
+                fill="#2563eb"
+                name="Waarde (€)"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "channel", value: data.name });
+                  }
+                }}
+              />
+              <Bar
+                dataKey="count"
+                fill="#16a34a"
+                name="Aantal"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "channel", value: data.name });
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -906,8 +1060,26 @@ export default function AnalyticsClient({
               <YAxis type="category" dataKey="name" width={140} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="value_eur" fill="#0891b2" name="Waarde (€)" />
-              <Bar dataKey="count" fill="#475569" name="Aantal" />
+              <Bar
+                dataKey="value_eur"
+                fill="#0891b2"
+                name="Waarde (€)"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "province", value: data.name });
+                  }
+                }}
+              />
+              <Bar
+                dataKey="count"
+                fill="#475569"
+                name="Aantal"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "province", value: data.name });
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -920,8 +1092,26 @@ export default function AnalyticsClient({
               <YAxis type="category" dataKey="name" width={140} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="value_eur" fill="#db2777" name="Waarde (€)" />
-              <Bar dataKey="count" fill="#64748b" name="Aantal" />
+              <Bar
+                dataKey="value_eur"
+                fill="#db2777"
+                name="Waarde (€)"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "country", value: data.name });
+                  }
+                }}
+              />
+              <Bar
+                dataKey="count"
+                fill="#64748b"
+                name="Aantal"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "country", value: data.name });
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -934,8 +1124,26 @@ export default function AnalyticsClient({
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="value_eur" fill="#f97316" name="Waarde (€)" />
-              <Bar dataKey="count" fill="#475569" name="Aantal" />
+              <Bar
+                dataKey="value_eur"
+                fill="#f97316"
+                name="Waarde (€)"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "category", value: data.name });
+                  }
+                }}
+              />
+              <Bar
+                dataKey="count"
+                fill="#475569"
+                name="Aantal"
+                onClick={(data: any) => {
+                  if (data?.name) {
+                    setDrilldown({ type: "category", value: data.name });
+                  }
+                }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -943,7 +1151,22 @@ export default function AnalyticsClient({
         <ChartCard title="Afgewerkt vs geannuleerd">
           <ResponsiveContainer width="100%" height={420}>
             <PieChart>
-              <Pie data={stats.closedRows} dataKey="value" nameKey="name" outerRadius={130} label>
+              <Pie
+                data={stats.closedRows}
+                dataKey="value"
+                nameKey="name"
+                outerRadius={130}
+                label
+                onClick={(data: any) => {
+                  if (data?.name === "Afgewerkt") {
+                    setDrilldown({ type: "status", value: "done" });
+                  }
+
+                  if (data?.name === "Geannuleerd") {
+                    setDrilldown({ type: "status", value: "cancelled" });
+                  }
+                }}
+              >
                 {stats.closedRows.map((_, index) => (
                   <Cell key={index} fill={COLORS[index % COLORS.length]} />
                 ))}
@@ -976,11 +1199,22 @@ export default function AnalyticsClient({
 
             <tbody>
               {stats.channelScoreRows.map((row) => (
-                <tr key={row.channel} className="border-t hover:bg-slate-50">
+                <tr
+                  key={row.channel}
+                  className="border-t hover:bg-slate-50 cursor-pointer"
+                  onClick={() =>
+                    setDrilldown({
+                      type: "channel",
+                      value: row.channel,
+                    })
+                  }
+                >
                   <td className="px-4 py-3 font-medium">{row.channel}</td>
                   <td className="px-4 py-3 text-right">{euro(row.value)}</td>
                   <td className="px-4 py-3 text-right">{row.done}</td>
-                  <td className="px-4 py-3 text-right">{euro(row.avgValue)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {euro(row.avgValue)}
+                  </td>
                   <td className="px-4 py-3 text-right">{row.cancelled}</td>
                   <td className="px-4 py-3 text-right">
                     <span
@@ -1004,7 +1238,7 @@ export default function AnalyticsClient({
 
       <div className="rounded-3xl border bg-white shadow-sm overflow-hidden">
         <div className="border-b px-6 py-4 text-lg font-semibold">
-          Drill-down leads
+          Drill-down leads ({filteredLeads.length})
         </div>
 
         <div className="overflow-auto">
@@ -1035,7 +1269,9 @@ export default function AnalyticsClient({
                     {euro(leadValueCents(lead))}
                   </td>
                   <td className="px-4 py-3">
-                    {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
+                    {[lead.first_name, lead.last_name]
+                      .filter(Boolean)
+                      .join(" ") || "—"}
                   </td>
                 </tr>
               ))}
@@ -1067,7 +1303,9 @@ function Card({
 
       <div className="mt-4 text-3xl font-bold">{value}</div>
 
-      {sub && <div className="mt-2 text-xs font-medium text-slate-500">{sub}</div>}
+      {sub && (
+        <div className="mt-2 text-xs font-medium text-slate-500">{sub}</div>
+      )}
     </div>
   );
 }
