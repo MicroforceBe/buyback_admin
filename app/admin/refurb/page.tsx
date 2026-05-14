@@ -16,6 +16,10 @@ type RefurbReception = {
   vat_scheme: "margin" | "normal";
   supplier_invoice_nr: string;
   internal_invoice_nr: string | null;
+  total_items?: number;
+  ready_to_book_count?: number;
+  waiting_for_sku_count?: number;
+  finished_percent?: number;
 };
 
 type SearchResult = {
@@ -53,7 +57,81 @@ async function getReceptions(): Promise<RefurbReception[]> {
     return [];
   }
 
-  return data as RefurbReception[];
+  const receptions = (data || []) as RefurbReception[];
+  const receptionIds = receptions.map((r) => r.id);
+
+  if (!receptionIds.length) return receptions;
+
+  const { data: items, error: itemsError } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("reception_id, refurb_status")
+    .in("reception_id", receptionIds);
+
+  if (itemsError) {
+    console.error("[REFURB] error fetching reception stats", itemsError);
+    return receptions;
+  }
+
+  const stats = new Map<
+    string,
+    {
+      total: number;
+      readyToBook: number;
+      waitingForSku: number;
+      finished: number;
+    }
+  >();
+
+  for (const item of items || []) {
+    const receptionId = String((item as any).reception_id || "");
+    const status = String((item as any).refurb_status || "")
+      .trim()
+      .toLowerCase();
+
+    if (!receptionId) continue;
+
+    const curr =
+      stats.get(receptionId) || {
+        total: 0,
+        readyToBook: 0,
+        waitingForSku: 0,
+        finished: 0,
+      };
+
+    curr.total += 1;
+
+    if (status === "ready to book") {
+      curr.readyToBook += 1;
+    }
+
+    if (status === "waiting for sku") {
+      curr.waitingForSku += 1;
+    }
+
+    if (
+      status === "ready to book" ||
+      status === "booked" ||
+      status.includes("finished")
+    ) {
+      curr.finished += 1;
+    }
+
+    stats.set(receptionId, curr);
+  }
+
+  return receptions.map((r) => {
+    const s = stats.get(r.id);
+    const total = s?.total || 0;
+    const finished = s?.finished || 0;
+
+    return {
+      ...r,
+      total_items: total,
+      ready_to_book_count: s?.readyToBook || 0,
+      waiting_for_sku_count: s?.waitingForSku || 0,
+      finished_percent: total > 0 ? Math.round((finished / total) * 100) : 0,
+    };
+  });
 }
 
 async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
@@ -63,7 +141,6 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
 
   const results: SearchResult[] = [];
 
-  // RECEPTIES
   const { data: receptionItems } = await supabaseAdmin
     .from("refurb_reception_items")
     .select(`
@@ -104,7 +181,6 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
     });
   }
 
-  // LEADS
   const { data: leads } = await supabaseAdmin
     .from("buyback_leads")
     .select(`
@@ -137,9 +213,7 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
       description:
         [
           (lead as any).model,
-          (lead as any).capacity_gb
-            ? `${(lead as any).capacity_gb}GB`
-            : null,
+          (lead as any).capacity_gb ? `${(lead as any).capacity_gb}GB` : null,
         ]
           .filter(Boolean)
           .join(" ") || null,
@@ -151,13 +225,9 @@ async function searchRefurbDevice(query: string): Promise<SearchResult[]> {
           ? `${(lead as any).battery_percentage}%`
           : null,
       purchase_date: formatDate((lead as any).created_at),
-      supplier:
-        [
-          (lead as any).customer_number,
-          fullName,
-        ]
-          .filter(Boolean)
-          .join(" - ") || null,
+      supplier: [(lead as any).customer_number, fullName]
+        .filter(Boolean)
+        .join(" - ") || null,
       link: (lead as any).id ? `/admin/leads/${(lead as any).id}` : undefined,
     });
   }
@@ -230,7 +300,6 @@ export default async function RefurbListPage({
 
   return (
     <div className="space-y-4">
-      {/* REFURB TOOLS */}
       <details className="rounded-md border bg-white" open={!!q}>
         <summary className="cursor-pointer select-none px-4 py-3 font-medium">
           Refurb tools
@@ -259,8 +328,7 @@ export default async function RefurbListPage({
           {q && (
             <div className="space-y-3">
               <div className="text-sm text-slate-600">
-                Resultaten voor:{" "}
-                <span className="font-medium">{q}</span>
+                Resultaten voor: <span className="font-medium">{q}</span>
               </div>
 
               {searchResults.length === 0 && (
@@ -286,28 +354,23 @@ export default async function RefurbListPage({
                   </div>
 
                   <div>
-                    <b>Omschrijving:</b>{" "}
-                    {result.description || "—"}
+                    <b>Omschrijving:</b> {result.description || "—"}
                   </div>
 
                   <div>
-                    <b>Gebruikte parts:</b>{" "}
-                    {result.used_parts || "—"}
+                    <b>Gebruikte parts:</b> {result.used_parts || "—"}
                   </div>
 
                   <div>
-                    <b>Batterij status:</b>{" "}
-                    {result.battery_status || "—"}
+                    <b>Batterij status:</b> {result.battery_status || "—"}
                   </div>
 
                   <div>
-                    <b>Aankoopdatum:</b>{" "}
-                    {result.purchase_date || "—"}
+                    <b>Aankoopdatum:</b> {result.purchase_date || "—"}
                   </div>
 
                   <div>
-                    <b>Leverancier:</b>{" "}
-                    {result.supplier || "—"}
+                    <b>Leverancier:</b> {result.supplier || "—"}
                   </div>
 
                   {result.link && (
@@ -325,7 +388,6 @@ export default async function RefurbListPage({
         </div>
       </details>
 
-      {/* HEADER */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">Refurb</h1>
@@ -335,86 +397,70 @@ export default async function RefurbListPage({
           </p>
         </div>
 
-        <Link
-          href="/admin/refurb/new"
-          className="bb-btn bb-btn-primary text-sm"
-        >
+        <Link href="/admin/refurb/new" className="bb-btn bb-btn-primary text-sm">
           Nieuwe receptie
         </Link>
       </div>
 
-      {/* TABLE */}
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-slate-50">
-            <th className="px-2 py-1 text-left">
-              Receptie nr
-            </th>
-
-            <th className="px-2 py-1 text-left">
-              Datum
-            </th>
-
-            <th className="px-2 py-1 text-left">
-              Leverancier
-            </th>
-
-            <th className="px-2 py-1 text-left">
-              BTW regeling
-            </th>
-
-            <th className="px-2 py-1 text-left">
-              Supplier invoice
-            </th>
-
-            <th className="px-2 py-1 text-left">
-              Intern factuur nr
-            </th>
-
-            {isAdmin && (
-              <th className="px-2 py-1 text-left">
-                Acties
-              </th>
-            )}
+            <th className="px-2 py-1 text-left">Receptie nr</th>
+            <th className="px-2 py-1 text-left">Datum</th>
+            <th className="px-2 py-1 text-left">Leverancier</th>
+            <th className="px-2 py-1 text-left">BTW regeling</th>
+            <th className="px-2 py-1 text-left">Supplier invoice</th>
+            <th className="px-2 py-1 text-left">Intern factuur nr</th>
+            {isAdmin && <th className="px-2 py-1 text-left">Acties</th>}
           </tr>
         </thead>
 
         <tbody>
           {receptions.map((r) => (
-            <tr
-              key={r.id}
-              className="border-b hover:bg-slate-50"
-            >
+            <tr key={r.id} className="border-b hover:bg-slate-50">
               <td className="px-2 py-1">
-                <Link
-                  href={`/admin/refurb/${r.id}`}
-                  className="text-blue-600 underline"
-                >
-                  {r.reception_number}
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/admin/refurb/${r.id}`}
+                    className="text-blue-600 underline"
+                  >
+                    {r.reception_number}
+                  </Link>
+
+                  {(r.ready_to_book_count ?? 0) > 0 && (
+                    <span
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-bold leading-none text-white"
+                      title={`${r.ready_to_book_count} ready to book`}
+                    >
+                      {r.ready_to_book_count}
+                    </span>
+                  )}
+
+                  {(r.waiting_for_sku_count ?? 0) > 0 && (
+                    <span
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-green-600 px-1.5 text-[11px] font-bold leading-none text-white"
+                      title={`${r.waiting_for_sku_count} waiting for sku`}
+                    >
+                      {r.waiting_for_sku_count}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-0.5 text-[11px] text-slate-500">
+                  {r.finished_percent ?? 0}% afgewerkt
+                  {typeof r.total_items === "number" && r.total_items > 0
+                    ? ` • ${r.total_items} artikel(s)`
+                    : ""}
+                </div>
               </td>
 
+              <td className="px-2 py-1">{r.reception_date}</td>
+              <td className="px-2 py-1">{r.supplier}</td>
               <td className="px-2 py-1">
-                {r.reception_date}
+                {r.vat_scheme === "margin" ? "Margin VAT" : "Normal VAT"}
               </td>
-
-              <td className="px-2 py-1">
-                {r.supplier}
-              </td>
-
-              <td className="px-2 py-1">
-                {r.vat_scheme === "margin"
-                  ? "Margin VAT"
-                  : "Normal VAT"}
-              </td>
-
-              <td className="px-2 py-1">
-                {r.supplier_invoice_nr}
-              </td>
-
-              <td className="px-2 py-1">
-                {r.internal_invoice_nr || "—"}
-              </td>
+              <td className="px-2 py-1">{r.supplier_invoice_nr}</td>
+              <td className="px-2 py-1">{r.internal_invoice_nr || "—"}</td>
 
               {isAdmin && (
                 <td className="px-2 py-1">
