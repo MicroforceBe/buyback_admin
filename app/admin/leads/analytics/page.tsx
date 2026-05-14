@@ -1,4 +1,5 @@
 // app/admin/leads/analytics/page.tsx
+
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -13,17 +14,27 @@ type SearchParams = {
   preset?: string;
 };
 
-type Lead = {
+export type AnalyticsLead = {
   id: string;
+  order_code: string | null;
   created_at: string | null;
+  updated_at: string | null;
   status: string | null;
+  delivery_method: string | null;
   shop_location: string | null;
   model: string | null;
   capacity_gb: number | null;
+  variant: string | null;
+  sku: string | null;
+  imei_sn: string | null;
   final_price_cents: number | null;
   final_price_with_voucher_cents: number | null;
   wants_voucher: boolean | null;
   cancel_reason: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  status_history: any[] | null;
 };
 
 function getDateRange(searchParams: SearchParams) {
@@ -35,10 +46,17 @@ function getDateRange(searchParams: SearchParams) {
 
   if (!from && !to) {
     if (preset === "this_month") {
-      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-01`;
     } else if (preset === "last_90_days") {
       const d = new Date(now);
       d.setDate(d.getDate() - 90);
+      from = d.toISOString().slice(0, 10);
+    } else if (preset === "last_12_months") {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - 12);
       from = d.toISOString().slice(0, 10);
     } else {
       from = `${now.getFullYear()}-01-01`;
@@ -50,21 +68,31 @@ function getDateRange(searchParams: SearchParams) {
   return { from, to, preset };
 }
 
-async function getLeads(from: string, to: string): Promise<Lead[]> {
+async function getLeads(from: string, to: string): Promise<AnalyticsLead[]> {
   let query = supabaseAdmin
     .from("buyback_leads")
     .select(
       [
         "id",
+        "order_code",
         "created_at",
+        "updated_at",
         "status",
+        "delivery_method",
         "shop_location",
         "model",
         "capacity_gb",
+        "variant",
+        "sku",
+        "imei_sn",
         "final_price_cents",
         "final_price_with_voucher_cents",
         "wants_voucher",
         "cancel_reason",
+        "first_name",
+        "last_name",
+        "email",
+        "status_history",
       ].join(",")
     )
     .order("created_at", { ascending: false })
@@ -80,7 +108,7 @@ async function getLeads(from: string, to: string): Promise<Lead[]> {
     return [];
   }
 
-  return (data || []) as unknown as Lead[];
+  return (data || []) as unknown as AnalyticsLead[];
 }
 
 export default async function LeadsAnalyticsPage({
@@ -107,5 +135,12 @@ export default async function LeadsAnalyticsPage({
   const { from, to, preset } = getDateRange(searchParams);
   const leads = await getLeads(from, to);
 
-  return <AnalyticsClient leads={leads} from={from} to={to} preset={preset} />;
+  return (
+    <AnalyticsClient
+      leads={leads}
+      from={from}
+      to={to}
+      preset={preset}
+    />
+  );
 }
