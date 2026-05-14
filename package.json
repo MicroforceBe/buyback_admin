@@ -24,7 +24,8 @@
   "basic-ftp": "^5.0.5",
   "xlsx": "^0.18.5",
   "jsbarcode": "^3.11.6",
-  "recharts": "^2.15.0"
+  "recharts": "^2.15.0",
+  "lucide-react": "^0.468.0"
   },
   "devDependencies": {
     "@types/node": "20.11.30",
