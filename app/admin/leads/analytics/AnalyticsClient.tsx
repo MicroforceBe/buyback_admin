@@ -30,6 +30,10 @@ import {
   Activity,
   Download,
   RefreshCw,
+  Store,
+  Trophy,
+  AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import type { AnalyticsLead } from "./page";
 
@@ -63,12 +67,8 @@ function euro(cents: number) {
 
 function monthKey(date: string | null, includeYear = true) {
   if (!date) return "Onbekend";
-
   const d = new Date(date);
-
-  if (!Number.isFinite(d.getTime())) {
-    return "Onbekend";
-  }
+  if (!Number.isFinite(d.getTime())) return "Onbekend";
 
   return d.toLocaleDateString("nl-BE", {
     month: "short",
@@ -136,6 +136,12 @@ function pctDiff(current: number, previous: number) {
   const rounded = Math.round(diff);
 
   return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+
+function cancelRate(cancelled: number, done: number) {
+  const total = cancelled + done;
+  if (!total) return 0;
+  return Math.round((cancelled / total) * 100);
 }
 
 function exportCsv(rows: AnalyticsLead[]) {
@@ -259,6 +265,8 @@ export default function AnalyticsClient({
 
     const shopCount = new Map<string, number>();
     const shopValue = new Map<string, number>();
+    const shopDone = new Map<string, number>();
+    const shopCancelled = new Map<string, number>();
 
     const categoryCount = new Map<string, number>();
     const categoryValue = new Map<string, number>();
@@ -292,6 +300,7 @@ export default function AnalyticsClient({
 
         inc(shopCount, shop);
         inc(shopValue, shop, value);
+        inc(shopDone, shop);
 
         inc(categoryCount, category);
         inc(categoryValue, category, value);
@@ -299,6 +308,7 @@ export default function AnalyticsClient({
 
       if (status === "cancelled") {
         inc(cancelReasons, lead.cancel_reason || "Geen reden opgegeven");
+        inc(shopCancelled, shop);
       }
 
       if (status === "new") funnel.new += 1;
@@ -375,6 +385,25 @@ export default function AnalyticsClient({
         count: shopCount.get(String((r as any).name)) || 0,
       }));
 
+    const shopScoreRows = Array.from(
+      new Set([...Array.from(shopDone.keys()), ...Array.from(shopCancelled.keys())])
+    )
+      .map((shop) => {
+        const done = shopDone.get(shop) || 0;
+        const cancelled = shopCancelled.get(shop) || 0;
+        const value = shopValue.get(shop) || 0;
+
+        return {
+          shop,
+          done,
+          cancelled,
+          value,
+          avgValue: done > 0 ? Math.round(value / done) : 0,
+          cancelRate: cancelRate(cancelled, done),
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
     const categoryRows = toRows(categoryValue).map((r) => ({
       name: String((r as any).name),
       value_cents: Number(r.value),
@@ -402,6 +431,13 @@ export default function AnalyticsClient({
       { name: "Geannuleerd", value: funnel.cancelled, fill: "#dc2626" },
     ];
 
+    const bestShop = shopScoreRows[0] || null;
+    const bestModel = modelRows[0] || null;
+    const bestCategory = categoryRows[0] || null;
+    const highestCancelShop = [...shopScoreRows]
+      .filter((x) => x.done + x.cancelled >= 3)
+      .sort((a, b) => b.cancelRate - a.cancelRate)[0] || null;
+
     return {
       doneLeads,
       cancelledLeads,
@@ -411,10 +447,15 @@ export default function AnalyticsClient({
       monthRows,
       modelRows,
       shopRows,
+      shopScoreRows,
       categoryRows,
       cancelRows,
       closedRows,
       funnelRows,
+      bestShop,
+      bestModel,
+      bestCategory,
+      highestCancelShop,
     };
   }, [filteredLeads, previousFilteredLeads]);
 
@@ -434,6 +475,21 @@ export default function AnalyticsClient({
     [leads]
   );
 
+  const insights = [
+    stats.bestShop
+      ? `Beste winkel op waarde: ${stats.bestShop.shop} met ${euro(stats.bestShop.value)} uit ${stats.bestShop.done} afgewerkte leads.`
+      : null,
+    stats.bestModel
+      ? `Topmodel op waarde: ${stats.bestModel.name} met ${euro(stats.bestModel.value_cents)} en ${stats.bestModel.count} leads.`
+      : null,
+    stats.bestCategory
+      ? `Sterkste categorie: ${stats.bestCategory.name} met ${euro(stats.bestCategory.value_cents)} totaal.`
+      : null,
+    stats.highestCancelShop
+      ? `Hoogste annulatiegraad: ${stats.highestCancelShop.shop} met ${stats.highestCancelShop.cancelRate}%.`
+      : null,
+  ].filter(Boolean);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100 p-4 space-y-5">
       <div className="rounded-[2rem] bg-gradient-to-r from-slate-950 via-blue-950 to-indigo-950 p-7 text-white shadow-xl">
@@ -452,7 +508,10 @@ export default function AnalyticsClient({
             </p>
 
             <p className="mt-2 text-xs text-blue-200">
-              Periode: {from} → {to} • Vorig jaar: {previousFrom} → {previousTo}
+              Periode: {from || "All time"} → {to}{" "}
+              {previousFrom && previousTo
+                ? `• Vorig jaar: ${previousFrom} → ${previousTo}`
+                : "• Geen vorig jaar vergelijking bij all time"}
             </p>
           </div>
 
@@ -501,8 +560,10 @@ export default function AnalyticsClient({
           >
             <option value="this_year">Dit jaar</option>
             <option value="this_month">Deze maand</option>
+            <option value="last_60_days">Laatste 60 dagen</option>
             <option value="last_90_days">Laatste 90 dagen</option>
             <option value="last_12_months">Laatste 12 maanden</option>
+            <option value="all_time">All time</option>
             <option value="custom">Custom</option>
           </select>
 
@@ -589,6 +650,24 @@ export default function AnalyticsClient({
           </select>
         </div>
       </div>
+
+      <section className="rounded-3xl border bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
+          <Sparkles size={18} />
+          Management summary
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          {insights.map((txt, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border bg-slate-50 p-4 text-sm font-medium text-slate-700"
+            >
+              {txt}
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card
@@ -764,27 +843,54 @@ export default function AnalyticsClient({
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
-
-        <ChartCard title="Verhouding per categorie">
-          <ResponsiveContainer width="100%" height={420}>
-            <PieChart>
-              <Pie
-                data={stats.categoryRows}
-                dataKey="count"
-                nameKey="name"
-                outerRadius={130}
-                label
-              >
-                {stats.categoryRows.map((_, index) => (
-                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
       </div>
+
+      <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
+        <div className="border-b px-6 py-4 text-lg font-semibold flex items-center gap-2">
+          <Store size={18} />
+          Winkel-scorecard
+        </div>
+
+        <div className="overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-left">Winkel</th>
+                <th className="px-4 py-3 text-right">Waarde</th>
+                <th className="px-4 py-3 text-right">Afgewerkt</th>
+                <th className="px-4 py-3 text-right">Gem. waarde</th>
+                <th className="px-4 py-3 text-right">Geannuleerd</th>
+                <th className="px-4 py-3 text-right">Cancel rate</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {stats.shopScoreRows.map((row) => (
+                <tr key={row.shop} className="border-t hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium">{row.shop}</td>
+                  <td className="px-4 py-3 text-right">{euro(row.value)}</td>
+                  <td className="px-4 py-3 text-right">{row.done}</td>
+                  <td className="px-4 py-3 text-right">{euro(row.avgValue)}</td>
+                  <td className="px-4 py-3 text-right">{row.cancelled}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-bold ${
+                        row.cancelRate >= 30
+                          ? "bg-red-100 text-red-700"
+                          : row.cancelRate >= 15
+                          ? "bg-orange-100 text-orange-700"
+                          : "bg-green-100 text-green-700"
+                      }`}
+                    >
+                      {row.cancelRate}%
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="rounded-3xl border bg-white shadow-sm overflow-hidden">
         <div className="border-b px-6 py-4 text-lg font-semibold">
