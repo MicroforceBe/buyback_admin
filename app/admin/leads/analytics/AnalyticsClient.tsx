@@ -1,3 +1,4 @@
+//app/admin/leads/analytics/AnalyticsClient.tsx
 
 "use client";
 
@@ -664,14 +665,17 @@ export default function AnalyticsClient({
       className="bb-select h-10 text-sm"
       onChange={(e) => {
         const next = e.target.value;
+        const form = e.currentTarget.form;
+      
         setSelectedPreset(next);
-
+      
         if (next !== "custom") {
           window.setTimeout(() => {
-            e.currentTarget.form?.requestSubmit();
+            form?.requestSubmit();
           }, 0);
         }
       }}
+
     >
       <option value="this_year">Dit jaar</option>
       <option value="this_month">Deze maand</option>
