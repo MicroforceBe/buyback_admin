@@ -1,4 +1,4 @@
-// app/admin/leads/analytics/AnalyticsClient.tsx
+
 "use client";
 
 import { useMemo, useState } from "react";
@@ -31,9 +31,10 @@ import {
   Download,
   RefreshCw,
   Store,
-  Trophy,
-  AlertTriangle,
   Sparkles,
+  MapPinned,
+  Globe2,
+  Truck,
 } from "lucide-react";
 import type { AnalyticsLead } from "./page";
 
@@ -114,6 +115,47 @@ function categoryLabel(model: string | null) {
   return "Andere";
 }
 
+function channelLabel(lead: AnalyticsLead) {
+  if (lead.delivery_method === "ship") return "Verzending";
+  if (lead.delivery_method === "dropoff") return lead.shop_location || "Onbekend winkel";
+  return lead.shop_location || "Onbekend";
+}
+
+function countryLabel(lead: AnalyticsLead) {
+  return lead.country?.trim() || "Onbekend";
+}
+
+function provinceLabel(lead: AnalyticsLead) {
+  const country = (lead.country || "").trim().toLowerCase();
+
+  if (country && !["be", "belgië", "belgie", "belgium"].includes(country)) {
+    return "Buitenland";
+  }
+
+  const postal = String(lead.postal_code || "").trim();
+
+  if (!postal) return "Onbekend";
+  if (!/^\d{4}$/.test(postal)) return "Onbekend";
+
+  const n = Number(postal);
+
+  if (n >= 1000 && n <= 1299) return "Brussel";
+  if (n >= 1300 && n <= 1499) return "Waals-Brabant";
+  if (n >= 1500 && n <= 1999) return "Vlaams-Brabant";
+  if (n >= 2000 && n <= 2999) return "Antwerpen";
+  if (n >= 3000 && n <= 3499) return "Vlaams-Brabant";
+  if (n >= 3500 && n <= 3999) return "Limburg";
+  if (n >= 4000 && n <= 4999) return "Luik";
+  if (n >= 5000 && n <= 5999) return "Namen";
+  if (n >= 6000 && n <= 6599) return "Henegouwen";
+  if (n >= 6600 && n <= 6999) return "Luxemburg";
+  if (n >= 7000 && n <= 7999) return "Henegouwen";
+  if (n >= 8000 && n <= 8999) return "West-Vlaanderen";
+  if (n >= 9000 && n <= 9999) return "Oost-Vlaanderen";
+
+  return "Onbekend";
+}
+
 function inc(map: Map<string, number>, key: string, amount = 1) {
   const k = key?.trim() || "Onbekend";
   map.set(k, (map.get(k) || 0) + amount);
@@ -153,7 +195,13 @@ function exportCsv(rows: AnalyticsLead[]) {
     capacity_gb: r.capacity_gb || "",
     sku: r.sku || "",
     imei_sn: r.imei_sn || "",
+    delivery_method: r.delivery_method || "",
+    channel: channelLabel(r),
     shop_location: r.shop_location || "",
+    city: r.city || "",
+    postal_code: r.postal_code || "",
+    province: provinceLabel(r),
+    country: r.country || "",
     customer: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
     email: r.email || "",
     value_eur: (leadValueCents(r) / 100).toFixed(2),
@@ -212,37 +260,54 @@ export default function AnalyticsClient({
   previousFrom,
   previousTo,
 }: Props) {
-  const [shopFilter, setShopFilter] = useState("all");
+  const [channelFilter, setChannelFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [provinceFilter, setProvinceFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
-      const shop = lead.shop_location || "Onbekend";
+      const channel = channelLabel(lead);
       const category = categoryLabel(lead.model);
       const status = lead.status || "Onbekend";
+      const province = provinceLabel(lead);
+      const country = countryLabel(lead);
 
-      if (shopFilter !== "all" && shop !== shopFilter) return false;
+      if (channelFilter !== "all" && channel !== channelFilter) return false;
       if (categoryFilter !== "all" && category !== categoryFilter) return false;
       if (statusFilter !== "all" && status !== statusFilter) return false;
+      if (provinceFilter !== "all" && province !== provinceFilter) return false;
+      if (countryFilter !== "all" && country !== countryFilter) return false;
 
       return true;
     });
-  }, [leads, shopFilter, categoryFilter, statusFilter]);
+  }, [leads, channelFilter, categoryFilter, statusFilter, provinceFilter, countryFilter]);
 
   const previousFilteredLeads = useMemo(() => {
     return previousLeads.filter((lead) => {
-      const shop = lead.shop_location || "Onbekend";
+      const channel = channelLabel(lead);
       const category = categoryLabel(lead.model);
       const status = lead.status || "Onbekend";
+      const province = provinceLabel(lead);
+      const country = countryLabel(lead);
 
-      if (shopFilter !== "all" && shop !== shopFilter) return false;
+      if (channelFilter !== "all" && channel !== channelFilter) return false;
       if (categoryFilter !== "all" && category !== categoryFilter) return false;
       if (statusFilter !== "all" && status !== statusFilter) return false;
+      if (provinceFilter !== "all" && province !== provinceFilter) return false;
+      if (countryFilter !== "all" && country !== countryFilter) return false;
 
       return true;
     });
-  }, [previousLeads, shopFilter, categoryFilter, statusFilter]);
+  }, [
+    previousLeads,
+    channelFilter,
+    categoryFilter,
+    statusFilter,
+    provinceFilter,
+    countryFilter,
+  ]);
 
   const previousStats = useMemo(
     () => buildBasicStats(previousFilteredLeads),
@@ -263,10 +328,16 @@ export default function AnalyticsClient({
     const modelCount = new Map<string, number>();
     const modelValue = new Map<string, number>();
 
-    const shopCount = new Map<string, number>();
-    const shopValue = new Map<string, number>();
-    const shopDone = new Map<string, number>();
-    const shopCancelled = new Map<string, number>();
+    const channelCount = new Map<string, number>();
+    const channelValue = new Map<string, number>();
+    const channelDone = new Map<string, number>();
+    const channelCancelled = new Map<string, number>();
+
+    const provinceCount = new Map<string, number>();
+    const provinceValue = new Map<string, number>();
+
+    const countryCount = new Map<string, number>();
+    const countryValue = new Map<string, number>();
 
     const categoryCount = new Map<string, number>();
     const categoryValue = new Map<string, number>();
@@ -286,8 +357,10 @@ export default function AnalyticsClient({
       const value = leadValueCents(lead);
       const month = monthKey(lead.created_at, false);
       const model = modelLabel(lead);
-      const shop = lead.shop_location || "Onbekend";
+      const channel = channelLabel(lead);
       const category = categoryLabel(lead.model);
+      const province = provinceLabel(lead);
+      const country = countryLabel(lead);
 
       if (status === "done") {
         totalValue += value;
@@ -298,9 +371,15 @@ export default function AnalyticsClient({
         inc(modelCount, model);
         inc(modelValue, model, value);
 
-        inc(shopCount, shop);
-        inc(shopValue, shop, value);
-        inc(shopDone, shop);
+        inc(channelCount, channel);
+        inc(channelValue, channel, value);
+        inc(channelDone, channel);
+
+        inc(provinceCount, province);
+        inc(provinceValue, province, value);
+
+        inc(countryCount, country);
+        inc(countryValue, country, value);
 
         inc(categoryCount, category);
         inc(categoryValue, category, value);
@@ -308,7 +387,7 @@ export default function AnalyticsClient({
 
       if (status === "cancelled") {
         inc(cancelReasons, lead.cancel_reason || "Geen reden opgegeven");
-        inc(shopCancelled, shop);
+        inc(channelCancelled, channel);
       }
 
       if (status === "new") funnel.new += 1;
@@ -376,25 +455,25 @@ export default function AnalyticsClient({
         count: modelCount.get(String((r as any).name)) || 0,
       }));
 
-    const shopRows = toRows(shopValue)
+    const channelRows = toRows(channelValue)
       .slice(0, 12)
       .map((r) => ({
         name: String((r as any).name),
         value_cents: Number(r.value),
         value_eur: Math.round(Number(r.value) / 100),
-        count: shopCount.get(String((r as any).name)) || 0,
+        count: channelCount.get(String((r as any).name)) || 0,
       }));
 
-    const shopScoreRows = Array.from(
-      new Set([...Array.from(shopDone.keys()), ...Array.from(shopCancelled.keys())])
+    const channelScoreRows = Array.from(
+      new Set([...Array.from(channelDone.keys()), ...Array.from(channelCancelled.keys())])
     )
-      .map((shop) => {
-        const done = shopDone.get(shop) || 0;
-        const cancelled = shopCancelled.get(shop) || 0;
-        const value = shopValue.get(shop) || 0;
+      .map((channel) => {
+        const done = channelDone.get(channel) || 0;
+        const cancelled = channelCancelled.get(channel) || 0;
+        const value = channelValue.get(channel) || 0;
 
         return {
-          shop,
+          channel,
           done,
           cancelled,
           value,
@@ -403,6 +482,24 @@ export default function AnalyticsClient({
         };
       })
       .sort((a, b) => b.value - a.value);
+
+    const provinceRows = toRows(provinceValue)
+      .slice(0, 15)
+      .map((r) => ({
+        name: String((r as any).name),
+        value_cents: Number(r.value),
+        value_eur: Math.round(Number(r.value) / 100),
+        count: provinceCount.get(String((r as any).name)) || 0,
+      }));
+
+    const countryRows = toRows(countryValue)
+      .slice(0, 15)
+      .map((r) => ({
+        name: String((r as any).name),
+        value_cents: Number(r.value),
+        value_eur: Math.round(Number(r.value) / 100),
+        count: countryCount.get(String((r as any).name)) || 0,
+      }));
 
     const categoryRows = toRows(categoryValue).map((r) => ({
       name: String((r as any).name),
@@ -431,10 +528,10 @@ export default function AnalyticsClient({
       { name: "Geannuleerd", value: funnel.cancelled, fill: "#dc2626" },
     ];
 
-    const bestShop = shopScoreRows[0] || null;
+    const bestChannel = channelScoreRows[0] || null;
     const bestModel = modelRows[0] || null;
     const bestCategory = categoryRows[0] || null;
-    const highestCancelShop = [...shopScoreRows]
+    const highestCancelChannel = [...channelScoreRows]
       .filter((x) => x.done + x.cancelled >= 3)
       .sort((a, b) => b.cancelRate - a.cancelRate)[0] || null;
 
@@ -446,22 +543,23 @@ export default function AnalyticsClient({
         doneLeads.length > 0 ? Math.round(totalValue / doneLeads.length) : 0,
       monthRows,
       modelRows,
-      shopRows,
-      shopScoreRows,
+      channelRows,
+      channelScoreRows,
+      provinceRows,
+      countryRows,
       categoryRows,
       cancelRows,
       closedRows,
       funnelRows,
-      bestShop,
+      bestChannel,
       bestModel,
       bestCategory,
-      highestCancelShop,
+      highestCancelChannel,
     };
   }, [filteredLeads, previousFilteredLeads]);
 
-  const shops = useMemo(
-    () =>
-      Array.from(new Set(leads.map((l) => l.shop_location || "Onbekend"))).sort(),
+  const channels = useMemo(
+    () => Array.from(new Set(leads.map((l) => channelLabel(l)))).sort(),
     [leads]
   );
 
@@ -475,9 +573,19 @@ export default function AnalyticsClient({
     [leads]
   );
 
+  const provinces = useMemo(
+    () => Array.from(new Set(leads.map((l) => provinceLabel(l)))).sort(),
+    [leads]
+  );
+
+  const countries = useMemo(
+    () => Array.from(new Set(leads.map((l) => countryLabel(l)))).sort(),
+    [leads]
+  );
+
   const insights = [
-    stats.bestShop
-      ? `Beste winkel op waarde: ${stats.bestShop.shop} met ${euro(stats.bestShop.value)} uit ${stats.bestShop.done} afgewerkte leads.`
+    stats.bestChannel
+      ? `Beste kanaal/winkel op waarde: ${stats.bestChannel.channel} met ${euro(stats.bestChannel.value)} uit ${stats.bestChannel.done} afgewerkte leads.`
       : null,
     stats.bestModel
       ? `Topmodel op waarde: ${stats.bestModel.name} met ${euro(stats.bestModel.value_cents)} en ${stats.bestModel.count} leads.`
@@ -485,8 +593,8 @@ export default function AnalyticsClient({
     stats.bestCategory
       ? `Sterkste categorie: ${stats.bestCategory.name} met ${euro(stats.bestCategory.value_cents)} totaal.`
       : null,
-    stats.highestCancelShop
-      ? `Hoogste annulatiegraad: ${stats.highestCancelShop.shop} met ${stats.highestCancelShop.cancelRate}%.`
+    stats.highestCancelChannel
+      ? `Hoogste annulatiegraad: ${stats.highestCancelChannel.channel} met ${stats.highestCancelChannel.cancelRate}%.`
       : null,
   ].filter(Boolean);
 
@@ -504,7 +612,7 @@ export default function AnalyticsClient({
             </h1>
 
             <p className="mt-2 text-sm text-blue-100">
-              Interactieve analyse met vergelijking tegenover dezelfde periode vorig jaar.
+              Analyse met aparte vergelijking voor winkels, verzending, provincie en land.
             </p>
 
             <p className="mt-2 text-xs text-blue-200">
@@ -609,14 +717,40 @@ export default function AnalyticsClient({
       </form>
 
       <div className="rounded-3xl border bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-5">
           <select
-            value={shopFilter}
-            onChange={(e) => setShopFilter(e.target.value)}
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value)}
             className="bb-select h-10 text-sm"
           >
-            <option value="all">Alle winkels</option>
-            {shops.map((s) => (
+            <option value="all">Alle winkels / verzending</option>
+            {channels.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={provinceFilter}
+            onChange={(e) => setProvinceFilter(e.target.value)}
+            className="bb-select h-10 text-sm"
+          >
+            <option value="all">Alle provincies</option>
+            {provinces.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={countryFilter}
+            onChange={(e) => setCountryFilter(e.target.value)}
+            className="bb-select h-10 text-sm"
+          >
+            <option value="all">Alle landen</option>
+            {countries.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -708,18 +842,8 @@ export default function AnalyticsClient({
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar
-                dataKey="leads"
-                name="Leads huidig jaar"
-                radius={[8, 8, 0, 0]}
-                fill="#2563eb"
-              />
-              <Bar
-                dataKey="leads_vorig_jaar"
-                name="Leads vorig jaar"
-                radius={[8, 8, 0, 0]}
-                fill="#94a3b8"
-              />
+              <Bar dataKey="leads" name="Leads huidig jaar" radius={[8, 8, 0, 0]} fill="#2563eb" />
+              <Bar dataKey="leads_vorig_jaar" name="Leads vorig jaar" radius={[8, 8, 0, 0]} fill="#94a3b8" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -732,20 +856,8 @@ export default function AnalyticsClient({
               <YAxis />
               <Tooltip formatter={(value) => `${value}€`} />
               <Legend />
-              <Area
-                type="monotone"
-                dataKey="value_eur"
-                name="Waarde huidig jaar (€)"
-                stroke="#7c3aed"
-                fill="#c4b5fd"
-              />
-              <Area
-                type="monotone"
-                dataKey="value_vorig_jaar_eur"
-                name="Waarde vorig jaar (€)"
-                stroke="#64748b"
-                fill="#cbd5e1"
-              />
+              <Area type="monotone" dataKey="value_eur" name="Waarde huidig jaar (€)" stroke="#7c3aed" fill="#c4b5fd" />
+              <Area type="monotone" dataKey="value_vorig_jaar_eur" name="Waarde vorig jaar (€)" stroke="#64748b" fill="#cbd5e1" />
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -764,9 +876,9 @@ export default function AnalyticsClient({
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Waarde per winkel + aantallen">
+        <ChartCard title="Waarde per winkel / verzending + aantallen">
           <ResponsiveContainer width="100%" height={420}>
-            <BarChart data={stats.shopRows} layout="vertical">
+            <BarChart data={stats.channelRows} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
               <YAxis type="category" dataKey="name" width={140} />
@@ -774,6 +886,34 @@ export default function AnalyticsClient({
               <Legend />
               <Bar dataKey="value_eur" fill="#2563eb" name="Waarde (€)" />
               <Bar dataKey="count" fill="#16a34a" name="Aantal" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Waarde per provincie + aantallen">
+          <ResponsiveContainer width="100%" height={420}>
+            <BarChart data={stats.provinceRows} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" />
+              <YAxis type="category" dataKey="name" width={140} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="value_eur" fill="#0891b2" name="Waarde (€)" />
+              <Bar dataKey="count" fill="#475569" name="Aantal" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Waarde per land + aantallen">
+          <ResponsiveContainer width="100%" height={420}>
+            <BarChart data={stats.countryRows} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" />
+              <YAxis type="category" dataKey="name" width={140} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="value_eur" fill="#db2777" name="Waarde (€)" />
+              <Bar dataKey="count" fill="#64748b" name="Aantal" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -795,13 +935,7 @@ export default function AnalyticsClient({
         <ChartCard title="Afgewerkt vs geannuleerd">
           <ResponsiveContainer width="100%" height={420}>
             <PieChart>
-              <Pie
-                data={stats.closedRows}
-                dataKey="value"
-                nameKey="name"
-                outerRadius={130}
-                label
-              >
+              <Pie data={stats.closedRows} dataKey="value" nameKey="name" outerRadius={130} label>
                 {stats.closedRows.map((_, index) => (
                   <Cell key={index} fill={COLORS[index % COLORS.length]} />
                 ))}
@@ -811,51 +945,19 @@ export default function AnalyticsClient({
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
-
-        <ChartCard title="Lead funnel">
-          <ResponsiveContainer width="100%" height={420}>
-            <FunnelChart>
-              <Tooltip />
-              <Funnel
-                dataKey="value"
-                data={stats.funnelRows}
-                isAnimationActive
-              >
-                <LabelList
-                  position="right"
-                  fill="#111827"
-                  stroke="none"
-                  dataKey="name"
-                />
-              </Funnel>
-            </FunnelChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Redenen van annulering">
-          <ResponsiveContainer width="100%" height={420}>
-            <BarChart data={stats.cancelRows} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis type="category" dataKey="name" width={180} />
-              <Tooltip />
-              <Bar dataKey="value" fill="#dc2626" radius={[0, 8, 8, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
       </div>
 
       <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
         <div className="border-b px-6 py-4 text-lg font-semibold flex items-center gap-2">
-          <Store size={18} />
-          Winkel-scorecard
+          <Truck size={18} />
+          Winkel / verzending scorecard
         </div>
 
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 text-left">Winkel</th>
+                <th className="px-4 py-3 text-left">Kanaal</th>
                 <th className="px-4 py-3 text-right">Waarde</th>
                 <th className="px-4 py-3 text-right">Afgewerkt</th>
                 <th className="px-4 py-3 text-right">Gem. waarde</th>
@@ -865,9 +967,9 @@ export default function AnalyticsClient({
             </thead>
 
             <tbody>
-              {stats.shopScoreRows.map((row) => (
-                <tr key={row.shop} className="border-t hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium">{row.shop}</td>
+              {stats.channelScoreRows.map((row) => (
+                <tr key={row.channel} className="border-t hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium">{row.channel}</td>
                   <td className="px-4 py-3 text-right">{euro(row.value)}</td>
                   <td className="px-4 py-3 text-right">{row.done}</td>
                   <td className="px-4 py-3 text-right">{euro(row.avgValue)}</td>
@@ -903,7 +1005,9 @@ export default function AnalyticsClient({
               <tr>
                 <th className="px-4 py-3 text-left">Order</th>
                 <th className="px-4 py-3 text-left">Model</th>
-                <th className="px-4 py-3 text-left">Winkel</th>
+                <th className="px-4 py-3 text-left">Kanaal</th>
+                <th className="px-4 py-3 text-left">Provincie</th>
+                <th className="px-4 py-3 text-left">Land</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Waarde</th>
                 <th className="px-4 py-3 text-left">Klant</th>
@@ -915,14 +1019,15 @@ export default function AnalyticsClient({
                 <tr key={lead.id} className="border-t hover:bg-slate-50">
                   <td className="px-4 py-3">{lead.order_code || "—"}</td>
                   <td className="px-4 py-3">{modelLabel(lead)}</td>
-                  <td className="px-4 py-3">{lead.shop_location || "—"}</td>
+                  <td className="px-4 py-3">{channelLabel(lead)}</td>
+                  <td className="px-4 py-3">{provinceLabel(lead)}</td>
+                  <td className="px-4 py-3">{countryLabel(lead)}</td>
                   <td className="px-4 py-3">{lead.status || "—"}</td>
                   <td className="px-4 py-3 font-medium">
                     {euro(leadValueCents(lead))}
                   </td>
                   <td className="px-4 py-3">
-                    {[lead.first_name, lead.last_name].filter(Boolean).join(" ") ||
-                      "—"}
+                    {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "—"}
                   </td>
                 </tr>
               ))}
