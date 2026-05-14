@@ -22,6 +22,9 @@ export type AnalyticsLead = {
   status: string | null;
   delivery_method: string | null;
   shop_location: string | null;
+  city: string | null;
+  country: string | null;
+  postal_code: string | null;
   model: string | null;
   capacity_gb: number | null;
   variant: string | null;
@@ -106,6 +109,9 @@ async function getLeads(from: string, to: string): Promise<AnalyticsLead[]> {
         "status",
         "delivery_method",
         "shop_location",
+        "city",
+        "country",
+        "postal_code",
         "model",
         "capacity_gb",
         "variant",
@@ -158,11 +164,14 @@ export default async function LeadsAnalyticsPage({
     );
   }
 
-  const { from, to, preset, previousFrom, previousTo } = getDateRange(searchParams);
+  const { from, to, preset, previousFrom, previousTo } =
+    getDateRange(searchParams);
 
   const [leads, previousLeads] = await Promise.all([
     getLeads(from, to),
-    previousFrom && previousTo ? getLeads(previousFrom, previousTo) : Promise.resolve([]),
+    previousFrom && previousTo
+      ? getLeads(previousFrom, previousTo)
+      : Promise.resolve([]),
   ]);
 
   return (
