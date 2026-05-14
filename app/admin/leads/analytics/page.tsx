@@ -37,6 +37,16 @@ export type AnalyticsLead = {
   status_history: any[] | null;
 };
 
+function toIsoDate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftYear(date: string, years: number) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return toIsoDate(d);
+}
+
 function getDateRange(searchParams: SearchParams) {
   const now = new Date();
   const preset = searchParams.preset || "this_year";
@@ -53,19 +63,28 @@ function getDateRange(searchParams: SearchParams) {
     } else if (preset === "last_90_days") {
       const d = new Date(now);
       d.setDate(d.getDate() - 90);
-      from = d.toISOString().slice(0, 10);
+      from = toIsoDate(d);
     } else if (preset === "last_12_months") {
       const d = new Date(now);
       d.setMonth(d.getMonth() - 12);
-      from = d.toISOString().slice(0, 10);
+      from = toIsoDate(d);
     } else {
       from = `${now.getFullYear()}-01-01`;
     }
 
-    to = now.toISOString().slice(0, 10);
+    to = toIsoDate(now);
   }
 
-  return { from, to, preset };
+  const previousFrom = from ? shiftYear(from, -1) : "";
+  const previousTo = to ? shiftYear(to, -1) : "";
+
+  return {
+    from,
+    to,
+    preset,
+    previousFrom,
+    previousTo,
+  };
 }
 
 async function getLeads(from: string, to: string): Promise<AnalyticsLead[]> {
@@ -132,15 +151,23 @@ export default async function LeadsAnalyticsPage({
     );
   }
 
-  const { from, to, preset } = getDateRange(searchParams);
-  const leads = await getLeads(from, to);
+  const { from, to, preset, previousFrom, previousTo } =
+    getDateRange(searchParams);
+
+  const [leads, previousLeads] = await Promise.all([
+    getLeads(from, to),
+    getLeads(previousFrom, previousTo),
+  ]);
 
   return (
     <AnalyticsClient
       leads={leads}
+      previousLeads={previousLeads}
       from={from}
       to={to}
       preset={preset}
+      previousFrom={previousFrom}
+      previousTo={previousTo}
     />
   );
 }
