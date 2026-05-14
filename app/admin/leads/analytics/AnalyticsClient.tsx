@@ -652,69 +652,81 @@ export default function AnalyticsClient({
         </div>
       </div>
 
-      <form
-        action="/admin/leads/analytics"
-        className="rounded-3xl border bg-white p-4 shadow-sm"
-        onChange={(e) => {
-          const form = e.currentTarget;
-          window.setTimeout(() => form.requestSubmit(), 0);
-        }}
-      >
-        <div className="grid gap-3 md:grid-cols-5">
-          <select
-            name="preset"
-            defaultValue={preset}
-            className="bb-select h-10 text-sm"
-          >
-            <option value="this_year">Dit jaar</option>
-            <option value="this_month">Deze maand</option>
-            <option value="last_60_days">Laatste 60 dagen</option>
-            <option value="last_90_days">Laatste 90 dagen</option>
-            <option value="last_12_months">Laatste 12 maanden</option>
-            <option value="all_time">All time</option>
-            <option value="custom">Custom</option>
-          </select>
+<form
+  action="/admin/leads/analytics"
+  className="rounded-3xl border bg-white p-4 shadow-sm"
+>
+  <div className="grid gap-3 md:grid-cols-5">
+    <select
+      name="preset"
+      defaultValue={preset}
+      className="bb-select h-10 text-sm"
+      onChange={(e) => {
+        e.currentTarget.form?.requestSubmit();
+      }}
+    >
+      <option value="this_year">Dit jaar</option>
+      <option value="this_month">Deze maand</option>
+      <option value="last_60_days">Laatste 60 dagen</option>
+      <option value="last_90_days">Laatste 90 dagen</option>
+      <option value="last_12_months">Laatste 12 maanden</option>
+      <option value="all_time">All time</option>
+      <option value="custom">Custom</option>
+    </select>
 
-          <input
-            type="date"
-            name="from"
-            defaultValue={from}
-            className="bb-input h-10 text-sm"
-            onFocus={(e) => {
-              const presetInput = e.currentTarget.form?.querySelector(
-                'select[name="preset"]'
-              ) as HTMLSelectElement | null;
+    <input
+      type="date"
+      name="from"
+      defaultValue={from}
+      className="bb-input h-10 text-sm"
+      onChange={(e) => {
+        const form = e.currentTarget.form;
+        const presetInput = form?.querySelector(
+          'select[name="preset"]'
+        ) as HTMLSelectElement | null;
 
-              if (presetInput) presetInput.value = "custom";
-            }}
-          />
+        if (presetInput) {
+          presetInput.value = "custom";
+        }
+      }}
+      onBlur={(e) => {
+        e.currentTarget.form?.requestSubmit();
+      }}
+    />
 
-          <input
-            type="date"
-            name="to"
-            defaultValue={to}
-            className="bb-input h-10 text-sm"
-            onFocus={(e) => {
-              const presetInput = e.currentTarget.form?.querySelector(
-                'select[name="preset"]'
-              ) as HTMLSelectElement | null;
+    <input
+      type="date"
+      name="to"
+      defaultValue={to}
+      className="bb-input h-10 text-sm"
+      onChange={(e) => {
+        const form = e.currentTarget.form;
+        const presetInput = form?.querySelector(
+          'select[name="preset"]'
+        ) as HTMLSelectElement | null;
 
-              if (presetInput) presetInput.value = "custom";
-            }}
-          />
+        if (presetInput) {
+          presetInput.value = "custom";
+        }
+      }}
+      onBlur={(e) => {
+        e.currentTarget.form?.requestSubmit();
+      }}
+    />
 
-          <button className="bb-btn h-10 text-sm" type="submit">
-            Filter
-          </button>
+    <button className="bb-btn h-10 text-sm" type="submit">
+      Filter
+    </button>
 
-          <Link
-            href="/admin/leads/analytics"
-            className="bb-btn h-10 text-sm flex items-center justify-center"
-          >
-            Reset
-          </Link>
-        </div>
-      </form>
+    <Link
+      href="/admin/leads/analytics"
+      className="bb-btn h-10 text-sm flex items-center justify-center"
+    >
+      Reset
+    </Link>
+  </div>
+</form>
+
 
       <div className="rounded-3xl border bg-white p-4 shadow-sm">
         <div className="grid gap-3 md:grid-cols-5">
