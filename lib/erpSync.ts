@@ -21,6 +21,7 @@ export type ErpSyncResult = {
   skipped: number;
   rows: number;
   duration_seconds: number;
+  missing_marked_inactive: number;
 };
 
 function toNumber(value: any) {
@@ -39,6 +40,10 @@ function toBool(value: any) {
     .trim();
 
   return ["true", "1", "yes", "ja", "active"].includes(v);
+}
+
+function normalizeSku(value: any) {
+  return String(value ?? "").trim();
 }
 
 async function getErpSettings() {
@@ -96,8 +101,11 @@ async function downloadErpXlsx(settings: ErpSettingsRow) {
     },
   });
 
-  await client.downloadTo(writable, remotePath);
-  client.close();
+  try {
+    await client.downloadTo(writable, remotePath);
+  } finally {
+    client.close();
+  }
 
   return {
     buffer: Buffer.concat(chunks),
@@ -119,7 +127,7 @@ function parseRows(buffer: Buffer) {
 }
 
 function rowToPayload(row: any) {
-  const sku = String(row["Variant SKU [ID]"] || "").trim();
+  const sku = normalizeSku(row["Variant SKU [ID]"]);
 
   if (!sku) {
     return null;
@@ -138,6 +146,9 @@ function rowToPayload(row: any) {
       String(row["Status"] || "")
         .toLowerCase()
         .trim() === "active",
+
+    missing_from_erp: false,
+    missing_from_erp_at: null,
 
     published: toBool(row["Published"]),
 
@@ -228,10 +239,12 @@ export async function runErpSync(): Promise<ErpSyncResult> {
 
   const imported = await bulkUpsertArticles(payloads);
 
+  const missingResult = await markMissingErpArticlesInactive();
+
   const duration = Math.round((Date.now() - startedAt) / 1000);
 
   console.log(
-    `[ERP SYNC] Sync succesvol. ${imported} artikels geïmporteerd, ${skipped} overgeslagen in ${duration}s`
+    `[ERP SYNC] Sync succesvol. ${imported} artikels geïmporteerd, ${skipped} overgeslagen, ${missingResult.updated} ontbrekend/inactief gezet in ${duration}s`
   );
 
   return {
@@ -240,6 +253,7 @@ export async function runErpSync(): Promise<ErpSyncResult> {
     skipped,
     rows: rows.length,
     duration_seconds: duration,
+    missing_marked_inactive: missingResult.updated,
   };
 }
 
@@ -251,7 +265,7 @@ export async function findMissingErpArticles() {
   const xlsxSkus = new Set<string>();
 
   for (const row of rows) {
-    const sku = String(row["Variant SKU [ID]"] || "").trim();
+    const sku = normalizeSku(row["Variant SKU [ID]"]);
     if (sku) xlsxSkus.add(sku);
   }
 
@@ -263,7 +277,7 @@ export async function findMissingErpArticles() {
   if (error) throw new Error(error.message);
 
   const missing = (data || []).filter((article: any) => {
-    const sku = String(article.sku || "").trim();
+    const sku = normalizeSku(article.sku);
     return sku && !xlsxSkus.has(sku);
   });
 
@@ -301,4 +315,3 @@ export async function markMissingErpArticlesInactive() {
     totalInXlsx: result.totalInXlsx,
   };
 }
-
