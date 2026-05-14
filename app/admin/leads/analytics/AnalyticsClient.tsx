@@ -35,9 +35,12 @@ import type { AnalyticsLead } from "./page";
 
 type Props = {
   leads: AnalyticsLead[];
+  previousLeads: AnalyticsLead[];
   from: string;
   to: string;
   preset: string;
+  previousFrom: string;
+  previousTo: string;
 };
 
 const COLORS = [
