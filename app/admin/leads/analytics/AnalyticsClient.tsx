@@ -1,4 +1,4 @@
-//app/admin/leads/analytics/AnalyticsClient.tsx
+// app/admin/leads/analytics/AnalyticsClient.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -61,7 +61,7 @@ function euro(cents: number) {
   })}`;
 }
 
-function monthKey(date: string | null) {
+function monthKey(date: string | null, includeYear = true) {
   if (!date) return "Onbekend";
 
   const d = new Date(date);
@@ -72,7 +72,7 @@ function monthKey(date: string | null) {
 
   return d.toLocaleDateString("nl-BE", {
     month: "short",
-    year: "numeric",
+    ...(includeYear ? { year: "numeric" } : {}),
   });
 }
 
@@ -128,6 +128,16 @@ function toRows(map: Map<string, number>, keyName = "name") {
     .sort((a, b) => Number(b.value) - Number(a.value));
 }
 
+function pctDiff(current: number, previous: number) {
+  if (!previous && !current) return "0%";
+  if (!previous) return "+100%";
+
+  const diff = ((current - previous) / previous) * 100;
+  const rounded = Math.round(diff);
+
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+
 function exportCsv(rows: AnalyticsLead[]) {
   const exportRows = rows.map((r) => ({
     order_code: r.order_code || "",
@@ -169,7 +179,33 @@ function exportCsv(rows: AnalyticsLead[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function AnalyticsClient({ leads, from, to, preset }: Props) {
+function buildBasicStats(rows: AnalyticsLead[]) {
+  const doneLeads = rows.filter((l) => l.status === "done");
+  const cancelledLeads = rows.filter((l) => l.status === "cancelled");
+
+  const totalValue = doneLeads.reduce(
+    (sum, lead) => sum + leadValueCents(lead),
+    0
+  );
+
+  return {
+    done: doneLeads.length,
+    cancelled: cancelledLeads.length,
+    total: rows.length,
+    totalValue,
+    avgValue: doneLeads.length > 0 ? Math.round(totalValue / doneLeads.length) : 0,
+  };
+}
+
+export default function AnalyticsClient({
+  leads,
+  previousLeads,
+  from,
+  to,
+  preset,
+  previousFrom,
+  previousTo,
+}: Props) {
   const [shopFilter, setShopFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -188,6 +224,25 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
     });
   }, [leads, shopFilter, categoryFilter, statusFilter]);
 
+  const previousFilteredLeads = useMemo(() => {
+    return previousLeads.filter((lead) => {
+      const shop = lead.shop_location || "Onbekend";
+      const category = categoryLabel(lead.model);
+      const status = lead.status || "Onbekend";
+
+      if (shopFilter !== "all" && shop !== shopFilter) return false;
+      if (categoryFilter !== "all" && category !== categoryFilter) return false;
+      if (statusFilter !== "all" && status !== statusFilter) return false;
+
+      return true;
+    });
+  }, [previousLeads, shopFilter, categoryFilter, statusFilter]);
+
+  const previousStats = useMemo(
+    () => buildBasicStats(previousFilteredLeads),
+    [previousFilteredLeads]
+  );
+
   const stats = useMemo(() => {
     const doneLeads = filteredLeads.filter((l) => l.status === "done");
     const cancelledLeads = filteredLeads.filter((l) => l.status === "cancelled");
@@ -196,6 +251,8 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
 
     const monthlyCount = new Map<string, number>();
     const monthlyValue = new Map<string, number>();
+    const previousMonthlyCount = new Map<string, number>();
+    const previousMonthlyValue = new Map<string, number>();
 
     const modelCount = new Map<string, number>();
     const modelValue = new Map<string, number>();
@@ -219,7 +276,7 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
     for (const lead of filteredLeads) {
       const status = lead.status || "";
       const value = leadValueCents(lead);
-      const month = monthKey(lead.created_at);
+      const month = monthKey(lead.created_at, false);
       const model = modelLabel(lead);
       const shop = lead.shop_location || "Onbekend";
       const category = categoryLabel(lead.model);
@@ -253,14 +310,52 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
       if (status === "cancelled") funnel.cancelled += 1;
     }
 
-    const monthRows = Array.from(monthlyCount.entries())
-      .map(([month, count]) => ({
-        month,
-        leads: count,
-        value_cents: monthlyValue.get(month) || 0,
-        value_eur: Math.round((monthlyValue.get(month) || 0) / 100),
-      }))
-      .sort((a, b) => a.month.localeCompare(b.month));
+    for (const lead of previousFilteredLeads) {
+      if (lead.status !== "done") continue;
+
+      const value = leadValueCents(lead);
+      const month = monthKey(lead.created_at, false);
+
+      inc(previousMonthlyCount, month);
+      inc(previousMonthlyValue, month, value);
+    }
+
+    const monthOrder = [
+      "jan",
+      "feb",
+      "mrt",
+      "apr",
+      "mei",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "okt",
+      "nov",
+      "dec",
+    ];
+
+    const allMonths = Array.from(
+      new Set([
+        ...Array.from(monthlyCount.keys()),
+        ...Array.from(previousMonthlyCount.keys()),
+      ])
+    ).sort((a, b) => {
+      const ai = monthOrder.findIndex((m) => a.toLowerCase().startsWith(m));
+      const bi = monthOrder.findIndex((m) => b.toLowerCase().startsWith(m));
+      return ai - bi;
+    });
+
+    const monthRows = allMonths.map((month) => ({
+      month,
+      leads: monthlyCount.get(month) || 0,
+      leads_vorig_jaar: previousMonthlyCount.get(month) || 0,
+      value_cents: monthlyValue.get(month) || 0,
+      value_eur: Math.round((monthlyValue.get(month) || 0) / 100),
+      value_vorig_jaar_eur: Math.round(
+        (previousMonthlyValue.get(month) || 0) / 100
+      ),
+    }));
 
     const modelRows = toRows(modelValue)
       .slice(0, 15)
@@ -321,7 +416,7 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
       closedRows,
       funnelRows,
     };
-  }, [filteredLeads]);
+  }, [filteredLeads, previousFilteredLeads]);
 
   const shops = useMemo(
     () =>
@@ -353,12 +448,11 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
             </h1>
 
             <p className="mt-2 text-sm text-blue-100">
-              Interactieve analyse van afgewerkte leads, waarde, winkels,
-              modellen, categorieën en annulaties.
+              Interactieve analyse met vergelijking tegenover dezelfde periode vorig jaar.
             </p>
 
             <p className="mt-2 text-xs text-blue-200">
-              Periode: {from} → {to} • Preset: {preset}
+              Periode: {from} → {to} • Vorig jaar: {previousFrom} → {previousTo}
             </p>
           </div>
 
@@ -391,7 +485,14 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
         </div>
       </div>
 
-      <form className="rounded-3xl border bg-white p-4 shadow-sm">
+      <form
+        action="/admin/leads/analytics"
+        className="rounded-3xl border bg-white p-4 shadow-sm"
+        onChange={(e) => {
+          const form = e.currentTarget;
+          window.setTimeout(() => form.requestSubmit(), 0);
+        }}
+      >
         <div className="grid gap-3 md:grid-cols-5">
           <select
             name="preset"
@@ -410,6 +511,13 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
             name="from"
             defaultValue={from}
             className="bb-input h-10 text-sm"
+            onFocus={(e) => {
+              const presetInput = e.currentTarget.form?.querySelector(
+                'select[name="preset"]'
+              ) as HTMLSelectElement | null;
+
+              if (presetInput) presetInput.value = "custom";
+            }}
           />
 
           <input
@@ -417,6 +525,13 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
             name="to"
             defaultValue={to}
             className="bb-input h-10 text-sm"
+            onFocus={(e) => {
+              const presetInput = e.currentTarget.form?.querySelector(
+                'select[name="preset"]'
+              ) as HTMLSelectElement | null;
+
+              if (presetInput) presetInput.value = "custom";
+            }}
           />
 
           <button className="bb-btn h-10 text-sm" type="submit">
@@ -480,29 +595,33 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
           icon={<Euro size={22} />}
           title="Totale waarde"
           value={euro(stats.totalValue)}
+          sub={`${pctDiff(stats.totalValue, previousStats.totalValue)} vs vorig jaar`}
         />
 
         <Card
           icon={<CheckCircle2 size={22} />}
           title="Afgewerkt"
           value={String(stats.doneLeads.length)}
+          sub={`${pctDiff(stats.doneLeads.length, previousStats.done)} vs vorig jaar`}
         />
 
         <Card
           icon={<XCircle size={22} />}
           title="Geannuleerd"
           value={String(stats.cancelledLeads.length)}
+          sub={`${pctDiff(stats.cancelledLeads.length, previousStats.cancelled)} vs vorig jaar`}
         />
 
         <Card
           icon={<Activity size={22} />}
           title="Gefilterde leads"
           value={String(filteredLeads.length)}
+          sub={`${pctDiff(filteredLeads.length, previousStats.total)} vs vorig jaar`}
         />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <ChartCard title="Leads per maand">
+        <ChartCard title="Leads per maand vs vorig jaar">
           <ResponsiveContainer width="100%" height={360}>
             <BarChart data={stats.monthRows}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -512,15 +631,21 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
               <Legend />
               <Bar
                 dataKey="leads"
-                name="Leads"
+                name="Leads huidig jaar"
                 radius={[8, 8, 0, 0]}
                 fill="#2563eb"
+              />
+              <Bar
+                dataKey="leads_vorig_jaar"
+                name="Leads vorig jaar"
+                radius={[8, 8, 0, 0]}
+                fill="#94a3b8"
               />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Waarde per maand">
+        <ChartCard title="Waarde per maand vs vorig jaar">
           <ResponsiveContainer width="100%" height={360}>
             <AreaChart data={stats.monthRows}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -531,9 +656,16 @@ export default function AnalyticsClient({ leads, from, to, preset }: Props) {
               <Area
                 type="monotone"
                 dataKey="value_eur"
-                name="Waarde (€)"
+                name="Waarde huidig jaar (€)"
                 stroke="#7c3aed"
                 fill="#c4b5fd"
+              />
+              <Area
+                type="monotone"
+                dataKey="value_vorig_jaar_eur"
+                name="Waarde vorig jaar (€)"
+                stroke="#64748b"
+                fill="#cbd5e1"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -700,10 +832,12 @@ function Card({
   icon,
   title,
   value,
+  sub,
 }: {
   icon: ReactNode;
   title: string;
   value: string;
+  sub?: string;
 }) {
   return (
     <div className="rounded-3xl border bg-white p-5 shadow-sm">
@@ -713,6 +847,8 @@ function Card({
       </div>
 
       <div className="mt-4 text-3xl font-bold">{value}</div>
+
+      {sub && <div className="mt-2 text-xs font-medium text-slate-500">{sub}</div>}
     </div>
   );
 }
