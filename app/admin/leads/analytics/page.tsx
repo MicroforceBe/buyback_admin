@@ -55,28 +55,35 @@ function getDateRange(searchParams: SearchParams) {
   let to = searchParams.to || "";
 
   if (!from && !to) {
-    if (preset === "this_month") {
-      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-        2,
-        "0"
-      )}-01`;
+    if (preset === "all_time") {
+      from = "";
+      to = toIsoDate(now);
+    } else if (preset === "this_month") {
+      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      to = toIsoDate(now);
+    } else if (preset === "last_60_days") {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 60);
+      from = toIsoDate(d);
+      to = toIsoDate(now);
     } else if (preset === "last_90_days") {
       const d = new Date(now);
       d.setDate(d.getDate() - 90);
       from = toIsoDate(d);
+      to = toIsoDate(now);
     } else if (preset === "last_12_months") {
       const d = new Date(now);
       d.setMonth(d.getMonth() - 12);
       from = toIsoDate(d);
+      to = toIsoDate(now);
     } else {
       from = `${now.getFullYear()}-01-01`;
+      to = toIsoDate(now);
     }
-
-    to = toIsoDate(now);
   }
 
   const previousFrom = from ? shiftYear(from, -1) : "";
-  const previousTo = to ? shiftYear(to, -1) : "";
+  const previousTo = to && from ? shiftYear(to, -1) : "";
 
   return {
     from,
@@ -151,12 +158,11 @@ export default async function LeadsAnalyticsPage({
     );
   }
 
-  const { from, to, preset, previousFrom, previousTo } =
-    getDateRange(searchParams);
+  const { from, to, preset, previousFrom, previousTo } = getDateRange(searchParams);
 
   const [leads, previousLeads] = await Promise.all([
     getLeads(from, to),
-    getLeads(previousFrom, previousTo),
+    previousFrom && previousTo ? getLeads(previousFrom, previousTo) : Promise.resolve([]),
   ]);
 
   return (
