@@ -860,6 +860,11 @@ export default async function LeadsPage({
         </div>
 
         <div className="flex items-center gap-2">
+           {(adminUser as any).role === "admin" && (
+            <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
+              Analyse
+            </Link>
+          )}
           <Link href="/admin/leads/help" className="bb-btn h-9 text-xs px-3">
             Help
           </Link>
