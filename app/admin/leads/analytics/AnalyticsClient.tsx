@@ -265,6 +265,7 @@ export default function AnalyticsClient({
   const [statusFilter, setStatusFilter] = useState("all");
   const [provinceFilter, setProvinceFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
+  const [selectedPreset, setSelectedPreset] = useState(preset);
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -659,10 +660,17 @@ export default function AnalyticsClient({
   <div className="grid gap-3 md:grid-cols-5">
     <select
       name="preset"
-      defaultValue={preset}
+      value={selectedPreset}
       className="bb-select h-10 text-sm"
       onChange={(e) => {
-        e.currentTarget.form?.requestSubmit();
+        const next = e.target.value;
+        setSelectedPreset(next);
+
+        if (next !== "custom") {
+          window.setTimeout(() => {
+            e.currentTarget.form?.requestSubmit();
+          }, 0);
+        }
       }}
     >
       <option value="this_year">Dit jaar</option>
@@ -674,49 +682,33 @@ export default function AnalyticsClient({
       <option value="custom">Custom</option>
     </select>
 
-    <input
-      type="date"
-      name="from"
-      defaultValue={from}
-      className="bb-input h-10 text-sm"
-      onChange={(e) => {
-        const form = e.currentTarget.form;
-        const presetInput = form?.querySelector(
-          'select[name="preset"]'
-        ) as HTMLSelectElement | null;
+    {selectedPreset === "custom" && (
+      <>
+        <input
+          type="date"
+          name="from"
+          defaultValue={from}
+          className="bb-input h-10 text-sm"
+        />
 
-        if (presetInput) {
-          presetInput.value = "custom";
-        }
-      }}
-      onBlur={(e) => {
-        e.currentTarget.form?.requestSubmit();
-      }}
-    />
+        <input
+          type="date"
+          name="to"
+          defaultValue={to}
+          className="bb-input h-10 text-sm"
+        />
 
-    <input
-      type="date"
-      name="to"
-      defaultValue={to}
-      className="bb-input h-10 text-sm"
-      onChange={(e) => {
-        const form = e.currentTarget.form;
-        const presetInput = form?.querySelector(
-          'select[name="preset"]'
-        ) as HTMLSelectElement | null;
+        <button className="bb-btn h-10 text-sm" type="submit">
+          Filter
+        </button>
+      </>
+    )}
 
-        if (presetInput) {
-          presetInput.value = "custom";
-        }
-      }}
-      onBlur={(e) => {
-        e.currentTarget.form?.requestSubmit();
-      }}
-    />
-
-    <button className="bb-btn h-10 text-sm" type="submit">
-      Filter
-    </button>
+    {selectedPreset !== "custom" && (
+      <div className="md:col-span-3 flex items-center text-sm text-slate-500">
+        Periode wordt automatisch bepaald door de gekozen preset.
+      </div>
+    )}
 
     <Link
       href="/admin/leads/analytics"
