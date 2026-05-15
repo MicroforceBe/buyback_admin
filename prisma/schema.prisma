@@ -5,21 +5,40 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model DeviceUnit {
   id             String   @id @default(cuid())
   imei           String?  @unique
+  imei2          String?
   serialNumber   String?
+  udid           String?
+
   brand          String
   model          String?
   storage        String?
   color          String?
+
+  iosVersion     String?
+  productType    String?
+  modelNumber    String?
+  partNumber     String?
+  regionInfo     String?
+  originCountry  String?
+
   batteryHealth  Int?
   batteryCycles  Int?
+
+  activationState   String?
+  mdmStatus         String?
+  carrierLockStatus String?
+  simLockStatus     String?
+  blacklistStatus   String?
+
+  rawDeviceData  Json?
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
