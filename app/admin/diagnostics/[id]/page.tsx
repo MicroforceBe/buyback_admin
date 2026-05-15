@@ -1,5 +1,4 @@
 // app/admin/diagnostics/[id]/page.tsx
-
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
@@ -191,25 +190,33 @@ export default async function DiagnosticSessionPage({
           })}
         </div>
 
-        <form
-          action={
-            finalizeDiagnosticSessionAction
-          }
-          className="mt-6"
-        >
-          <input
-            type="hidden"
-            name="sessionId"
-            value={session.id}
-          />
-
-          <button
-            type="submit"
-            className="rounded bg-black px-4 py-2 text-white"
+        <div className="mt-6 flex flex-wrap gap-3">
+          <form
+            action={
+              finalizeDiagnosticSessionAction
+            }
           >
-            Sessie afronden en grade berekenen
-          </button>
-        </form>
+            <input
+              type="hidden"
+              name="sessionId"
+              value={session.id}
+            />
+
+            <button
+              type="submit"
+              className="rounded bg-black px-4 py-2 text-white"
+            >
+              Sessie afronden en grade berekenen
+            </button>
+          </form>
+
+          <a
+            href={`/admin/diagnostics/${session.id}/certificate`}
+            className="inline-block rounded border px-4 py-2"
+          >
+            Certificaat bekijken
+          </a>
+        </div>
       </div>
     </div>
   );
