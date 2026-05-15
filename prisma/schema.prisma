@@ -28,22 +28,37 @@ model DeviceUnit {
   regionInfo     String?
   originCountry  String?
 
-  batteryHealth  Int?
-  batteryCycles  Int?
+  batteryHealth                  Int?
+  batteryCycles                  Int?
+  batteryCurrentCharge           Int?
+  batteryDesignCapacity          Int?
+  batteryNominalChargeCapacity   Int?
+  batteryVoltage                 Int?
+  batteryTemperatureCelsius      Float?
 
-  activationState   String?
-  mdmStatus         String?
-  carrierLockStatus String?
-  simLockStatus     String?
-  blacklistStatus   String?
+  activationState       String?
+  activationLockStatus  String?
+  findMyStatus          String?
 
-  rawDeviceData  Json?
+  mdmStatus             String?
+  carrierLockStatus     String?
+  simLockStatus         String?
+  simStatus             String?
+  carrierName           String?
+  blacklistStatus       String?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  securityGrade         String?
+  securityWarnings      Json?
+  securityFailures      Json?
 
-  sessions       DiagnosticSession[]
+  rawDeviceData         Json?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  sessions              DiagnosticSession[]
 }
+
 
 model DiagnosticSession {
   id            String   @id @default(cuid())
