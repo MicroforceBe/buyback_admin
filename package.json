@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "prisma generate && prisma migrate deploy && next build",    "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
@@ -25,7 +24,8 @@
   "xlsx": "^0.18.5",
   "jsbarcode": "^3.11.6",
   "recharts": "^2.15.0",
-  "lucide-react": "^0.468.0"
+  "lucide-react": "^0.468.0",
+  "prisma/client": "latest"
   },
   "devDependencies": {
     "@types/node": "20.11.30",
@@ -39,6 +39,7 @@
     "@tailwindcss/typography": "0.5.10",
     "postcss": "8.4.41",
     "autoprefixer": "10.4.20",
-    "@types/pdfkit": "^0.13.6"
+    "@types/pdfkit": "^0.13.6",
+    "prisma": "latest"
   }
 }
