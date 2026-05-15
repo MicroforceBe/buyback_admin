@@ -1,3 +1,5 @@
+// app/admin/diagnostics/[id]/page.tsx
+
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { saveDiagnosticTestAction } from "./actions";
