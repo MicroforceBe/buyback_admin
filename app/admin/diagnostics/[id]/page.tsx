@@ -23,6 +23,15 @@ const TESTS = [
   { key: "cosmetic_back", label: "Achterkant cosmetisch" },
 ];
 
+function asStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string =>
+          typeof item === "string"
+      )
+    : [];
+}
+
 export default async function DiagnosticSessionPage({
   params,
 }: {
@@ -30,47 +39,66 @@ export default async function DiagnosticSessionPage({
     id: string;
   };
 }) {
-  const session = await prisma.diagnosticSession.findUnique({
-    where: {
-      id: params.id,
-    },
-    include: {
-      deviceUnit: {
-        include: {
-          sessions: {
-            orderBy: {
-              createdAt: "desc",
+  const session =
+    await prisma.diagnosticSession.findUnique({
+      where: {
+        id: params.id,
+      },
+
+      include: {
+        deviceUnit: {
+          include: {
+            sessions: {
+              orderBy: {
+                createdAt: "desc",
+              },
             },
           },
         },
-      },
-      tests: {
-        orderBy: {
-          createdAt: "desc",
+
+        tests: {
+          orderBy: {
+            createdAt: "desc",
+          },
         },
       },
-    },
-  });
+    });
 
   if (!session) {
     notFound();
   }
 
-  const previousSessions = session.deviceUnit.sessions.filter(
-    (item) => item.id !== session.id
-  );
+  const previousSessions =
+    session.deviceUnit.sessions.filter(
+      (item) => item.id !== session.id
+    );
 
-  const latestPreviousSession = previousSessions[0];
+  const latestPreviousSession =
+    previousSessions[0];
 
-  const latestByKey = new Map<string, string>();
+  const latestByKey =
+    new Map<string, string>();
 
   for (const test of session.tests) {
     if (!latestByKey.has(test.testKey)) {
-      latestByKey.set(test.testKey, test.status);
+      latestByKey.set(
+        test.testKey,
+        test.status
+      );
     }
   }
 
   const device = session.deviceUnit;
+
+  const securityWarnings =
+    asStringArray(
+      device.securityWarnings
+    );
+
+  const securityFailures =
+    asStringArray(
+      device.securityFailures
+    );
 
   return (
     <div className="p-6">
@@ -86,31 +114,68 @@ export default async function DiagnosticSessionPage({
 
           <div className="mt-2 space-y-1 text-sm text-yellow-900">
             <div>
-              Vorige sessies: {previousSessions.length}
+              Vorige sessies:{" "}
+              {previousSessions.length}
             </div>
 
             <div>
               Laatste vorige grade:{" "}
-              {latestPreviousSession?.finalGrade || "—"}
+              {latestPreviousSession?.finalGrade ||
+                "—"}
             </div>
 
             <div>
               Laatste vorige score:{" "}
-              {latestPreviousSession?.finalScore ?? "—"}
+              {latestPreviousSession?.finalScore ??
+                "—"}
             </div>
 
             <div>
               Laatste vorige status:{" "}
-              {latestPreviousSession?.status || "—"}
+              {latestPreviousSession?.status ||
+                "—"}
             </div>
 
             <div>
               Laatste vorige testdatum:{" "}
               {latestPreviousSession
-                ? latestPreviousSession.createdAt.toLocaleString("nl-BE")
+                ? latestPreviousSession.createdAt.toLocaleString(
+                    "nl-BE"
+                  )
                 : "—"}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {device.securityGrade ===
+      "FAIL" ? (
+        <div className="mb-6 rounded border border-red-300 bg-red-50 p-4 text-red-900">
+          <h2 className="font-semibold">
+            Security FAIL
+          </h2>
+
+          <p className="mt-1 text-sm">
+            Dit toestel mag niet
+            verkoopbaar worden zonder
+            oplossing of manuele
+            vrijgave.
+          </p>
+        </div>
+      ) : null}
+
+      {device.securityGrade ===
+      "WARNING" ? (
+        <div className="mb-6 rounded border border-yellow-300 bg-yellow-50 p-4 text-yellow-900">
+          <h2 className="font-semibold">
+            Security warning
+          </h2>
+
+          <p className="mt-1 text-sm">
+            Er zijn controles die nog
+            manueel of extern bevestigd
+            moeten worden.
+          </p>
         </div>
       ) : null}
 
@@ -231,7 +296,8 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Activation state:
               </span>{" "}
-              {device.activationState || "—"}
+              {device.activationState ||
+                "—"}
             </div>
           </div>
         </div>
@@ -246,14 +312,60 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Batterijconditie:
               </span>{" "}
-              {device.batteryHealth ?? "—"}%
+              {device.batteryHealth ??
+                "—"}
+              %
             </div>
 
             <div>
               <span className="font-medium text-gray-900">
                 Batterijcycli:
               </span>{" "}
-              {device.batteryCycles ?? "—"}
+              {device.batteryCycles ??
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Huidige lading:
+              </span>{" "}
+              {device.batteryCurrentCharge ??
+                "—"}
+              %
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Design capacity:
+              </span>{" "}
+              {device.batteryDesignCapacity ??
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Nominal capacity:
+              </span>{" "}
+              {device.batteryNominalChargeCapacity ??
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Voltage:
+              </span>{" "}
+              {device.batteryVoltage ||
+                "—"}{" "}
+              mV
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Temperatuur:
+              </span>{" "}
+              {device.batteryTemperatureCelsius ||
+                "—"}
+              °C
             </div>
           </div>
         </div>
@@ -266,6 +378,30 @@ export default async function DiagnosticSessionPage({
           <div className="space-y-1 text-sm text-gray-600">
             <div>
               <span className="font-medium text-gray-900">
+                Security grade:
+              </span>{" "}
+              {device.securityGrade ||
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Activation lock:
+              </span>{" "}
+              {device.activationLockStatus ||
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Find My:
+              </span>{" "}
+              {device.findMyStatus ||
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
                 MDM:
               </span>{" "}
               {device.mdmStatus || "—"}
@@ -273,25 +409,80 @@ export default async function DiagnosticSessionPage({
 
             <div>
               <span className="font-medium text-gray-900">
-                Carrier lock:
+                Carrier:
               </span>{" "}
-              {device.carrierLockStatus || "—"}
+              {device.carrierName || "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                SIM status:
+              </span>{" "}
+              {device.simStatus || "—"}
             </div>
 
             <div>
               <span className="font-medium text-gray-900">
                 SIM lock:
               </span>{" "}
-              {device.simLockStatus || "—"}
+              {device.simLockStatus ||
+                "—"}
+            </div>
+
+            <div>
+              <span className="font-medium text-gray-900">
+                Carrier lock:
+              </span>{" "}
+              {device.carrierLockStatus ||
+                "—"}
             </div>
 
             <div>
               <span className="font-medium text-gray-900">
                 Blacklist:
               </span>{" "}
-              {device.blacklistStatus || "—"}
+              {device.blacklistStatus ||
+                "—"}
             </div>
           </div>
+
+          {securityFailures.length >
+          0 ? (
+            <div className="mt-4 rounded border border-red-200 bg-red-50 p-3">
+              <div className="font-medium text-red-900">
+                Failures
+              </div>
+
+              <ul className="mt-2 list-disc pl-5 text-sm text-red-900">
+                {securityFailures.map(
+                  (item) => (
+                    <li key={item}>
+                      {item}
+                    </li>
+                  )
+                )}
+              </ul>
+            </div>
+          ) : null}
+
+          {securityWarnings.length >
+          0 ? (
+            <div className="mt-4 rounded border border-yellow-200 bg-yellow-50 p-3">
+              <div className="font-medium text-yellow-900">
+                Warnings
+              </div>
+
+              <ul className="mt-2 list-disc pl-5 text-sm text-yellow-900">
+                {securityWarnings.map(
+                  (item) => (
+                    <li key={item}>
+                      {item}
+                    </li>
+                  )
+                )}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -426,3 +617,4 @@ export default async function DiagnosticSessionPage({
     </div>
   );
 }
+
