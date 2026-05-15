@@ -3,8 +3,7 @@
 import { execSync } from "child_process";
 import axios from "axios";
 
-const BASE_URL =
-  "https://YOUR-DOMAIN.COM";
+const BASE_URL = "https://buyback-admin.vercel.app/";
 
 const API_URL =
   `${BASE_URL}/api/diagnostics/device-import`;
