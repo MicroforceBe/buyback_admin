@@ -15,6 +15,12 @@ export default async function DiagnosticsPage() {
       <h1 className="text-2xl font-bold mb-6">
         Diagnostics
       </h1>
+<a
+  href="/admin/diagnostics/new"
+  className="inline-block rounded bg-black px-4 py-2 text-white mb-6"
+>
+  Nieuwe sessie
+</a>
 
       <div className="space-y-4">
         {sessions.map((session) => (
