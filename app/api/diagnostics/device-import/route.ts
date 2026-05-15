@@ -1,7 +1,7 @@
 //app/api/diagnostics/device-import/route.ts 
 
 import { execSync } from "child_process";
-import axios from "axios";
+
 
 const BASE_URL = "https://buyback-admin.vercel.app/";
 
