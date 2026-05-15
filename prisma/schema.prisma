@@ -1,0 +1,52 @@
+//prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model DeviceUnit {
+  id             String   @id @default(cuid())
+  imei           String?  @unique
+  serialNumber   String?
+  brand          String
+  model          String?
+  storage        String?
+  color          String?
+  batteryHealth  Int?
+  batteryCycles  Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sessions       DiagnosticSession[]
+}
+
+model DiagnosticSession {
+  id            String   @id @default(cuid())
+  deviceUnitId  String
+  status        String   @default("draft")
+  finalGrade    String?
+  finalScore    Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  deviceUnit    DeviceUnit @relation(fields: [deviceUnitId], references: [id])
+  tests         DiagnosticTestResult[]
+}
+
+model DiagnosticTestResult {
+  id          String   @id @default(cuid())
+  sessionId   String
+  testKey     String
+  status      String
+  value       Json?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  session     DiagnosticSession @relation(fields: [sessionId], references: [id])
+}
