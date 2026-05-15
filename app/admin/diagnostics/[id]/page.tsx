@@ -35,7 +35,15 @@ export default async function DiagnosticSessionPage({
       id: params.id,
     },
     include: {
-      deviceUnit: true,
+      deviceUnit: {
+        include: {
+          sessions: {
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+        },
+      },
       tests: {
         orderBy: {
           createdAt: "desc",
@@ -47,6 +55,12 @@ export default async function DiagnosticSessionPage({
   if (!session) {
     notFound();
   }
+
+  const previousSessions = session.deviceUnit.sessions.filter(
+    (item) => item.id !== session.id
+  );
+
+  const latestPreviousSession = previousSessions[0];
 
   const latestByKey = new Map<string, string>();
 
@@ -63,6 +77,42 @@ export default async function DiagnosticSessionPage({
       <h1 className="text-2xl font-bold mb-6">
         Diagnostic sessie
       </h1>
+
+      {previousSessions.length > 0 ? (
+        <div className="mb-6 rounded border border-yellow-300 bg-yellow-50 p-4">
+          <h2 className="font-semibold text-yellow-900">
+            Let op: dit toestel is eerder getest
+          </h2>
+
+          <div className="mt-2 space-y-1 text-sm text-yellow-900">
+            <div>
+              Vorige sessies: {previousSessions.length}
+            </div>
+
+            <div>
+              Laatste vorige grade:{" "}
+              {latestPreviousSession?.finalGrade || "—"}
+            </div>
+
+            <div>
+              Laatste vorige score:{" "}
+              {latestPreviousSession?.finalScore ?? "—"}
+            </div>
+
+            <div>
+              Laatste vorige status:{" "}
+              {latestPreviousSession?.status || "—"}
+            </div>
+
+            <div>
+              Laatste vorige testdatum:{" "}
+              {latestPreviousSession
+                ? latestPreviousSession.createdAt.toLocaleString("nl-BE")
+                : "—"}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded border p-4">
@@ -376,4 +426,3 @@ export default async function DiagnosticSessionPage({
     </div>
   );
 }
-
