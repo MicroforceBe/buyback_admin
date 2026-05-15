@@ -1,3 +1,5 @@
+// app/admin/diagnostics/[id]/certificate.tsx
+
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -61,10 +63,16 @@ export default async function DiagnosticCertificatePage({
             {session.deviceUnit.model || ""}
           </p>
           <p>IMEI: {session.deviceUnit.imei || "—"}</p>
-          <p>Serienummer: {session.deviceUnit.serialNumber || "—"}</p>
+          <p>
+            Serienummer:{" "}
+            {session.deviceUnit.serialNumber || "—"}
+          </p>
           <p>Opslag: {session.deviceUnit.storage || "—"}</p>
           <p>Kleur: {session.deviceUnit.color || "—"}</p>
-          <p>Batterij: {session.deviceUnit.batteryHealth ?? "—"}%</p>
+          <p>
+            Batterij:{" "}
+            {session.deviceUnit.batteryHealth ?? "—"}%
+          </p>
         </div>
 
         <div className="mt-6 border-t pt-4">
@@ -76,25 +84,31 @@ export default async function DiagnosticCertificatePage({
         </div>
 
         <div className="mt-6 border-t pt-4">
-          <h2 className="font-semibold mb-2">Testresultaten</h2>
+          <h2 className="font-semibold mb-2">
+            Testresultaten
+          </h2>
 
           <div className="space-y-2">
-            {Array.from(latestByKey.entries()).map(([key, status]) => (
-              <div
-                key={key}
-                className="flex justify-between border-b py-1 text-sm"
-              >
-                <span>{key}</span>
-                <span className="font-medium">{status.toUpperCase()}</span>
-              </div>
-            ))}
+            {Array.from(latestByKey.entries()).map(
+              ([key, status]) => (
+                <div
+                  key={key}
+                  className="flex justify-between border-b py-1 text-sm"
+                >
+                  <span>{key}</span>
+                  <span className="font-medium">
+                    {status.toUpperCase()}
+                  </span>
+                </div>
+              )
+            )}
           </div>
         </div>
       </div>
 
       <p className="mt-4 text-sm text-gray-500">
-        Gebruik voorlopig de browserfunctie om dit certificaat te printen of op
-        te slaan als PDF.
+        Gebruik voorlopig de browserfunctie om dit certificaat te
+        printen of op te slaan als PDF.
       </p>
     </div>
   );
