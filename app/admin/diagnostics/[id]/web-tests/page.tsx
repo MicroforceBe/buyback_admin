@@ -1,7 +1,7 @@
 // app/admin/diagnostics/[id]/web-tests/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Status = "pending" | "pass" | "warning" | "fail";
 
@@ -41,7 +41,7 @@ export default function WebDiagnosticsPage({
   const [step, setStep] = useState(0);
 
   const touchCols = 8;
-  const touchRows = 14;
+  const touchRows = 16;
   const touchTotalCells = touchCols * touchRows;
 
   const [touchedCount, setTouchedCount] = useState(0);
@@ -89,12 +89,13 @@ export default function WebDiagnosticsPage({
       () => false
     );
 
-    function resizeCanvas() {
-      if (!canvas || !ctx){
+    function drawGrid() {
+      if (!canvas || !ctx) {
         return;
       }
+
       const width = window.innerWidth;
-      const height = window.innerHeight - 132;
+      const height = window.innerHeight;
 
       canvas.width = width;
       canvas.height = height;
@@ -102,25 +103,8 @@ export default function WebDiagnosticsPage({
       ctx.fillStyle = "#111827";
       ctx.fillRect(0, 0, width, height);
 
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.lineWidth = 1;
-
       const cellWidth = width / touchCols;
       const cellHeight = height / touchRows;
-
-      for (let col = 1; col < touchCols; col += 1) {
-        ctx.beginPath();
-        ctx.moveTo(col * cellWidth, 0);
-        ctx.lineTo(col * cellWidth, height);
-        ctx.stroke();
-      }
-
-      for (let row = 1; row < touchRows; row += 1) {
-        ctx.beginPath();
-        ctx.moveTo(0, row * cellHeight);
-        ctx.lineTo(width, row * cellHeight);
-        ctx.stroke();
-      }
 
       touchGridRef.current.forEach((isTouched, index) => {
         if (!isTouched) {
@@ -138,13 +122,32 @@ export default function WebDiagnosticsPage({
           cellHeight
         );
       });
+
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1;
+
+      for (let col = 1; col < touchCols; col += 1) {
+        ctx.beginPath();
+        ctx.moveTo(col * cellWidth, 0);
+        ctx.lineTo(col * cellWidth, height);
+        ctx.stroke();
+      }
+
+      for (let row = 1; row < touchRows; row += 1) {
+        ctx.beginPath();
+        ctx.moveTo(0, row * cellHeight);
+        ctx.lineTo(width, row * cellHeight);
+        ctx.stroke();
+      }
     }
 
     function markPoint(clientX: number, clientY: number) {
       if (!canvas || !ctx) {
         return;
       }
+
       const rect = canvas.getBoundingClientRect();
+
       const x = clientX - rect.left;
       const y = clientY - rect.top;
 
@@ -209,7 +212,7 @@ export default function WebDiagnosticsPage({
       markPoint(event.clientX, event.clientY);
     }
 
-    resizeCanvas();
+    drawGrid();
 
     canvas.addEventListener("touchstart", handleTouch, {
       passive: false,
@@ -222,19 +225,20 @@ export default function WebDiagnosticsPage({
     canvas.addEventListener("pointerdown", handlePointer);
     canvas.addEventListener("pointermove", handlePointer);
 
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", drawGrid);
 
     return () => {
       canvas.removeEventListener("touchstart", handleTouch);
       canvas.removeEventListener("touchmove", handleTouch);
       canvas.removeEventListener("pointerdown", handlePointer);
       canvas.removeEventListener("pointermove", handlePointer);
-      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("resize", drawGrid);
     };
   }, [step]);
 
   function resetTouchTest() {
     setTouchedCount(0);
+
     touchGridRef.current = Array.from(
       { length: touchTotalCells },
       () => false
@@ -247,26 +251,32 @@ export default function WebDiagnosticsPage({
       return;
     }
 
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    canvas.width = width;
+    canvas.height = height;
+
     ctx.fillStyle = "#111827";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, width, height);
+
+    const cellWidth = width / touchCols;
+    const cellHeight = height / touchRows;
 
     ctx.strokeStyle = "rgba(255,255,255,0.18)";
     ctx.lineWidth = 1;
 
-    const cellWidth = canvas.width / touchCols;
-    const cellHeight = canvas.height / touchRows;
-
     for (let col = 1; col < touchCols; col += 1) {
       ctx.beginPath();
       ctx.moveTo(col * cellWidth, 0);
-      ctx.lineTo(col * cellWidth, canvas.height);
+      ctx.lineTo(col * cellWidth, height);
       ctx.stroke();
     }
 
     for (let row = 1; row < touchRows; row += 1) {
       ctx.beginPath();
       ctx.moveTo(0, row * cellHeight);
-      ctx.lineTo(canvas.width, row * cellHeight);
+      ctx.lineTo(width, row * cellHeight);
       ctx.stroke();
     }
   }
@@ -375,6 +385,57 @@ export default function WebDiagnosticsPage({
     });
   }
 
+  if (step === 1) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-gray-900">
+        <canvas
+          ref={touchCanvasRef}
+          className="block h-screen w-screen touch-none bg-gray-900"
+        />
+
+        <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/70 px-3 py-2 text-sm text-white">
+          Touchscreen: {touchProgress}% — {statusLabel(touchStatus)}
+        </div>
+
+        {touchStatus === "pass" ? (
+          <div className="pointer-events-none absolute inset-x-3 bottom-20 rounded bg-green-600 px-4 py-3 text-center font-semibold text-white">
+            PASS — volledig scherm ingekleurd
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute inset-x-3 bottom-20 rounded bg-black/70 px-4 py-3 text-center text-sm text-white">
+            Sleep met je vinger over het volledige scherm tot alles groen is.
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={resetTouchTest}
+          className="absolute right-3 top-3 rounded bg-white px-3 py-2 text-sm font-medium shadow"
+        >
+          Reset
+        </button>
+
+        <div className="absolute bottom-3 left-3 right-3 flex justify-between gap-3">
+          <button
+            type="button"
+            onClick={goPrev}
+            className="rounded bg-white px-4 py-3 font-medium shadow"
+          >
+            Vorige
+          </button>
+
+          <button
+            type="button"
+            onClick={goNext}
+            className="rounded bg-white px-4 py-3 font-medium shadow"
+          >
+            Volgende
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white">
       <header className="border-b px-4 py-3">
@@ -399,10 +460,12 @@ export default function WebDiagnosticsPage({
         </div>
       </header>
 
-      <main className={step === 1 ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto p-4"}>
+      <main className="flex-1 overflow-y-auto p-4">
         {step === 0 ? (
           <section className="flex min-h-full flex-col justify-center">
-            <h2 className="mb-4 text-2xl font-bold">Start web diagnostics</h2>
+            <h2 className="mb-4 text-2xl font-bold">
+              Start web diagnostics
+            </h2>
 
             <p className="text-gray-600">
               Deze test draait op de iPhone zelf via Safari. Er wordt voorlopig
@@ -417,44 +480,14 @@ export default function WebDiagnosticsPage({
           </section>
         ) : null}
 
-        {step === 1 ? (
-          <section className="relative h-full">
-            <canvas
-              ref={touchCanvasRef}
-              className="block h-full w-full touch-none bg-gray-900"
-            />
-
-            <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/70 px-3 py-2 text-sm text-white">
-              Touchscreen: {touchProgress}% — {statusLabel(touchStatus)}
-            </div>
-
-            {touchStatus === "pass" ? (
-              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded bg-green-600 px-4 py-3 text-center font-semibold text-white">
-                PASS — volledig scherm ingekleurd
-              </div>
-            ) : (
-              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded bg-black/70 px-4 py-3 text-center text-sm text-white">
-                Sleep met je vinger over het volledige scherm tot alles groen is.
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={resetTouchTest}
-              className="absolute right-3 top-3 rounded bg-white px-3 py-2 text-sm font-medium shadow"
-            >
-              Reset
-            </button>
-          </section>
-        ) : null}
-
         {step === 2 ? (
           <section>
             <h2 className="mb-2 text-xl font-bold">Camera</h2>
 
             <p className="mb-4 text-sm text-gray-600">
               Start de camera. Als de preview opent, krijgt de test automatisch
-              PASS. Beeldkwaliteit/focus blijft voorlopig visueel te controleren.
+              PASS. Beeldkwaliteit/focus blijft voorlopig visueel te
+              controleren.
             </p>
 
             <button
@@ -473,7 +506,9 @@ export default function WebDiagnosticsPage({
               className="mt-4 w-full rounded border bg-black"
             />
 
-            <div className="mt-3 text-sm">Status: {statusLabel(cameraStatus)}</div>
+            <div className="mt-3 text-sm">
+              Status: {statusLabel(cameraStatus)}
+            </div>
           </section>
         ) : null}
 
@@ -555,7 +590,9 @@ export default function WebDiagnosticsPage({
               </button>
             </div>
 
-            <div className="mt-3 text-sm">Status: {statusLabel(speakerStatus)}</div>
+            <div className="mt-3 text-sm">
+              Status: {statusLabel(speakerStatus)}
+            </div>
           </section>
         ) : null}
 
@@ -592,15 +629,19 @@ export default function WebDiagnosticsPage({
               <div className="rounded border p-3">
                 Touchscreen: {statusLabel(touchStatus)}
               </div>
+
               <div className="rounded border p-3">
                 Camera: {statusLabel(cameraStatus)}
               </div>
+
               <div className="rounded border p-3">
                 Microfoon: {statusLabel(microphoneStatus)}
               </div>
+
               <div className="rounded border p-3">
                 Speaker: {statusLabel(speakerStatus)}
               </div>
+
               <div className="rounded border p-3">
                 Motion: {statusLabel(motionStatus)}
               </div>
@@ -636,4 +677,3 @@ export default function WebDiagnosticsPage({
     </div>
   );
 }
-
