@@ -12,14 +12,17 @@ export async function GET(
   }
 ) {
   try {
-    const device =
-      await prisma.deviceUnit.findUnique({
+    const session =
+      await prisma.diagnosticSession.findUnique({
         where: {
           id: params.id,
         },
+        include: {
+          deviceUnit: true,
+        },
       });
 
-    if (!device) {
+    if (!session || !session.deviceUnit) {
       return NextResponse.json(
         {
           error: "Not found",
@@ -30,35 +33,17 @@ export async function GET(
       );
     }
 
+    const device = session.deviceUnit;
+
     return NextResponse.json({
-      model:
-        device.modelName ||
-        device.marketingName ||
-        null,
-
-      serialNumber:
-        device.serialNumber || null,
-
-      imei:
-        device.imei ||
-        device.imei2 ||
-        null,
-
-      storageCapacity:
-        device.storageCapacity || null,
-
-      batteryHealth:
-        device.batteryHealth || null,
-
-      batteryCycleCount:
-        device.batteryCycleCount || null,
-
-      activationLockStatus:
-        device.activationLockStatus ||
-        null,
-
-      iosVersion:
-        device.osVersion || null,
+      model: device.model || null,
+      serialNumber: device.serialNumber || null,
+      imei: device.imei || device.imei2 || null,
+      storageCapacity: device.storage || null,
+      batteryHealth: device.batteryHealth || null,
+      batteryCycleCount: device.batteryCycles || null,
+      activationLockStatus: device.activationLockStatus || null,
+      iosVersion: device.iosVersion || null,
     });
   } catch {
     return NextResponse.json(
@@ -71,3 +56,4 @@ export async function GET(
     );
   }
 }
+
