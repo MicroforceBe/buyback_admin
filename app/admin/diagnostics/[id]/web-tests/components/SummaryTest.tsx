@@ -1,3 +1,5 @@
+// app/admin/diagnostics/[id]/web-tests/components/SummaryTest.tsx
+
 "use client";
 
 import { useState } from "react";
