@@ -141,6 +141,9 @@ export default function WebDiagnosticsPage({
     }
 
     function markPoint(clientX: number, clientY: number) {
+      if (!canvas || !ctx) {
+        return;
+      }
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left;
       const y = clientY - rect.top;
