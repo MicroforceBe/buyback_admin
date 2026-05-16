@@ -94,7 +94,7 @@ export default async function DiagnosticSessionPage({
 
   const device = session.deviceUnit;
   const webDiagnosticsUrl =
-    `${process.env.MAIL_PUBLIC_APP_URL}/admin/diagnostics/${session.id}/web-tests`;
+    `${process.env.NEXT_PUBLIC_APP_URL}/admin/diagnostics/${session.id}/web-tests`;
 
   const securityWarnings =
     asStringArray(
