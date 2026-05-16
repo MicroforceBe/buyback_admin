@@ -1,3 +1,5 @@
+// app/admin/diagnostics/[id]/web-tests/components/ButtonChecklistTest.tsx
+
 "use client";
 
 import { useState } from "react";
