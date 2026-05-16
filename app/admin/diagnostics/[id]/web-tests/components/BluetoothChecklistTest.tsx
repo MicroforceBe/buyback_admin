@@ -23,10 +23,19 @@ export default function BluetoothChecklistTest({
 
   async function startBluetoothTest() {
     try {
+      const bluetoothNavigator = navigator as Navigator & {
+        bluetooth?: {
+          requestDevice: (options: {
+            acceptAllDevices: boolean;
+          }) => Promise<unknown>;
+        };
+      };
+      
       if (
         typeof navigator === "undefined" ||
-        !navigator.bluetooth
+        !bluetoothNavigator.bluetooth
       ) {
+
         setSupported(false);
 
         setStatus("warning");
@@ -40,9 +49,9 @@ export default function BluetoothChecklistTest({
 
       setSupported(true);
 
-      await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-      });
+    await bluetoothNavigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+    });
 
       setStatus("pass");
 
