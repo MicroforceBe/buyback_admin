@@ -1,4 +1,5 @@
 // app/admin/diagnostics/[id]/web-tests/page.tsx
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -32,32 +33,83 @@ export default function WebDiagnosticsPage({
   const sessionId = params.id;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
-  const touchCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const touchGridRef = useRef<boolean[]>([]);
-  const touchCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const mediaRecorderRef =
+    useRef<MediaRecorder | null>(null);
+
+  const recordedChunksRef =
+    useRef<BlobPart[]>([]);
+
+  const streamRef =
+    useRef<MediaStream | null>(null);
+
+  const touchCanvasRef =
+    useRef<HTMLCanvasElement | null>(null);
+
+  const touchGridRef =
+    useRef<boolean[]>([]);
+
+  const touchCtxRef =
+    useRef<CanvasRenderingContext2D | null>(
+      null
+    );
 
   const [step, setStep] = useState(0);
 
   const touchCols = 8;
   const touchRows = 16;
-  const touchTotalCells = touchCols * touchRows;
 
-  const [touchedCount, setTouchedCount] = useState(0);
-  const [cameraStatus, setCameraStatus] = useState<Status>("pending");
-  const [microphoneStatus, setMicrophoneStatus] = useState<Status>("pending");
-  const [speakerStatus, setSpeakerStatus] = useState<Status>("pending");
-  const [motionStatus, setMotionStatus] = useState<Status>("pending");
+  const touchTotalCells =
+    touchCols * touchRows;
 
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [motionData, setMotionData] = useState({
-    x: 0,
-    y: 0,
-    z: 0,
-  });
+  const [touchedCount, setTouchedCount] =
+    useState(0);
 
-  const touchProgress = Math.round((touchedCount / touchTotalCells) * 100);
+  const [cameraStatus, setCameraStatus] =
+    useState<Status>("pending");
+
+  const [
+    microphoneStatus,
+    setMicrophoneStatus,
+  ] = useState<Status>("pending");
+
+  const [speakerStatus, setSpeakerStatus] =
+    useState<Status>("pending");
+
+  const [motionStatus, setMotionStatus] =
+    useState<Status>("pending");
+
+  const [audioUrl, setAudioUrl] =
+    useState<string | null>(null);
+
+  const [motionData, setMotionData] =
+    useState({
+      x: 0,
+      y: 0,
+      z: 0,
+    });
+
+  const [cameraFacing, setCameraFacing] =
+    useState<"environment" | "user">(
+      "environment"
+    );
+
+  const [zoomLevel, setZoomLevel] =
+    useState(1);
+
+  const [torchEnabled, setTorchEnabled] =
+    useState(false);
+
+  const [
+    motionPermissionState,
+    setMotionPermissionState,
+  ] = useState<
+    "unknown" | "granted" | "denied"
+  >("unknown");
+
+  const touchProgress = Math.round(
+    (touchedCount / touchTotalCells) * 100
+  );
 
   const touchStatus: Status =
     touchProgress === 100
@@ -84,6 +136,7 @@ export default function WebDiagnosticsPage({
     }
 
     touchCtxRef.current = ctx;
+
     touchGridRef.current = Array.from(
       { length: touchTotalCells },
       () => false
@@ -101,85 +154,156 @@ export default function WebDiagnosticsPage({
       canvas.height = height;
 
       ctx.fillStyle = "#111827";
+
       ctx.fillRect(0, 0, width, height);
 
-      const cellWidth = width / touchCols;
-      const cellHeight = height / touchRows;
+      const cellWidth =
+        width / touchCols;
 
-      touchGridRef.current.forEach((isTouched, index) => {
-        if (!isTouched) {
-          return;
+      const cellHeight =
+        height / touchRows;
+
+      touchGridRef.current.forEach(
+        (isTouched, index) => {
+          if (!isTouched) {
+            return;
+          }
+
+          const col =
+            index % touchCols;
+
+          const row = Math.floor(
+            index / touchCols
+          );
+
+          ctx.fillStyle = "#86efac";
+
+          ctx.fillRect(
+            col * cellWidth,
+            row * cellHeight,
+            cellWidth,
+            cellHeight
+          );
         }
+      );
 
-        const col = index % touchCols;
-        const row = Math.floor(index / touchCols);
+      ctx.strokeStyle =
+        "rgba(255,255,255,0.18)";
 
-        ctx.fillStyle = "#86efac";
-        ctx.fillRect(
-          col * cellWidth,
-          row * cellHeight,
-          cellWidth,
-          cellHeight
-        );
-      });
-
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
       ctx.lineWidth = 1;
 
-      for (let col = 1; col < touchCols; col += 1) {
+      for (
+        let col = 1;
+        col < touchCols;
+        col += 1
+      ) {
         ctx.beginPath();
-        ctx.moveTo(col * cellWidth, 0);
-        ctx.lineTo(col * cellWidth, height);
+
+        ctx.moveTo(
+          col * cellWidth,
+          0
+        );
+
+        ctx.lineTo(
+          col * cellWidth,
+          height
+        );
+
         ctx.stroke();
       }
 
-      for (let row = 1; row < touchRows; row += 1) {
+      for (
+        let row = 1;
+        row < touchRows;
+        row += 1
+      ) {
         ctx.beginPath();
-        ctx.moveTo(0, row * cellHeight);
-        ctx.lineTo(width, row * cellHeight);
+
+        ctx.moveTo(
+          0,
+          row * cellHeight
+        );
+
+        ctx.lineTo(
+          width,
+          row * cellHeight
+        );
+
         ctx.stroke();
       }
     }
 
-    function markPoint(clientX: number, clientY: number) {
+    function markPoint(
+      clientX: number,
+      clientY: number
+    ) {
       if (!canvas || !ctx) {
         return;
       }
 
-      const rect = canvas.getBoundingClientRect();
+      const rect =
+        canvas.getBoundingClientRect();
 
       const x = clientX - rect.left;
+
       const y = clientY - rect.top;
 
-      if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      if (
+        x < 0 ||
+        y < 0 ||
+        x > rect.width ||
+        y > rect.height
+      ) {
         return;
       }
 
       const col = Math.min(
         touchCols - 1,
-        Math.max(0, Math.floor((x / rect.width) * touchCols))
+        Math.max(
+          0,
+          Math.floor(
+            (x / rect.width) * touchCols
+          )
+        )
       );
 
       const row = Math.min(
         touchRows - 1,
-        Math.max(0, Math.floor((y / rect.height) * touchRows))
+        Math.max(
+          0,
+          Math.floor(
+            (y / rect.height) * touchRows
+          )
+        )
       );
 
-      const index = row * touchCols + col;
+      const index =
+        row * touchCols + col;
 
-      if (touchGridRef.current[index]) {
+      if (
+        touchGridRef.current[index]
+      ) {
         return;
       }
 
-      touchGridRef.current[index] = true;
+      touchGridRef.current[index] =
+        true;
 
-      const touched = touchGridRef.current.filter(Boolean).length;
+      const touched =
+        touchGridRef.current.filter(
+          Boolean
+        ).length;
+
       setTouchedCount(touched);
 
-      const cellWidth = canvas.width / touchCols;
-      const cellHeight = canvas.height / touchRows;
+      const cellWidth =
+        canvas.width / touchCols;
+
+      const cellHeight =
+        canvas.height / touchRows;
 
       ctx.fillStyle = "#86efac";
+
       ctx.fillRect(
         col * cellWidth,
         row * cellHeight,
@@ -187,7 +311,9 @@ export default function WebDiagnosticsPage({
         cellHeight
       );
 
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.strokeStyle =
+        "rgba(255,255,255,0.18)";
+
       ctx.strokeRect(
         col * cellWidth,
         row * cellHeight,
@@ -196,109 +322,131 @@ export default function WebDiagnosticsPage({
       );
     }
 
-    function handleTouch(event: TouchEvent) {
+    function handleTouch(
+      event: TouchEvent
+    ) {
       event.preventDefault();
 
-      for (const touch of Array.from(event.touches)) {
-        markPoint(touch.clientX, touch.clientY);
+      for (const touch of Array.from(
+        event.touches
+      )) {
+        markPoint(
+          touch.clientX,
+          touch.clientY
+        );
       }
-    }
-
-    function handlePointer(event: PointerEvent) {
-      if (event.pointerType === "mouse" && event.buttons !== 1) {
-        return;
-      }
-
-      markPoint(event.clientX, event.clientY);
     }
 
     drawGrid();
 
-    canvas.addEventListener("touchstart", handleTouch, {
-      passive: false,
-    });
+    canvas.addEventListener(
+      "touchstart",
+      handleTouch,
+      {
+        passive: false,
+      }
+    );
 
-    canvas.addEventListener("touchmove", handleTouch, {
-      passive: false,
-    });
+    canvas.addEventListener(
+      "touchmove",
+      handleTouch,
+      {
+        passive: false,
+      }
+    );
 
-    canvas.addEventListener("pointerdown", handlePointer);
-    canvas.addEventListener("pointermove", handlePointer);
-
-    window.addEventListener("resize", drawGrid);
+    window.addEventListener(
+      "resize",
+      drawGrid
+    );
 
     return () => {
-      canvas.removeEventListener("touchstart", handleTouch);
-      canvas.removeEventListener("touchmove", handleTouch);
-      canvas.removeEventListener("pointerdown", handlePointer);
-      canvas.removeEventListener("pointermove", handlePointer);
-      window.removeEventListener("resize", drawGrid);
+      canvas.removeEventListener(
+        "touchstart",
+        handleTouch
+      );
+
+      canvas.removeEventListener(
+        "touchmove",
+        handleTouch
+      );
+
+      window.removeEventListener(
+        "resize",
+        drawGrid
+      );
     };
   }, [step]);
+
+  function goNext() {
+    setStep((current) =>
+      Math.min(
+        current + 1,
+        steps.length - 1
+      )
+    );
+  }
+
+  function goPrev() {
+    setStep((current) =>
+      Math.max(current - 1, 0)
+    );
+  }
 
   function resetTouchTest() {
     setTouchedCount(0);
 
-    touchGridRef.current = Array.from(
-      { length: touchTotalCells },
-      () => false
-    );
+    touchGridRef.current =
+      Array.from(
+        { length: touchTotalCells },
+        () => false
+      );
 
-    const canvas = touchCanvasRef.current;
-    const ctx = touchCtxRef.current;
+    const canvas =
+      touchCanvasRef.current;
+
+    const ctx =
+      touchCtxRef.current;
 
     if (!canvas || !ctx) {
       return;
     }
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    canvas.width = width;
-    canvas.height = height;
-
     ctx.fillStyle = "#111827";
-    ctx.fillRect(0, 0, width, height);
 
-    const cellWidth = width / touchCols;
-    const cellHeight = height / touchRows;
-
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.lineWidth = 1;
-
-    for (let col = 1; col < touchCols; col += 1) {
-      ctx.beginPath();
-      ctx.moveTo(col * cellWidth, 0);
-      ctx.lineTo(col * cellWidth, height);
-      ctx.stroke();
-    }
-
-    for (let row = 1; row < touchRows; row += 1) {
-      ctx.beginPath();
-      ctx.moveTo(0, row * cellHeight);
-      ctx.lineTo(width, row * cellHeight);
-      ctx.stroke();
-    }
-  }
-
-  function goNext() {
-    setStep((current) => Math.min(current + 1, steps.length - 1));
-  }
-
-  function goPrev() {
-    setStep((current) => Math.max(current - 1, 0));
+    ctx.fillRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
   }
 
   async function startCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-        },
-      });
+      if (streamRef.current) {
+        streamRef.current
+          .getTracks()
+          .forEach((track) =>
+            track.stop()
+          );
+      }
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia(
+          {
+            video: {
+              facingMode:
+                cameraFacing,
+            },
+          }
+        );
+
+      streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.srcObject =
+          stream;
       }
 
       setCameraStatus("pass");
@@ -307,31 +455,188 @@ export default function WebDiagnosticsPage({
     }
   }
 
-  async function startMicrophoneRecording() {
+  async function switchCamera() {
+    setCameraFacing((prev) =>
+      prev === "environment"
+        ? "user"
+        : "environment"
+    );
+  }
+
+  async function applyZoom(
+    value: number
+  ) {
+    setZoomLevel(value);
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+      const track =
+        streamRef.current
+          ?.getVideoTracks?.()[0];
+
+      if (!track) {
+        return;
+      }
+
+      const capabilities =
+        track.getCapabilities?.();
+
+      if (
+        capabilities &&
+        "zoom" in capabilities
+      ) {
+        await track.applyConstraints({
+          advanced: [
+            {
+              zoom: value,
+            } as MediaTrackConstraintSet,
+          ],
+        });
+      }
+    } catch {}
+  }
+
+  async function toggleTorch() {
+    try {
+      const track =
+        streamRef.current
+          ?.getVideoTracks?.()[0];
+
+      if (!track) {
+        return;
+      }
+
+      await track.applyConstraints({
+        advanced: [
+          {
+            torch: !torchEnabled,
+          } as MediaTrackConstraintSet,
+        ],
       });
 
-      const chunks: BlobPart[] = [];
-      const recorder = new MediaRecorder(stream);
+      setTorchEnabled(
+        (prev) => !prev
+      );
+    } catch {
+      alert(
+        "Torch/flash niet ondersteund op deze browser."
+      );
+    }
+  }
 
-      recorder.ondataavailable = (event) => {
-        chunks.push(event.data);
+  function takePhoto() {
+    const video =
+      videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = video.videoWidth;
+
+    canvas.height =
+      video.videoHeight;
+
+    const ctx =
+      canvas.getContext("2d");
+
+    if (!ctx) {
+      return;
+    }
+
+    ctx.drawImage(
+      video,
+      0,
+      0
+    );
+
+    const image =
+      canvas.toDataURL("image/jpeg");
+
+    const link =
+      document.createElement("a");
+
+    link.href = image;
+
+    link.download =
+      "diagnostic-photo.jpg";
+
+    link.click();
+  }
+
+  async function startMicrophoneRecording() {
+    try {
+      const stream =
+        await navigator.mediaDevices.getUserMedia(
+          {
+            audio: true,
+          }
+        );
+
+      let mimeType = "";
+
+      if (
+        MediaRecorder.isTypeSupported(
+          "audio/mp4"
+        )
+      ) {
+        mimeType = "audio/mp4";
+      } else if (
+        MediaRecorder.isTypeSupported(
+          "audio/webm"
+        )
+      ) {
+        mimeType = "audio/webm";
+      }
+
+      recordedChunksRef.current =
+        [];
+
+      const recorder =
+        new MediaRecorder(stream, {
+          mimeType:
+            mimeType || undefined,
+        });
+
+      recorder.ondataavailable = (
+        event
+      ) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(
+            event.data
+          );
+        }
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, {
-          type: "audio/webm",
-        });
+        const blob = new Blob(
+          recordedChunksRef.current,
+          {
+            type:
+              mimeType ||
+              "audio/mp4",
+          }
+        );
 
-        setAudioUrl(URL.createObjectURL(blob));
-        setMicrophoneStatus("pass");
+        setAudioUrl(
+          URL.createObjectURL(blob)
+        );
+
+        setMicrophoneStatus(
+          "pass"
+        );
       };
 
+      mediaRecorderRef.current =
+        recorder;
+
       recorder.start();
-      mediaRecorderRef.current = recorder;
-      setMicrophoneStatus("pending");
+
+      setMicrophoneStatus(
+        "pending"
+      );
     } catch {
       setMicrophoneStatus("fail");
     }
@@ -339,50 +644,131 @@ export default function WebDiagnosticsPage({
 
   function stopMicrophoneRecording() {
     mediaRecorderRef.current?.stop();
-    mediaRecorderRef.current = null;
+
+    mediaRecorderRef.current =
+      null;
   }
 
-  function playSpeakerTone() {
-    const audioContext = new AudioContext();
-    const oscillator = audioContext.createOscillator();
-    const gain = audioContext.createGain();
+  function playSpeakerTone(
+    frequency: number
+  ) {
+    try {
+      const audioContext =
+        new AudioContext();
 
-    oscillator.frequency.value = 880;
-    gain.gain.value = 0.25;
+      const oscillator =
+        audioContext.createOscillator();
 
-    oscillator.connect(gain);
-    gain.connect(audioContext.destination);
+      const gain =
+        audioContext.createGain();
 
-    oscillator.start();
+      oscillator.frequency.value =
+        frequency;
 
-    setTimeout(() => {
-      oscillator.stop();
-      audioContext.close();
-    }, 1000);
-  }
+      oscillator.type = "sine";
 
-  function startMotionTest() {
-    if (typeof DeviceMotionEvent === "undefined") {
-      setMotionStatus("fail");
-      return;
+      gain.gain.value = 0.2;
+
+      oscillator.connect(gain);
+
+      gain.connect(
+        audioContext.destination
+      );
+
+      oscillator.start();
+
+      setTimeout(() => {
+        oscillator.stop();
+
+        audioContext.close();
+      }, 1200);
+    } catch {
+      setSpeakerStatus("fail");
     }
+  }
 
-    setMotionStatus("pending");
+  async function startMotionTest() {
+    try {
+      if (
+        typeof DeviceMotionEvent !==
+          "undefined" &&
+        typeof (
+          DeviceMotionEvent as unknown as {
+            requestPermission?: () => Promise<string>;
+          }
+        ).requestPermission ===
+          "function"
+      ) {
+        const permission =
+          await (
+            DeviceMotionEvent as unknown as {
+              requestPermission: () => Promise<string>;
+            }
+          ).requestPermission();
 
-    window.addEventListener("devicemotion", (event) => {
-      const x =
-        Math.round((event.accelerationIncludingGravity?.x || 0) * 100) / 100;
-      const y =
-        Math.round((event.accelerationIncludingGravity?.y || 0) * 100) / 100;
-      const z =
-        Math.round((event.accelerationIncludingGravity?.z || 0) * 100) / 100;
+        if (
+          permission !== "granted"
+        ) {
+          setMotionPermissionState(
+            "denied"
+          );
 
-      setMotionData({ x, y, z });
+          setMotionStatus("fail");
 
-      if (Math.abs(x) > 0.5 || Math.abs(y) > 0.5 || Math.abs(z) > 0.5) {
-        setMotionStatus("pass");
+          return;
+        }
+
+        setMotionPermissionState(
+          "granted"
+        );
       }
-    });
+
+      setMotionStatus("pending");
+
+      window.addEventListener(
+        "devicemotion",
+        (event) => {
+          const x =
+            Math.round(
+              (event
+                .accelerationIncludingGravity
+                ?.x || 0) * 100
+            ) / 100;
+
+          const y =
+            Math.round(
+              (event
+                .accelerationIncludingGravity
+                ?.y || 0) * 100
+            ) / 100;
+
+          const z =
+            Math.round(
+              (event
+                .accelerationIncludingGravity
+                ?.z || 0) * 100
+            ) / 100;
+
+          setMotionData({
+            x,
+            y,
+            z,
+          });
+
+          if (
+            Math.abs(x) > 0.5 ||
+            Math.abs(y) > 0.5 ||
+            Math.abs(z) > 0.5
+          ) {
+            setMotionStatus(
+              "pass"
+            );
+          }
+        }
+      );
+    } catch {
+      setMotionStatus("fail");
+    }
   }
 
   if (step === 1) {
@@ -394,22 +780,35 @@ export default function WebDiagnosticsPage({
         />
 
         <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/70 px-3 py-2 text-sm text-white">
-          Touchscreen: {touchProgress}% — {statusLabel(touchStatus)}
+          Touchscreen:{" "}
+          {touchProgress}% —{" "}
+          {statusLabel(
+            touchStatus
+          )}
         </div>
 
-        {touchStatus === "pass" ? (
+        {touchStatus ===
+        "pass" ? (
           <div className="pointer-events-none absolute inset-x-3 bottom-20 rounded bg-green-600 px-4 py-3 text-center font-semibold text-white">
-            PASS — volledig scherm ingekleurd
+            PASS —
+            volledig scherm
+            ingekleurd
           </div>
         ) : (
           <div className="pointer-events-none absolute inset-x-3 bottom-20 rounded bg-black/70 px-4 py-3 text-center text-sm text-white">
-            Sleep met je vinger over het volledige scherm tot alles groen is.
+            Sleep met je
+            vinger over het
+            volledige scherm
+            tot alles groen
+            is.
           </div>
         )}
 
         <button
           type="button"
-          onClick={resetTouchTest}
+          onClick={
+            resetTouchTest
+          }
           className="absolute right-3 top-3 rounded bg-white px-3 py-2 text-sm font-medium shadow"
         >
           Reset
@@ -441,12 +840,19 @@ export default function WebDiagnosticsPage({
       <header className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs text-gray-500">Sessie {sessionId}</div>
-            <h1 className="text-lg font-bold">{steps[step]}</h1>
+            <div className="text-xs text-gray-500">
+              Sessie{" "}
+              {sessionId}
+            </div>
+
+            <h1 className="text-lg font-bold">
+              {steps[step]}
+            </h1>
           </div>
 
           <div className="text-sm text-gray-500">
-            {step + 1}/{steps.length}
+            {step + 1}/
+            {steps.length}
           </div>
         </div>
 
@@ -454,7 +860,11 @@ export default function WebDiagnosticsPage({
           <div
             className="h-full bg-black"
             style={{
-              width: `${((step + 1) / steps.length) * 100}%`,
+              width: `${
+                ((step + 1) /
+                  steps.length) *
+                100
+              }%`,
             }}
           />
         </div>
@@ -464,66 +874,118 @@ export default function WebDiagnosticsPage({
         {step === 0 ? (
           <section className="flex min-h-full flex-col justify-center">
             <h2 className="mb-4 text-2xl font-bold">
-              Start web diagnostics
+              Start web
+              diagnostics
             </h2>
 
             <p className="text-gray-600">
-              Deze test draait op de iPhone zelf via Safari. Er wordt voorlopig
-              niets opgeslagen. We gebruiken deze flow eerst om de tests te
-              valideren.
+              Deze test draait
+              op de iPhone
+              zelf via Safari.
+              Er wordt
+              voorlopig niets
+              opgeslagen.
             </p>
-
-            <div className="mt-6 rounded border bg-gray-50 p-4 text-sm">
-              Zorg dat het toestel ontgrendeld is, volume aan staat en camera-
-              en microfoontoegang toegestaan worden.
-            </div>
           </section>
         ) : null}
 
         {step === 2 ? (
           <section>
-            <h2 className="mb-2 text-xl font-bold">Camera</h2>
+            <h2 className="mb-2 text-xl font-bold">
+              Camera
+            </h2>
 
-            <p className="mb-4 text-sm text-gray-600">
-              Start de camera. Als de preview opent, krijgt de test automatisch
-              PASS. Beeldkwaliteit/focus blijft voorlopig visueel te
-              controleren.
-            </p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={
+                  startCamera
+                }
+                className="rounded bg-black px-4 py-2 text-white"
+              >
+                Start camera
+              </button>
 
-            <button
-              type="button"
-              onClick={startCamera}
-              className="rounded bg-black px-4 py-2 text-white"
-            >
-              Start camera preview
-            </button>
+              <button
+                type="button"
+                onClick={
+                  switchCamera
+                }
+                className="rounded border px-4 py-2"
+              >
+                Wissel camera
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  toggleTorch
+                }
+                className="rounded border px-4 py-2"
+              >
+                Flash
+              </button>
+
+              <button
+                type="button"
+                onClick={takePhoto}
+                className="rounded border px-4 py-2"
+              >
+                Neem foto
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="mb-1 block text-sm">
+                Zoom
+              </label>
+
+              <input
+                type="range"
+                min="1"
+                max="5"
+                step="0.1"
+                value={zoomLevel}
+                onChange={(e) =>
+                  applyZoom(
+                    Number(
+                      e.target.value
+                    )
+                  )
+                }
+                className="w-full"
+              />
+            </div>
 
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="mt-4 w-full rounded border bg-black"
+              className="w-full rounded border bg-black"
             />
 
             <div className="mt-3 text-sm">
-              Status: {statusLabel(cameraStatus)}
+              Status:{" "}
+              {statusLabel(
+                cameraStatus
+              )}
             </div>
           </section>
         ) : null}
 
         {step === 3 ? (
           <section>
-            <h2 className="mb-2 text-xl font-bold">Microfoon</h2>
+            <h2 className="mb-2 text-xl font-bold">
+              Microfoon
+            </h2>
 
-            <p className="mb-4 text-sm text-gray-600">
-              Neem enkele seconden stemgeluid op en speel daarna terug af.
-            </p>
-
-            <div className="flex flex-wrap gap-2">
+            <div className="mb-4 flex gap-2">
               <button
                 type="button"
-                onClick={startMicrophoneRecording}
+                onClick={
+                  startMicrophoneRecording
+                }
                 className="rounded bg-black px-4 py-2 text-white"
               >
                 Start opname
@@ -531,7 +993,9 @@ export default function WebDiagnosticsPage({
 
               <button
                 type="button"
-                onClick={stopMicrophoneRecording}
+                onClick={
+                  stopMicrophoneRecording
+                }
                 className="rounded border px-4 py-2"
               >
                 Stop opname
@@ -539,117 +1003,187 @@ export default function WebDiagnosticsPage({
             </div>
 
             {audioUrl ? (
-              <audio controls src={audioUrl} className="mt-4 w-full" />
+              <audio
+                controls
+                src={audioUrl}
+                className="w-full"
+              />
             ) : null}
 
             <div className="mt-3 text-sm">
-              Status: {statusLabel(microphoneStatus)}
+              Status:{" "}
+              {statusLabel(
+                microphoneStatus
+              )}
             </div>
           </section>
         ) : null}
 
         {step === 4 ? (
           <section>
-            <h2 className="mb-2 text-xl font-bold">Speaker</h2>
+            <h2 className="mb-2 text-xl font-bold">
+              Speaker
+            </h2>
 
-            <p className="mb-4 text-sm text-gray-600">
-              Speel een testtoon af en bevestig manueel of het geluid helder is.
-            </p>
-
-            <button
-              type="button"
-              onClick={playSpeakerTone}
-              className="rounded bg-black px-4 py-2 text-white"
-            >
-              Speel testtoon
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              {[250, 500, 1000, 2000, 4000].map(
+                (frequency) => (
+                  <button
+                    key={
+                      frequency
+                    }
+                    type="button"
+                    onClick={() =>
+                      playSpeakerTone(
+                        frequency
+                      )
+                    }
+                    className="rounded border px-4 py-3"
+                  >
+                    {frequency} Hz
+                  </button>
+                )
+              )}
+            </div>
 
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
-                onClick={() => setSpeakerStatus("pass")}
+                onClick={() =>
+                  setSpeakerStatus(
+                    "pass"
+                  )
+                }
                 className="rounded border px-4 py-2"
               >
-                PASS
+                Helder
               </button>
 
               <button
                 type="button"
-                onClick={() => setSpeakerStatus("warning")}
+                onClick={() =>
+                  setSpeakerStatus(
+                    "warning"
+                  )
+                }
                 className="rounded border px-4 py-2"
               >
-                WARNING
+                Vervormd
               </button>
 
               <button
                 type="button"
-                onClick={() => setSpeakerStatus("fail")}
+                onClick={() =>
+                  setSpeakerStatus(
+                    "fail"
+                  )
+                }
                 className="rounded border px-4 py-2"
               >
-                FAIL
+                Geen geluid
               </button>
             </div>
 
             <div className="mt-3 text-sm">
-              Status: {statusLabel(speakerStatus)}
+              Status:{" "}
+              {statusLabel(
+                speakerStatus
+              )}
             </div>
           </section>
         ) : null}
 
         {step === 5 ? (
           <section>
-            <h2 className="mb-2 text-xl font-bold">Motion / gyro</h2>
-
-            <p className="mb-4 text-sm text-gray-600">
-              Start de test en beweeg de iPhone. De waarden moeten veranderen.
-            </p>
+            <h2 className="mb-2 text-xl font-bold">
+              Motion / gyro
+            </h2>
 
             <button
               type="button"
-              onClick={startMotionTest}
+              onClick={
+                startMotionTest
+              }
               className="rounded bg-black px-4 py-2 text-white"
             >
-              Start motion test
+              Start motion
+              test
             </button>
 
             <div className="mt-4 space-y-1 text-sm">
-              <div>Status: {statusLabel(motionStatus)}</div>
-              <div>X: {motionData.x}</div>
-              <div>Y: {motionData.y}</div>
-              <div>Z: {motionData.z}</div>
+              <div>
+                Status:{" "}
+                {statusLabel(
+                  motionStatus
+                )}
+              </div>
+
+              <div>
+                Permission:{" "}
+                {
+                  motionPermissionState
+                }
+              </div>
+
+              <div>
+                X:{" "}
+                {motionData.x}
+              </div>
+
+              <div>
+                Y:{" "}
+                {motionData.y}
+              </div>
+
+              <div>
+                Z:{" "}
+                {motionData.z}
+              </div>
             </div>
           </section>
         ) : null}
 
         {step === 6 ? (
           <section>
-            <h2 className="mb-4 text-xl font-bold">Overzicht</h2>
+            <h2 className="mb-4 text-xl font-bold">
+              Overzicht
+            </h2>
 
             <div className="space-y-3 text-sm">
               <div className="rounded border p-3">
-                Touchscreen: {statusLabel(touchStatus)}
+                Touchscreen:{" "}
+                {statusLabel(
+                  touchStatus
+                )}
               </div>
 
               <div className="rounded border p-3">
-                Camera: {statusLabel(cameraStatus)}
+                Camera:{" "}
+                {statusLabel(
+                  cameraStatus
+                )}
               </div>
 
               <div className="rounded border p-3">
-                Microfoon: {statusLabel(microphoneStatus)}
+                Microfoon:{" "}
+                {statusLabel(
+                  microphoneStatus
+                )}
               </div>
 
               <div className="rounded border p-3">
-                Speaker: {statusLabel(speakerStatus)}
+                Speaker:{" "}
+                {statusLabel(
+                  speakerStatus
+                )}
               </div>
 
               <div className="rounded border p-3">
-                Motion: {statusLabel(motionStatus)}
+                Motion:{" "}
+                {statusLabel(
+                  motionStatus
+                )}
               </div>
-            </div>
-
-            <div className="mt-6 rounded border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
-              Resultaten worden nog niet opgeslagen. Eerst valideren we de
-              volledige testervaring op iPhone Safari.
             </div>
           </section>
         ) : null}
@@ -668,7 +1202,10 @@ export default function WebDiagnosticsPage({
         <button
           type="button"
           onClick={goNext}
-          disabled={step === steps.length - 1}
+          disabled={
+            step ===
+            steps.length - 1
+          }
           className="rounded bg-black px-4 py-2 text-white disabled:opacity-40"
         >
           Volgende
