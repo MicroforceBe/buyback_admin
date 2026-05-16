@@ -655,6 +655,13 @@ export default async function DiagnosticSessionPage({
           >
             Certificaat bekijken
           </a>
+          <a
+            href={`/admin/diagnostics/${session.id}/web-tests`}
+            className="inline-block rounded border px-4 py-2"
+          >
+            Web diagnostics
+          </a>
+
         </div>
       </div>
     </div>
