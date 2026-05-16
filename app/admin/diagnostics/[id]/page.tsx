@@ -1,6 +1,7 @@
 // app/admin/diagnostics/[id]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import WebDiagnosticsQr from "./WebDiagnosticsQr";
 
 import {
   finalizeDiagnosticSessionAction,
@@ -92,6 +93,8 @@ export default async function DiagnosticSessionPage({
   }
 
   const device = session.deviceUnit;
+  const webDiagnosticsUrl =
+    `${process.env.NEXT_PUBLIC_APP_URL}/admin/diagnostics/${session.id}/web-tests`;
 
   const securityWarnings =
     asStringArray(
@@ -488,6 +491,10 @@ export default async function DiagnosticSessionPage({
           ) : null}
         </div>
       </div>
+
+      <WebDiagnosticsQr
+        url={webDiagnosticsUrl}
+      />
 
       <div className="mt-6 rounded border p-4">
         <h2 className="mb-4 font-semibold">
