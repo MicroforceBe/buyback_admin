@@ -1,5 +1,3 @@
-// app/admin/diagnostics/[id]/web-tests/components/ConnectivityTest_tsx
-
 "use client";
 
 import { useState } from "react";
