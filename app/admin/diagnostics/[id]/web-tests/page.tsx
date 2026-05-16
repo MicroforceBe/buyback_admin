@@ -90,6 +90,9 @@ export default function WebDiagnosticsPage({
     );
 
     function resizeCanvas() {
+      if (!canvas){
+        return;
+      }
       const width = window.innerWidth;
       const height = window.innerHeight - 132;
 
