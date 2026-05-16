@@ -43,6 +43,6 @@
     "autoprefixer": "10.4.20",
     "@types/pdfkit": "^0.13.6",
     "prisma": "^6.12.2",
-    "qrcode": "^1.5.4"
+    "@types/qrcode": "^1.5.5"
   }
 }
