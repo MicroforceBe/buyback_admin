@@ -27,81 +27,67 @@ export default function GpsLocationTest({
   const [message, setMessage] =
     useState("");
 
-  function startGpsTest() {
-    if (!navigator.geolocation) {
+ function startGpsTest() {
+  if (!("geolocation" in navigator)) {
+    setStatus("fail");
+    setMessage("Geolocation API niet ondersteund.");
+    return;
+  }
+
+  setStatus("pending");
+  setMessage("Locatietoegang wordt gevraagd...");
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const lat = Math.round(position.coords.latitude * 1000000) / 1000000;
+      const lng = Math.round(position.coords.longitude * 1000000) / 1000000;
+      const acc = Math.round(position.coords.accuracy);
+
+      setLatitude(lat);
+      setLongitude(lng);
+      setAccuracy(acc);
+
+      if (acc <= 30) {
+        setStatus("pass");
+        setMessage("GPS nauwkeurigheid goed.");
+      } else if (acc <= 100) {
+        setStatus("warning");
+        setMessage("GPS werkt, maar nauwkeurigheid is beperkt.");
+      } else {
+        setStatus("fail");
+        setMessage("GPS nauwkeurigheid slecht.");
+      }
+    },
+    (error) => {
       setStatus("fail");
 
-      setMessage(
-        "Geolocation API niet ondersteund."
-      );
-
-      return;
-    }
-
-    setMessage(
-      "Locatie wordt opgevraagd..."
-    );
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat =
-          Math.round(
-            position.coords.latitude *
-              1000000
-          ) / 1000000;
-
-        const lng =
-          Math.round(
-            position.coords.longitude *
-              1000000
-          ) / 1000000;
-
-        const acc =
-          Math.round(
-            position.coords.accuracy
-          );
-
-        setLatitude(lat);
-
-        setLongitude(lng);
-
-        setAccuracy(acc);
-
-        if (acc <= 30) {
-          setStatus("pass");
-
-          setMessage(
-            "GPS nauwkeurigheid goed."
-          );
-        } else if (acc <= 100) {
-          setStatus("warning");
-
-          setMessage(
-            "GPS werkt maar nauwkeurigheid is beperkt."
-          );
-        } else {
-          setStatus("fail");
-
-          setMessage(
-            "GPS nauwkeurigheid slecht."
-          );
-        }
-      },
-      (error) => {
-        setStatus("fail");
-
+      if (error.code === error.PERMISSION_DENIED) {
         setMessage(
-          error.message ||
-            "GPS test mislukt."
+          "Locatietoegang geweigerd. Controleer Safari instellingen: Instellingen > Privacy en beveiliging > Locatievoorzieningen > Safari."
         );
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
+        return;
       }
-    );
-  }
+
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        setMessage("Locatie niet beschikbaar. Zet locatievoorzieningen aan.");
+        return;
+      }
+
+      if (error.code === error.TIMEOUT) {
+        setMessage("GPS timeout. Probeer buiten of dichter bij een raam.");
+        return;
+      }
+
+      setMessage(error.message || "GPS test mislukt.");
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 0,
+    }
+  );
+}
+
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white">
