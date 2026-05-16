@@ -38,16 +38,15 @@ export default function WebDiagnosticsPage() {
       canvas.height
     );
 
-    function handleTouch(event: TouchEvent) {
-      event.preventDefault();
-    
-      if (!canvas) {
-        return;
-      }
-    
-      const rect =
-        canvas.getBoundingClientRect();
-
+      function handleTouch(event: TouchEvent) {
+        event.preventDefault();
+      
+        if (!canvas || !ctx) {
+          return;
+        }
+      
+        const rect = canvas.getBoundingClientRect();
+      
 
       for (const touch of Array.from(
         event.touches
