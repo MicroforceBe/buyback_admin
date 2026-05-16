@@ -44,24 +44,27 @@ export default async function DiagnosticSessionPage({
       where: {
         id: params.id,
       },
-
-      include: {
-        deviceUnit: {
-          include: {
-            sessions: {
-              orderBy: {
-                createdAt: "desc",
+        include: {
+          deviceUnit: {
+            include: {
+              sessions: {
+                orderBy: {
+                  createdAt: "desc",
+                },
               },
             },
           },
-        },
-
-        tests: {
-          orderBy: {
-            createdAt: "desc",
+          tests: {
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+          appTests: {
+            orderBy: {
+              createdAt: "desc",
+            },
           },
         },
-      },
     });
 
   if (!session) {
@@ -515,6 +518,46 @@ export default async function DiagnosticSessionPage({
         </div>
       </div>
 
+      <div className="mt-6 rounded border p-4">
+        <h2 className="mb-4 font-semibold">
+          On-device app tests
+        </h2>
+      
+        {session.appTests.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            Nog geen testresultaten ontvangen van de iPhone app.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {session.appTests.map((test) => (
+              <div
+                key={test.id}
+                className="rounded border p-3 text-sm"
+              >
+                <div className="font-medium">
+                  {test.testKey}
+                </div>
+      
+                <div className="text-gray-600">
+                  Status: {test.status}
+                </div>
+      
+                <div className="text-gray-600">
+                  Tijdstip: {test.createdAt.toLocaleString("nl-BE")}
+                </div>
+      
+                {test.notes ? (
+                  <div className="text-gray-600">
+                    Notes: {test.notes}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      
       <div className="mt-6 rounded border p-4">
         <h2 className="font-semibold mb-4">
           Tests
