@@ -18,8 +18,19 @@ export default function BarcodeScanTest({
   const streamRef =
     useRef<MediaStream | null>(null);
 
+  type BarcodeDetectorLike = {
+    detect: (
+      source: HTMLVideoElement
+    ) => Promise<
+      {
+        rawValue?: string;
+      }[]
+    >;
+  };
+  
   const detectorRef =
-    useRef<BarcodeDetector | null>(null);
+    useRef<BarcodeDetectorLike | null>(null);
+
 
   const [status, setStatus] =
     useState<Status>("pending");
@@ -54,15 +65,33 @@ export default function BarcodeScanTest({
 
       setSupported(true);
 
-      detectorRef.current =
-        new BarcodeDetector({
-          formats: [
-            "qr_code",
-            "ean_13",
-            "ean_8",
-            "code_128",
-          ],
-        });
+  const BarcodeDetectorConstructor = (
+    window as Window & {
+      BarcodeDetector?: new (options: {
+        formats: string[];
+      }) => BarcodeDetectorLike;
+    }
+  ).BarcodeDetector;
+  
+  if (!BarcodeDetectorConstructor) {
+    setSupported(false);
+    setStatus("warning");
+    setMessage(
+      "BarcodeDetector API niet ondersteund in deze browser."
+    );
+    return;
+  }
+  
+  detectorRef.current =
+    new BarcodeDetectorConstructor({
+      formats: [
+        "qr_code",
+        "ean_13",
+        "ean_8",
+        "code_128",
+      ],
+    });
+
 
       const stream =
         await navigator.mediaDevices.getUserMedia(
