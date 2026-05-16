@@ -8,6 +8,7 @@ type NavPermissions = {
   dashboard?: boolean;
   leads?: boolean;
   refurb?: boolean;
+  diagnostics?: boolean;
   erp?: boolean;
   catalog?: boolean;
   multipliers?: boolean;
@@ -20,12 +21,20 @@ type Item = {
   label: string;
   emoji?: string;
   permKey?: keyof NavPermissions;
+  adminOnly?: boolean;
 };
 
 const items: Item[] = [
   { href: "/admin", label: "Dashboard", emoji: "🏠", permKey: "dashboard" },
   { href: "/admin/leads", label: "Leads", emoji: "📋", permKey: "leads" },
   { href: "/admin/refurb", label: "Refurb", emoji: "🔧", permKey: "refurb" },
+  {
+    href: "/admin/diagnostics",
+    label: "Diagnostics",
+    emoji: "🧪",
+    permKey: "diagnostics",
+    adminOnly: true,
+  },
   { href: "/admin/erp", label: "ERP", emoji: "🏷️", permKey: "erp" },
   { href: "/admin/catalog", label: "Catalogus", emoji: "📦", permKey: "catalog" },
   { href: "/admin/multipliers", label: "Multipliers", emoji: "⚙️", permKey: "multipliers" },
@@ -45,6 +54,10 @@ export default function Nav({
   const links = useMemo(() => {
     return items
       .filter((it) => {
+        if (it.adminOnly && role !== "admin") {
+          return false;
+        }
+
         if (it.permKey && permissions && permissions[it.permKey] === false) {
           return false;
         }
