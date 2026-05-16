@@ -71,6 +71,7 @@ model DiagnosticSession {
 
   deviceUnit    DeviceUnit @relation(fields: [deviceUnitId], references: [id])
   tests         DiagnosticTestResult[]
+  appTests DiagnosticAppTestResult[]
 }
 
 model DiagnosticTestResult {
@@ -83,4 +84,16 @@ model DiagnosticTestResult {
   createdAt   DateTime @default(now())
 
   session     DiagnosticSession @relation(fields: [sessionId], references: [id])
+}
+
+model DiagnosticAppTestResult {
+  id        String   @id @default(cuid())
+  sessionId String
+  testKey   String
+  status    String
+  value     Json?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  session   DiagnosticSession @relation(fields: [sessionId], references: [id])
 }
