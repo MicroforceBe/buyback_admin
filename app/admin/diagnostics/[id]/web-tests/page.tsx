@@ -90,7 +90,7 @@ export default function WebDiagnosticsPage({
     );
 
     function resizeCanvas() {
-      if (!canvas){
+      if (!canvas || !ctx){
         return;
       }
       const width = window.innerWidth;
