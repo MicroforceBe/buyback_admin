@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -6,17 +7,22 @@ function getStatusColor(status: string) {
   switch (status) {
     case "completed":
       return "bg-green-100 text-green-700";
-
     case "running":
     case "started":
       return "bg-blue-100 text-blue-700";
-
     case "failed":
       return "bg-red-100 text-red-700";
-
     default:
       return "bg-neutral-100 text-neutral-700";
   }
+}
+
+function formatBelgianTime(value: string | null) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleString("nl-BE", {
+    timeZone: "Europe/Brussels",
+  });
 }
 
 export default async function DiagnosticsSessionsPage() {
@@ -33,9 +39,7 @@ export default async function DiagnosticsSessionsPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">
-          Diagnostics Sessions
-        </h1>
+        <h1 className="text-3xl font-bold">Diagnostics Sessions</h1>
 
         <p className="mt-2 text-sm text-neutral-500">
           Live diagnostics activity
@@ -49,23 +53,18 @@ export default async function DiagnosticsSessionsPage() {
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 Status
               </th>
-
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 Model
               </th>
-
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 IMEI
               </th>
-
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 Station
               </th>
-
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 Winkel
               </th>
-
               <th className="px-4 py-3 text-left text-sm font-semibold">
                 Gestart
               </th>
@@ -74,23 +73,35 @@ export default async function DiagnosticsSessionsPage() {
 
           <tbody className="divide-y divide-neutral-100">
             {sessions.map((session) => (
-              <tr key={session.id}>
+              <tr key={session.id} className="hover:bg-neutral-50">
                 <td className="px-4 py-3">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusColor(
-                      session.status
-                    )}`}
+                  <Link href={`/admin/diagnostics/sessions/${session.id}`}>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusColor(
+                        session.status
+                      )}`}
+                    >
+                      {session.status}
+                    </span>
+                  </Link>
+                </td>
+
+                <td className="px-4 py-3 text-sm">
+                  <Link
+                    href={`/admin/diagnostics/sessions/${session.id}`}
+                    className="hover:underline"
                   >
-                    {session.status}
-                  </span>
+                    {session.model || "-"}
+                  </Link>
                 </td>
 
                 <td className="px-4 py-3 text-sm">
-                  {session.model || "-"}
-                </td>
-
-                <td className="px-4 py-3 text-sm">
-                  {session.imei || "-"}
+                  <Link
+                    href={`/admin/diagnostics/sessions/${session.id}`}
+                    className="hover:underline"
+                  >
+                    {session.imei || "-"}
+                  </Link>
                 </td>
 
                 <td className="px-4 py-3 text-sm">
@@ -102,11 +113,7 @@ export default async function DiagnosticsSessionsPage() {
                 </td>
 
                 <td className="px-4 py-3 text-sm">
-                  {session.started_at
-                    ? new Date(
-                        session.started_at
-                      ).toLocaleString("nl-BE")
-                    : "-"}
+                  {formatBelgianTime(session.started_at)}
                 </td>
               </tr>
             ))}
