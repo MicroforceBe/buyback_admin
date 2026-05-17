@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server"; 
+// app/api/diagnostics/sessions/update/route.ts
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -7,13 +8,15 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const sessionId = String(body.sessionId || "").trim();
+    const sessionId =
+      body.sessionId;
 
     if (!sessionId) {
       return NextResponse.json(
         {
           ok: false,
-          error: "sessionId is verplicht",
+          error:
+            "sessionId ontbreekt",
         },
         {
           status: 400,
@@ -21,37 +24,61 @@ export async function POST(req: Request) {
       );
     }
 
-    const updatePayload: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
+    const { data: existingSession, error: fetchError } =
+      await supabaseAdmin
+        .from("diagnostics_sessions")
+        .select("*")
+        .eq(
+          "session_id",
+          sessionId
+        )
+        .single();
+
+    if (fetchError || !existingSession) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "sessie niet gevonden",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    const existingResult =
+      typeof existingSession.result ===
+        "object" &&
+      existingSession.result !== null
+        ? existingSession.result
+        : {};
+
+    const mergedResult = {
+      ...existingResult,
+      ...(body.result || {}),
+      ...(body.resultPatch || {}),
     };
 
-    if (body.status) {
-      updatePayload.status = body.status;
-    }
+    const { data, error } =
+      await supabaseAdmin
+        .from("diagnostics_sessions")
+        .update({
+          status:
+            body.status ||
+            existingSession.status,
 
-    if (body.result) {
-      updatePayload.result = body.result;
-    }
+          result: mergedResult,
 
-    if (body.imei) {
-      updatePayload.imei = body.imei;
-    }
-
-    if (body.serialNumber) {
-      updatePayload.serial_number =
-        body.serialNumber;
-    }
-
-    if (body.model) {
-      updatePayload.model = body.model;
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("diagnostics_sessions")
-      .update(updatePayload)
-      .eq("session_id", sessionId)
-      .select("*")
-      .single();
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "session_id",
+          sessionId
+        )
+        .select("*")
+        .single();
 
     if (error) {
       console.error(error);
@@ -77,7 +104,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Server error",
+        error: "server error",
       },
       {
         status: 500,
