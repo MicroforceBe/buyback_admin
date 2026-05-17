@@ -44,6 +44,11 @@ export default function LiveDiagnosticsPage() {
   const [imei, setImei] = useState("");
   const [model, setModel] = useState("");
 
+  const [
+    prismaSessionId,
+    setPrismaSessionId,
+  ] = useState("");
+
   const [sessionId, setSessionId] =
     useState("");
 
@@ -111,6 +116,8 @@ export default function LiveDiagnosticsPage() {
           body: JSON.stringify({
             imei,
             model,
+            prismaSessionId:
+              prismaSessionId || null,
           }),
         }
       );
@@ -243,13 +250,12 @@ export default function LiveDiagnosticsPage() {
           result?.error ||
             "Opslaan mislukt"
         );
-      
+
         return;
       }
-      
+
       window.location.href =
         `/admin/diagnostics/sessions/${cloudSessionId}`;
-
     } catch (error) {
       console.error(error);
 
@@ -280,6 +286,23 @@ export default function LiveDiagnosticsPage() {
           </h2>
 
           <div className="grid gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                Prisma sessie ID
+              </label>
+
+              <input
+                value={prismaSessionId}
+                onChange={(e) =>
+                  setPrismaSessionId(
+                    e.target.value
+                  )
+                }
+                className="w-full rounded-xl border px-3 py-2"
+                placeholder="clx..."
+              />
+            </div>
+
             <div>
               <label className="mb-1 block text-sm font-medium">
                 IMEI
