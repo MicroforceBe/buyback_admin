@@ -44,9 +44,14 @@ export default function LiveDiagnosticsPage() {
   const [imei, setImei] = useState("");
   const [model, setModel] = useState("");
 
-  const [sessionId, setSessionId] = useState("");
+  const [sessionId, setSessionId] =
+    useState("");
 
-  const [loading, setLoading] = useState(false);
+  const [cloudSessionId, setCloudSessionId] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
 
   const [tests, setTests] = useState<
     Record<string, TestState>
@@ -123,6 +128,10 @@ export default function LiveDiagnosticsPage() {
 
       setSessionId(
         result.session.session_id
+      );
+
+      setCloudSessionId(
+        result.session.id
       );
 
       alert(
@@ -308,6 +317,15 @@ export default function LiveDiagnosticsPage() {
             >
               Start diagnostics
             </button>
+
+            {cloudSessionId && (
+              <a
+                href={`/admin/diagnostics/sessions/${cloudSessionId}`}
+                className="rounded-xl border px-4 py-3 text-center"
+              >
+                Open cloud rapport
+              </a>
+            )}
 
             {sessionId && (
               <div className="rounded-xl bg-neutral-100 p-3 text-sm">
