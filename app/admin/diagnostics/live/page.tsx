@@ -121,14 +121,40 @@ export default function LiveDiagnosticsPage() {
     }
   }
 
-  function setTestResult(
+  async function setTestResult(
     key: string,
     value: TestState
   ) {
-    setTests((prev) => ({
-      ...prev,
+    const updatedTests = {
+      ...tests,
       [key]: value,
-    }));
+    };
+
+    setTests(updatedTests);
+
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      await fetch(
+        "http://localhost:3010/diagnostics/session/update",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+            status: "running",
+            result: updatedTests,
+          }),
+        }
+      );
+    } catch (error) {
+      console.error(error);
+    }
   }
 
   async function completeSession() {
@@ -255,8 +281,7 @@ export default function LiveDiagnosticsPage() {
 
             <div className="rounded-xl border p-4">
               <div className="text-sm">
-                Voltooid:
-                {" "}
+                Voltooid:{" "}
                 <strong>
                   {completedCount}/
                   {TESTS.length}
@@ -264,8 +289,7 @@ export default function LiveDiagnosticsPage() {
               </div>
 
               <div className="mt-1 text-sm">
-                Geslaagd:
-                {" "}
+                Geslaagd:{" "}
                 <strong>
                   {passCount}
                 </strong>
