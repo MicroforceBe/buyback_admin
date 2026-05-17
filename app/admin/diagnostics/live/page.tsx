@@ -243,13 +243,13 @@ export default function LiveDiagnosticsPage() {
           result?.error ||
             "Opslaan mislukt"
         );
-
+      
         return;
       }
+      
+      window.location.href =
+        `/admin/diagnostics/sessions/${cloudSessionId}`;
 
-      alert(
-        "Diagnostics opgeslagen"
-      );
     } catch (error) {
       console.error(error);
 
