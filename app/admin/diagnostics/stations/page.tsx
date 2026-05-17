@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import StationsClient from "./StationsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -7,9 +8,7 @@ function isOnline(lastSeenAt: string | null) {
     return false;
   }
 
-  const diff =
-    Date.now() -
-    new Date(lastSeenAt).getTime();
+  const diff = Date.now() - new Date(lastSeenAt).getTime();
 
   return diff < 1000 * 60 * 2;
 }
@@ -26,21 +25,19 @@ export default async function StationsPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">
-          Diagnostics Stations
-        </h1>
+      <StationsClient />
 
-        <p className="text-sm text-neutral-500 mt-2">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold">Diagnostics Stations</h1>
+
+        <p className="mt-2 text-sm text-neutral-500">
           Live bridge stations
         </p>
       </div>
 
       <div className="grid gap-4">
         {stations.map((station) => {
-          const online = isOnline(
-            station.last_seen_at
-          );
+          const online = isOnline(station.last_seen_at);
 
           return (
             <div
@@ -65,55 +62,35 @@ export default async function StationsPage() {
                       : "bg-red-100 text-red-700"
                   }`}
                 >
-                  {online
-                    ? "Online"
-                    : "Offline"}
+                  {online ? "Online" : "Offline"}
                 </div>
               </div>
 
               <div className="mt-4 grid gap-2 text-sm">
                 <div>
-                  <span className="font-medium">
-                    Hostname:
-                  </span>{" "}
-                  {station.hostname ||
-                    "-"}
+                  <span className="font-medium">Hostname:</span>{" "}
+                  {station.hostname || "-"}
                 </div>
 
                 <div>
-                  <span className="font-medium">
-                    IP:
-                  </span>{" "}
-                  {station.local_ip ||
-                    "-"}
+                  <span className="font-medium">IP:</span>{" "}
+                  {station.local_ip || "-"}
                 </div>
 
                 <div>
-                  <span className="font-medium">
-                    Platform:
-                  </span>{" "}
-                  {station.platform ||
-                    "-"}
+                  <span className="font-medium">Platform:</span>{" "}
+                  {station.platform || "-"}
                 </div>
 
                 <div>
-                  <span className="font-medium">
-                    Bridge:
-                  </span>{" "}
-                  {station.bridge_version ||
-                    "-"}
+                  <span className="font-medium">Bridge:</span>{" "}
+                  {station.bridge_version || "-"}
                 </div>
 
                 <div>
-                  <span className="font-medium">
-                    Laatste seen:
-                  </span>{" "}
+                  <span className="font-medium">Laatste seen:</span>{" "}
                   {station.last_seen_at
-                    ? new Date(
-                        station.last_seen_at
-                      ).toLocaleString(
-                        "nl-BE"
-                      )
+                    ? new Date(station.last_seen_at).toLocaleString("nl-BE")
                     : "-"}
                 </div>
               </div>
@@ -130,3 +107,4 @@ export default async function StationsPage() {
     </div>
   );
 }
+
