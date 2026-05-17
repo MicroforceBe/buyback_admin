@@ -203,6 +203,19 @@ export default async function DiagnosticsSessionDetailPage({
           </Link>
         </div>
       )}
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-xl font-semibold">
+          Ruwe JSON
+        </h2>
+      
+        <pre className="overflow-auto rounded-xl bg-neutral-950 p-4 text-sm text-green-200">
+          {JSON.stringify(
+            session.result || {},
+            null,
+            2
+          )}
+        </pre>
+      </div>
 
       </div>
     </div>
