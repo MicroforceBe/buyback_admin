@@ -73,6 +73,24 @@ export default function LiveDiagnosticsPage() {
     ).length;
   }, [tests]);
 
+  const overallStatus = useMemo(() => {
+    const values = Object.values(tests);
+
+    if (values.includes("failed")) {
+      return "failed";
+    }
+
+    if (
+      values.every(
+        (value) => value === "passed"
+      )
+    ) {
+      return "passed";
+    }
+
+    return "pending";
+  }, [tests]);
+
   async function startSession() {
     try {
       setLoading(true);
@@ -136,6 +154,21 @@ export default function LiveDiagnosticsPage() {
       return;
     }
 
+    let overall = "pending";
+
+    const values =
+      Object.values(updatedTests);
+
+    if (values.includes("failed")) {
+      overall = "failed";
+    } else if (
+      values.every(
+        (value) => value === "passed"
+      )
+    ) {
+      overall = "passed";
+    }
+
     try {
       await fetch(
         "http://localhost:3010/diagnostics/session/update",
@@ -148,7 +181,10 @@ export default function LiveDiagnosticsPage() {
           body: JSON.stringify({
             sessionId,
             status: "running",
-            result: updatedTests,
+            result: {
+              ...updatedTests,
+              overall,
+            },
           }),
         }
       );
@@ -179,8 +215,14 @@ export default function LiveDiagnosticsPage() {
           },
           body: JSON.stringify({
             sessionId,
-            status: "completed",
-            result: tests,
+            status:
+              overallStatus === "failed"
+                ? "failed"
+                : "completed",
+            result: {
+              ...tests,
+              overall: overallStatus,
+            },
           }),
         }
       );
@@ -293,6 +335,22 @@ export default function LiveDiagnosticsPage() {
                 <strong>
                   {passCount}
                 </strong>
+              </div>
+
+              <div className="mt-3">
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    overallStatus ===
+                    "passed"
+                      ? "bg-green-100 text-green-700"
+                      : overallStatus ===
+                        "failed"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-yellow-100 text-yellow-700"
+                  }`}
+                >
+                  Overall: {overallStatus}
+                </span>
               </div>
             </div>
           </div>
