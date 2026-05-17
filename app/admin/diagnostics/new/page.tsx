@@ -1,3 +1,4 @@
+// app/admin/diagnostics/new/page.tsx
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
