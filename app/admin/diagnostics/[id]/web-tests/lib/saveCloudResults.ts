@@ -1,30 +1,31 @@
+
 export async function saveCloudResult({
   cloudSessionToken,
   testKey,
   status,
 }: {
-  cloudSessionToken: string;
+  cloudSessionToken: string | null;
   testKey: string;
   status: string;
 }) {
+  if (!cloudSessionToken) {
+    return;
+  }
+
   try {
-    await fetch(
-      "http://localhost:3010/diagnostics/session/update",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type":
-            "application/json",
+    await fetch("/api/diagnostics/sessions/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: cloudSessionToken,
+        status: "running",
+        resultPatch: {
+          [testKey]: status,
         },
-        body: JSON.stringify({
-          sessionId: cloudSessionToken,
-          status: "running",
-          result: {
-            [testKey]: status,
-          },
-        }),
-      }
-    );
+      }),
+    });
   } catch (error) {
     console.error(error);
   }
