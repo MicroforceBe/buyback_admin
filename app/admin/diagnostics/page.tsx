@@ -1,3 +1,5 @@
+// app/admin/diagnostics/page.tsx
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
 export default async function DiagnosticsPage() {
@@ -12,21 +14,53 @@ export default async function DiagnosticsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">
-        Diagnostics
-      </h1>
-<a
-  href="/admin/diagnostics/new"
-  className="inline-block rounded bg-black px-4 py-2 text-white mb-6"
->
-  Nieuwe sessie
-</a>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Diagnostics
+          </h1>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Overzicht van toestel-diagnoses en testresultaten.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <Link
+            href="/admin/diagnostics/live"
+            className="rounded bg-blue-600 px-4 py-2 text-white"
+          >
+            Live diagnose
+          </Link>
+
+          <Link
+            href="/admin/diagnostics/new"
+            className="rounded bg-black px-4 py-2 text-white"
+          >
+            Nieuwe sessie
+          </Link>
+
+          <Link
+            href="/admin/diagnostics/stations"
+            className="rounded border px-4 py-2"
+          >
+            Stations
+          </Link>
+
+          <Link
+            href="/admin/diagnostics/sessions"
+            className="rounded border px-4 py-2"
+          >
+            Cloud sessies
+          </Link>
+        </div>
+      </div>
 
       <div className="space-y-4">
         {sessions.map((session) => (
           <div
             key={session.id}
-            className="border rounded-lg p-4"
+            className="rounded-lg border bg-white p-4"
           >
             <div className="font-semibold">
               {session.deviceUnit.brand}{" "}
@@ -47,7 +81,14 @@ export default async function DiagnosticsPage() {
             </div>
           </div>
         ))}
+
+        {sessions.length === 0 && (
+          <div className="rounded-lg border bg-white p-8 text-center text-sm text-gray-500">
+            Geen diagnostics sessies gevonden.
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
