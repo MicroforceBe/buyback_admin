@@ -90,24 +90,55 @@ export default function WebDiagnosticsPage({
   const [loadingDeviceInfo, setLoadingDeviceInfo] =
     useState(true);
 
-  useEffect(() => {
-    async function loadDeviceInfo() {
-      try {
-        const response = await fetch(
-          `/api/diagnostics/device/${params.id}`,
-          {
-            cache: "no-store",
-          }
-        );
+  const [cloudSessionId, setCloudSessionId] =
+    useState<string | null>(null);
 
-        if (!response.ok) {
-          return;
+  const [cloudSessionToken, setCloudSessionToken] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [
+          deviceResponse,
+          cloudResponse,
+        ] = await Promise.all([
+          fetch(
+            `/api/diagnostics/device/${params.id}`,
+            {
+              cache: "no-store",
+            }
+          ),
+
+          fetch(
+            `/api/diagnostics/cloud-session/by-prisma/${params.id}`,
+            {
+              cache: "no-store",
+            }
+          ),
+        ]);
+
+        if (deviceResponse.ok) {
+          const data =
+            await deviceResponse.json();
+
+          setDeviceInfo(data);
         }
 
-        const data =
-          await response.json();
+        if (cloudResponse.ok) {
+          const cloudData =
+            await cloudResponse.json();
 
-        setDeviceInfo(data);
+          if (cloudData?.session) {
+            setCloudSessionId(
+              cloudData.session.id
+            );
+
+            setCloudSessionToken(
+              cloudData.session.session_id
+            );
+          }
+        }
       } catch {
         //
       } finally {
@@ -115,7 +146,7 @@ export default function WebDiagnosticsPage({
       }
     }
 
-    loadDeviceInfo();
+    loadData();
   }, [params.id]);
 
   function goNext() {
@@ -382,6 +413,12 @@ export default function WebDiagnosticsPage({
             }}
           />
         </div>
+
+        {cloudSessionId ? (
+          <div className="mt-3 rounded border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+            Cloud diagnostics gekoppeld
+          </div>
+        ) : null}
 
         {loadingDeviceInfo ? (
           <div className="mt-3 text-xs text-gray-400">
