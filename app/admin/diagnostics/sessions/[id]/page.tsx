@@ -31,9 +31,7 @@ export default async function DiagnosticsSessionDetailPage({ params }: Props) {
           ← Terug naar sessies
         </Link>
 
-        <h1 className="mt-3 text-3xl font-bold">
-          Diagnostics sessie
-        </h1>
+        <h1 className="mt-3 text-3xl font-bold">Diagnostics sessie</h1>
 
         <p className="mt-2 text-sm text-neutral-500">
           {session.session_id}
@@ -42,9 +40,7 @@ export default async function DiagnosticsSessionDetailPage({ params }: Props) {
 
       <div className="grid gap-4">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">
-            Overzicht
-          </h2>
+          <h2 className="mb-4 text-xl font-semibold">Overzicht</h2>
 
           <div className="grid gap-2 text-sm">
             <div>
@@ -60,18 +56,15 @@ export default async function DiagnosticsSessionDetailPage({ params }: Props) {
             </div>
 
             <div>
-              <strong>Serienummer:</strong>{" "}
-              {session.serial_number || "-"}
+              <strong>Serienummer:</strong> {session.serial_number || "-"}
             </div>
 
             <div>
-              <strong>Station:</strong>{" "}
-              {session.station_name || "-"}
+              <strong>Station:</strong> {session.station_name || "-"}
             </div>
 
             <div>
-              <strong>Winkel:</strong>{" "}
-              {session.store_name || "-"}
+              <strong>Winkel:</strong> {session.store_name || "-"}
             </div>
 
             <div>
@@ -91,9 +84,7 @@ export default async function DiagnosticsSessionDetailPage({ params }: Props) {
         </div>
 
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">
-            Resultaat
-          </h2>
+          <h2 className="mb-4 text-xl font-semibold">Resultaat</h2>
 
           <pre className="overflow-auto rounded-xl bg-neutral-950 p-4 text-sm text-green-200">
             {JSON.stringify(session.result || {}, null, 2)}
