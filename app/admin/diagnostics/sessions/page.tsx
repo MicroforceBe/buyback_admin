@@ -17,14 +17,6 @@ function getStatusColor(status: string) {
   }
 }
 
-function formatBelgianTime(value: string | null) {
-  if (!value) return "-";
-
-  return new Date(value).toLocaleString("nl-BE", {
-    timeZone: "Europe/Brussels",
-  });
-}
-
 export default async function DiagnosticsSessionsPage() {
   const { data } = await supabaseAdmin
     .from("diagnostics_sessions")
@@ -81,7 +73,7 @@ export default async function DiagnosticsSessionsPage() {
                         session.status
                       )}`}
                     >
-                      {session.status}
+                      {session.status || "-"}
                     </span>
                   </Link>
                 </td>
@@ -113,7 +105,9 @@ export default async function DiagnosticsSessionsPage() {
                 </td>
 
                 <td className="px-4 py-3 text-sm">
-                  {formatBelgianTime(session.started_at)}
+                  {session.started_at
+                    ? new Date(session.started_at).toLocaleString("nl-BE")
+                    : "-"}
                 </td>
               </tr>
             ))}
