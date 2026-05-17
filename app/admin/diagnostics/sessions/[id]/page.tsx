@@ -189,19 +189,21 @@ export default async function DiagnosticsSessionDetailPage({
           </div>
         </div>
 
+      {session.prisma_session_id && (
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-xl font-semibold">
-            Ruwe JSON
+            Web diagnostics
           </h2>
-
-          <pre className="overflow-auto rounded-xl bg-neutral-950 p-4 text-sm text-green-200">
-            {JSON.stringify(
-              session.result || {},
-              null,
-              2
-            )}
-          </pre>
+      
+          <Link
+            href={`/admin/diagnostics/${session.prisma_session_id}/web-tests`}
+            className="inline-flex rounded-xl bg-black px-4 py-2 text-white"
+          >
+            Open web diagnostics
+          </Link>
         </div>
+      )}
+
       </div>
     </div>
   );
