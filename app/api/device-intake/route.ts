@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       color: body.color || null,
 
       productType: body.productType || null,
-      productName: body.productName || null,
+      //productName: body.productName || null,
       modelNumber: body.modelNumber || null,
       partNumber: body.partNumber || null,
       regionInfo: body.regionInfo || null,
@@ -127,7 +127,7 @@ export async function POST(req: Request) {
       carrierName: body.carrierName || null,
 
       mdmStatus: body.mdmStatus || null,
-      mdmEvidence: body.mdmEvidence || [],
+      //mdmEvidence: body.mdmEvidence || [],
 
       blacklistStatus: body.blacklistStatus || null,
 
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
       securityWarnings,
       securityFailures,
 
-      rawDeviceData: body.rawDeviceData || body.raw || body,
+      //rawDeviceData: body.rawDeviceData || body.raw || body,
     };
 
     console.log("DEVICE DATA");
