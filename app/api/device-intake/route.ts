@@ -8,13 +8,21 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    console.log("DEVICE INTAKE BODY");
+    console.log(JSON.stringify(body, null, 2));
+
     const imei = body.imei || null;
     const serialNumber = body.serialNumber || null;
 
     if (!imei && !serialNumber) {
       return NextResponse.json(
-        { ok: false, error: "IMEI of serienummer verplicht" },
-        { status: 400 }
+        {
+          ok: false,
+          error: "IMEI of serienummer verplicht",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -27,23 +35,28 @@ export async function POST(req: Request) {
       },
       include: {
         sessions: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
       },
     });
 
     const securityGrade =
-      typeof body.securityGrade === "object"
+      typeof body.securityGrade === "object" &&
+      body.securityGrade !== null
         ? body.securityGrade.grade
         : body.securityGrade || null;
 
     const securityWarnings =
-      typeof body.securityGrade === "object"
+      typeof body.securityGrade === "object" &&
+      body.securityGrade !== null
         ? body.securityGrade.warnings || []
         : [];
 
     const securityFailures =
-      typeof body.securityGrade === "object"
+      typeof body.securityGrade === "object" &&
+      body.securityGrade !== null
         ? body.securityGrade.failures || []
         : [];
 
@@ -65,17 +78,40 @@ export async function POST(req: Request) {
       iosVersion: body.iosVersion || body.productVersion || null,
       udid: body.udid || body.uniqueDeviceId || null,
 
-      batteryHealth: body.batteryHealth ?? null,
-      batteryCycles: body.batteryCycles ?? body.batteryCycleCount ?? null,
-      batteryCurrentCharge: body.batteryCurrentCharge ?? null,
-      batteryDesignCapacity: body.batteryDesignCapacity ?? null,
+      batteryHealth:
+        typeof body.batteryHealth === "number"
+          ? body.batteryHealth
+          : null,
+
+      batteryCycles:
+        typeof body.batteryCycles === "number"
+          ? body.batteryCycles
+          : typeof body.batteryCycleCount === "number"
+          ? body.batteryCycleCount
+          : null,
+
+      batteryCurrentCharge:
+        typeof body.batteryCurrentCharge === "number"
+          ? body.batteryCurrentCharge
+          : typeof body.batteryCurrentCapacity === "number"
+          ? body.batteryCurrentCapacity
+          : null,
+
+      batteryDesignCapacity:
+        typeof body.batteryDesignCapacity === "number"
+          ? body.batteryDesignCapacity
+          : null,
+
       batteryNominalChargeCapacity:
-        body.batteryNominalChargeCapacity ?? null,
+        typeof body.batteryNominalChargeCapacity === "number"
+          ? body.batteryNominalChargeCapacity
+          : null,
+
       batteryVoltage:
         typeof body.batteryVoltage === "number"
           ? body.batteryVoltage
           : null,
-      
+
       batteryTemperatureCelsius:
         typeof body.batteryTemperatureCelsius === "number"
           ? body.batteryTemperatureCelsius
@@ -102,9 +138,14 @@ export async function POST(req: Request) {
       rawDeviceData: body.rawDeviceData || body.raw || body,
     };
 
+    console.log("DEVICE DATA");
+    console.log(JSON.stringify(deviceData, null, 2));
+
     const deviceUnit = existingDevice
       ? await prisma.deviceUnit.update({
-          where: { id: existingDevice.id },
+          where: {
+            id: existingDevice.id,
+          },
           data: deviceData,
         })
       : await prisma.deviceUnit.create({
@@ -131,12 +172,17 @@ export async function POST(req: Request) {
       redirectUrl: `/admin/diagnostics/${session.id}`,
     });
   } catch (error) {
+    console.error("DEVICE INTAKE ERROR");
     console.error(error);
 
     return NextResponse.json(
       {
         ok: false,
         error: "Device intake mislukt",
+        details:
+          error instanceof Error
+            ? error.message
+            : String(error),
       },
       {
         status: 500,
