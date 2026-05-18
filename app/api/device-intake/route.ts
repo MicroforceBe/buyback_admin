@@ -71,12 +71,15 @@ export async function POST(req: Request) {
       batteryDesignCapacity: body.batteryDesignCapacity ?? null,
       batteryNominalChargeCapacity:
         body.batteryNominalChargeCapacity ?? null,
-      batteryVoltage: body.batteryVoltage
-        ? String(body.batteryVoltage)
-        : null,
-      batteryTemperatureCelsius: body.batteryTemperatureCelsius
-        ? String(body.batteryTemperatureCelsius)
-        : null,
+      batteryVoltage:
+        typeof body.batteryVoltage === "number"
+          ? body.batteryVoltage
+          : null,
+      
+      batteryTemperatureCelsius:
+        typeof body.batteryTemperatureCelsius === "number"
+          ? body.batteryTemperatureCelsius
+          : null,
 
       activationState: body.activationState || null,
       activationLockStatus: body.activationLockStatus || null,
