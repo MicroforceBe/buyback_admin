@@ -1,33 +1,36 @@
 //prisma/schema.prisma
-
+ 
 generator client {
   provider = "prisma-client-js"
 }
-
+ 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
+ 
 model DeviceUnit {
   id             String   @id @default(cuid())
   imei           String?  @unique
   imei2          String?
   serialNumber   String?
   udid           String?
-
+ 
   brand          String
   model          String?
   storage        String?
   color          String?
 
+  cosmeticGrade  String?
+  vatScheme      String?
+ 
   iosVersion     String?
   productType    String?
   modelNumber    String?
   partNumber     String?
   regionInfo     String?
   originCountry  String?
-
+ 
   batteryHealth                  Int?
   batteryCycles                  Int?
   batteryCurrentCharge           Int?
@@ -35,31 +38,31 @@ model DeviceUnit {
   batteryNominalChargeCapacity   Int?
   batteryVoltage                 Int?
   batteryTemperatureCelsius      Float?
-
+ 
   activationState       String?
   activationLockStatus  String?
   findMyStatus          String?
-
+ 
   mdmStatus             String?
   carrierLockStatus     String?
   simLockStatus         String?
   simStatus             String?
   carrierName           String?
   blacklistStatus       String?
-
+ 
   securityGrade         String?
   securityWarnings      Json?
   securityFailures      Json?
-
+ 
   rawDeviceData         Json?
-
+ 
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
-
+ 
   sessions              DiagnosticSession[]
 }
-
-
+ 
+ 
 model DiagnosticSession {
   id            String   @id @default(cuid())
   deviceUnitId  String
@@ -68,12 +71,12 @@ model DiagnosticSession {
   finalScore    Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-
+ 
   deviceUnit    DeviceUnit @relation(fields: [deviceUnitId], references: [id])
   tests         DiagnosticTestResult[]
-  appTests DiagnosticAppTestResult[]
+  appTests      DiagnosticAppTestResult[]
 }
-
+ 
 model DiagnosticTestResult {
   id          String   @id @default(cuid())
   sessionId   String
@@ -82,10 +85,10 @@ model DiagnosticTestResult {
   value       Json?
   notes       String?
   createdAt   DateTime @default(now())
-
+ 
   session     DiagnosticSession @relation(fields: [sessionId], references: [id])
 }
-
+ 
 model DiagnosticAppTestResult {
   id        String   @id @default(cuid())
   sessionId String
@@ -94,6 +97,7 @@ model DiagnosticAppTestResult {
   value     Json?
   notes     String?
   createdAt DateTime @default(now())
-
+ 
   session   DiagnosticSession @relation(fields: [sessionId], references: [id])
 }
+
