@@ -69,6 +69,8 @@ export async function POST(req: Request) {
       model: body.model || null,
       storage: body.storage || null,
       color: body.color || null,
+      cosmeticGrade:   body.cosmeticGrade || null,
+      vatScheme:  body.vatScheme || null,
 
       productType: body.productType || null,
       //productName: body.productName || null,
