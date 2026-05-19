@@ -101,3 +101,58 @@ model DiagnosticAppTestResult {
   session   DiagnosticSession @relation(fields: [sessionId], references: [id])
 }
 
+model ErpArticle {
+  id                    String    @id @db.Uuid
+
+  created_at            DateTime?
+  updated_at            DateTime?
+
+  sku                   String?
+  ean                   String?
+  title                 String?
+  description           String?
+
+  brand                 String?
+  model                 String?
+  capacity_gb           Int?
+  color                 String?
+  category              String?
+
+  condition_grade       String?
+
+  active                Boolean?
+
+  erp_id                String?
+  external_reference    String?
+
+  price_cents           Int?
+  compare_price_cents   Int?
+
+  inventory_qty         Int?
+
+  inventory_tracker     String?
+
+  taxable               Boolean?
+  vat_margin            Boolean?
+
+  refurbished_product   Boolean?
+
+  stock_gentbrugge      Int?
+  stock_oudenaarde      Int?
+  stock_antwerpen       Int?
+
+  published             Boolean?
+  published_scope       String?
+
+  requires_shipping     Boolean?
+  gift_card             Boolean?
+
+  raw_erp_row           Json?
+
+  core_assortment       Boolean?
+
+  missing_from_erp      Boolean?
+  missing_from_erp_at   DateTime?
+
+  @@map("erp_articles")
+}
