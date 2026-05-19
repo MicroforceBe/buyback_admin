@@ -242,52 +242,7 @@ export async function POST(req: Request) {
         }
       );
 
-    const suggestedArticle =
-      await prisma.erpArticle.findFirst(
-        {
-          where: {
-            active: true,
-
-            title: {
-              contains:
-                body.model || "",
-              mode:
-                "insensitive",
-            },
-
-            AND: [
-              body.storage
-                ? {
-                    title: {
-                      contains:
-                        body.storage,
-                      mode:
-                        "insensitive",
-                    },
-                  }
-                : {},
-
-              body.cosmeticGrade
-                ? {
-                    title: {
-                      contains:
-                        body.cosmeticGrade,
-                      mode:
-                        "insensitive",
-                    },
-                  }
-                : {},
-
-              body.vatScheme ===
-              "margin"
-                ? {
-                    vat_margin: true,
-                  }
-                : {},
-            ],
-          },
-        }
-      );
+  
 
     return NextResponse.json({
       ok: true,
