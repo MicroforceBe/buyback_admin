@@ -824,4 +824,3 @@ export default async function RefurbListPage({
     </div>
   );
 }
-```
