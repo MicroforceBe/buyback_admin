@@ -223,19 +223,24 @@ async function getReceptions(): Promise<RefurbReception[]> {
     }));
   }
 
-  const [itemsResult, statusConfig] = await Promise.all([
-    supabaseAdmin
-      .from("refurb_reception_items")
-      .select("id, reception_id, refurb_status")
-      .in("reception_id", receptionIds),
+const statusConfig = await getFinalStatusValues();
 
-    getFinalStatusValues(),
-  ]);
+const items: ReceptionItemStatsRow[] = [];
+const pageSize = 1000;
+let from = 0;
 
-  if (itemsResult.error) {
+while (true) {
+  const { data: batch, error: itemsError } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("id, reception_id, refurb_status")
+    .in("reception_id", receptionIds)
+    .order("id", { ascending: true })
+    .range(from, from + pageSize - 1);
+
+  if (itemsError) {
     console.error(
       "[REFURB] error fetching reception items for statistics",
-      itemsResult.error
+      itemsError
     );
 
     return receptions.map((reception) => ({
@@ -249,8 +254,16 @@ async function getReceptions(): Promise<RefurbReception[]> {
     }));
   }
 
-  const items =
-    (itemsResult.data || []) as ReceptionItemStatsRow[];
+  const rows = (batch || []) as ReceptionItemStatsRow[];
+
+  items.push(...rows);
+
+  if (rows.length < pageSize) {
+    break;
+  }
+
+  from += pageSize;
+}
 
   const stats = new Map<
     string,
