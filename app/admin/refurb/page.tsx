@@ -815,19 +815,21 @@ export default async function RefurbListPage({
 
                   <div className="mt-1 text-[11px] text-slate-500">
                     <span className="font-medium text-slate-700">
-                      {reception.finished_percent ??
-                        0}
-                      %
+                      {reception.finished_percent ?? 0}%
                     </span>{" "}
                     afgewerkt
+                  
                     <span className="mx-1">•</span>
-                    {finishedItems} van {totalItems}{" "}
-                    afgewerkt
+                  
+                    <span>
+                      {totalItems} {totalItems === 1 ? "artikel" : "artikels"}
+                    </span>
+                  
                     <span className="mx-1">•</span>
-                    {totalItems}{" "}
-                    {totalItems === 1
-                      ? "artikel"
-                      : "artikels"}
+                  
+                    <span>
+                      {finishedItems} van {totalItems} afgewerkt
+                    </span>
                   </div>
                 </td>
 
