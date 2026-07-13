@@ -27,23 +27,14 @@ type Props = {
   defaultLocationValue: string;
   readyToBookValue: string;
   vatScheme: "margin" | "normal";
-  /**
-   * ✅ NIEUW: vervolgstatussen-map (value -> allowed next values).
-   * We ondersteunen BEIDE namen zodat TS build niet faalt.
-   */
+
+  // Supplier invoice nummer van de receptie
+  supplierInvoiceNr?: string | null;
+
   statusTransitions?: StatusTransitionsMap;
   statusNextMap?: StatusTransitionsMap;
 
-  // ✅ delete-knoppen enkel tonen voor admin
   canDelete?: boolean;
-
-  /**
-   * ✅ admin-only statuses mogen enkel als user recht heeft
-   * (server-side wordt ook gevalideerd).
-   *
-   * BELANGRIJK: default = true (fail-open) zodat admin-only niet “greyed out”
-   * als je dit prop per ongeluk niet doorgeeft.
-   */
   canUseAdminStatuses?: boolean;
 };
 
@@ -164,6 +155,20 @@ function parseTokens(raw: string): string[] {
     .filter(Boolean);
 }
 
+function sanitizeTabCell(value: unknown) {
+  return String(value ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function compensationForExport(cents: number | null | undefined) {
+  if (typeof cents !== "number") return "";
+
+  return (cents / 100)
+    .toFixed(2)
+    .replace(".", ",");
+}
 async function copyToClipboard(text: string) {
   try {
     if (!text) return;
@@ -429,6 +434,7 @@ export default function RefurbReceptionTable({
   canDelete = false,
   canUseAdminStatuses = true,
   vatScheme,
+  supplierInvoiceNr = null,
 }: Props) {
   const router = useRouter();
 
@@ -467,6 +473,8 @@ export default function RefurbReceptionTable({
 
   // bulk update (collapse)
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [rmaOpen, setRmaOpen] = useState(true);
+  const [rmaCopied, setRmaCopied] = useState(false);
   const [bulkEnableStatus, setBulkEnableStatus] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string>("");
   const [bulkEnableLocation, setBulkEnableLocation] = useState(false);
@@ -486,7 +494,59 @@ export default function RefurbReceptionTable({
   }, [normalizedInitialItems]);
 
   const hasItems = items.length > 0;
+const rmaItems = useMemo(() => {
+  return items.filter((item) => {
+    const status = canonicalizeStatusValue(
+      item.refurb_status,
+      statusOptions || [],
+      defaultStatusValue
+    );
 
+    return norm(status) === "rma";
+  });
+}, [items, statusOptions, defaultStatusValue]);
+
+const rmaTabSeparatedText = useMemo(() => {
+  const header = [
+    "IMEI/SN",
+    "Description",
+    "RMA defect description",
+    "Compensation",
+  ].join("\t");
+
+  const rows = rmaItems.map((item) => {
+    const imeiOrSn =
+      sanitizeTabCell((item as any).imei_sn) ||
+      sanitizeTabCell((item as any).manual_sn);
+
+    return [
+      imeiOrSn,
+      sanitizeTabCell(item.description),
+      sanitizeTabCell(item.rma_defect_description),
+      compensationForExport(item.compensation_cents),
+    ].join("\t");
+  });
+
+  return [header, ...rows].join("\n");
+}, [rmaItems]);
+
+async function copyRmaList() {
+  if (!rmaItems.length) return;
+
+  const fullText = [
+    `Supplier invoice nr\t${sanitizeTabCell(supplierInvoiceNr)}`,
+    "",
+    rmaTabSeparatedText,
+  ].join("\n");
+
+  await copyToClipboard(fullText);
+
+  setRmaCopied(true);
+
+  window.setTimeout(() => {
+    setRmaCopied(false);
+  }, 2000);
+}
   // lookup maps
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
@@ -1608,7 +1668,132 @@ export default function RefurbReceptionTable({
           </div>
         )}
       </div>
+{/* RMA overzicht */}
+<div className="overflow-hidden rounded-md border border-red-200 bg-white text-xs">
+  <button
+    type="button"
+    className="flex w-full items-center justify-between border-b border-red-200 bg-red-50 px-3 py-2"
+    onClick={() => setRmaOpen((value) => !value)}
+  >
+    <div className="flex items-center gap-2">
+      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white">
+        {rmaItems.length}
+      </span>
 
+      <span className="font-medium uppercase tracking-wide text-red-800">
+        RMA overzicht
+      </span>
+    </div>
+
+    <span className="text-[11px] text-red-700">
+      {rmaOpen ? "▲" : "▼"}
+    </span>
+  </button>
+
+  {rmaOpen && (
+    <div className="space-y-3 p-3">
+      <div className="flex flex-col gap-3 rounded-md border border-red-100 bg-red-50/50 p-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Supplier invoice nr
+          </div>
+
+          <div className="mt-1 font-mono text-sm font-semibold text-slate-900">
+            {supplierInvoiceNr || "—"}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="bb-btn h-8 px-3 text-[11px]"
+          disabled={!rmaItems.length}
+          onClick={copyRmaList}
+        >
+          {rmaCopied ? "Gekopieerd ✓" : "Kopieer tablijst"}
+        </button>
+      </div>
+
+      {rmaItems.length === 0 ? (
+        <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
+          Er zijn momenteel geen items met status RMA.
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="min-w-full border-collapse text-[11px]">
+              <thead className="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="border-b px-3 py-2">
+                    IMEI/SN
+                  </th>
+
+                  <th className="border-b px-3 py-2">
+                    Description
+                  </th>
+
+                  <th className="border-b px-3 py-2">
+                    RMA defect description
+                  </th>
+
+                  <th className="border-b px-3 py-2 text-right">
+                    Compensation
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rmaItems.map((item) => {
+                  const imeiOrSn =
+                    (item as any).imei_sn ||
+                    (item as any).manual_sn ||
+                    "";
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className="border-t hover:bg-red-50/30"
+                    >
+                      <td className="whitespace-nowrap px-3 py-2 font-mono">
+                        {imeiOrSn || "—"}
+                      </td>
+
+                      <td className="min-w-[240px] px-3 py-2">
+                        {item.description || "—"}
+                      </td>
+
+                      <td className="min-w-[280px] px-3 py-2">
+                        {item.rma_defect_description || "—"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-3 py-2 text-right font-medium">
+                        {typeof item.compensation_cents === "number"
+                          ? money(item.compensation_cents)
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Tab-gescheiden lijst
+            </div>
+
+            <textarea
+              readOnly
+              value={rmaTabSeparatedText}
+              className="bb-input min-h-[130px] w-full resize-y whitespace-pre p-2 font-mono text-[10px]"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )}
+</div>
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
