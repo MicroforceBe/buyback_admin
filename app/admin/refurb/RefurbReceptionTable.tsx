@@ -473,7 +473,7 @@ export default function RefurbReceptionTable({
 
   // bulk update (collapse)
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [rmaOpen, setRmaOpen] = useState(true);
+  const [rmaOpen, setRmaOpen] = useState(false);
   const [rmaCopied, setRmaCopied] = useState(false);
   const [bulkEnableStatus, setBulkEnableStatus] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string>("");
