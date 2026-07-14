@@ -155,26 +155,68 @@ function parseTokens(raw: string): string[] {
     .filter(Boolean);
 }
 
-function sanitizeTabCell(value: unknown) {
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function cleanClipboardValue(value: unknown) {
   return String(value ?? "")
     .replace(/\t/g, " ")
     .replace(/\r?\n/g, " ")
     .trim();
 }
 
-function compensationForExport(cents: number | null | undefined) {
-  if (typeof cents !== "number") return "";
+function compensationText(
+  cents: number | null | undefined
+) {
+  if (typeof cents !== "number") return "0,00";
 
-  return (cents / 100)
-    .toFixed(2)
-    .replace(".", ",");
+  return (cents / 100).toLocaleString("nl-BE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
+
 async function copyToClipboard(text: string) {
   try {
     if (!text) return;
     await navigator.clipboard.writeText(text);
-  } catch (e) {
-    console.error("[REFURB] clipboard error", e);
+  } catch (error) {
+    console.error("[REFURB] clipboard error", error);
+  }
+}
+
+async function copyHtmlToClipboard(
+  html: string,
+  plainText: string
+) {
+  try {
+    if (
+      navigator.clipboard &&
+      typeof window.ClipboardItem !== "undefined"
+    ) {
+      const clipboardItem = new ClipboardItem({
+        "text/html": new Blob([html], {
+          type: "text/html",
+        }),
+        "text/plain": new Blob([plainText], {
+          type: "text/plain",
+        }),
+      });
+
+      await navigator.clipboard.write([clipboardItem]);
+      return;
+    }
+
+    await navigator.clipboard.writeText(plainText);
+  } catch (error) {
+    console.error("[REFURB] HTML clipboard error", error);
+    await navigator.clipboard.writeText(plainText);
   }
 }
 
@@ -434,7 +476,7 @@ export default function RefurbReceptionTable({
   canDelete = false,
   canUseAdminStatuses = true,
   vatScheme,
-  supplierInvoiceNr=null,
+  supplierInvoiceNr = null,
 }: Props) {
   const router = useRouter();
 
@@ -703,111 +745,7 @@ async function copyCompleteRmaOverview() {
   }
 }
 
-  const rmaTabSeparatedText = useMemo(() => {
-  const header = [
-    "IMEI/SN",
-    "Description",
-    "RMA defect description",
-    "Compensation",
-  ].join("\t");
-
-  const rows = rmaItems.map((item) => {
-    const imeiOrSn =
-      sanitizeTabCell((item as any).imei_sn) ||
-      sanitizeTabCell((item as any).manual_sn);
-
-    return [
-      imeiOrSn,
-      sanitizeTabCell(item.description),
-      sanitizeTabCell(item.rma_defect_description),
-      compensationForExport(item.compensation_cents),
-    ].join("\t");
-  });
-
-  return [header, ...rows].join("\n");
-}, [rmaItems]);
-
-async function copyRmaList() {
-  if (!rmaItems.length) return;
-
-  const fullText = [
-    `Supplier invoice nr\t${sanitizeTabCell(supplierInvoiceNr)}`,
-    "",
-    rmaTabSeparatedText,
-  ].join("\n");
-
-  await copyToClipboard(fullText);
-
-function escapeHtml(value: unknown) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function cleanClipboardValue(value: unknown) {
-  return String(value ?? "")
-    .replace(/\t/g, " ")
-    .replace(/\r?\n/g, " ")
-    .trim();
-}
-
-function compensationText(cents: number | null | undefined) {
-  if (typeof cents !== "number") return "";
-
-  return (cents / 100).toLocaleString("nl-BE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-async function copyHtmlToClipboard(
-  html: string,
-  plainText: string
-) {
-  try {
-    if (
-      navigator.clipboard &&
-      typeof window.ClipboardItem !== "undefined"
-    ) {
-      const clipboardItem = new ClipboardItem({
-        "text/html": new Blob([html], {
-          type: "text/html",
-        }),
-        "text/plain": new Blob([plainText], {
-          type: "text/plain",
-        }),
-      });
-
-      await navigator.clipboard.write([clipboardItem]);
-      return;
-    }
-
-    await navigator.clipboard.writeText(plainText);
-  } catch (error) {
-    console.error("[REFURB] HTML clipboard error", error);
-
-    try {
-      await navigator.clipboard.writeText(plainText);
-    } catch (fallbackError) {
-      console.error(
-        "[REFURB] clipboard fallback error",
-        fallbackError
-      );
-
-      throw fallbackError;
-    }
-  }
-}
-  
-  setRmaCopied(true);
-
-  window.setTimeout(() => {
-    setRmaCopied(false);
-  }, 2000);
-}
+ 
   // lookup maps
   const statusOptionByValue = useMemo(() => {
     const m = new Map<string, RefurbStatusOption>();
@@ -1929,149 +1867,154 @@ async function copyHtmlToClipboard(
           </div>
         )}
       </div>
-{/* RMA overzicht */}
-<div className="overflow-hidden rounded-md border border-red-200 bg-white text-xs">
-  <button
-    type="button"
-    className="flex w-full items-center justify-between border-b border-red-200 bg-red-50 px-3 py-2"
-    onClick={() => setRmaOpen((value) => !value)}
-  >
-    <div className="flex items-center gap-2">
-      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white">
-        {rmaItems.length}
-      </span>
+      {/* RMA overzicht */}
+      <div className="overflow-hidden rounded-md border border-red-200 bg-white text-xs">
+        <div className="flex w-full items-center justify-between border-b border-red-200 bg-red-50 px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white">
+              {rmaItems.length}
+            </span>
 
-      <span className="font-medium uppercase tracking-wide text-red-800">
-        RMA overzicht
-      </span>
-    </div>
-
-    <span className="text-[11px] text-red-700">
-      {rmaOpen ? "▲" : "▼"}
-    </span>
-  </button>
-
-  {rmaOpen && (
-    <div className="space-y-3 p-3">
-     <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-100 bg-red-50 px-3 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Supplier invoice nr
-      </span>
-    
-      <span className="font-mono text-[12px] font-semibold text-slate-900">
-        {supplierInvoiceNr || "—"}
-      </span>
-    </div>
-
-        <button
-          type="button"
-          className="inline-flex h-8 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!rmaItems.length}
-          onClick={copyCompleteRmaOverview}
-          title="Kopieer volledig RMA-overzicht als HTML"
-        >
-          <span aria-hidden="true">
-            {rmaCopied ? "✓" : "⧉"}
-          </span>
-        
-          <span>
-            {rmaCopied
-              ? "Gekopieerd"
-              : "Kopieer voor e-mail"}
-          </span>
-        </button>
-      </div>
-
-      {rmaItems.length === 0 ? (
-        <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
-          Er zijn momenteel geen items met status RMA.
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto rounded-md border">
-            <table className="min-w-full border-collapse text-[11px]">
-              <thead className="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="border-b px-3 py-2">
-                    IMEI/SN
-                  </th>
-
-                  <th className="border-b px-3 py-2">
-                    Description
-                  </th>
-
-                  <th className="border-b px-3 py-2">
-                    RMA defect description
-                  </th>
-
-                  <th className="border-b px-3 py-2 text-right">
-                    Compensation
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rmaItems.map((item) => {
-                  const imeiOrSn =
-                    (item as any).imei_sn ||
-                    (item as any).manual_sn ||
-                    "";
-
-                  return (
-                    <tr
-                      key={item.id}
-                      className="border-t hover:bg-red-50/30"
-                    >
-                      <td className="whitespace-nowrap px-3 py-2 font-mono">
-                        {imeiOrSn || "—"}
-                      </td>
-
-                      <td className="min-w-[240px] px-3 py-2">
-                        {item.description || "—"}
-                      </td>
-
-                      <td className="min-w-[280px] px-3 py-2">
-                        {item.rma_defect_description || "—"}
-                      </td>
-
-                      <td className="whitespace-nowrap px-3 py-2 text-right font-medium">
-                        {typeof item.compensation_cents === "number"
-                          ? money(item.compensation_cents)
-                          : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <div className="flex items-center justify-end gap-3 rounded-b-md border border-t-0 border-red-200 bg-red-50 px-3 py-2">
-  <span className="text-[11px] font-semibold uppercase tracking-wide text-red-800">
-    Totale compensatie
-  </span>
-
-  <span className="text-sm font-bold text-red-700">
-    {money(totalRmaCompensationCents)}
-  </span>
-</div>
+            <span className="font-medium uppercase tracking-wide text-red-800">
+              RMA overzicht
+            </span>
           </div>
 
-          <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Tab-gescheiden lijst
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded border border-red-200 bg-white text-[11px] text-red-700 hover:bg-red-100"
+            onClick={() => setRmaOpen((value) => !value)}
+            aria-label={
+              rmaOpen
+                ? "RMA-overzicht inklappen"
+                : "RMA-overzicht uitklappen"
+            }
+            title={rmaOpen ? "Inklappen" : "Uitklappen"}
+          >
+            {rmaOpen ? "▲" : "▼"}
+          </button>
+        </div>
+
+        {rmaOpen && (
+          <div className="space-y-3 p-3">
+            <div className="flex flex-col gap-3 rounded-md border border-red-100 bg-red-50 px-3 py-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Supplier invoice nr
+                </div>
+
+                <div className="mt-1 font-mono text-[12px] font-semibold text-slate-900">
+                  {supplierInvoiceNr || "—"}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!rmaItems.length}
+                onClick={copyCompleteRmaOverview}
+                title="Kopieer volledig RMA-overzicht als HTML"
+              >
+                <span aria-hidden="true">
+                  {rmaCopied ? "✓" : "⧉"}
+                </span>
+
+                <span>
+                  {rmaCopied
+                    ? "Gekopieerd"
+                    : "Kopieer voor e-mail"}
+                </span>
+              </button>
             </div>
 
-            <textarea
-              readOnly
-              value={rmaTabSeparatedText}
-              className="bb-input min-h-[130px] w-full resize-y whitespace-pre p-2 font-mono text-[10px]"
-              onFocus={(event) => event.currentTarget.select()}
-            />
+            {rmaItems.length === 0 ? (
+              <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
+                Er zijn momenteel geen items met status RMA.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-md border">
+                <table className="min-w-full border-collapse text-[11px]">
+                  <thead className="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="border-b px-3 py-2">
+                        IMEI/SN
+                      </th>
+
+                      <th className="border-b px-3 py-2">
+                        Description
+                      </th>
+
+                      <th className="border-b px-3 py-2">
+                        RMA defect description
+                      </th>
+
+                      <th className="border-b px-3 py-2 text-right">
+                        Compensation
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {rmaItems.map((item) => {
+                      const imeiOrSn =
+                        (item as any).imei_sn ||
+                        (item as any).manual_sn ||
+                        "";
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className="border-t hover:bg-red-50/30"
+                        >
+                          <td className="whitespace-nowrap px-3 py-2 font-mono">
+                            {imeiOrSn || "—"}
+                          </td>
+
+                          <td className="min-w-[240px] px-3 py-2">
+                            {item.description || "—"}
+                          </td>
+
+                          <td className="min-w-[280px] px-3 py-2">
+                            {item.rma_defect_description || "—"}
+                          </td>
+
+                          <td className="whitespace-nowrap px-3 py-2 text-right font-medium">
+                            {typeof item.compensation_cents ===
+                            "number"
+                              ? money(
+                                  item.compensation_cents
+                                )
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+
+                  <tfoot>
+                    <tr className="border-t border-red-200 bg-red-50">
+                      <td
+                        colSpan={3}
+                        className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-red-800"
+                      >
+                        Totale compensatie
+                      </td>
+
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-sm font-bold text-red-700">
+                        {money(
+                          totalRmaCompensationCents
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
-        </>
-      )}
-    </div>
-  )}
-</div>
+        )}
+      </div>
+
+      {/* Table */}
       {/* Table */}
       <div className="border rounded-md overflow-x-auto text-xs">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
