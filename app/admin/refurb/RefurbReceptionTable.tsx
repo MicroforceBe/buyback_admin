@@ -434,7 +434,7 @@ export default function RefurbReceptionTable({
   canDelete = false,
   canUseAdminStatuses = true,
   vatScheme,
-  supplierInvoiceNr={reception.supplier_invoice_nr},
+  supplierInvoiceNr=null,
 }: Props) {
   const router = useRouter();
 
