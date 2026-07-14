@@ -494,7 +494,8 @@ export default function RefurbReceptionTable({
   }, [normalizedInitialItems]);
 
   const hasItems = items.length > 0;
-const rmaItems = useMemo(() => {
+
+  const rmaItems = useMemo(() => {
   return items.filter((item) => {
     const status = canonicalizeStatusValue(
       item.refurb_status,
@@ -508,14 +509,14 @@ const rmaItems = useMemo(() => {
 
 const totalRmaCompensationCents = useMemo(() => {
   return rmaItems.reduce((total, item) => {
-    const value =
+    const compensation =
       typeof item.compensation_cents === "number"
         ? item.compensation_cents
         : 0;
 
-    return total + value;
+    return total + compensation;
   }, 0);
-}, [rmaItems]);  
+}, [rmaItems]);
 
 const rmaClipboardPlainText = useMemo(() => {
   const invoice =
@@ -534,15 +535,22 @@ const rmaClipboardPlainText = useMemo(() => {
       cleanClipboardValue((item as any).manual_sn) ||
       "—";
 
-    return [
-      imeiOrSn,
-      cleanClipboardValue(item.description) || "—",
-      cleanClipboardValue(
-        item.rma_defect_description
-      ) || "—",
+    const description =
+      cleanClipboardValue(item.description) || "—";
+
+    const defectDescription =
+      cleanClipboardValue(item.rma_defect_description) || "—";
+
+    const compensation =
       typeof item.compensation_cents === "number"
         ? `€ ${compensationText(item.compensation_cents)}`
-        : "—",
+        : "—";
+
+    return [
+      imeiOrSn,
+      description,
+      defectDescription,
+      compensation,
     ].join("\t");
   });
 
@@ -577,15 +585,11 @@ const rmaClipboardHtml = useMemo(() => {
         cleanClipboardValue(item.description) || "—";
 
       const defectDescription =
-        cleanClipboardValue(
-          item.rma_defect_description
-        ) || "—";
+        cleanClipboardValue(item.rma_defect_description) || "—";
 
       const compensation =
         typeof item.compensation_cents === "number"
-          ? `€ ${compensationText(
-              item.compensation_cents
-            )}`
+          ? `€ ${compensationText(item.compensation_cents)}`
           : "—";
 
       return `
@@ -633,7 +637,7 @@ const rmaClipboardHtml = useMemo(() => {
             </th>
 
             <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:left;font-family:Arial,sans-serif;font-size:12px;">
-              defect description
+              RMA defect description
             </th>
 
             <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:right;font-family:Arial,sans-serif;font-size:12px;">
@@ -659,9 +663,7 @@ const rmaClipboardHtml = useMemo(() => {
               style="border:1px solid #d1d5db;padding:8px 9px;text-align:right;white-space:nowrap;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#b91c1c;"
             >
               € ${escapeHtml(
-                compensationText(
-                  totalRmaCompensationCents
-                )
+                compensationText(totalRmaCompensationCents)
               )}
             </td>
           </tr>
@@ -675,8 +677,6 @@ const rmaClipboardHtml = useMemo(() => {
   totalRmaCompensationCents,
 ]);
 
-const [rmaCopied, setRmaCopied] = useState(false);
-  
 async function copyCompleteRmaOverview() {
   if (!rmaItems.length) return;
 
@@ -691,7 +691,12 @@ async function copyCompleteRmaOverview() {
     window.setTimeout(() => {
       setRmaCopied(false);
     }, 2000);
-  } catch {
+  } catch (error) {
+    console.error(
+      "[REFURB] copy complete RMA overview error",
+      error
+    );
+
     window.alert(
       "Kopiëren mislukt. Controleer de browserrechten voor het klembord."
     );
