@@ -434,7 +434,7 @@ export default function RefurbReceptionTable({
   canDelete = false,
   canUseAdminStatuses = true,
   vatScheme,
-  supplierInvoiceNr = null,
+  supplierInvoiceNr={reception.supplier_invoice_nr},
 }: Props) {
   const router = useRouter();
 
@@ -506,7 +506,199 @@ const rmaItems = useMemo(() => {
   });
 }, [items, statusOptions, defaultStatusValue]);
 
-const rmaTabSeparatedText = useMemo(() => {
+const totalRmaCompensationCents = useMemo(() => {
+  return rmaItems.reduce((total, item) => {
+    const value =
+      typeof item.compensation_cents === "number"
+        ? item.compensation_cents
+        : 0;
+
+    return total + value;
+  }, 0);
+}, [rmaItems]);  
+
+const rmaClipboardPlainText = useMemo(() => {
+  const invoice =
+    cleanClipboardValue(supplierInvoiceNr) || "—";
+
+  const header = [
+    "IMEI/SN",
+    "Description",
+    "RMA defect description",
+    "Compensation",
+  ].join("\t");
+
+  const rows = rmaItems.map((item) => {
+    const imeiOrSn =
+      cleanClipboardValue((item as any).imei_sn) ||
+      cleanClipboardValue((item as any).manual_sn) ||
+      "—";
+
+    return [
+      imeiOrSn,
+      cleanClipboardValue(item.description) || "—",
+      cleanClipboardValue(
+        item.rma_defect_description
+      ) || "—",
+      typeof item.compensation_cents === "number"
+        ? `€ ${compensationText(item.compensation_cents)}`
+        : "—",
+    ].join("\t");
+  });
+
+  return [
+    `Supplier invoice nr: ${invoice}`,
+    "",
+    header,
+    ...rows,
+    "",
+    `Totale compensatie: € ${compensationText(
+      totalRmaCompensationCents
+    )}`,
+  ].join("\n");
+}, [
+  supplierInvoiceNr,
+  rmaItems,
+  totalRmaCompensationCents,
+]);
+
+const rmaClipboardHtml = useMemo(() => {
+  const invoice =
+    cleanClipboardValue(supplierInvoiceNr) || "—";
+
+  const rowsHtml = rmaItems
+    .map((item) => {
+      const imeiOrSn =
+        cleanClipboardValue((item as any).imei_sn) ||
+        cleanClipboardValue((item as any).manual_sn) ||
+        "—";
+
+      const description =
+        cleanClipboardValue(item.description) || "—";
+
+      const defectDescription =
+        cleanClipboardValue(
+          item.rma_defect_description
+        ) || "—";
+
+      const compensation =
+        typeof item.compensation_cents === "number"
+          ? `€ ${compensationText(
+              item.compensation_cents
+            )}`
+          : "—";
+
+      return `
+        <tr>
+          <td style="border:1px solid #d1d5db;padding:7px 9px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px;">
+            ${escapeHtml(imeiOrSn)}
+          </td>
+
+          <td style="border:1px solid #d1d5db;padding:7px 9px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px;">
+            ${escapeHtml(description)}
+          </td>
+
+          <td style="border:1px solid #d1d5db;padding:7px 9px;vertical-align:top;font-family:Arial,sans-serif;font-size:12px;">
+            ${escapeHtml(defectDescription)}
+          </td>
+
+          <td style="border:1px solid #d1d5db;padding:7px 9px;vertical-align:top;text-align:right;white-space:nowrap;font-family:Arial,sans-serif;font-size:12px;">
+            ${escapeHtml(compensation)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;color:#111827;">
+      <p style="margin:0 0 12px 0;font-size:13px;">
+        <strong>Supplier invoice nr:</strong>
+        ${escapeHtml(invoice)}
+      </p>
+
+      <table
+        cellpadding="0"
+        cellspacing="0"
+        style="width:100%;border-collapse:collapse;border:1px solid #d1d5db;"
+      >
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:left;font-family:Arial,sans-serif;font-size:12px;">
+              IMEI/SN
+            </th>
+
+            <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:left;font-family:Arial,sans-serif;font-size:12px;">
+              Description
+            </th>
+
+            <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:left;font-family:Arial,sans-serif;font-size:12px;">
+              defect description
+            </th>
+
+            <th style="border:1px solid #d1d5db;padding:7px 9px;text-align:right;font-family:Arial,sans-serif;font-size:12px;">
+              Compensation
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+
+        <tfoot>
+          <tr style="background:#fef2f2;">
+            <td
+              colspan="3"
+              style="border:1px solid #d1d5db;padding:8px 9px;text-align:right;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;"
+            >
+              Totale compensatie
+            </td>
+
+            <td
+              style="border:1px solid #d1d5db;padding:8px 9px;text-align:right;white-space:nowrap;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;color:#b91c1c;"
+            >
+              € ${escapeHtml(
+                compensationText(
+                  totalRmaCompensationCents
+                )
+              )}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+}, [
+  supplierInvoiceNr,
+  rmaItems,
+  totalRmaCompensationCents,
+]);
+
+const [rmaCopied, setRmaCopied] = useState(false);
+  
+async function copyCompleteRmaOverview() {
+  if (!rmaItems.length) return;
+
+  try {
+    await copyHtmlToClipboard(
+      rmaClipboardHtml,
+      rmaClipboardPlainText
+    );
+
+    setRmaCopied(true);
+
+    window.setTimeout(() => {
+      setRmaCopied(false);
+    }, 2000);
+  } catch {
+    window.alert(
+      "Kopiëren mislukt. Controleer de browserrechten voor het klembord."
+    );
+  }
+}
+
+  const rmaTabSeparatedText = useMemo(() => {
   const header = [
     "IMEI/SN",
     "Description",
@@ -541,6 +733,70 @@ async function copyRmaList() {
 
   await copyToClipboard(fullText);
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function cleanClipboardValue(value: unknown) {
+  return String(value ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function compensationText(cents: number | null | undefined) {
+  if (typeof cents !== "number") return "";
+
+  return (cents / 100).toLocaleString("nl-BE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+async function copyHtmlToClipboard(
+  html: string,
+  plainText: string
+) {
+  try {
+    if (
+      navigator.clipboard &&
+      typeof window.ClipboardItem !== "undefined"
+    ) {
+      const clipboardItem = new ClipboardItem({
+        "text/html": new Blob([html], {
+          type: "text/html",
+        }),
+        "text/plain": new Blob([plainText], {
+          type: "text/plain",
+        }),
+      });
+
+      await navigator.clipboard.write([clipboardItem]);
+      return;
+    }
+
+    await navigator.clipboard.writeText(plainText);
+  } catch (error) {
+    console.error("[REFURB] HTML clipboard error", error);
+
+    try {
+      await navigator.clipboard.writeText(plainText);
+    } catch (fallbackError) {
+      console.error(
+        "[REFURB] clipboard fallback error",
+        fallbackError
+      );
+
+      throw fallbackError;
+    }
+  }
+}
+  
   setRmaCopied(true);
 
   window.setTimeout(() => {
@@ -1692,24 +1948,32 @@ async function copyRmaList() {
 
   {rmaOpen && (
     <div className="space-y-3 p-3">
-      <div className="flex flex-col gap-3 rounded-md border border-red-100 bg-red-50/50 p-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Supplier invoice nr
-          </div>
-
-          <div className="mt-1 font-mono text-sm font-semibold text-slate-900">
-            {supplierInvoiceNr || "—"}
-          </div>
-        </div>
+     <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-100 bg-red-50 px-3 py-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        Supplier invoice nr
+      </span>
+    
+      <span className="font-mono text-[12px] font-semibold text-slate-900">
+        {supplierInvoiceNr || "—"}
+      </span>
+    </div>
 
         <button
           type="button"
-          className="bb-btn h-8 px-3 text-[11px]"
+          className="inline-flex h-8 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!rmaItems.length}
-          onClick={copyRmaList}
+          onClick={copyCompleteRmaOverview}
+          title="Kopieer volledig RMA-overzicht als HTML"
         >
-          {rmaCopied ? "Gekopieerd ✓" : "Kopieer tablijst"}
+          <span aria-hidden="true">
+            {rmaCopied ? "✓" : "⧉"}
+          </span>
+        
+          <span>
+            {rmaCopied
+              ? "Gekopieerd"
+              : "Kopieer voor e-mail"}
+          </span>
         </button>
       </div>
 
@@ -1775,6 +2039,15 @@ async function copyRmaList() {
                 })}
               </tbody>
             </table>
+            <div className="flex items-center justify-end gap-3 rounded-b-md border border-t-0 border-red-200 bg-red-50 px-3 py-2">
+  <span className="text-[11px] font-semibold uppercase tracking-wide text-red-800">
+    Totale compensatie
+  </span>
+
+  <span className="text-sm font-bold text-red-700">
+    {money(totalRmaCompensationCents)}
+  </span>
+</div>
           </div>
 
           <div>
