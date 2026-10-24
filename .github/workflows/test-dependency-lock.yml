@@ -8,6 +8,9 @@ on:
       - security/tests/zod-compat.test.mjs
       - security/tests/ftp-compat.test.mjs
       - lib/erpSync.ts
+      - security/tests/prisma-compat.test.mjs
+      - prisma/schema.prisma
+      - lib/prisma.ts
       - .github/workflows/test-dependency-lock.yml
 permissions:
   contents: read
@@ -31,6 +34,14 @@ jobs:
         run: node --test security/tests/zod-compat.test.mjs
       - name: Verify ERP download using loopback FTP fixtures only
         run: node --test security/tests/ftp-compat.test.mjs
+      - name: Validate schema and generate client without connecting to a database
+        env:
+          DATABASE_URL: postgresql://synthetic:synthetic@127.0.0.1:1/fixture
+          PRISMA_GENERATE_SKIP_AUTOINSTALL: '1'
+        run: |
+          npx --no-install prisma validate --schema=prisma/schema.prisma
+          npx --no-install prisma generate --schema=prisma/schema.prisma
+          node --test security/tests/prisma-compat.test.mjs
       - name: Collect production dependency audit
         shell: bash
         run: |

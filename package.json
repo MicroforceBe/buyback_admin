@@ -26,7 +26,7 @@
     "jsbarcode": "^3.11.6",
     "recharts": "^2.15.0",
     "lucide-react": "^0.468.0",
-    "@prisma/client": "^6.12.2",
+    "@prisma/client": "6.19.3",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
@@ -42,10 +42,13 @@
     "postcss": "8.5.23",
     "autoprefixer": "10.4.20",
     "@types/pdfkit": "^0.13.6",
-    "prisma": "^6.12.2",
+    "prisma": "6.19.3",
     "@types/qrcode": "^1.5.5"
   },
   "overrides": {
-    "postcss": "8.5.23"
+    "postcss": "8.5.23",
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    }
   }
 }
