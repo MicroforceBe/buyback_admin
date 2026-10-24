@@ -13,6 +13,7 @@ on:
       - security/tests/supabase-compat.test.mjs
       - lib/supabaseAdmin.ts
       - lib/supabaseServer.ts
+      - app/admin/refurb/middleware.ts
       - prisma/schema.prisma
       - lib/prisma.ts
       - .github/workflows/test-dependency-lock.yml
