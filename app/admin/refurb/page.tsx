@@ -358,9 +358,9 @@ while (true) {
 
     const finishedPercent =
       totalItems > 0
-        ? Math.round(
+        ? Math.min(finishedItems === totalItems ? 100 : 99, Math.round(
             (finishedItems / totalItems) * 100
-          )
+          ))
         : 0;
 
     return {
@@ -572,6 +572,7 @@ export default async function RefurbListPage({
   searchParams?: Promise<{
     q?: string;
     msg?: string;
+    show_completed?: string;
   }>;
 }) {
   await requirePageAccess('refurb', false);
@@ -590,6 +591,19 @@ export default async function RefurbListPage({
 
   const isAdmin =
     !!user && (user as any).role === "admin";
+
+  const showCompleted = searchParams?.show_completed === "1";
+  const completedCount = receptions.filter((reception) =>
+    (reception.total_items ?? 0) > 0 &&
+    reception.finished_items_count === reception.total_items
+  ).length;
+  const visibleReceptions = showCompleted ? receptions : receptions.filter((reception) =>
+    !(reception.total_items && reception.finished_items_count === reception.total_items)
+  );
+  const toggleParams = new URLSearchParams();
+  if (q) toggleParams.set("q", q);
+  if (!showCompleted) toggleParams.set("show_completed", "1");
+  const toggleHref = "/admin/refurb" + (toggleParams.size ? "?" + toggleParams.toString() : "");
 
   return (
     <div className="space-y-4">
@@ -624,6 +638,7 @@ export default async function RefurbListPage({
             className="flex gap-2"
             action="/admin/refurb"
           >
+            {showCompleted && <input type="hidden" name="show_completed" value="1" />}
             <input
               name="q"
               defaultValue={q}
@@ -731,12 +746,28 @@ export default async function RefurbListPage({
           </p>
         </div>
 
-        {permits(await getCurrentAdminUser(), "refurb", "write") && <Link
+        {permits(user, "refurb", "write") && <Link
           href="/admin/refurb/new"
           className="bb-btn bb-btn-primary text-sm"
         >
           Nieuwe receptie
         </Link>}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="text-slate-500">
+          {showCompleted ? `${receptions.length} recepties` : `${visibleReceptions.length} openstaande recepties · ${completedCount} afgewerkt verborgen`}
+        </span>
+        <Link
+          href={toggleHref}
+          prefetch={false}
+          role="switch"
+          aria-checked={showCompleted}
+          aria-label="Afgewerkte recepties tonen"
+          className="bb-btn text-sm"
+        >
+          {showCompleted ? "Verberg afgewerkte recepties" : "Toon afgewerkte recepties"}
+        </Link>
       </div>
 
       <table className="w-full text-sm border-collapse">
@@ -775,7 +806,7 @@ export default async function RefurbListPage({
         </thead>
 
         <tbody>
-          {receptions.map((reception) => {
+          {visibleReceptions.map((reception) => {
             const totalItems =
               reception.total_items || 0;
 
@@ -791,6 +822,7 @@ export default async function RefurbListPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
                       href={`/admin/refurb/${reception.id}`}
+                      prefetch={false}
                       className="text-blue-600 underline"
                     >
                       {reception.reception_number}
@@ -927,13 +959,15 @@ export default async function RefurbListPage({
             );
           })}
 
-          {receptions.length === 0 && (
+          {visibleReceptions.length === 0 && (
             <tr>
               <td
                 colSpan={isAdmin ? 7 : 6}
                 className="px-4 py-8 text-center text-sm text-slate-500"
               >
-                Geen recepties gevonden.
+                {!showCompleted && completedCount > 0
+                  ? "Geen openstaande recepties. Toon de afgewerkte recepties om ze te bekijken."
+                  : "Geen recepties gevonden."}
               </td>
             </tr>
           )}
