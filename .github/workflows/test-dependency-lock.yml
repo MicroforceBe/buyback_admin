@@ -1,0 +1,43 @@
+name: Test dependency lock review
+on:
+  push:
+    branches: [security-test]
+    paths:
+      - package.json
+      - package-lock.json
+      - .github/workflows/test-dependency-lock.yml
+permissions:
+  contents: read
+jobs:
+  review:
+    if: github.ref == 'refs/heads/security-test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Resolve exact dependency versions without lifecycle scripts
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Check clean installation from generated lock
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Collect production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > dependency-audit.json && result=0 || result=$?
+          if [ "$result" -gt 1 ]; then exit "$result"; fi
+      - name: Record tested source and installed framework
+        run: |
+          node -e "const fs=require('fs'); fs.writeFileSync('dependency-review.json',JSON.stringify({commit:process.env.GITHUB_SHA,node:process.version,next:require('next/package.json').version,react:require('react/package.json').version},null,2))"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dependency-review
+          path: |
+            package-lock.json
+            dependency-audit.json
+            dependency-review.json
+          retention-days: 7
+          if-no-files-found: error
