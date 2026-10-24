@@ -17,6 +17,14 @@ function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
+// Log only a fixed stage and validated database error code, never message/details or form data.
+function storageFailure(stage: 'order_code' | 'insert', error: any) {
+  const code = typeof error?.code === 'string' && /^(?:PGRST[0-9]{3}|[0-9A-Z]{5})$/.test(error.code)
+    ? error.code : 'UNKNOWN';
+  console.error('[TEST_LEAD_STORAGE_FAILURE]', { stage, code });
+  return j({ error: 'Testaanvraag kon niet opgeslagen worden.', stage, code }, 500);
+}
+
 /**
  * Eenvoudige helper om van de ruwe `answers` JSON een HTML-tabel te maken.
  * Voor nu gebruiken we gewoon de keys en values; later kan dit uitgebreid
@@ -220,7 +228,7 @@ export async function POST(req: Request) {
 
   // Order code volgens jouw oude formaat 'BB########' via RPC
   const { data: ocData, error: ocErr } = await supabase.rpc('next_buyback_order_code_global', { prefix: 'BB' });
-  if (ocErr || !ocData) return j({ error: ocErr?.message || 'Could not allocate order code' }, 500);
+  if (ocErr || !ocData) return storageFailure('order_code', ocErr);
   const order_code: string = String(ocData);
 
   // Insert met order_code, idempotency_key en shop_id + shop_location (compat)
@@ -245,7 +253,7 @@ export async function POST(req: Request) {
     .select('id, order_code, email')
     .single();
 
-  if (error) return j({ error: error.message }, 500);
+  if (error) return storageFailure('insert', error);
 
   // === MAIL: stuur professionele bevestigingsmail (BLOCKING) ===
   try {
