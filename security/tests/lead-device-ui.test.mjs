@@ -39,5 +39,5 @@ test('a lookup failure is visible and preserves provisional text without exposin
 });
 
 test('the actual SKU field accepts a provisional description without selecting an ERP article',async()=>{
- const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);const field=findAll(tree,n=>n.props?.name==='sku')[0];assert.ok(!field.props.readOnly);field.props.onChange({target:{value:'Voorlopige iPad omschrijving'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'Voorlopige iPad omschrijving');assert.ok(text(tree).includes('Controle succesvol'));
+ const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);const field=findAll(tree,n=>n.props?.name==='sku')[0];assert.ok(!field.props.readOnly);field.props.onChange({target:{value:'Voorlopige iPad omschrijving'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'Voorlopige iPad omschrijving');assert.ok(!text(tree).includes('Een omschrijving mag voorlopig'));
 });

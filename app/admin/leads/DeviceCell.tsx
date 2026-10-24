@@ -96,7 +96,6 @@ function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: st
         onClick={() => { setSelectedSku(''); setSelectedTitle(''); setQuery(''); setOpen(false); }}>×</button>}
     </div>
     {selectedTitle && <p className="text-[11px] text-slate-600">{selectedTitle}</p>}
-    <p className="text-[11px] text-gray-500">Een omschrijving mag voorlopig. Voor ‘Controle succesvol’ is een bestaande ERP-SKU nodig.</p>
     {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
     {open && query.trim().length >= 2 && <div className="absolute z-50 mt-1 w-full min-w-[280px] max-h-72 overflow-auto rounded-xl border bg-white shadow-2xl">
       {loading ? <p className="px-3 py-2 text-xs text-slate-500">Zoeken...</p> : results.length ? results.map(row =>
