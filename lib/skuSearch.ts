@@ -14,6 +14,6 @@ export function escapeSkuSearchPattern(value: string): string {
 }
 
 export function matchesSkuExclusions(row: { sku?: string | null; title?: string | null }, excluded: string[]): boolean {
-  const text = `${row.sku ?? ''} ${row.title ?? ''}`.toLowerCase();
+  const text = (row.title ?? '').toLowerCase();
   return !excluded.some(term => text.includes(term.toLowerCase()));
 }

@@ -1218,28 +1218,44 @@ export async function searchLeadSkuAction(query: string) {
   const { included, excluded } = parseSkuSearch(search);
   const positiveSearch = included.join(' ');
   if (positiveSearch.length < 2) return [];
-  const escaped = escapeSkuSearchPattern(positiveSearch);
+  type SkuRow = {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null};
   const base = (untitled = false) => {
     let request = sbClient().from('erp_articles')
       .select('sku,title,price_cents,vat_margin,inventory_qty')
-      .eq('refurbished_product', true).eq('vat_margin', true).eq('missing_from_erp', false);
-    // Exclude before limiting, so excluded rows cannot crowd out valid matches.
-    for (const term of excluded) request = request.not('sku', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
+      .eq('missing_from_erp', false);
     if (untitled) return request.is('title', null);
     for (const term of excluded) request = request.not('title', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
     return request;
   };
-  const requests = [
-    base().ilike('sku', '%' + escaped + '%').limit(20),
-    base().ilike('title', '%' + escaped.split(/\s+/).join('%') + '%').limit(20),
-  ];
-  // NOT ILIKE excludes nulls in SQL. Preserve code matches with no description.
-  if (excluded.length) requests.push(base(true).ilike('sku', '%' + escaped + '%').limit(20));
+  const titleSearch = () => {
+    let request = base();
+    // Each word must occur in the description, in any order.
+    for (const term of included) request = request.ilike('title', '%' + escapeSkuSearchPattern(term) + '%');
+    return request;
+  };
+  const fetchAll = async (makeRequest: () => any): Promise<SkuRow[]> => {
+    const rows: SkuRow[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const result = await makeRequest().order('sku', { ascending: true }).range(offset, offset + pageSize - 1);
+      if (result.error) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
+      const page: SkuRow[] = result.data ?? [];
+      rows.push(...page);
+      if (page.length < pageSize) return rows;
+    }
+  };
+  const requests = [fetchAll(titleSearch)];
+  // A single word can also be an article code. Multiple words all refer to
+  // the description; a code match must not bypass a missing description term.
+  if (included.length === 1) {
+    const codePattern = '%' + escapeSkuSearchPattern(included[0]) + '%';
+    requests.unshift(fetchAll(() => base().ilike('sku', codePattern)));
+    if (excluded.length) requests.push(fetchAll(() => base(true).ilike('sku', codePattern)));
+  }
   const groups = await Promise.all(requests);
-  if (groups.some(group => group.error)) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
   const unique = new Map<string, {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null}>();
-  for (const group of groups) for (const row of group.data ?? []) {
+  for (const group of groups) for (const row of group) {
     if (row.sku && !unique.has(row.sku) && matchesSkuExclusions(row, excluded)) unique.set(row.sku, row);
   }
-  return Array.from(unique.values()).slice(0, 20);
+  return Array.from(unique.values());
 }

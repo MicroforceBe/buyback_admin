@@ -14,9 +14,9 @@ async function harness({before=complete,allowed=true,skuError=false,rows=[{sku:'
   for(let i=0;i<pattern.length;i++){const char=pattern[i];if(char==='\\')regex+=escape(pattern[++i]??'\\');else regex+=char==='%'?'.*':char==='_'?'.':escape(char);}
   return new RegExp(regex+'$','i').test(String(value));
  };
- const db={from(table){state.reads.push(table);let patch=null;const filters=[];let limit=Infinity;
-  const result=()=>table==='buyback_leads'?{data:patch?{...before,...patch}:before,error:null}:skuError?{data:null,error:{message:'PRIVATE ERP ERROR'}}:{data:rows.filter(row=>filters.every(matches=>matches(row))).slice(0,limit),error:null};
-  const q={select(){return q;},eq(k,v){if(table==='erp_articles')filters.push(row=>row[k]===v);return q;},ilike(k,v){filters.push(row=>like(v,row[k]));state.querySteps.push(['ilike',k,v]);return q;},not(k,operator,v){assert.equal(operator,'ilike');filters.push(row=>row[k]!=null&&!like(v,row[k]));state.querySteps.push(['not',k,v]);return q;},is(k,v){filters.push(row=>row[k]===v);state.querySteps.push(['is',k,v]);return q;},limit(n){limit=n;state.querySteps.push(['limit',n]);return q;},update(value){state.writes.push({table,value});patch=value;return q;},insert(value){state.writes.push({table,value});return q;},async maybeSingle(){const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},async single(){const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},then(a,b){return Promise.resolve(result()).then(a,b);}};return q;}};
+ const db={from(table){state.reads.push(table);let patch=null;const filters=[];let limit=Infinity;let start=0;let orderKey;
+  const result=()=>table==='buyback_leads'?{data:patch?{...before,...patch}:before,error:null}:skuError?{data:null,error:{message:'PRIVATE ERP ERROR'}}:{data:rows.filter(row=>filters.every(matches=>matches(row))).sort((a,b)=>orderKey?String(a[orderKey]).localeCompare(String(b[orderKey])):0).slice(start,start+limit),error:null};
+  const q={select(){return q;},eq(k,v){if(table==='erp_articles')filters.push(row=>row[k]===v);return q;},ilike(k,v){filters.push(row=>like(v,row[k]));state.querySteps.push(['ilike',k,v]);return q;},not(k,operator,v){assert.equal(operator,'ilike');filters.push(row=>row[k]!=null&&!like(v,row[k]));state.querySteps.push(['not',k,v]);return q;},is(k,v){filters.push(row=>row[k]===v);state.querySteps.push(['is',k,v]);return q;},limit(n){limit=n;state.querySteps.push(['limit',n]);return q;},order(key){orderKey=key;return q;},range(from,to){start=from;limit=to-from+1;state.querySteps.push(['range',from,to]);return q;},update(value){state.writes.push({table,value});patch=value;return q;},insert(value){state.writes.push({table,value});return q;},async maybeSingle(){const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},async single(){const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},then(a,b){return Promise.resolve(result()).then(a,b);}};return q;}};
  const user={role:'user',email:'synthetic@example.invalid'};
  const context=vm.createContext({Date,console:{log(){},info(){},warn(){},error(){}},process:{env:{}}});
  const imports={
@@ -82,15 +82,15 @@ test('unauthorized actions and short searches cannot read ERP or write leads',as
 });
 
 const article=(sku,title)=>({sku,title,refurbished_product:true,vat_margin:true,missing_from_erp:false,inventory_qty:1,price_cents:10000});
-test('negative terms apply to title and code, case-insensitively, while code hyphens remain literal',async()=>{
+test('negative terms apply to descriptions case-insensitively, while code hyphens remain literal',async()=>{
  const h=await harness({rows:[article('IPHONE-14-128','iPhone 14 128 GB'),article('IPHONE-14-PRO','iPhone 14 Pro'),article('PRO-IPHONE-14','iPhone 14'),article('IPHONE-14-MAX','iPhone 14 Max')]});
- const found=await h.api.searchLeadSkuAction('iphone -PRO -max');assert.deepEqual(Array.from(found,r=>r.sku),['IPHONE-14-128']);
+ const found=await h.api.searchLeadSkuAction('iphone -PRO -max');assert.deepEqual(Array.from(found,r=>r.sku),['IPHONE-14-128','PRO-IPHONE-14']);
  assert.deepEqual(Array.from((await h.api.searchLeadSkuAction('IPHONE-14-128')),r=>r.sku),['IPHONE-14-128']);
 });
 test('exclusion filtering happens before the result limit and retains untitled code matches',async()=>{
  const rows=[...Array.from({length:30},(_,i)=>article('IPHONE-PRO-'+i,'iPhone Pro')),article('IPHONE-REGULAR','iPhone 14'),article('IPHONE-NO-TITLE',null)];
  const h=await harness({rows});const found=await h.api.searchLeadSkuAction('iphone -pro');assert.deepEqual(Array.from(found,r=>r.sku),['IPHONE-REGULAR','IPHONE-NO-TITLE']);
- assert.ok(h.state.querySteps.findIndex(s=>s[0]==='not')<h.state.querySteps.findIndex(s=>s[0]==='limit'));assert.ok(h.state.querySteps.some(s=>s[0]==='is'&&s[1]==='title'&&s[2]===null));
+ assert.ok(h.state.querySteps.findIndex(s=>s[0]==='not')<h.state.querySteps.findIndex(s=>s[0]==='range'));assert.ok(h.state.querySteps.some(s=>s[0]==='is'&&s[1]==='title'&&s[2]===null));
 });
 test('negative terms are literal text, not wildcard or query operators',async()=>{
  const h=await harness({rows:[article('IPAD-A','iPad 100%'),article('IPAD-B','iPad pro_case'),article('IPAD-C','iPad Pro case'),article('IPAD-D','iPad (old), stock'),article('IPAD-E','iPad 128 GB')]});
@@ -99,4 +99,15 @@ test('negative terms are literal text, not wildcard or query operators',async()=
 test('only exclusions or an unfinished minus cannot start an unbounded lookup',async()=>{
  const h=await harness();for(const query of ['-pro','-pro -max',' - '])assert.equal((await h.api.searchLeadSkuAction(query)).length,0);assert.equal(h.state.reads.length,0);
  const parsed=h.search.parseSkuSearch('IPAD-128-A   -pro  -PRO -max');assert.deepEqual(Array.from(parsed.included),['IPAD-128-A']);assert.deepEqual(Array.from(parsed.excluded),['pro','max']);
+});
+
+test('iPad 2025 -air matches every description word in any order and includes ordinary ERP articles',async()=>{
+ const h=await harness({rows:[article('SKU-1','Apple iPad 2025'),{...article('SKU-2','2025 Apple iPad'),vat_margin:false,refurbished_product:false},{...article('SKU-3','Cover for iPad model 2025'),vat_margin:false,refurbished_product:false},article('SKU-4','iPad Air 2025'),article('IPAD-2025-ONLY','Tablet 2024'),article('FAIR-IPAD','iPad 2025')]});
+ const expected=['FAIR-IPAD','SKU-1','SKU-2','SKU-3'];
+ assert.deepEqual(Array.from(await h.api.searchLeadSkuAction('iPad 2025 -air'),r=>r.sku),expected);
+ assert.deepEqual(Array.from(await h.api.searchLeadSkuAction('2025 iPad -AIR'),r=>r.sku),expected);
+});
+test('all matching rows are returned beyond twenty results and across database pages',async()=>{
+ const rows=Array.from({length:503},(_,i)=>({...article('SKU-'+String(i).padStart(4,'0'),'2025 Apple iPad '+i),refurbished_product:false,vat_margin:false}));
+ const h=await harness({rows});const found=await h.api.searchLeadSkuAction('iPad 2025 -air');assert.equal(found.length,503);assert.equal(new Set(found.map(r=>r.sku)).size,503);assert.ok(h.state.querySteps.some(s=>s[0]==='range'&&s[1]===500));
 });
