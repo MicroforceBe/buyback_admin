@@ -15,5 +15,6 @@ for (const name of ['DATABASE_URL', 'DIRECT_URL']) {
   const pooler = url.hostname.endsWith('.pooler.supabase.com') && decodeURIComponent(url.username) === `postgres.${TEST_REF}`;
   if (!direct && !pooler) throw new Error(`Test build refused: ${name} must point to the isolated test project.`);
 }
-const nextConfig = {};
+// Allow a 2 MiB image plus multipart form metadata; the upload actions enforce 2 MiB.
+const nextConfig = { experimental: { serverActions: { bodySizeLimit: '3mb' } } };
 module.exports = nextConfig;

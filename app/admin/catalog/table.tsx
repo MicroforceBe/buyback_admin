@@ -255,12 +255,20 @@ export default function Table({
   async function onFileChange(row: CatalogRow, file?: File | null) {
     const f = file ?? fileInputs.current[row.id]?.files?.[0] ?? null;
     if (!f) return;
+    if (f.size > 2 * 1024 * 1024) {
+      alert('Deze afbeelding is te groot. Kies een afbeelding van maximaal 2 MB.');
+      return;
+    }
     try {
       setPendingId(row.id);
       const fd = new FormData();
       fd.append('rowId', String(row.id));
       fd.append('file', f);
       const res = await uploadCatalogRowImage(fd);
+      if (!res.ok) {
+        alert(res.error);
+        return;
+      }
       const newUrl = (res && (res as any).url) as string | null;
       if (typeof newUrl === 'string' && newUrl.length > 0) {
         setLocalRows((prev) =>
@@ -289,12 +297,20 @@ export default function Table({
     }
     const f = file ?? categoryFileInputRef.current?.files?.[0] ?? null;
     if (!f) return;
+    if (f.size > 2 * 1024 * 1024) {
+      alert('Deze afbeelding is te groot. Kies een afbeelding van maximaal 2 MB.');
+      return;
+    }
     try {
       setCategoryImagePending(true);
       const fd = new FormData();
       fd.append('category', category);
       fd.append('file', f);
       const res = await uploadCategoryImage(fd);
+      if (!res.ok) {
+        alert(res.error);
+        return;
+      }
       const newUrl = (res && (res as any).url) as string | null;
       if (typeof newUrl === 'string' && newUrl.length > 0) {
         setCategoryImageUrl(newUrl);

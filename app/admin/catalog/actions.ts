@@ -275,6 +275,9 @@ export async function uploadCatalogRowImage(form: FormData) {
   const rowIdRaw = form.get('rowId');
 
   if (!file) throw new Error('Geen bestand ontvangen.');
+  if (file.size > 2 * 1024 * 1024) {
+    return { ok: false as const, error: 'Deze afbeelding is te groot. Kies een afbeelding van maximaal 2 MB.' };
+  }
   if (!rowIdRaw) throw new Error('rowId ontbreekt.');
 
   const rowId = Number(rowIdRaw);
@@ -315,7 +318,7 @@ export async function uploadCatalogRowImage(form: FormData) {
   }
 
   revalidatePath('/admin/catalog');
-  return { ok: true, url: publicUrl, path };
+  return { ok: true as const, url: publicUrl, path };
 }
 
 /* =========================================================
@@ -331,6 +334,9 @@ export async function uploadCategoryImage(form: FormData) {
   const categoryRaw = form.get('category');
 
   if (!file) throw new Error('Geen bestand ontvangen.');
+  if (file.size > 2 * 1024 * 1024) {
+    return { ok: false as const, error: 'Deze afbeelding is te groot. Kies een afbeelding van maximaal 2 MB.' };
+  }
   if (!categoryRaw) throw new Error('category ontbreekt.');
 
   const category = String(categoryRaw).trim();
@@ -377,7 +383,7 @@ export async function uploadCategoryImage(form: FormData) {
   }
 
   revalidatePath('/admin/catalog');
-  return { ok: true, url: publicUrl, path };
+  return { ok: true as const, url: publicUrl, path };
 }
 
 /* =========================================================
