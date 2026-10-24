@@ -86,15 +86,14 @@ function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: st
   return <div className="relative space-y-1" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
   }}>
-    <input className={input} value={query} placeholder="Zoek op SKU of omschrijving..." aria-label="Zoek ERP-artikel op SKU of omschrijving"
-      onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} autoComplete="off" />
     <div className="flex items-center gap-1">
       <input name={name} className={`${input} font-mono font-semibold tracking-wide`} value={selectedSku}
-        onChange={event => { setSelectedSku(event.target.value); setSelectedTitle(''); }}
-        aria-label="SKU of voorlopige omschrijving" aria-invalid={invalid} placeholder="SKU of omschrijving" />
+        onChange={event => { setSelectedSku(event.target.value); setSelectedTitle(''); setQuery(event.target.value); setOpen(true); }}
+        onFocus={() => { setQuery(selectedSku); setOpen(true); }} autoComplete="off"
+        aria-label="SKU of voorlopige omschrijving" aria-invalid={invalid} placeholder="SKU of omschrijving zoeken of invullen" />
       <CopyBtn value={selectedSku} title="Kopieer SKU" />
       {selectedSku && <button type="button" className="bb-btn text-xs px-2 h-7" title="SKU wissen" aria-label="SKU wissen"
-        onClick={() => { setSelectedSku(''); setSelectedTitle(''); }}>×</button>}
+        onClick={() => { setSelectedSku(''); setSelectedTitle(''); setQuery(''); setOpen(false); }}>×</button>}
     </div>
     {selectedTitle && <p className="text-[11px] text-slate-600">{selectedTitle}</p>}
     <p className="text-[11px] text-gray-500">Een omschrijving mag voorlopig. Voor ‘Controle succesvol’ is een bestaande ERP-SKU nodig.</p>

@@ -30,12 +30,12 @@ test('each failed check shows its missing serial field, and complete checks rema
 test('cancellation still requires a reason and permission denial still disables saving',async()=>{
  const h=await harness();let tree=h.render(h.status,statusProps);findAll(tree,n=>n.type==='select')[0].props.onChange({target:{value:'cancelled'}});tree=h.render(h.status,statusProps);assert.equal(findAll(tree,n=>n.props?.type==='submit')[0].props.disabled,true);findAll(tree,n=>n.props?.name==='cancel_reason')[0].props.onChange({target:{value:'Test Order'}});tree=h.render(h.status,statusProps);assert.equal(findAll(tree,n=>n.props?.type==='submit')[0].props.disabled,false);tree=h.render(h.status,{...statusProps,canSave:false});assert.equal(findAll(tree,n=>n.props?.type==='submit')[0].props.disabled,true);
 });
-test('typing a description never sets the SKU; selecting a result stores only its code',async()=>{
- const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.type==='input'&&!n.props.name)[0].props.onChange({target:{value:'iPad 128 GB'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'');await h.timers();tree=h.render(h.sku,props);
+test('typing preserves a provisional description; selecting a result replaces it with its code',async()=>{
+ const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.props?.name==='sku')[0].props.onChange({target:{value:'iPad 128 GB'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'iPad 128 GB');await h.timers();tree=h.render(h.sku,props);
  const result=findAll(tree,n=>n.type==='button'&&text(n).includes('IPAD-128-A'))[0];assert.ok(result);result.props.onClick();tree=h.render(h.sku,props);const sku=findAll(tree,n=>n.props?.name==='sku')[0];assert.equal(sku.props.value,'IPAD-128-A');assert.ok(!sku.props.readOnly);assert.ok(sku.props.className.includes('font-mono'));assert.ok(text(tree).includes('iPad 128 GB'));
 });
-test('a lookup failure is visible without exposing provider details or inventing a SKU',async()=>{
- const h=await harness({searchError:true}),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.type==='input'&&!n.props.name)[0].props.onChange({target:{value:'iPad'}});h.render(h.sku,props);await h.timers();tree=h.render(h.sku,props);assert.ok(text(findAll(tree,n=>n.props?.role==='alert')[0]).includes('zoeken mislukt'));assert.ok(!text(tree).includes('PRIVATE'));assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'');
+test('a lookup failure is visible and preserves provisional text without exposing provider details',async()=>{
+ const h=await harness({searchError:true}),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.props?.name==='sku')[0].props.onChange({target:{value:'iPad'}});h.render(h.sku,props);await h.timers();tree=h.render(h.sku,props);assert.ok(text(findAll(tree,n=>n.props?.role==='alert')[0]).includes('zoeken mislukt'));assert.ok(!text(tree).includes('PRIVATE'));assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'iPad');
 });
 
 test('the actual SKU field accepts a provisional description without selecting an ERP article',async()=>{
