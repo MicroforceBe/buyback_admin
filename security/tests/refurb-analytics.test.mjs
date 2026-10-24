@@ -9,6 +9,19 @@ const reception=(id,supplier_id,supplier,reception_date='2026-10-24')=>({id,supp
 const item=(id,reception_id,refurb_status,description,price_cents=10000)=>({id,reception_id,refurb_status,description,price_cents});
 const empty=()=>({receptions:[],items:[],models:[],statuses:[],transitions:[],suppliers:[]});
 const filters={from:'',to:'',supplier:''};
+test('all RMA statuses, RMA labels and compensation history count once, with separate repaired totals',async()=>{
+ const h=await helper();
+ const statuses=[{id:'refund',value:'Refunded',label:'RMA Refunded (Finished)'},{id:'normal',value:'Normal',label:'Normal'}];
+ const values=['RMA','RMA Submitted','RMA Supplier','RMA Refused','RMA to ffix','RMA To Send','Refunded','Booked','New','Normal',null,'RMA_supplier'];
+ const amounts=[null,500,null,null,null,null,null,0,1000,null,250,null];
+ const input={...empty(),statuses,receptions:[{...reception('a','x','Vendor'),reception_number:'TEST-001'}],items:values.map((status,i)=>({...item(String(i),'a',status,'iPad'),compensation_cents:amounts[i]}))};
+ const d=h.buildRefurbAnalytics(input,filters);assert.equal(d.totals.purchased,12);assert.equal(d.totals.rma,11);assert.equal(d.totals.repairedRma,4);assert.equal(d.totals.compensationCents,1750);assert.equal(d.repairedRows.length,4);assert.equal(new Set(d.repairedRows.map(row=>row.id)).size,4);assert.ok(d.repairedRows.some(row=>row.status==='Booked'&&row.compensationCents===0));assert.ok(d.repairedRows.every(row=>row.receptionNumber==='TEST-001'));
+ assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.total,0),11);assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.repaired,0),4);assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.other,0),7);assert.ok(d.rmaByStatus.some(row=>row.name==='RMA Refunded (Finished)'));assert.ok(!d.rmaByStatus.some(row=>row.name==='Normal'));
+});
+test('supplier and period filters also constrain repaired RMA details and compensation amounts',async()=>{
+ const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a','x','X','2026-10-01'),reception('b','y','Y','2026-10-01'),reception('c','x','X','2026-09-30')],items:['a','b','c'].map(id=>({...item(id,id,'Booked','iPad'),compensation_cents:1000}))},{from:'2026-10-01',to:'2026-10-31',supplier:'id:x'});
+ assert.equal(d.totals.rma,1);assert.equal(d.totals.repairedRma,1);assert.equal(d.totals.compensationCents,1000);assert.deepEqual(Array.from(d.repairedRows,row=>row.receptionId),['a']);assert.equal(d.rmaPercent,100);
+});
 test('vendor purchases, cents and weighted RMA percentage count each device exactly once',async()=>{
  const h=await helper(),input={...empty(),receptions:[reception('a','supplier-a','Old A'),reception('b','supplier-b','B')],suppliers:[{id:'supplier-a',name:'A'}],items:[item('1','a','rma','iPad'),item('2','a','booked','iPad',20000),item('3','a','new','iPhone',null),item('4','b','new','Laptop',0),item('orphan','deleted','rma','iPad')]};
  const d=h.buildRefurbAnalytics(input,filters);assert.equal(d.totals.purchased,4);assert.equal(d.totals.purchaseCents,30000);assert.equal(d.totals.missingPrices,1);assert.equal(d.totals.rma,1);assert.equal(d.rmaPercent,25);assert.equal(d.totals.open,3);assert.equal(d.supplierRows[0].name,'A');assert.ok(Math.abs(d.supplierRows[0].rmaPercent-100/3)<1e-10);assert.equal(d.supplierRows[1].missingPrices,0);
