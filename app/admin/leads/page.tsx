@@ -169,6 +169,7 @@ function fmtDate(ts?: string | null) {
   if (!ts) return "—";
   try {
     return new Date(ts).toLocaleString("nl-BE", {
+      timeZone: "Europe/Brussels",
       dateStyle: "short",
       timeStyle: "short",
     });
