@@ -3,8 +3,8 @@
 
 import { Resend } from "resend";
 import {
-  BuybackStatus,
-  TemplateContext,
+  type BuybackStatus,
+  type TemplateContext,
   renderStatusEmail,
 } from "./templates";
 
@@ -66,26 +66,20 @@ export async function sendStatusUpdateMail(input: StatusMailInput) {
     } as TemplateContext,
   });
 
-  if (!resend) {
-    console.warn(
-      "[MAIL][status] RESEND_API_KEY missing – mail wordt niet echt verstuurd"
-    );
-    console.info("[MAIL][status] would send:", { from: fromAddress, to, subject });
-    return;
-  }
+  if (!resend) throw new Error("Maildienst niet ingesteld.");
 
   try {
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: fromAddress,
       to,
       subject,
       html,
     });
-    console.info("[MAIL][status] sent OK", { to, subject });
-  } catch (e: any) {
-    console.error(
-      "[MAIL][status] send failed:",
-      e?.message || e?.toString() || e
-    );
+    if (result.error || !result.data?.id) throw new Error("Mailprovider heeft het bericht niet aanvaard.");
+    console.info("[MAIL][status] accepted");
+    return { id: result.data.id };
+  } catch {
+    console.error("[MAIL][status] delivery failed");
+    throw new Error("Statusmail kon niet verstuurd worden.");
   }
 }
