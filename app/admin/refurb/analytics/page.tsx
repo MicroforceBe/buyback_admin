@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { buildRefurbAnalytics, parseAnalyticsFilters } from '@/lib/refurbAnalytics';
 import { loadAnalyticsInput } from './data';
+import SupplierBars from './SupplierBars';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -50,6 +51,34 @@ export default async function RefurbAnalyticsPage({ searchParams }: { searchPara
       <button type="submit" className="bb-btn bb-btn-primary text-sm">Toepassen</button>
       <Link href="/admin/refurb/analytics" prefetch={false} className="bb-btn text-sm">Filters wissen</Link>
     </form>
+    <section aria-labelledby="open-overview-title" className="space-y-3">
+      <h2 id="open-overview-title" className="text-base font-semibold">Openstaand overzicht</h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-md border bg-white p-4"><div className="text-xs text-slate-500">Openstaande artikelen</div><div className="mt-1 text-2xl font-semibold tabular-nums">{data.openTotals.count}</div></div>
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4"><div className="text-xs text-emerald-800">Totale aankoopwaarde openstaand</div><div className="mt-1 text-2xl font-semibold tabular-nums text-emerald-900">{money(data.openTotals.purchaseCents)}</div></div>
+        <div className="rounded-md border bg-white p-4"><div className="text-xs text-slate-500">RMA zonder eindstatus · aankoopwaarde</div><div className="mt-1 text-2xl font-semibold tabular-nums">{money(data.pendingRmaTotals.purchaseCents)}</div><div className="mt-1 text-xs text-slate-500">{data.pendingRmaTotals.count} artikelen, inbegrepen in openstaand</div></div>
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4"><div className="text-xs text-amber-800">Ingevulde compensatie bij open RMA</div><div className="mt-1 text-2xl font-semibold tabular-nums text-amber-900">{money(data.pendingRmaTotals.compensationCents)}</div><div className="mt-1 text-xs text-amber-800">{data.pendingRmaTotals.withCompensation} met bedrag · {data.pendingRmaTotals.withoutCompensation} zonder bedrag</div></div>
+      </div>
+      {data.openTotals.missingPrices > 0 && <p role="status" className="text-sm text-amber-700">De openstaande aankoopwaarde is onvolledig: {data.openTotals.missingPrices} artikelen hebben geen aankoopprijs.</p>}
+      <div className="grid gap-3 xl:grid-cols-2"><SupplierBars rows={data.openSuppliers} measure="count" /><SupplierBars rows={data.openSuppliers} measure="value" /></div>
+    </section>
+    <section aria-labelledby="pending-rma-title" className="space-y-3">
+      <div><h2 id="pending-rma-title" className="text-base font-semibold">Nog niet verwerkte RMA-bedragen en compensaties</h2><p className="text-xs text-slate-500">RMA-artikelen met een huidige RMA-status zonder eindstatus. Aankoopwaarde en ingevulde compensatie staan apart; ze worden niet bij elkaar opgeteld. Een ontbrekend compensatiebedrag is nog onbekend, geen nulbedrag.</p></div>
+      <div className="overflow-x-auto rounded-md border bg-white"><table className="w-full text-sm">
+        <caption className="sr-only">Nog niet verwerkte RMA per leverancier</caption>
+        <thead className="bg-slate-50"><tr>{['Leverancier', 'Artikelen', 'Aankoopwaarde', 'Ingevulde compensatie', 'Zonder compensatiebedrag'].map((title, i) => <th key={title} scope="col" className={cell + (i ? ' text-right' : ' text-left')}>{title}</th>)}</tr></thead>
+        <tbody>{data.pendingRmaSuppliers.map(row => <tr key={row.key}><th scope="row" className={cell + ' text-left font-medium'}>{row.name}</th><td className={cell + ' text-right'}>{row.count}</td><td className={cell + ' whitespace-nowrap text-right'}>{money(row.purchaseCents)}{row.missingPrices > 0 && <span className="block text-xs text-amber-700">{row.missingPrices} zonder prijs</span>}</td><td className={cell + ' whitespace-nowrap text-right'}>{row.withCompensation ? money(row.compensationCents) : 'Nog niet ingevuld'}</td><td className={cell + ' text-right'}>{row.withoutCompensation}</td></tr>)}{!data.pendingRmaSuppliers.length && <tr><td colSpan={5} className="p-5 text-center text-slate-500">Geen RMA zonder eindstatus binnen deze selectie.</td></tr>}</tbody>
+        <tfoot className="bg-slate-50 font-semibold"><tr><th scope="row" className={cell + ' text-left'}>Totaal</th><td className={cell + ' text-right'}>{data.pendingRmaTotals.count}</td><td className={cell + ' whitespace-nowrap text-right'}>{money(data.pendingRmaTotals.purchaseCents)}</td><td className={cell + ' whitespace-nowrap text-right'}>{data.pendingRmaTotals.withCompensation ? money(data.pendingRmaTotals.compensationCents) : 'Nog niet ingevuld'}</td><td className={cell + ' text-right'}>{data.pendingRmaTotals.withoutCompensation}</td></tr></tfoot>
+      </table></div>
+      <details className="rounded-md border bg-white"><summary className="cursor-pointer p-3 text-sm font-medium">Bekijk de {data.pendingRmaTotals.count} nog niet verwerkte RMA-artikelen</summary>
+        <div className="overflow-x-auto border-t"><table className="w-full text-sm">
+          <caption className="sr-only">Nog niet verwerkte RMA-artikelen met bedragen en huidige status</caption>
+          <thead className="bg-slate-50"><tr>{['Receptie', 'Leverancier', 'Omschrijving', 'Status', 'Aankoopwaarde', 'Compensatie'].map((title, i) => <th key={title} scope="col" className={cell + (i >= 4 ? ' text-right' : ' text-left')}>{title}</th>)}</tr></thead>
+          <tbody>{data.pendingRmaRows.map(row => <tr key={row.id}><td className={cell}><Link href={`/admin/refurb/${row.receptionId}`} prefetch={false} className="text-blue-600 underline">{row.receptionNumber}</Link></td><td className={cell}>{row.supplier}</td><th scope="row" className={cell + ' text-left font-normal'}>{row.description || 'Geen omschrijving'}</th><td className={cell}>{row.status}</td><td className={cell + ' whitespace-nowrap text-right'}>{row.purchaseCents === null ? 'Niet ingevuld' : money(row.purchaseCents)}</td><td className={cell + ' whitespace-nowrap text-right'}>{row.compensationCents === null ? 'Nog niet ingevuld' : money(row.compensationCents)}</td></tr>)}{!data.pendingRmaRows.length && <tr><td colSpan={6} className="p-5 text-center text-slate-500">Geen RMA zonder eindstatus binnen deze selectie.</td></tr>}</tbody>
+        </table></div>
+      </details>
+    </section>
+    <h2 className="text-base font-semibold">Alle aankopen en RMA binnen de selectie</h2>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{cards.map(card => <div key={card.label} className="rounded-md border bg-white p-4"><div className="text-xs text-slate-500">{card.label}</div><div className="mt-1 text-xl font-semibold tabular-nums">{card.value}</div></div>)}</div>
     <p className="text-xs text-slate-500">Zonder datumfilter: alle recepties. RMA totaal telt elk artikel één keer als de status of het statuslabel RMA vermeldt, of als compensatie is ingevuld. Een ingevuld compensatiebedrag telt als herstelde RMA, ook bij een andere huidige status. RMA % = RMA totaal / aangekochte artikelen binnen de gekozen receptieperiode. Overige RMA zijn de RMA-artikelen zonder ingevulde compensatie, inclusief eventuele terugbetalingen. Bedragen zijn opgeslagen bedragen, zonder btw-herberekening.</p>
     {data.totals.missingPrices > 0 && <p role="status" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">Bij {data.totals.missingPrices} artikelen ontbreekt een aankoopprijs. Die bedragen zijn niet meegerekend.</p>}

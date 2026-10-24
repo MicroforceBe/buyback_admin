@@ -56,6 +56,9 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     row.receptions++; vendors.set(supplier.key, row);
   }
   const openGroups = new Map<string, { key: string; model: string; supplier: string; status: string; count: number; purchaseCents: number; missingPrices: number }>();
+  const openSupplierGroups = new Map<string, { key: string; name: string; count: number; purchaseCents: number; missingPrices: number }>();
+  const pendingRmaGroups = new Map<string, { key: string; name: string; count: number; purchaseCents: number; missingPrices: number; compensationCents: number; withCompensation: number; withoutCompensation: number }>();
+  const pendingRmaRows: { id: string; receptionId: string; receptionNumber: string; supplier: string; description: string; status: string; purchaseCents: number | null; compensationCents: number | null }[] = [];
   const repairedRows: { id: string; receptionId: string; receptionNumber: string; supplier: string; model: string; description: string; status: string; compensationCents: number }[] = [];
   const rmaStatusGroups = new Map<string, { key: string; name: string; total: number; repaired: number; other: number }>();
   for (const item of input.items) {
@@ -67,7 +70,16 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     const cents = priced ? item.price_cents! : 0;
     row.purchased++; row.purchaseCents += cents; row.missingPrices += priced ? 0 : 1;
     const repaired = typeof item.compensation_cents === 'number' && Number.isFinite(item.compensation_cents);
-    const isRma = repaired || rmaStatuses.has(status) || mentionsRma(status);
+    const currentRmaStatus = rmaStatuses.has(status) || mentionsRma(status);
+    const isRma = repaired || currentRmaStatus;
+    const finished = isFinished(status);
+    if (currentRmaStatus && !finished) {
+      const pending = pendingRmaGroups.get(supplier.key) ?? { ...supplier, count: 0, purchaseCents: 0, missingPrices: 0, compensationCents: 0, withCompensation: 0, withoutCompensation: 0 };
+      pending.count++; pending.purchaseCents += cents; pending.missingPrices += priced ? 0 : 1;
+      if (repaired) { pending.withCompensation++; pending.compensationCents += item.compensation_cents!; } else pending.withoutCompensation++;
+      pendingRmaGroups.set(supplier.key, pending);
+      pendingRmaRows.push({ id: item.id, receptionId: reception.id, receptionNumber: reception.reception_number || reception.id, supplier: supplier.name, description: item.description ?? '', status: labels.get(status) || item.refurb_status?.trim() || 'Geen status', purchaseCents: priced ? cents : null, compensationCents: repaired ? item.compensation_cents! : null });
+    }
     if (isRma) {
       row.rma++;
       const group = rmaStatusGroups.get(status) ?? { key: status, name: labels.get(status) || item.refurb_status?.trim() || 'Geen status', total: 0, repaired: 0, other: 0 };
@@ -78,8 +90,11 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
       } else group.other++;
       rmaStatusGroups.set(status, group);
     }
-    if (isFinished(status)) continue;
+    if (finished) continue;
     row.open++;
+    const openSupplier = openSupplierGroups.get(supplier.key) ?? { ...supplier, count: 0, purchaseCents: 0, missingPrices: 0 };
+    openSupplier.count++; openSupplier.purchaseCents += cents; openSupplier.missingPrices += priced ? 0 : 1;
+    openSupplierGroups.set(supplier.key, openSupplier);
     const model = modelFor(item.description), key = JSON.stringify([model, supplier.key, status]);
     const group = openGroups.get(key) ?? { key, model, supplier: supplier.name, status: labels.get(status) || item.refurb_status?.trim() || 'Geen status', count: 0, purchaseCents: 0, missingPrices: 0 };
     group.count++; group.purchaseCents += cents; group.missingPrices += priced ? 0 : 1; openGroups.set(key, group);
@@ -87,10 +102,14 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
   const supplierRows = Array.from(vendors.values()).map(row => ({ ...row, rmaPercent: row.purchased ? row.rma / row.purchased * 100 : 0 })).sort((a, b) => b.purchased - a.purchased || a.name.localeCompare(b.name, 'nl'));
   const totals = supplierRows.reduce((sum, row) => ({ purchased: sum.purchased + row.purchased, purchaseCents: sum.purchaseCents + row.purchaseCents, missingPrices: sum.missingPrices + row.missingPrices, rma: sum.rma + row.rma, repairedRma: sum.repairedRma + row.repairedRma, compensationCents: sum.compensationCents + row.compensationCents, open: sum.open + row.open }), { purchased: 0, purchaseCents: 0, missingPrices: 0, rma: 0, repairedRma: 0, compensationCents: 0, open: 0 });
   const openRows = Array.from(openGroups.values()).sort((a, b) => a.model.localeCompare(b.model, 'nl') || a.supplier.localeCompare(b.supplier, 'nl') || a.status.localeCompare(b.status, 'nl'));
+  const openSuppliers = Array.from(openSupplierGroups.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'nl'));
+  const openTotals = openSuppliers.reduce((sum, row) => ({ count: sum.count + row.count, purchaseCents: sum.purchaseCents + row.purchaseCents, missingPrices: sum.missingPrices + row.missingPrices }), { count: 0, purchaseCents: 0, missingPrices: 0 });
+  const pendingRmaSuppliers = Array.from(pendingRmaGroups.values()).sort((a, b) => b.purchaseCents - a.purchaseCents || a.name.localeCompare(b.name, 'nl'));
+  const pendingRmaTotals = pendingRmaSuppliers.reduce((sum, row) => ({ count: sum.count + row.count, purchaseCents: sum.purchaseCents + row.purchaseCents, missingPrices: sum.missingPrices + row.missingPrices, compensationCents: sum.compensationCents + row.compensationCents, withCompensation: sum.withCompensation + row.withCompensation, withoutCompensation: sum.withoutCompensation + row.withoutCompensation }), { count: 0, purchaseCents: 0, missingPrices: 0, compensationCents: 0, withCompensation: 0, withoutCompensation: 0 });
   const summarize = (field: 'model' | 'supplier' | 'status') => {
     const counts = new Map<string, number>();
     for (const row of openRows) counts.set(row[field], (counts.get(row[field]) ?? 0) + row.count);
     return Array.from(counts, ([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'nl'));
   };
-  return { availableSuppliers, supplierRows, totals, rmaPercent: totals.purchased ? totals.rma / totals.purchased * 100 : 0, repairedRows, rmaByStatus: Array.from(rmaStatusGroups.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'nl')), openRows, byModel: summarize('model'), bySupplier: summarize('supplier'), byStatus: summarize('status') };
+  return { availableSuppliers, supplierRows, totals, rmaPercent: totals.purchased ? totals.rma / totals.purchased * 100 : 0, repairedRows, rmaByStatus: Array.from(rmaStatusGroups.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'nl')), openRows, openSuppliers, openTotals, pendingRmaSuppliers, pendingRmaTotals, pendingRmaRows, byModel: summarize('model'), bySupplier: summarize('supplier'), byStatus: summarize('status') };
 }
