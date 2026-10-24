@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/erp/import/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -67,6 +69,7 @@ function parseCapacity(value: string | null) {
 
 async function importErpArticlesAction(formData: FormData) {
   "use server";
+  await requireAccess('erp', 'write', false);
 
   const csv = String(formData.get("csv") || "").trim();
 
@@ -173,16 +176,19 @@ async function importErpArticlesAction(formData: FormData) {
 }
 
 export default async function ErpImportPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     msg?: string;
     total?: string;
     inserted?: string;
     updated?: string;
     skipped?: string;
-  };
+  }>;
 }) {
+  await requirePageAccess('erp', false);
+  const searchParams = await incomingSearchParams;
+
   await requireAdminUser();
   const msg = String(searchParams?.msg || "");
 
@@ -264,3 +270,6 @@ export default async function ErpImportPage({
     </div>
   );
 }
+
+
+

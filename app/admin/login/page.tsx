@@ -1,3 +1,4 @@
+import { requireLoginOrigin } from '@/lib/security/access';
 // app/admin/login/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { cookies, headers } from "next/headers";
@@ -10,6 +11,7 @@ export const runtime = "nodejs";
 
 async function loginAction(formData: FormData) {
   "use server";
+  await requireLoginOrigin();
 
   const rawEmail = (formData.get("email") as string | null) ?? "";
   const email = rawEmail.trim().toLowerCase();
@@ -33,7 +35,7 @@ async function loginAction(formData: FormData) {
     return invalidRedirect();
   }
 
-  if (user.is_active === false) {
+  if (user.is_active !== true) {
     return invalidRedirect();
   }
 
@@ -52,7 +54,7 @@ async function loginAction(formData: FormData) {
   const now = new Date();
   const expires = new Date(now.getTime() + 1000 * 60 * 60 * 8); // 8u
 
-  const hdrs = headers();
+  const hdrs = await headers();
   const ip =
     hdrs.get("x-forwarded-for") ||
     hdrs.get("x-real-ip") ||
@@ -74,7 +76,7 @@ async function loginAction(formData: FormData) {
     return invalidRedirect();
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   cookieStore.set("bb_admin_session", sessionToken, {
     httpOnly: true,
     sameSite: "lax",
@@ -87,10 +89,11 @@ async function loginAction(formData: FormData) {
 }
 
 export default async function LoginPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: { msg?: string };
+  searchParams?: Promise<{ msg?: string }>;
 }) {
+  const searchParams = await incomingSearchParams;
   const msg = searchParams?.msg;
 
   let errorText: string | null = null;
@@ -158,3 +161,6 @@ export default async function LoginPage({
     </div>
   );
 }
+
+
+

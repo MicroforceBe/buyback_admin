@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/sessions/[id]/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -6,9 +7,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
 const TEST_LABELS: Record<string, string> = {
@@ -41,8 +42,11 @@ function getBadgeClass(value: string) {
 }
 
 export default async function DiagnosticsSessionDetailPage({
-  params,
+  params: incomingParams,
 }: Props) {
+  await requirePageAccess('refurb', false);
+  const params = await incomingParams;
+
   const { data: session } = await supabaseAdmin
     .from("diagnostics_sessions")
     .select("*")
@@ -221,4 +225,7 @@ export default async function DiagnosticsSessionDetailPage({
     </div>
   );
 }
+
+
+
 

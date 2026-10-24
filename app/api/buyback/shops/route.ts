@@ -1,3 +1,6 @@
+import { apiAccess } from '@/lib/security/access';
+import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
+import { permits } from '@/lib/security/policy';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,9 +16,12 @@ const supabase = createClient(
 function j(data:any, status=200){ return NextResponse.json(data, { status }); }
 
 export async function GET() {
-  const { data, error } = await supabase
+  const canManage = permits(await getCurrentAdminUser(), 'settings', 'read');
+  let query = supabase
     .from('buyback_shops')
-    .select('id, name, address1, zip, city, opening_hours, active, created_at, updated_at')
+    .select('id, name, address1, zip, city, opening_hours, active, created_at, updated_at');
+  if (!canManage) query = query.eq('active', true);
+  const { data, error } = await query
     .order('name', { ascending: true });
 
   if (error) return j({ error: error.message }, 500);
@@ -23,6 +29,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const accessDenied = await apiAccess(req, 'settings', 'write', false);
+  if (accessDenied) return accessDenied;
+
   const body = await req.json().catch(() => ({}));
   const {
     name,
@@ -44,3 +53,4 @@ export async function POST(req: Request) {
   if (error) return j({ error: error.message }, 500);
   return j({ ok: true, id: data?.id }, 201);
 }
+

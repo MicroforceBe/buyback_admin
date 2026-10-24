@@ -1,4 +1,6 @@
 'use server';
+import { requireAccess } from '@/lib/security/access';
+
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -89,6 +91,8 @@ function sanitizeForLanding(record: Record<string, any>, isPrices: boolean) {
 }
 
 export async function importCsv(input: z.input<typeof FileSchema>): Promise<ImportResult> {
+  await requireAccess('uploads', 'write', false);
+
   try {
     const { type, csv } = FileSchema.parse(input);
 
@@ -181,3 +185,4 @@ export async function importCsv(input: z.input<typeof FileSchema>): Promise<Impo
     return { ok: false, error: e?.message || 'Onbekende fout' };
   }
 }
+

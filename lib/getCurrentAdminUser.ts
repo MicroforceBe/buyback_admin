@@ -1,7 +1,9 @@
 // lib/getCurrentAdminUser.ts
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
+import { ALL_FEATURES } from "@/lib/adminPermissions";
+import { validSessionTime } from "@/lib/security/policy";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AdminRole, AdminPermissions, AdminFeature } from "@/lib/adminPermissions";
 
@@ -18,14 +20,6 @@ type RawAdminUserRow = {
   is_active: boolean | null;
 };
 
-const ALL_FEATURES: AdminFeature[] = [
-  "dashboard",
-  "leads",
-  "catalog",
-  "multipliers",
-  "uploads",
-  "settings",
-];
 
 function normalizePermissions(
   raw: any,
@@ -61,12 +55,11 @@ function normalizePermissions(
  * - Tabel: buyback_admin_sessions + buyback_admin_users
  */
 export async function getCurrentAdminUser(): Promise<AdminUser | null> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const sessionToken = cookieStore.get("bb_admin_session")?.value;
 
-  if (!sessionToken) return null;
+  if (!sessionToken || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionToken)) return null;
 
-  const now = new Date().toISOString();
 
   const { data, error } = await supabaseAdmin
     .from("buyback_admin_sessions")
@@ -88,25 +81,14 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
     .maybeSingle();
 
   if (error || !data) {
-    // Ongeldige sessie → cookie verwijderen?
-    cookieStore.delete("bb_admin_session");
     return null;
   }
 
-  const revoked = data.revoked_at;
-  if (revoked) {
-    cookieStore.delete("bb_admin_session");
-    return null;
-  }
+  if (!validSessionTime(data.expires_at, data.revoked_at)) return null;
 
-  if (data.expires_at && data.expires_at < now) {
-    cookieStore.delete("bb_admin_session");
-    return null;
-  }
-
-  const user = (data as any).user as RawAdminUserRow | null;
-  if (!user || user.is_active === false) {
-    cookieStore.delete("bb_admin_session");
+  const relation = (data as any).user;
+  const user = (Array.isArray(relation) ? relation[0] : relation) as RawAdminUserRow | null;
+  if (!user || user.is_active !== true || !["admin", "user"].includes(user.role || "")) {
     return null;
   }
 
@@ -119,3 +101,6 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
     permissions,
   };
 }
+
+
+

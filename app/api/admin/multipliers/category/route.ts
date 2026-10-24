@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 // app/api/admin/multipliers/category/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -61,6 +62,9 @@ type Body = {
 /* ===================== GET: basis-set + modellen ===================== */
 
 export async function GET(req: NextRequest) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'read', false);
+  if (accessDenied) return accessDenied;
+
   try {
     const url = new URL(req.url);
     const categoryRaw = (url.searchParams.get('category') || '').trim();
@@ -221,6 +225,9 @@ export async function GET(req: NextRequest) {
 /* ===================== POST: basis categorie-set opslaan ===================== */
 
 export async function POST(req: NextRequest) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'write', false);
+  if (accessDenied) return accessDenied;
+
   try {
     const supabase = sbAdmin();
     const body = (await req.json()) as Body;
@@ -275,3 +282,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

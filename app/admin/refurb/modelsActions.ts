@@ -1,5 +1,7 @@
 // app/admin/refurb/modelsActions.ts
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
@@ -12,6 +14,8 @@ export type RefurbModelRow = {
 };
 
 export async function getRefurbModelRows(): Promise<RefurbModelRow[]> {
+  await requireAccess('refurb', 'read', false);
+
   const { data, error } = await supabaseAdmin
     .from("refurb_models")
     .select("id, name, search_keywords")
@@ -26,6 +30,8 @@ export async function getRefurbModelRows(): Promise<RefurbModelRow[]> {
 }
 
 export async function saveRefurbModelRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     throw new Error("Geen rechten om refurb modellen te beheren.");
@@ -68,6 +74,8 @@ export async function saveRefurbModelRow(formData: FormData) {
 }
 
 export async function deleteRefurbModelRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     throw new Error("Geen rechten om refurb modellen te beheren.");
@@ -88,3 +96,4 @@ export async function deleteRefurbModelRow(formData: FormData) {
 
   revalidatePath("/admin/refurb/models");
 }
+

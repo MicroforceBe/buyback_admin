@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 //app/settings/page.tsx
 
 import ShopsSettingsClient from './shops/ShopsSettingsClient';
@@ -7,6 +8,8 @@ import { hasPermission } from '@/lib/adminPermissions';
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
+  await requirePageAccess('settings', true);
+
   const current = await getCurrentAdminUser();
   const canEdit = current ? hasPermission(current, 'settings', 'write') : false;
 
@@ -26,3 +29,4 @@ export default async function SettingsPage() {
     </div>
   );
 }
+

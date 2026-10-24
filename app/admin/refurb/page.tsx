@@ -1,3 +1,7 @@
+import { permits } from '@/lib/security/policy';
+import { deleteRefurbReception } from "./actions";
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/refurb/page.tsx
 
 import Link from "next/link";
@@ -523,6 +527,7 @@ async function deleteRefurbReceptionAction(
   formData: FormData
 ) {
   "use server";
+  await requireAccess('refurb', 'write', false);
 
   const user = await getCurrentAdminUser();
 
@@ -542,32 +547,16 @@ async function deleteRefurbReceptionAction(
     );
   }
 
-  const { error: delItemsErr } =
-    await supabaseAdmin
-      .from("refurb_reception_items")
-      .delete()
-      .eq("reception_id", receptionId);
-
-  if (delItemsErr) {
-    redirect(
-      `/admin/refurb?msg=delete_items_error:${encodeURIComponent(
-        delItemsErr.message
-      )}`
-    );
+  let deletionFailed = false;
+  try {
+    await deleteRefurbReception(receptionId);
+  } catch {
+    deletionFailed = true;
   }
 
-  const { error: delRecErr } =
-    await supabaseAdmin
-      .from("refurb_receptions")
-      .delete()
-      .eq("id", receptionId);
-
-  if (delRecErr) {
-    redirect(
-      `/admin/refurb?msg=delete_reception_error:${encodeURIComponent(
-        delRecErr.message
-      )}`
-    );
+  // redirect throws internally: keep it outside the try/catch.
+  if (deletionFailed) {
+    redirect("/admin/refurb?msg=delete_reception_failed");
   }
 
   revalidatePath("/admin/refurb");
@@ -578,12 +567,16 @@ async function deleteRefurbReceptionAction(
 }
 
 export default async function RefurbListPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string;
-  };
+    msg?: string;
+  }>;
 }) {
+  await requirePageAccess('refurb', false);
+  const searchParams = await incomingSearchParams;
+
   const q = String(
     searchParams?.q || ""
   ).trim();
@@ -600,6 +593,18 @@ export default async function RefurbListPage({
 
   return (
     <div className="space-y-4">
+      {searchParams?.msg === "delete_reception_failed" && (
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          De receptie is niet verwijderd. Een receptie met geboekte toestellen mag
+          niet worden verwijderd. Controleer de toestelstatussen en probeer het
+          indien nodig opnieuw.
+        </div>
+      )}
+      {searchParams?.msg === "deleted_reception" && (
+        <div role="status" className="rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          De receptie is verwijderd.
+        </div>
+      )}
       <details
         className="rounded-md border bg-white"
         open={!!q}
@@ -726,12 +731,12 @@ export default async function RefurbListPage({
           </p>
         </div>
 
-        <Link
+        {permits(await getCurrentAdminUser(), "refurb", "write") && <Link
           href="/admin/refurb/new"
           className="bb-btn bb-btn-primary text-sm"
         >
           Nieuwe receptie
-        </Link>
+        </Link>}
       </div>
 
       <table className="w-full text-sm border-collapse">
@@ -937,3 +942,6 @@ export default async function RefurbListPage({
     </div>
   );
 }
+
+
+

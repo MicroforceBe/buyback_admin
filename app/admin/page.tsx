@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/page.tsx
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export default async function AdminDashboardPage() {
+  await requirePageAccess('dashboard', false);
+
   // 🔐 1) Ingelogde admin ophalen
   const adminUser = await getCurrentAdminUser();
 
@@ -133,3 +136,4 @@ export default async function AdminDashboardPage() {
     </div>
   );
 }
+

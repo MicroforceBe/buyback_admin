@@ -1,5 +1,6 @@
 // app/api/buyback/lead/route.ts
 import { NextResponse } from 'next/server';
+import { verifyLeadPrice, LeadPriceError } from '@/lib/verifyLeadPrice';
 import { createClient } from '@supabase/supabase-js';
 import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
 
@@ -15,6 +16,14 @@ const supabase = createClient(
 
 function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
+}
+
+// Log only a fixed stage and validated database error code, never message/details or form data.
+function storageFailure(stage: 'order_code' | 'insert', error: any) {
+  const code = typeof error?.code === 'string' && /^(?:PGRST[0-9]{3}|[0-9A-Z]{5})$/.test(error.code)
+    ? error.code : 'UNKNOWN';
+  console.error('[LEAD_STORAGE_FAILURE]', { stage, code });
+  return j({ error: 'Aanvraag kon niet opgeslagen worden.', stage, code }, 500);
 }
 
 /**
@@ -107,9 +116,8 @@ export async function POST(req: Request) {
   const raw = await req.text(); // altijd eerst ruwe body
   
   // zet korte log (max 500 chars) — zichtbaar in Vercel → Project → Deployments → Logs (Runtime)
-  console.log('[ADMIN][LEAD] content-type =', ct);
-  console.log('[ADMIN][LEAD] raw body preview =', raw.slice(0, 500));
-  
+
+
   if (!raw || !raw.trim()) {
     return j({ error: 'Empty body (no JSON received)' }, 400);
   }
@@ -121,8 +129,7 @@ export async function POST(req: Request) {
     return j({
       error: 'Invalid JSON',
       message: String(e?.message || e),
-      hint: 'Controleer aanhalingstekens en header content-type: application/json',
-      received_preview: raw.slice(0, 200)
+      hint: 'Controleer aanhalingstekens en header content-type: application/json'
     }, 400);
   }
 
@@ -164,15 +171,15 @@ export async function POST(req: Request) {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
-  // 🧠 NIEUW: HTML uit de widget gebruiken als die bestaat
-  let questions_answers_html: string | null = null;
-  if (typeof body?.questions_answers_html === 'string' && body.questions_answers_html.trim()) {
-    questions_answers_html = body.questions_answers_html;
-    console.info('[ADMIN][LEAD] using questions_answers_html from widget');
-  } else {
-    questions_answers_html = buildQuestionsAnswersHtml(answers);
-    console.info('[ADMIN][LEAD] using server-side fallback questions_answers_html');
+  let quote: Awaited<ReturnType<typeof verifyLeadPrice>>;
+  try {
+    quote = await verifyLeadPrice(supabase, body);
+  } catch (error) {
+    if (error instanceof LeadPriceError) return j({ error: error.message, code: error.code }, error.status);
+    return j({ error: 'Prijscontrole tijdelijk niet beschikbaar.', code: 'QUOTE_UNAVAILABLE' }, 503);
   }
+  // Generate text from validated answers; never trust client-supplied email HTML.
+  const questions_answers_html = buildQuestionsAnswersHtml(answers);
 
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
@@ -186,14 +193,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // voucher +5% — afronden op 5 euro (zoals in de widget)
-  let voucher_bonus_cents = 0;
-  let final_price_with_voucher_cents = final_price_cents;
-  if (wants_voucher) {
-    const withBonus = Math.round(final_price_cents * 1.05);
-    final_price_with_voucher_cents = Math.round(withBonus / 500) * 500;
-    voucher_bonus_cents = final_price_with_voucher_cents - final_price_cents;
-  }
+  const { voucher_bonus_cents, final_price_with_voucher_cents } = quote;
 
   // Als er een shop_id is, haal naam/adres/openingsuren op (maildetails)
   let resolved_shop_location = shop_location as string | null;
@@ -222,7 +222,7 @@ export async function POST(req: Request) {
 
   // Order code volgens jouw oude formaat 'BB########' via RPC
   const { data: ocData, error: ocErr } = await supabase.rpc('next_buyback_order_code_global', { prefix: 'BB' });
-  if (ocErr || !ocData) return j({ error: ocErr?.message || 'Could not allocate order code' }, 500);
+  if (ocErr || !ocData) return storageFailure('order_code', ocErr);
   const order_code: string = String(ocData);
 
   // Insert met order_code, idempotency_key en shop_id + shop_location (compat)
@@ -231,7 +231,7 @@ export async function POST(req: Request) {
     .insert([{
       source, model, capacity_gb, answers,
       variant: variant || null,
-      base_price_cents, final_price_cents,
+      base_price_cents: quote.base_price_cents, final_price_cents: quote.final_price_cents,
       final_price_with_voucher_cents, voucher_bonus_cents,
       first_name, last_name, customer_name,
       email, phone,
@@ -247,7 +247,7 @@ export async function POST(req: Request) {
     .select('id, order_code, email')
     .single();
 
-  if (error) return j({ error: error.message }, 500);
+  if (error) return storageFailure('insert', error);
 
   // === MAIL: stuur professionele bevestigingsmail (BLOCKING) ===
   try {
@@ -270,8 +270,8 @@ export async function POST(req: Request) {
       model,
       capacity_gb,
       variant: variant || null,   // ⬅️ VARIANT HIER MEEGEVEN
-      base_price_cents,
-      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+      base_price_cents: quote.base_price_cents,
+      final_price_cents: wants_voucher ? final_price_with_voucher_cents : quote.final_price_cents,
       wants_voucher,
 
       // antwoorden/conditie uit de widget (ruw object én HTML)
@@ -312,3 +312,4 @@ export async function POST(req: Request) {
   // Response pas NA de mail
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
+

@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/catalog/page.tsx
 
 import Link from "next/link";
@@ -8,15 +9,18 @@ import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
 
 type Props = {
-  searchParams?: {
+  searchParams?: Promise<{
     category?: string;
     q?: string;
-  };
+  }>;
 };
 
 export const revalidate = 0; // altijd vers (admin)
 
-export default async function CatalogPage({ searchParams }: Props) {
+export default async function CatalogPage({ searchParams: incomingSearchParams }: Props) {
+  await requirePageAccess('catalog', false);
+  const searchParams = await incomingSearchParams;
+
   // 🔐 Auth + rechten
   const adminUser = await getCurrentAdminUser();
 
@@ -165,3 +169,6 @@ function CategoryTile(props: {
     </Link>
   );
 }
+
+
+

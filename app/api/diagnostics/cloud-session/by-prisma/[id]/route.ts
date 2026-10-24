@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -6,13 +7,17 @@ export const dynamic = "force-dynamic";
 export async function GET(
   req: Request,
   {
-    params,
+    params: incomingParams,
   }: {
-    params: {
+    params: Promise<{
       id: string;
-    };
+    }>;
   }
 ) {
+  const accessDenied = await diagnosticAccess(req, 'read');
+  if (accessDenied) return accessDenied;
+  const params = await incomingParams;
+
   try {
     const prismaSessionId =
       params.id;
@@ -76,3 +81,6 @@ export async function GET(
     );
   }
 }
+
+
+

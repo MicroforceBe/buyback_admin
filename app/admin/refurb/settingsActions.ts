@@ -1,5 +1,7 @@
 // app/admin/refurb/settingsActions.ts
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -31,6 +33,8 @@ export type RefurbLocationOption = {
 // ===============================
 
 export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
+  await requireAccess('refurb', 'read', false);
+
   const { data, error } = await supabaseAdmin
     .from("refurb_status_options")
     .select("id, value, label, is_default, sort_order, color, admin_only, need_sku")
@@ -55,6 +59,8 @@ export async function getRefurbStatusOptions(): Promise<RefurbStatusOption[]> {
 }
 
 export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]> {
+  await requireAccess('refurb', 'read', false);
+
   const { data, error } = await supabaseAdmin
     .from("refurb_location_options")
     .select("id, value, label, is_default, sort_order")
@@ -75,6 +81,8 @@ export async function getRefurbLocationOptions(): Promise<RefurbLocationOption[]
 export type RefurbStatusTransitionsMap = Record<string, string[]>; // from_status_id -> [to_status_id...]
 
 export async function getRefurbStatusTransitions(): Promise<RefurbStatusTransitionsMap> {
+  await requireAccess('refurb', 'read', false);
+
   const { data, error } = await supabaseAdmin
     .from("refurb_status_transitions")
     .select("from_status_id, to_status_id");
@@ -98,6 +106,8 @@ export async function saveRefurbStatusTransitions(input: {
   from_status_id: string;
   to_status_ids: string[];
 }) {
+  await requireAccess('refurb', 'write', true);
+
   const from_status_id = (input.from_status_id || "").toString().trim();
   const to_status_ids = (input.to_status_ids || []).map((x) => String(x)).filter(Boolean);
 
@@ -141,6 +151,8 @@ function formBool(v: FormDataEntryValue | null): boolean {
   return s === "on" || s === "true" || s === "1" || s === "yes"; }
 
 export async function saveRefurbStatusRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
   const label = (formData.get("label") as string | null)?.trim() ?? "";
@@ -181,6 +193,8 @@ export async function saveRefurbStatusRow(formData: FormData) {
 }
 
 export async function deleteRefurbStatusRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = formData.get("id") as string | null;
   if (!id) return;
 
@@ -193,6 +207,8 @@ export async function deleteRefurbStatusRow(formData: FormData) {
 }
 
 export async function setDefaultRefurbStatus(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = formData.get("id") as string | null;
   if (!id) return;
 
@@ -218,6 +234,8 @@ export async function setDefaultRefurbStatus(formData: FormData) {
 // ===============================
 
 export async function saveRefurbLocationRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = (formData.get("id") as string | null) || null;
   const value = (formData.get("value") as string | null)?.trim() ?? "";
   const label = (formData.get("label") as string | null)?.trim() ?? "";
@@ -245,6 +263,8 @@ export async function saveRefurbLocationRow(formData: FormData) {
 }
 
 export async function deleteRefurbLocationRow(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = formData.get("id") as string | null;
   if (!id) return;
 
@@ -257,6 +277,8 @@ export async function deleteRefurbLocationRow(formData: FormData) {
 }
 
 export async function setDefaultRefurbLocation(formData: FormData) {
+  await requireAccess('refurb', 'write', true);
+
   const id = formData.get("id") as string | null;
   if (!id) return;
 
@@ -276,3 +298,4 @@ export async function setDefaultRefurbLocation(formData: FormData) {
     throw error;
   }
 }
+

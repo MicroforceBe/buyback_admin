@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/analytics/page.tsx
 
 import { redirect } from "next/navigation";
@@ -144,10 +145,13 @@ async function getLeads(from: string, to: string): Promise<AnalyticsLead[]> {
 }
 
 export default async function LeadsAnalyticsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: Promise<SearchParams>;
 }) {
+  await requirePageAccess('leads', false);
+  const searchParams = await incomingSearchParams;
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -186,3 +190,6 @@ export default async function LeadsAnalyticsPage({
     />
   );
 }
+
+
+

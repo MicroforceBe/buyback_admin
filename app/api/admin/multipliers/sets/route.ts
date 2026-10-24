@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 // app/api/admin/multipliers/sets/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
@@ -23,6 +24,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET(req: Request) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'read', false);
+  if (accessDenied) return accessDenied;
+
   try {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category')?.trim();
@@ -65,3 +69,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: err?.message || 'Unexpected error' }, { status: 500 });
   }
 }
+

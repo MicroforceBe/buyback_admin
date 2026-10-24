@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 // app/api/device-intake/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -83,13 +84,11 @@ function buildGradeSearchTerms(
 }
 
 export async function POST(req: Request) {
+  const accessDenied = await diagnosticAccess(req, 'write');
+  if (accessDenied) return accessDenied;
+
   try {
     const body = await req.json();
-
-    console.log("DEVICE INTAKE BODY");
-    console.log(
-      JSON.stringify(body, null, 2)
-    );
 
     const imei = body.imei || null;
     const serialNumber =
@@ -309,16 +308,6 @@ export async function POST(req: Request) {
 
       securityFailures,
     };
-
-    console.log("DEVICE DATA");
-
-    console.log(
-      JSON.stringify(
-        deviceData,
-        null,
-        2
-      )
-    );
 
     const deviceUnit =
       existingDevice
@@ -589,3 +578,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

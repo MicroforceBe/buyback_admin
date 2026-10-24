@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
 
@@ -13,8 +14,12 @@ export const runtime = "nodejs";
 // GET /api/admin/leads/:id/events
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params: incomingParams }: { params: Promise<{ id: string }> }
 ) {
+  const accessDenied = await apiAccess(_req, 'leads', 'read', false);
+  if (accessDenied) return accessDenied;
+  const params = await incomingParams;
+
   const id = params?.id;
   if (!id) {
     return NextResponse.json({ error: "missing lead id" }, { status: 400 });
@@ -36,3 +41,6 @@ export async function GET(
 
   return NextResponse.json({ data }, { status: 200 });
 }
+
+
+

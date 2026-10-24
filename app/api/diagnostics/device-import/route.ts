@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 //app/api/diagnostics/device-import/route.ts 
 
 import { NextResponse } from "next/server";
@@ -23,6 +24,9 @@ function toNullableNumber(value: unknown) {
 }
 
 export async function POST(request: Request) {
+  const accessDenied = await diagnosticAccess(request, 'write');
+  if (accessDenied) return accessDenied;
+
   try {
     const body = await request.json();
 
@@ -129,4 +133,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
 

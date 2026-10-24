@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/suppliers/page.tsx
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -31,6 +32,8 @@ async function getSuppliers(): Promise<SupplierRow[]> {
 }
 
 export default async function RefurbSuppliersPage() {
+  await requirePageAccess('refurb', true);
+
   const user = await getCurrentAdminUser();
 
   if (!user) {
@@ -179,3 +182,4 @@ export default async function RefurbSuppliersPage() {
     </div>
   );
 }
+

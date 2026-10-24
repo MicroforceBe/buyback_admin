@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -232,10 +233,13 @@ function hoursSinceCreated(createdAt?: string | null): number | null {
 }
 
 export default async function LeadsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: Promise<SearchParams>;
 }) {
+  await requirePageAccess('leads', false);
+  const searchParams = await incomingSearchParams;
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -1762,3 +1766,6 @@ export default async function LeadsPage({
     </div>
   );
 }
+
+
+

@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -14,7 +15,10 @@ function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const accessDenied = await apiAccess(request, 'settings', 'read', true);
+  if (accessDenied) return accessDenied;
+
   const { data, error } = await supabase
     .from("buyback_settings")
     .select("*")
@@ -26,6 +30,9 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const accessDenied = await apiAccess(req, 'settings', 'write', true);
+  if (accessDenied) return accessDenied;
+
   const body = await req.json().catch(() => ({}));
   const patch: any = {};
   ["brand_name", "brand_color", "logo_url", "email_disclaimer"].forEach((k) => {
@@ -41,3 +48,4 @@ export async function PUT(req: Request) {
   if (error) return j({ error: error.message }, 500);
   return j(data, 200);
 }
+

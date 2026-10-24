@@ -1,3 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = { experimental: { serverActions: { allowedOrigins: ['*'] } } };
+// Same-origin actions; allow a 2 MiB file plus multipart metadata.
+const nextConfig = { experimental: { serverActions: { bodySizeLimit: '3mb' } } };
 module.exports = nextConfig;

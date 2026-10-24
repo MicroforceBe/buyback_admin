@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/multipliers/page.tsx
 import AdminMultipliersClient from './AdminMultipliersClient';
 
@@ -9,6 +10,8 @@ import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
 
 export default async function Page() {
+  await requirePageAccess('multipliers', false);
+
   // 🔐 1) Auth check
   const adminUser = await getCurrentAdminUser();
 
@@ -46,3 +49,4 @@ export default async function Page() {
     </div>
   );
 }
+

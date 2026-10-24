@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function logoutAction(): Promise<{ success: boolean }> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const sessionToken = cookieStore.get('bb_admin_session')?.value;
 
   if (sessionToken) {
@@ -32,3 +32,6 @@ export async function logoutAction(): Promise<{ success: boolean }> {
   // Geen redirect hier – die doen we client-side
   return { success: true };
 }
+
+
+

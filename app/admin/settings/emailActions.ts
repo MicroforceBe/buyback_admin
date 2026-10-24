@@ -1,11 +1,15 @@
 // app/admin/settings/emailActions.ts
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
 
 export async function saveEmailTemplateAction(formData: FormData) {
-  "use server";
+  await requireAccess('settings', 'write', true);
+
+
 
   const idRaw = (formData.get("template_id") as string | null) ?? "";
   // id=0 (nieuwe template) => undefined, zodat DB zelf een id kan geven
@@ -63,3 +67,4 @@ export async function saveEmailTemplateAction(formData: FormData) {
   revalidatePath("/admin/settings");
   return { ok: true as const, message: "Template bewaard." };
 }
+

@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/[id]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -34,12 +35,15 @@ function asStringArray(value: unknown) {
 }
 
 export default async function DiagnosticSessionPage({
-  params,
+  params: incomingParams,
 }: {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }) {
+  await requirePageAccess('refurb', false);
+  const params = await incomingParams;
+
   const session =
     await prisma.diagnosticSession.findUnique({
       where: {
@@ -674,4 +678,7 @@ export default async function DiagnosticSessionPage({
     </div>
   );
 }
+
+
+
 

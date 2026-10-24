@@ -1,10 +1,14 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const accessDenied = await apiAccess(request, 'dashboard', 'read', true);
+  if (accessDenied) return accessDenied;
+
   const hasUrl = !!process.env.SUPABASE_URL;
   const hasSrv = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -34,3 +38,4 @@ export async function GET() {
     return NextResponse.json({ ok: false, hasUrl, hasSrv, caught: String(e) }, { status: 500 });
   }
 }
+

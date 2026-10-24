@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/help/page.tsx
 import { redirect } from "next/navigation";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -8,6 +9,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export default async function LeadsHelpPage() {
+  await requirePageAccess('leads', false);
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -29,3 +32,4 @@ export default async function LeadsHelpPage() {
 
   return <LeadsHelpClient />;
 }
+

@@ -1,5 +1,7 @@
 // app/admin/refurb/actions.ts
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { redirect } from "next/navigation";
@@ -78,7 +80,7 @@ const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
 
 function parseMoneyToCents(raw: string): number | null {
   const v = raw.replace(",", ".").trim();
-  if (!v) return null;
+  if (!v) throw new Error("Status ontbreekt.");
   const n = Number.parseFloat(v);
   if (Number.isNaN(n)) return null;
   return Math.round(n * 100);
@@ -164,11 +166,7 @@ async function getStatusOptionFlagsByValue(
     .limit(1)
     .single();
 
-  if (error) {
-    // fail-open but log
-    console.warn("[REFURB] getStatusOptionFlagsByValue error", { value: v, error });
-    return null;
-  }
+  if (error || !data) throw new Error("Statusregels konden niet gecontroleerd worden.");
 
   return {
     admin_only: Boolean((data as any)?.admin_only),
@@ -197,7 +195,7 @@ async function resolveStatusValueAndId(input: string): Promise<{ value: string; 
     .limit(1);
 
   if (byValue.error) {
-    console.error("[REFURB] resolveStatusValueAndId by value error", byValue.error);
+    throw new Error("Status kon niet gecontroleerd worden.");
   } else if (byValue.data && byValue.data.length > 0) {
     const row = byValue.data[0] as any;
     return { id: String(row.id), value: String(row.value) };
@@ -211,8 +209,7 @@ async function resolveStatusValueAndId(input: string): Promise<{ value: string; 
     .limit(1);
 
   if (byLabel.error) {
-    console.error("[REFURB] resolveStatusValueAndId by label error", byLabel.error);
-    return null;
+    throw new Error("Status kon niet gecontroleerd worden.");
   }
 
   if (byLabel.data && byLabel.data.length > 0) {
@@ -229,7 +226,7 @@ async function resolveStatusValueAndId(input: string): Promise<{ value: string; 
  * ================================
  * Tabel: refurb_status_transitions (id, from_status_id, to_status_id, created_at)
  *
- * - Als er nog GEEN transitions geconfigureerd zijn: fail-open (alles toegestaan, behalve booked rule).
+ * - Zonder geconfigureerde transities worden statuswijzigingen geweigerd.
  * - Als er wél transitions bestaan: enkel expliciet toegelaten paden.
  */
 async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
@@ -237,7 +234,7 @@ async function hasAnyStatusTransitionsConfigured(): Promise<boolean> {
 
   if (error) {
     console.error("[REFURB] hasAnyStatusTransitionsConfigured error", error);
-    return false; // fail-open bij DB glitch
+    throw new Error("Statustransities konden niet gecontroleerd worden.");
   }
 
   return (data || []).length > 0;
@@ -247,17 +244,17 @@ async function isTransitionAllowed(currentValue: string, nextValue: string): Pro
   const curRaw = (currentValue || "").trim();
   const nxtRaw = (nextValue || "").trim();
 
-  if (!curRaw || !nxtRaw) return true;
+  if (!curRaw || !nxtRaw) return false;
   if (curRaw === nxtRaw) return true;
 
   const configured = await hasAnyStatusTransitionsConfigured();
-  if (!configured) return true;
+  if (!configured) return false;
 
   // Map current/next to option ids (via value; fallback label->value)
   const curResolved = await resolveStatusValueAndId(curRaw);
   const nxtResolved = await resolveStatusValueAndId(nxtRaw);
 
-  // Als mapping niet lukt, blokkeer NIET de UI (fail-open), maar log wel:
+  // Onbekende statussen mogen de transitiecontrole niet omzeilen.
   if (!curResolved || !nxtResolved) {
     console.error("[REFURB] isTransitionAllowed could not resolve status option IDs", {
       currentValue: curRaw,
@@ -265,7 +262,7 @@ async function isTransitionAllowed(currentValue: string, nextValue: string): Pro
       curResolved,
       nxtResolved,
     });
-    return true;
+    return false;
   }
 
   const { data, error } = await supabaseAdmin
@@ -277,8 +274,7 @@ async function isTransitionAllowed(currentValue: string, nextValue: string): Pro
 
   if (error) {
     console.error("[REFURB] isTransitionAllowed error", error);
-    // fail-open bij DB glitch, anders zit alles vast
-    return true;
+    throw new Error("Statustransitie kon niet gecontroleerd worden.");
   }
 
   return (data || []).length > 0;
@@ -298,6 +294,7 @@ async function canChangeStatus(opts: {
 
   // Resolve next (label->value) zodat we altijd VALUE opslaan in refurb_reception_items
   const nextResolved = await resolveStatusValueAndId(nextRaw);
+  if (!nextResolved) return { ok: false, reason: "Onbekende status." };
   const nextValue = nextResolved?.value ?? nextRaw;
 
   // Resolve current ook, want oude rows kunnen label bevatten
@@ -363,6 +360,8 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
 
 // ✅ Export zodat client na bulk/paste de items in 1 call kan herladen
 export async function fetchReceptionItems(receptionId: string): Promise<RefurbItem[]> {
+  await requireAccess('refurb', 'read', false);
+
   return fetchItemsForReception(receptionId);
 }
 
@@ -380,9 +379,21 @@ export async function updateRefurbItemCell(
   field: EditableField,
   value: string
 ): Promise<void> {
+  await requireAccess('refurb', 'write', false);
+
   const isAdmin = await isAdminServer();
 
   // status rules (server-side)
+  if (![...LOCK_AFTER_FILL_FIELDS, ...ALWAYS_EDITABLE_FIELDS].includes(field)) {
+    throw new Error("Ongeldig veld.");
+  }
+  const { data: current, error: currentError } = await supabaseAdmin
+    .from("refurb_reception_items")
+    .select("refurb_status")
+    .eq("id", itemId)
+    .single();
+  if (currentError || !current) throw new Error("Toestel kon niet gecontroleerd worden.");
+  if (isBooked(current.refurb_status)) throw new Error("Geboekte toestellen zijn vergrendeld.");
   if (field === "refurb_status") {
     const { data: row, error: e0 } = await supabaseAdmin
       .from("refurb_reception_items")
@@ -457,6 +468,8 @@ export async function bulkUpdateRefurbItems(input: {
   defaultStatusValue: string;
   readyToBookValue: string;
 }): Promise<{ updated: number; skipped: number; reasons: Record<string, number> }> {
+  await requireAccess('refurb', 'write', false);
+
   const isAdmin = await isAdminServer();
 
   const { receptionId, itemIds, patch } = input;
@@ -592,9 +605,17 @@ export async function pasteIntoRefurbColumn(
   defaultStatusValue?: string,
   defaultLocationValue?: string
 ): Promise<RefurbItem[]> {
+  await requireAccess('refurb', 'write', false);
+
   const isAdmin = await isAdminServer();
 
   const lines = rawLines.map((l) => l.replace(/\r/g, ""));
+  if (![...LOCK_AFTER_FILL_FIELDS, ...ALWAYS_EDITABLE_FIELDS].includes(field)) {
+    throw new Error("Ongeldig veld.");
+  }
+  if (!Number.isInteger(startRowIndex) || startRowIndex < 0 || lines.length > 1000) {
+    throw new Error("Ongeldig plakbereik (maximaal 1000 rijen).");
+  }
 
   if (!lines.length) {
     return fetchItemsForReception(receptionId);
@@ -637,6 +658,7 @@ export async function pasteIntoRefurbColumn(
     const existingItem = existing.find((it) => it.row_index === rowIndex);
 
     if (existingItem) {
+      if (isBooked(existingItem.refurb_status)) continue;
       if (isLockAfterFill) {
         if (!isCellEmpty(existingItem, field)) continue;
       }
@@ -666,6 +688,13 @@ export async function pasteIntoRefurbColumn(
       });
     } else {
       // NEW ROW insert
+      const initialStatus = await resolveStatusValueAndId(field === "refurb_status" ? String(value) : (defaultStatusValue || "new"));
+      if (!initialStatus) throw new Error("Onbekende beginstatus.");
+      const initialFlags = await getStatusOptionFlagsByValue(initialStatus.value);
+      if (initialFlags?.admin_only && !isAdmin) throw new Error("Geen rechten voor deze beginstatus.");
+      if (initialFlags?.need_sku && !(field === "sku" && hasValidSku(String(value)))) {
+        throw new Error("SKU is verplicht voor deze beginstatus.");
+      }
       if (field === "refurb_status") {
         const flags = pastedFlags ?? (await getStatusOptionFlagsByValue(String(value ?? "")));
         if (flags?.need_sku) continue;
@@ -675,7 +704,7 @@ export async function pasteIntoRefurbColumn(
       inserts.push({
         reception_id: receptionId,
         row_index: rowIndex,
-        refurb_status: defaultStatusValue || "new",
+        refurb_status: initialStatus.value,
         location: defaultLocationValue || null,
         [field]: value,
       });
@@ -731,6 +760,8 @@ export async function searchErpArticlesForSku(
   q: string,
   vatScheme: "margin" | "normal"
 ): Promise<ErpSkuSearchResult[]> {
+  await requireAccess('refurb', 'read', false);
+
   const search = (q || "").trim();
 
   if (search.length < 2) return [];
@@ -822,6 +853,8 @@ export async function searchErpArticlesForSku(
  * Supplier zoeken (type-ahead) vanuit tabel refurb_suppliers.
  */
 export async function searchRefurbSuppliers(query: string): Promise<RefurbSupplier[]> {
+  await requireAccess('refurb', 'read', false);
+
   const q = query.trim();
   if (!q) return [];
 
@@ -849,6 +882,8 @@ export async function createRefurbSupplier(input: {
   vat_number?: string;
   contact_email?: string;
 }): Promise<RefurbSupplier> {
+  await requireAccess('refurb', 'write', false);
+
   const isAdmin = await isAdminServer();
   const user = await getCurrentAdminUser();
 
@@ -893,6 +928,8 @@ export async function createRefurbSupplier(input: {
  * Gebruikt de basisactie hierboven + revalidatePath.
  */
 export async function createRefurbSupplierFromForm(formData: FormData) {
+  await requireAccess('refurb', 'write', false);
+
   const name = (formData.get("name") || "").toString().trim();
   const vat_number = (formData.get("vat_number") || "").toString().trim();
   const contact_email = (formData.get("contact_email") || "").toString().trim();
@@ -922,6 +959,8 @@ export async function createRefurbReception(
   _prevState: CreateReceptionFormState,
   formData: FormData
 ): Promise<CreateReceptionFormState> {
+  await requireAccess('refurb', 'write', false);
+
   const reception_number = (formData.get("reception_number") || "").toString().trim();
   const reception_date = (formData.get("reception_date") || "").toString().trim();
   const supplier_id = (formData.get("supplier_id") || "").toString().trim();
@@ -1017,69 +1056,13 @@ export async function deleteRefurbReceptionItem(input: {
   receptionId: string;
   itemId: string;
 }): Promise<RefurbItem[]> {
-  const isAdmin = await isAdminServer();
-  if (!isAdmin) {
-    throw new Error("Je hebt geen rechten om rijen te verwijderen.");
-  }
-
+  await requireAccess('refurb', 'write', true);
   const { receptionId, itemId } = input;
-
-  const { data: row, error: e0 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .select("id, reception_id, row_index, refurb_status")
-    .eq("id", itemId)
-    .eq("reception_id", receptionId)
-    .single();
-
-  if (e0) {
-    console.error("[REFURB] deleteRefurbReceptionItem fetch error", e0);
-    throw new Error(e0.message || "Kon rij niet ophalen.");
-  }
-
-  if (isBooked((row as any).refurb_status)) {
-    throw new Error("Status is booked: deze rij kan niet verwijderd worden.");
-  }
-
-  const deletedIndex = Number((row as any).row_index);
-
-  const { error: e1 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .delete()
-    .eq("id", itemId)
-    .eq("reception_id", receptionId);
-
-  if (e1) {
-    console.error("[REFURB] deleteRefurbReceptionItem delete error", e1);
-    throw new Error(e1.message || "Kon rij niet verwijderen.");
-  }
-
-  const { data: tail, error: e2 } = await supabaseAdmin
-    .from("refurb_reception_items")
-    .select("id, row_index")
-    .eq("reception_id", receptionId)
-    .gt("row_index", deletedIndex)
-    .order("row_index", { ascending: true });
-
-  if (e2) {
-    console.error("[REFURB] deleteRefurbReceptionItem tail fetch error", e2);
-    throw new Error(e2.message || "Kon rijen niet hernummeren.");
-  }
-
-  const now = new Date().toISOString();
-  for (const r of (tail || []) as any[]) {
-    const newIndex = Number(r.row_index) - 1;
-    const { error: e3 } = await supabaseAdmin
-      .from("refurb_reception_items")
-      .update({ row_index: newIndex, updated_at: now })
-      .eq("id", r.id)
-      .eq("reception_id", receptionId);
-
-    if (e3) {
-      console.error("[REFURB] deleteRefurbReceptionItem reindex error", { r, e3 });
-      throw new Error(e3.message || "Kon rijen niet hernummeren.");
-    }
-  }
-
+  const { error } = await supabaseAdmin.rpc('delete_refurb_reception_item_secure', {
+    p_reception_id: receptionId,
+    p_item_id: itemId,
+  });
+  if (error) throw new Error('Rij kon niet verwijderd worden; controleer op geboekte toestellen.');
   revalidatePath(`/admin/refurb/${receptionId}`);
   return fetchItemsForReception(receptionId);
 }
@@ -1088,6 +1071,8 @@ export async function deleteRefurbReceptionItem(input: {
  * ✅ 2) Verwijder een volledige receptie
  */
 export async function deleteRefurbReception(receptionId: string): Promise<void> {
+  await requireAccess('refurb', 'write', false);
+
   const isAdmin = await isAdminServer();
   if (!isAdmin) {
     throw new Error("Je hebt geen rechten om recepties te verwijderen.");
@@ -1097,19 +1082,10 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
     throw new Error("Missing receptionId.");
   }
 
-  const { error: e1 } = await supabaseAdmin.from("refurb_reception_items").delete().eq("reception_id", receptionId);
-
-  if (e1) {
-    console.error("[REFURB] deleteRefurbReception delete items error", e1);
-    throw new Error(e1.message || "Kon receptie-items niet verwijderen.");
-  }
-
-  const { error: e2 } = await supabaseAdmin.from("refurb_receptions").delete().eq("id", receptionId);
-
-  if (e2) {
-    console.error("[REFURB] deleteRefurbReception delete reception error", e2);
-    throw new Error(e2.message || "Kon receptie niet verwijderen.");
-  }
+  // This server-only RPC locks the reception and items and deletes atomically.
+  const { error } = await supabaseAdmin.rpc("delete_refurb_reception_secure", { p_id: receptionId });
+  if (error) throw new Error("Receptie kon niet verwijderd worden; controleer op geboekte toestellen.");
 
   revalidatePath("/admin/refurb");
 }
+

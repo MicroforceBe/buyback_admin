@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/settings/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
@@ -48,6 +50,8 @@ async function loadSettings(): Promise<SettingsRow> {
 }
 
 export default async function SettingsBrandingPage() {
+  await requirePageAccess('settings', true);
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -73,6 +77,7 @@ export default async function SettingsBrandingPage() {
   // ---- Server Action branding (inline) ----
   async function actionSaveBranding(formData: FormData) {
     "use server";
+  await requireAccess('settings', 'write', true);
 
     const adminUserInner = await getCurrentAdminUser();
     if (!adminUserInner || !hasPermission(adminUserInner, "settings", "write")) {
@@ -250,3 +255,4 @@ export default async function SettingsBrandingPage() {
     </div>
   );
 }
+
