@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models";
+type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models" | "analytics";
 
 type Props = {
   /**
@@ -38,23 +38,26 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     { key: "statuses", href: "/admin/refurb/statuses", label: "Statussen", adminOnly: true },
     { key: "locations", href: "/admin/refurb/locations", label: "Locaties", adminOnly: true },
     { key: "models", href: "/admin/refurb/models", label: "Modellen", adminOnly: true },
+    { key: "analytics", href: "/admin/refurb/analytics", label: "Analytics", adminOnly: true },
   ];
+
+  const activeKey = active ?? tabs.find(tab => tab.key !== "receptions" &&
+    (pathname === tab.href || pathname?.startsWith(tab.href + "/")))?.key ?? "receptions";
 
   return (
     <div className="border-b border-slate-200 mb-4">
-      <nav className="flex gap-2 text-xs">
+      <nav aria-label="Refurb" className="flex flex-wrap gap-2 text-xs">
         {tabs
           .filter((t) => (t.adminOnly ? admin : true)) // admin-only tabs verbergen voor niet-admins
           .map((tab) => {
-            const isActive =
-              (active && active === tab.key) ||
-              pathname === tab.href ||
-              (pathname?.startsWith(tab.href + "/") ?? false);
+            const isActive = activeKey === tab.key;
 
             return (
               <Link
                 key={tab.key}
                 href={tab.href}
+                prefetch={false}
+                aria-current={isActive ? "page" : undefined}
                 className={`px-3 py-2 border-b-2 -mb-px ${
                   isActive
                     ? "border-sky-500 text-sky-600 font-medium bg-white"
@@ -69,3 +72,4 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     </div>
   );
 }
+

@@ -31,6 +31,8 @@ on:
       - lib/supabaseServer.ts
       - app/admin/refurb/**
       - security/tests/reception-list.test.mjs
+      - lib/refurbAnalytics.ts
+      - security/tests/refurb-analytics*.test.mjs
       - prisma/schema.prisma
       - lib/prisma.ts
       - .github/workflows/test-dependency-lock.yml
@@ -71,6 +73,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify lead status validation and SKU selection without live services
         run: node --experimental-vm-modules --test security/tests/lead-device-validation.test.mjs security/tests/lead-device-ui.test.mjs
+      - name: Verify refurb analytics totals, filters and authorization without live services
+        run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
