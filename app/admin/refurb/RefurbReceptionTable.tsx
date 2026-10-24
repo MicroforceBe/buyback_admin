@@ -34,6 +34,7 @@ type Props = {
   statusTransitions?: StatusTransitionsMap;
   statusNextMap?: StatusTransitionsMap;
 
+  canWrite?: boolean;
   canDelete?: boolean;
   canUseAdminStatuses?: boolean;
 };
@@ -473,6 +474,7 @@ export default function RefurbReceptionTable({
   readyToBookValue,
   statusTransitions,
   statusNextMap,
+  canWrite = false,
   canDelete = false,
   canUseAdminStatuses = true,
   vatScheme,
@@ -1007,6 +1009,7 @@ async function copyCompleteRmaOverview() {
       | "location",
     value: string
   ) {
+    if (!canWrite) return;
     const before = items.find((x) => x.id === itemId);
     const currentStatus = canonicalizeStatusValue(before?.refurb_status, statusOptions || [], defaultStatusValue);
 
@@ -1112,7 +1115,7 @@ async function copyCompleteRmaOverview() {
     field: Parameters<typeof pasteIntoRefurbColumn>[2],
     lines: string[]
   ) {
-    if (columnSavePending.current || !lines.some((line) => line.trim())) return;
+    if (!canWrite || columnSavePending.current || !lines.some((line) => line.trim())) return;
     columnSavePending.current = true;
     try {
       setIsPasting(true);
@@ -1158,6 +1161,7 @@ async function copyCompleteRmaOverview() {
   }
 
   async function runBulkUpdate() {
+    if (!canWrite) return;
     const itemIds = getTargetsForBulk();
 
     const wantStatus = bulkEnableStatus && bulkStatus.trim() !== "";
@@ -1248,7 +1252,7 @@ async function copyCompleteRmaOverview() {
   }
 
   async function onDeleteRow(item: RefurbItem) {
-    if (!canDelete) return;
+    if (!canWrite || !canDelete) return;
 
     const currentStatus = canonicalizeStatusValue(item.refurb_status, statusOptions || [], defaultStatusValue).trim();
     if (isBooked(currentStatus)) {
@@ -1468,7 +1472,7 @@ async function copyCompleteRmaOverview() {
                 <button
                   type="button"
                   className="bb-btn text-[11px] px-2 h-7 border border-red-200 text-red-700"
-                  disabled={rowBooked || isDeletingRow === it.id}
+                  disabled={!canWrite || rowBooked || isDeletingRow === it.id}
                   title={rowBooked ? "Booked: kan niet verwijderen" : "Verwijder rij"}
                   onClick={() => onDeleteRow(it)}
                 >
@@ -1486,7 +1490,7 @@ async function copyCompleteRmaOverview() {
                   />
                   <select
                     value={currentStatus}
-                    disabled={rowBooked || (mapModeForRow && !rowHasChoices)}
+                    disabled={!canWrite || rowBooked || (mapModeForRow && !rowHasChoices)}
                     onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
                     className="bb-select bb-select-sm w-full text-slate-900"
                     title={
@@ -1545,7 +1549,7 @@ async function copyCompleteRmaOverview() {
               <td className="px-1 py-0.5 border">
                 <select
                   value={locationValue}
-                  disabled={rowBooked}
+                  disabled={!canWrite || rowBooked}
                   onChange={(e) => handleCellChange(it.id, "location", e.target.value)}
                   className="bb-select bb-select-sm w-full text-slate-900"
                 >
@@ -1569,7 +1573,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       defaultValue={imeiSn}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       onBlur={(e) => handleCellChange(it.id, "imei_sn", e.target.value.trim())}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "imei_sn")}
                     />
@@ -1583,7 +1587,7 @@ async function copyCompleteRmaOverview() {
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
                     value={manualSn}
-                    disabled={rowBooked}
+                    disabled={!canWrite || rowBooked}
                     onChange={(e) => {
                       const val = e.target.value;
                       setItems((prev) => prev.map((row) => (row.id === it.id ? ({ ...row, manual_sn: val } as any) : row)));
@@ -1599,7 +1603,7 @@ async function copyCompleteRmaOverview() {
                 <SkuAutocompleteCell
                   value={it.sku ?? ""}
                   vatScheme={vatScheme}
-                  disabled={rowBooked}
+                  disabled={!canWrite || rowBooked}
                   onChange={async (nextSku) => {
                     await handleCellChange(it.id, "sku", nextSku);
                   }}
@@ -1611,7 +1615,7 @@ async function copyCompleteRmaOverview() {
               <td className="px-1 py-0.5 border">
                 <UsedPartsCell
                   rawValue={it.used_parts ?? ""}
-                  locked={rowBooked}
+                  locked={!canWrite || rowBooked}
                   onChange={(raw) => handleCellChange(it.id, "used_parts", raw)}
                   onPasteToColumn={(e) => handlePasteToColumn(e, pasteStartRowIndex, "used_parts")}
                 />
@@ -1626,7 +1630,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
                       defaultValue={typeof it.price_cents === "number" ? (it.price_cents / 100).toString() : ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       placeholder="0,00"
                       onBlur={(e) => handleCellChange(it.id, "price_cents", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "price_cents")}
@@ -1645,7 +1649,7 @@ async function copyCompleteRmaOverview() {
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
                     defaultValue={it.description ?? ""}
-                    disabled={rowBooked}
+                    disabled={!canWrite || rowBooked}
                     onBlur={(e) => handleCellChange(it.id, "description", e.target.value)}
                     onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "description")}
                   />
@@ -1663,7 +1667,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       defaultValue={it.supplier_device_errors ?? ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       onBlur={(e) => handleCellChange(it.id, "supplier_device_errors", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_device_errors")}
                     />
@@ -1679,7 +1683,7 @@ async function copyCompleteRmaOverview() {
                   <input
                     className="bb-input h-7 text-[11px] px-1 w-full"
                     defaultValue={it.supplier_grading ?? ""}
-                    disabled={rowBooked}
+                    disabled={!canWrite || rowBooked}
                     onBlur={(e) => handleCellChange(it.id, "supplier_grading", e.target.value)}
                     onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "supplier_grading")}
                   />
@@ -1692,7 +1696,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       defaultValue={it.refurb_diagnostics ?? ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       onBlur={(e) => handleCellChange(it.id, "refurb_diagnostics", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "refurb_diagnostics")}
                     />
@@ -1702,7 +1706,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       defaultValue={it.rma_defect_description ?? ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       onBlur={(e) => handleCellChange(it.id, "rma_defect_description", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma_defect_description")}
                     />
@@ -1712,7 +1716,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full"
                       defaultValue={it.rma ?? ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       onBlur={(e) => handleCellChange(it.id, "rma", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "rma")}
                     />
@@ -1722,7 +1726,7 @@ async function copyCompleteRmaOverview() {
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
                       defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
-                      disabled={rowBooked}
+                      disabled={!canWrite || rowBooked}
                       placeholder="0,00"
                       onBlur={(e) => handleCellChange(it.id, "compensation_cents", e.target.value)}
                       onPaste={(e) => handlePasteToColumn(e, pasteStartRowIndex, "compensation_cents")}
@@ -1739,8 +1743,9 @@ async function copyCompleteRmaOverview() {
 
   return (
     <div className="mt-4 space-y-3">
+      {!canWrite && <p role="status" className="text-sm text-slate-600">Alleen lezen: je kunt deze receptie bekijken, maar geen toestellen toevoegen, wijzigen of verwijderen.</p>}
       {/* Bulk Update (collapsible) */}
-      <div className="border rounded-md bg-white text-xs">
+      {canWrite && <div className="border rounded-md bg-white text-xs">
         <button
           type="button"
           className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
@@ -1874,7 +1879,7 @@ async function copyCompleteRmaOverview() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
       {/* RMA overzicht */}
       <div className="overflow-hidden rounded-md border border-red-200 bg-white text-xs">
         <div className="flex w-full items-center justify-between border-b border-red-200 bg-red-50 px-3 py-2">
@@ -2114,7 +2119,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak status hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "refurb_status", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "refurb_status")}
                         />
@@ -2124,7 +2129,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak locaties hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "location", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "location")}
                         />
@@ -2134,7 +2139,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak IMEI/SN kolom hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "imei_sn", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "imei_sn")}
                         />
@@ -2145,7 +2150,7 @@ async function copyCompleteRmaOverview() {
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full"
                             placeholder="Plak SN kolom hier"
-                            disabled={isPasting}
+                            disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "manual_sn", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "manual_sn")}
                           />
@@ -2156,7 +2161,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak SKU-kolom hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "sku", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "sku")}
                         />
@@ -2166,7 +2171,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak Used parts-kolom hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "used_parts", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "used_parts")}
                         />
@@ -2177,7 +2182,7 @@ async function copyCompleteRmaOverview() {
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full text-right"
                             placeholder="Plak prijzen hier"
-                            disabled={isPasting}
+                            disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "price_cents", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "price_cents")}
                           />
@@ -2188,7 +2193,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak Description-kolom hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "description", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "description")}
                         />
@@ -2199,7 +2204,7 @@ async function copyCompleteRmaOverview() {
                           <input
                             className="bb-input h-7 text-[11px] px-1 w-full"
                             placeholder="Plak Supplier remarks hier"
-                            disabled={isPasting}
+                            disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "supplier_device_errors", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "supplier_device_errors")}
                           />
@@ -2210,7 +2215,7 @@ async function copyCompleteRmaOverview() {
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"
                           placeholder="Plak grading hier"
-                          disabled={isPasting}
+                          disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "supplier_grading", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "supplier_grading")}
                         />
@@ -2222,7 +2227,7 @@ async function copyCompleteRmaOverview() {
                             <input
                               className="bb-input h-7 text-[11px] px-1 w-full"
                               placeholder="Plak refurb diagnostics hier"
-                              disabled={isPasting}
+                              disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "refurb_diagnostics", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "refurb_diagnostics")}
                             />
@@ -2232,7 +2237,7 @@ async function copyCompleteRmaOverview() {
                             <input
                               className="bb-input h-7 text-[11px] px-1 w-full"
                               placeholder="Plak RMA defect beschrijving hier"
-                              disabled={isPasting}
+                              disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "rma_defect_description", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "rma_defect_description")}
                             />
@@ -2242,7 +2247,7 @@ async function copyCompleteRmaOverview() {
                             <input
                               className="bb-input h-7 text-[11px] px-1 w-full"
                               placeholder="Plak RMA-codes hier"
-                              disabled={isPasting}
+                              disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "rma", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "rma")}
                             />
@@ -2252,7 +2257,7 @@ async function copyCompleteRmaOverview() {
                             <input
                               className="bb-input h-7 text-[11px] px-1 w-full text-right"
                               placeholder="Plak compensaties hier"
-                              disabled={isPasting}
+                              disabled={!canWrite || isPasting}
                           onBlur={(e) => saveColumnValues(0, "compensation_cents", [e.target.value])}
                           onPaste={(e) => handlePasteToColumn(e, 0, "compensation_cents")}
                             />
@@ -2317,3 +2322,4 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
+

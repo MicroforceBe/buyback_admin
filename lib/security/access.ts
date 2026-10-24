@@ -15,7 +15,10 @@ export async function requireAccess(feature: AdminFeature, mode: PermissionMode,
 }
 
 export async function requirePageAccess(feature: AdminFeature, adminOnly = false) {
-  return requireAccess(feature, 'read', adminOnly);
+  const user = await getCurrentAdminUser();
+  if (!user) redirect('/admin/login');
+  if (!permits(user, feature, 'read', adminOnly)) redirect('/admin/access-denied');
+  return user;
 }
 
 export async function apiAccess(request: Request, feature: AdminFeature, mode: PermissionMode, adminOnly = false) {

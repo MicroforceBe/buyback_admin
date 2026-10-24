@@ -1,3 +1,4 @@
+import { permits } from '@/lib/security/policy';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -474,7 +475,7 @@ export default async function RefurbReceptionDetailPage({
 
   // ✅ Je had dit bewust hardcoded gezet om cookie issues te vermijden.
   // Server actions blijven sowieso admin valideren.
-  const canDelete = true;
+  const canDelete = permits(user, "refurb", "write", true);
 
   return (
     <div className="p-4 space-y-4">
@@ -688,6 +689,7 @@ export default async function RefurbReceptionDetailPage({
         readyToBookValue={readyToBookValue}
         defaultLocationValue={defaultLocationValue}
         statusTransitions={statusTransitions}
+        canWrite={permits(user, "refurb", "write")}
         canDelete={canDelete}
         canUseAdminStatuses={canUseAdminStatuses}
         vatScheme={reception.vat_scheme === "normal" ? "normal" : "margin"}

@@ -36,7 +36,7 @@ async function harness(entry,options={}) {
       if(spec==='node:crypto'||spec==='crypto')return synthetic(spec,crypto);
       if(spec==='next/server')return synthetic(spec,{NextResponse:Response,NextRequest:Request});
       if(spec==='next/headers')return synthetic(spec,{cookies:()=>cookieStore,headers:()=>new Headers(options.headers??{})});
-      if(spec==='next/navigation')return synthetic(spec,{redirect:()=>{throw Error('REDIRECT');}});
+      if(spec==='next/navigation')return synthetic(spec,{redirect:location=>{throw Object.assign(Error('REDIRECT'),{location});}});
       if(spec==='next/cache')return synthetic(spec,{revalidatePath(){}});
       if(spec==='@/lib/getCurrentAdminUser'&&!options.realSession)return synthetic(spec,{getCurrentAdminUser:async()=>{
         if(state.authError)throw Error('backend unavailable');return state.user;
@@ -168,4 +168,16 @@ test('all exported admin actions and inline actions have a first-statement permi
     }
   }
   assert.ok(checked>40);
+});
+
+
+test('page access redirects to a clear denial page while writes remain forbidden',async()=>{
+  const reader={role:'user',permissions:{refurb:{read:true,write:false}}};
+  const h=await harness('lib/security/access.ts',{user:reader});
+  assert.equal(await h.api.requirePageAccess('refurb'),reader);
+  await assert.rejects(h.api.requirePageAccess('dashboard'),e=>e.location==='/admin/access-denied');
+  await assert.rejects(h.api.requireAccess('refurb','write'));
+  h.state.user=null;
+  await assert.rejects(h.api.requirePageAccess('refurb'),e=>e.location==='/admin/login');
+  assert.equal(h.state.dbCalls,0);
 });

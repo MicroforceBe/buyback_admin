@@ -1,3 +1,4 @@
+import { permits } from '@/lib/security/policy';
 import { deleteRefurbReception } from "./actions";
 import { requirePageAccess } from '@/lib/security/access';
 import { requireAccess } from '@/lib/security/access';
@@ -729,12 +730,12 @@ export default async function RefurbListPage({
           </p>
         </div>
 
-        <Link
+        {permits(await getCurrentAdminUser(), "refurb", "write") && <Link
           href="/admin/refurb/new"
           className="bb-btn bb-btn-primary text-sm"
         >
           Nieuwe receptie
-        </Link>
+        </Link>}
       </div>
 
       <table className="w-full text-sm border-collapse">

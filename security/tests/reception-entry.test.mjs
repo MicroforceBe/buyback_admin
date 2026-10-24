@@ -10,7 +10,7 @@ const code=stripTypeScriptTypes(source.slice(start,end),{mode:'strip'});
 function harness({existing=[],fail=false}={}) {
   const calls={saves:[],alerts:[],refreshes:0,items:existing,busy:[]};
   const context=vm.createContext({
-    items:existing,columnSavePending:{current:false},receptionId:'test-reception',
+    canWrite:true,items:existing,columnSavePending:{current:false},receptionId:'test-reception',
     defaultStatusValue:'new',defaultLocationValue:'test-location',statusOptions:[],
     pasteIntoRefurbColumn:async(...args)=>{calls.saves.push(args);if(fail)throw Error('Save failed');return [{id:'test-item',imei_sn:args[3][0],refurb_status:'new'}];},
     setItems:value=>{calls.items=value;},setIsPasting:value=>calls.busy.push(value),
@@ -45,4 +45,23 @@ test('single-cell paste in an existing row retains native editing; multiline imp
   assert.equal(calls.saves.length,0);
   await context.paste({clipboardData:{getData:()=> 'TEST-SN-001\nTEST-SN-002'},preventDefault(){}},0,'imei_sn');
   assert.equal(calls.saves[0][3].length,2);
+});
+
+
+test('read-only reception handlers never send typed or pasted values for persistence',async()=>{
+  const {context,calls}=harness();context.canWrite=false;
+  await context.save(0,'imei_sn',['TEST-SN-001']);
+  await context.paste({clipboardData:{getData:()=> 'TEST-SN-001'},preventDefault(){}},0,'imei_sn');
+  assert.equal(calls.saves.length,0);assert.equal(calls.refreshes,0);assert.equal(calls.busy.length,0);
+});
+
+
+test('inline editing stops before any optimistic or server update for readers',async()=>{
+  const start=source.indexOf('  async function handleCellChange(');
+  const end=source.indexOf('  const columnSavePending',start);
+  let updates=0;
+  const context=vm.createContext({canWrite:false,items:[],setItems:()=>updates++,updateRefurbItemCell:()=>updates++});
+  new vm.Script(stripTypeScriptTypes(source.slice(start,end),{mode:'strip'})+'\nglobalThis.edit=handleCellChange;').runInContext(context);
+  await context.edit('test-item','description','Not permitted');
+  assert.equal(updates,0);
 });
