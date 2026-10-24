@@ -1,7 +1,11 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const accessDenied = await apiAccess(request, 'multipliers', 'read', false);
+  if (accessDenied) return accessDenied;
+
   const sb = typeof (supabaseAdmin as any) === 'function' ? (supabaseAdmin as any)() : supabaseAdmin;
 
   const { data: catRows, error: catErr } = await sb
@@ -36,3 +40,4 @@ return NextResponse.json({
 });
 
 }
+

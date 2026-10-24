@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -11,6 +12,9 @@ export async function GET(
     };
   }
 ) {
+  const accessDenied = await diagnosticAccess(request, 'read');
+  if (accessDenied) return accessDenied;
+
   try {
     const session =
       await prisma.diagnosticSession.findUnique({
@@ -56,4 +60,5 @@ export async function GET(
     );
   }
 }
+
 

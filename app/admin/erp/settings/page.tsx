@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/erp/settings/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { redirect } from "next/navigation";
@@ -39,6 +41,7 @@ async function getSettings(): Promise<ErpSettings | null> {
 
 async function saveErpSettingsAction(formData: FormData) {
   "use server";
+  await requireAccess('settings', 'write', true);
 
   const id = String(formData.get("id") || "").trim();
 
@@ -102,6 +105,8 @@ export default async function ErpSettingsPage({
 }: {
   searchParams?: { msg?: string };
 }) {
+  await requirePageAccess('erp', true);
+
   await requireAdminUser();
   const settings = await getSettings();
   const msg = String(searchParams?.msg || "");
@@ -249,3 +254,4 @@ export default async function ErpSettingsPage({
     </div>
   );
 }
+

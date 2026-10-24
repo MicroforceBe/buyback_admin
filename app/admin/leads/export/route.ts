@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { NextResponse } from 'next/server';
 
@@ -5,6 +6,9 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
+  const accessDenied = await apiAccess(req, 'leads', 'read', false);
+  if (accessDenied) return accessDenied;
+
   const { searchParams } = new URL(req.url);
   const q       = (searchParams.get('q') ?? '').trim();
   const method  = (searchParams.get('method') ?? '').trim();
@@ -107,3 +111,4 @@ export async function GET(req: Request) {
     }
   });
 }
+

@@ -1,6 +1,8 @@
 // app/admin/leads/actions.ts
 
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { redirect } from "next/navigation";
 import { supabaseAdmin as supabaseAdminExport } from "@/lib/supabaseAdmin";
@@ -560,6 +562,8 @@ async function findExistingSendcloudShipmentByRef(
  * en opnieuw de statusmail voor 'label_created' te sturen.
  */
 export async function resyncSendcloudLabelAction(formData: FormData) {
+  await requireAccess('leads', 'write', false);
+
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
     redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
@@ -706,6 +710,8 @@ export async function resyncSendcloudLabelAction(formData: FormData) {
  * Eén action die ALLES kan updaten.
  */
 export async function updateLeadInlineAction(formData: FormData) {
+  await requireAccess('leads', 'write', false);
+
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
     redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
@@ -1215,6 +1221,8 @@ export async function updateLeadInlineAction(formData: FormData) {
 }
 
 export async function deleteLeadAction(formData: FormData) {
+  await requireAccess('leads', 'write', false);
+
   const adminUser = await getCurrentAdminUser();
   if (!hasPermission(adminUser, "leads", "write")) {
     redirect(`/admin/leads?msg=${encodeURIComponent("forbidden:no_permission")}`);
@@ -1232,3 +1240,4 @@ export async function deleteLeadAction(formData: FormData) {
 
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
+

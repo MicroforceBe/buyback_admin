@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextRequest, NextResponse } from "next/server";
 
 function scAuthHeader() {
@@ -8,6 +9,9 @@ function scAuthHeader() {
 }
 
 export async function GET(req: NextRequest) {
+  const accessDenied = await apiAccess(req, 'leads', 'read', false);
+  if (accessDenied) return accessDenied;
+
   const parcelId = req.nextUrl.searchParams.get("parcel_id");
   if (!parcelId) {
     return new NextResponse("Missing parcel_id", { status: 400 });
@@ -40,3 +44,4 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+

@@ -1,5 +1,7 @@
 //app/admin/catalog/actions.ts
 'use server';
+import { requireAccess } from '@/lib/security/access';
+
 
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
@@ -54,6 +56,8 @@ function slugifyCategory(category: string): string {
  * =======================================================*/
 
 export async function getCategories(): Promise<string[]> {
+  await requireAccess('catalog', 'read', false);
+
   const sb = sbClient();
   const { data, error } = await sb
     .from('buyback_catalog')
@@ -72,6 +76,8 @@ export async function getCatalogRows(opts?: {
   category?: string | null;
   q?: string | null;
 }): Promise<CatalogRow[]> {
+  await requireAccess('catalog', 'read', false);
+
   const sb = sbClient();
   const { category, q } = opts || {};
   let query = sb.from('buyback_catalog').select(
@@ -147,7 +153,9 @@ export async function saveCatalogRowField(
   key: string,
   value: unknown,
 ) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
   if (!ALLOWED_UPDATE_FIELDS.has(key)) {
     throw new Error(`Veld '${key}' mag niet geüpdatet worden.`);
   }
@@ -182,7 +190,9 @@ export async function saveCatalogRowField(
 }
 
 export async function createCatalogRow(payload: Partial<CatalogRow>) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
 
   // brand is NIET meer verplicht; we leiden het af uit category indien leeg.
   const required = ['model', 'capacity_gb', 'base_price_cents'] as const;
@@ -242,7 +252,9 @@ export async function createCatalogRow(payload: Partial<CatalogRow>) {
 }
 
 export async function deleteCatalogRow(id: number) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
   const sb = sbClient();
   const { error } = await sb.from('buyback_catalog').delete().eq('id', id);
   if (error) throw new Error(error.message);
@@ -255,7 +267,9 @@ export async function deleteCatalogRow(id: number) {
  * =======================================================*/
 
 export async function uploadCatalogRowImage(form: FormData) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
 
   const file = form.get('file') as File | null;
   const rowIdRaw = form.get('rowId');
@@ -309,7 +323,9 @@ export async function uploadCatalogRowImage(form: FormData) {
  * =======================================================*/
 
 export async function uploadCategoryImage(form: FormData) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
 
   const file = form.get('file') as File | null;
   const categoryRaw = form.get('category');
@@ -369,7 +385,9 @@ export async function uploadCategoryImage(form: FormData) {
  * =======================================================*/
 
 export async function getCategoryImage(category: string): Promise<string | null> {
-  'use server';
+  await requireAccess('catalog', 'read', false);
+
+
   const sb = sbClient();
 
   const { data, error } = await sb
@@ -391,7 +409,9 @@ export async function saveSearchTermsForModel(params: {
   model: string;
   search_terms: string;
 }) {
-  'use server';
+  await requireAccess('catalog', 'write', false);
+
+
   const { category, model, search_terms } = params;
   const sb = sbClient();
 
@@ -413,3 +433,4 @@ export async function saveSearchTermsForModel(params: {
   revalidatePath('/admin/catalog');
   return { ok: true };
 }
+

@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 // app/api/admin/multipliers/model/save/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabaseAdminExport } from '@/lib/supabaseAdmin';
@@ -14,6 +15,9 @@ function sb() {
  * Slaat een custom per-model set op (maakt indien nodig).
  */
 export async function POST(req: Request) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'write', false);
+  if (accessDenied) return accessDenied;
+
   const s = sb();
   const body = await req.json().catch(() => ({}));
   const model = (body?.model || '').trim();
@@ -29,3 +33,4 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+

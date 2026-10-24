@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/page.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -236,6 +237,8 @@ export default async function LeadsPage({
 }: {
   searchParams: SearchParams;
 }) {
+  await requirePageAccess('leads', false);
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -1762,3 +1765,4 @@ export default async function LeadsPage({
     </div>
   );
 }
+

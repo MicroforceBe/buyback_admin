@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/erp/page.tsx
 import Link from "next/link";
 
@@ -55,7 +56,9 @@ const modules = [
 },
 ];
 
-export default function ErpPage() {
+export default async function ErpPage() {
+  await requirePageAccess('erp', false);
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border bg-gradient-to-br from-slate-50 to-white p-6 shadow-sm">
@@ -196,3 +199,4 @@ export default function ErpPage() {
     </div>
   );
 }
+

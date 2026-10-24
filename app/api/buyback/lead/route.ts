@@ -107,9 +107,8 @@ export async function POST(req: Request) {
   const raw = await req.text(); // altijd eerst ruwe body
   
   // zet korte log (max 500 chars) — zichtbaar in Vercel → Project → Deployments → Logs (Runtime)
-  console.log('[ADMIN][LEAD] content-type =', ct);
-  console.log('[ADMIN][LEAD] raw body preview =', raw.slice(0, 500));
-  
+
+
   if (!raw || !raw.trim()) {
     return j({ error: 'Empty body (no JSON received)' }, 400);
   }
@@ -121,8 +120,7 @@ export async function POST(req: Request) {
     return j({
       error: 'Invalid JSON',
       message: String(e?.message || e),
-      hint: 'Controleer aanhalingstekens en header content-type: application/json',
-      received_preview: raw.slice(0, 200)
+      hint: 'Controleer aanhalingstekens en header content-type: application/json'
     }, 400);
   }
 
@@ -312,3 +310,4 @@ export async function POST(req: Request) {
   // Response pas NA de mail
   return j({ ok: true, id: data?.id, order_code: data?.order_code }, 201);
 }
+

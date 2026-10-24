@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/erp/articles/page.tsx
 
 import Link from "next/link";
@@ -51,6 +53,7 @@ function deriveGrade(title: string | null) {
 
 async function toggleCoreAction(formData: FormData) {
   "use server";
+  await requireAccess('erp', 'write', false);
 
   const id = String(formData.get("id") || "");
   const current = String(formData.get("current") || "") === "true";
@@ -212,6 +215,8 @@ export default async function ErpArticlesPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
+  await requirePageAccess('erp', false);
+
   const q = p(searchParams?.q).trim();
   const grade = p(searchParams?.grade).trim();
   const status = p(searchParams?.status).trim() || "active";
@@ -691,3 +696,4 @@ export default async function ErpArticlesPage({
     </div>
   );
 }
+

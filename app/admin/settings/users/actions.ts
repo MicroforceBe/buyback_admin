@@ -1,5 +1,7 @@
 // app/admin/settings/users/actions.ts
 'use server';
+import { requireAccess } from '@/lib/security/access';
+
 
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -51,10 +53,10 @@ type SaveAdminUserResult =
 export async function saveAdminUserAction(
   input: SaveAdminUserInput
 ): Promise<SaveAdminUserResult> {
-  console.log('[saveAdminUserAction] START', JSON.stringify(input, null, 2));
+  await requireAccess('settings', 'write', true);
+
 
   const current = await getCurrentAdminUser();
-  console.log('[saveAdminUserAction] current user', current?.email);
 
   // Alleen iemand met settings:write mag userrechten bijwerken
   if (!hasPermission(current, 'settings', 'write')) {
@@ -72,7 +74,7 @@ export async function saveAdminUserAction(
 
   // Je mag jezelf niet "downgraden" als je root admin bent
   if (current && isRootAdminEmail(current.email) && current.email === email) {
-    console.log('[saveAdminUserAction] normalize root admin rights');
+
     // Root admin blijft admin; root admin krijgt altijd full rights.
     input.role = 'admin';
     input.permissions = ALL_FEATURES.reduce((acc, feature) => {
@@ -83,7 +85,6 @@ export async function saveAdminUserAction(
 
   // Permissions altijd normaliseren naar een volledige PermissionsMap
   const safePermissions = normalizePermissions(input.permissions);
-  console.log('[saveAdminUserAction] safePermissions', safePermissions);
 
   // Wachtwoordverwerking (optioneel)
   const rawPassword = (input.password ?? '').trim();
@@ -91,7 +92,7 @@ export async function saveAdminUserAction(
   let password_hash: string | undefined;
 
   if (rawPassword || rawConfirm) {
-    console.log('[saveAdminUserAction] password flow triggered');
+
     if (rawPassword !== rawConfirm) {
       return {
         error: 'Wachtwoorden komen niet overeen.',
@@ -118,7 +119,6 @@ export async function saveAdminUserAction(
     payload.password_hash = password_hash;
   }
 
-  console.log('[saveAdminUserAction] UPSERT payload', payload);
 
   const { error } = await supabaseAdmin
     .from('buyback_admin_users')
@@ -132,7 +132,7 @@ export async function saveAdminUserAction(
     };
   }
 
-  console.log('[saveAdminUserAction] SUCCESS, revalidating /admin/settings');
+
   revalidatePath('/admin/settings');
   return { success: true };
 }
@@ -144,6 +144,8 @@ type DeleteAdminUserResult =
 export async function deleteAdminUserAction(
   email: string
 ): Promise<DeleteAdminUserResult> {
+  await requireAccess('settings', 'write', true);
+
   const current = await getCurrentAdminUser();
 
   if (!hasPermission(current, 'settings', 'write')) {
@@ -182,3 +184,4 @@ export async function deleteAdminUserAction(
   revalidatePath('/admin/settings');
   return { success: true };
 }
+

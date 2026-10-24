@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import StationsClient from "./StationsClient";
 
@@ -14,6 +15,8 @@ function isOnline(lastSeenAt: string | null) {
 }
 
 export default async function StationsPage() {
+  await requirePageAccess('refurb', false);
+
   const { data } = await supabaseAdmin
     .from("diagnostics_stations")
     .select("*")
@@ -107,4 +110,5 @@ export default async function StationsPage() {
     </div>
   );
 }
+
 

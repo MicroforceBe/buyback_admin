@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/catalog/page.tsx
 
 import Link from "next/link";
@@ -17,6 +18,8 @@ type Props = {
 export const revalidate = 0; // altijd vers (admin)
 
 export default async function CatalogPage({ searchParams }: Props) {
+  await requirePageAccess('catalog', false);
+
   // 🔐 Auth + rechten
   const adminUser = await getCurrentAdminUser();
 
@@ -165,3 +168,4 @@ function CategoryTile(props: {
     </Link>
   );
 }
+

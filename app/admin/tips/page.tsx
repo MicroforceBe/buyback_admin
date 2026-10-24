@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 import { supabaseServer } from '@/lib/supabaseServer';
 import TipsTable from './table';
 import ModelPicker from './ModelPicker';
@@ -6,6 +7,8 @@ import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 export const metadata = { title: 'UI Tips — Buyback Admin' };
 
 export default async function Page({ searchParams }: { searchParams: { model?: string } }) {
+  await requirePageAccess('catalog', false);
+
   const supabase = supabaseServer();
 
   // Modellen ophalen met tips of vanuit catalogus als fallback
@@ -54,3 +57,4 @@ export default async function Page({ searchParams }: { searchParams: { model?: s
     </main>
   );
 }
+

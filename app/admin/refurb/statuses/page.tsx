@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/refurb/statuses/page.tsx
 import { revalidatePath } from "next/cache";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -19,24 +21,28 @@ export const revalidate = 0;
 // Wrappers rond de settingsActions zodat de pagina direct ververst
 async function saveStatusRowAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await saveRefurbStatusRow(formData);
   revalidatePath("/admin/refurb/statuses");
 }
 
 async function deleteStatusRowAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await deleteRefurbStatusRow(formData);
   revalidatePath("/admin/refurb/statuses");
 }
 
 async function setDefaultStatusAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await setDefaultRefurbStatus(formData);
   revalidatePath("/admin/refurb/statuses");
 }
 
 async function saveTransitionsAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   const from_status_id = (formData.get("from_status_id") || "").toString();
   const to_status_ids = (formData.getAll("to_status_ids") || []).map((x) =>
     String(x)
@@ -51,6 +57,8 @@ async function saveTransitionsAction(formData: FormData) {
 }
 
 export default async function RefurbStatusesPage() {
+  await requirePageAccess('refurb', true);
+
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     return (
@@ -319,3 +327,4 @@ export default async function RefurbStatusesPage() {
     </div>
   );
 }
+

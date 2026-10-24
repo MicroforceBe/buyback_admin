@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/settings/users/page.tsx
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
@@ -24,6 +25,8 @@ type InitialUser = {
 };
 
 export default async function Page() {
+  await requirePageAccess('settings', true);
+
   const current = await getCurrentAdminUser();
 
   // Niet ingelogd of geen user gevonden → blokkeren
@@ -88,3 +91,4 @@ export default async function Page() {
     </div>
   );
 }
+

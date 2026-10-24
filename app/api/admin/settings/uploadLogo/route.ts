@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -15,6 +16,9 @@ function j(data: any, status = 200) {
 }
 
 export async function POST(req: Request) {
+  const accessDenied = await apiAccess(req, 'settings', 'write', true);
+  if (accessDenied) return accessDenied;
+
   const form = await req.formData();
   const file = form.get("file") as File | null;
   if (!file) return j({ error: "file required" }, 400);
@@ -46,3 +50,4 @@ export async function POST(req: Request) {
 
   return j({ ok: true, logo_url });
 }
+

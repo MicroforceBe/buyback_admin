@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/settings/email-templates/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { revalidatePath } from "next/cache";
@@ -167,6 +169,8 @@ async function loadEmailTemplates(): Promise<TemplateRow[]> {
 }
 
 export default async function EmailTemplatesSettingsPage() {
+  await requirePageAccess('settings', true);
+
   const adminUser = await getCurrentAdminUser();
 
   if (!adminUser) {
@@ -194,6 +198,7 @@ export default async function EmailTemplatesSettingsPage() {
 
   async function actionSaveNotificationSettings(formData: FormData) {
     "use server";
+  await requireAccess('settings', 'write', true);
 
     const adminUserInner = await getCurrentAdminUser();
     if (
@@ -247,6 +252,7 @@ export default async function EmailTemplatesSettingsPage() {
 
   async function actionSaveTemplate(formData: FormData) {
     "use server";
+  await requireAccess('settings', 'write', true);
 
     const adminUserInner = await getCurrentAdminUser();
     if (!adminUserInner || !hasPermission(adminUserInner, "settings", "write")) {
@@ -572,3 +578,4 @@ export default async function EmailTemplatesSettingsPage() {
     </div>
   );
 }
+

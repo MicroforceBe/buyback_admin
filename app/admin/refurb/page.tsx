@@ -1,3 +1,6 @@
+import { deleteRefurbReception } from "./actions";
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/refurb/page.tsx
 
 import Link from "next/link";
@@ -523,6 +526,7 @@ async function deleteRefurbReceptionAction(
   formData: FormData
 ) {
   "use server";
+  await requireAccess('refurb', 'write', false);
 
   const user = await getCurrentAdminUser();
 
@@ -542,33 +546,7 @@ async function deleteRefurbReceptionAction(
     );
   }
 
-  const { error: delItemsErr } =
-    await supabaseAdmin
-      .from("refurb_reception_items")
-      .delete()
-      .eq("reception_id", receptionId);
-
-  if (delItemsErr) {
-    redirect(
-      `/admin/refurb?msg=delete_items_error:${encodeURIComponent(
-        delItemsErr.message
-      )}`
-    );
-  }
-
-  const { error: delRecErr } =
-    await supabaseAdmin
-      .from("refurb_receptions")
-      .delete()
-      .eq("id", receptionId);
-
-  if (delRecErr) {
-    redirect(
-      `/admin/refurb?msg=delete_reception_error:${encodeURIComponent(
-        delRecErr.message
-      )}`
-    );
-  }
+  await deleteRefurbReception(receptionId);
 
   revalidatePath("/admin/refurb");
 
@@ -584,6 +562,8 @@ export default async function RefurbListPage({
     q?: string;
   };
 }) {
+  await requirePageAccess('refurb', false);
+
   const q = String(
     searchParams?.q || ""
   ).trim();
@@ -937,3 +917,4 @@ export default async function RefurbListPage({
     </div>
   );
 }
+

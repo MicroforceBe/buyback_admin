@@ -1,4 +1,6 @@
 'use server';
+import { requireAccess } from '@/lib/security/access';
+
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -18,6 +20,8 @@ const TipRow = z.object({
 
 // Upsert (unique: model, tip_key)
 export async function upsertTip(input: z.input<typeof TipRow>) {
+  await requireAccess('catalog', 'write', false);
+
   const row = TipRow.parse(input);
   const { error } = await supabaseAdmin
     .from('buyback_ui_tips')
@@ -27,6 +31,8 @@ export async function upsertTip(input: z.input<typeof TipRow>) {
 }
 
 export async function deleteTip(key: { model: string; tip_key: string }) {
+  await requireAccess('catalog', 'write', false);
+
   const { error } = await supabaseAdmin
     .from('buyback_ui_tips')
     .delete()
@@ -34,3 +40,4 @@ export async function deleteTip(key: { model: string; tip_key: string }) {
   if (error) throw new Error(error.message);
   return { ok: true };
 }
+

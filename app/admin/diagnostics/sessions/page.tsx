@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -18,6 +19,8 @@ function getStatusColor(status: string) {
 }
 
 export default async function DiagnosticsSessionsPage() {
+  await requirePageAccess('refurb', false);
+
   const { data } = await supabaseAdmin
     .from("diagnostics_sessions")
     .select("*")
@@ -128,3 +131,4 @@ export default async function DiagnosticsSessionsPage() {
     </div>
   );
 }
+

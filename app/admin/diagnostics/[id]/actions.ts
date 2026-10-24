@@ -1,11 +1,15 @@
 // app/admin/diagnostics/[id]/actions.ts
 
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export async function saveDiagnosticTestAction(formData: FormData) {
+  await requireAccess('refurb', 'write', false);
+
   const sessionId = String(formData.get("sessionId") || "");
   const testKey = String(formData.get("testKey") || "");
   const status = String(formData.get("status") || "");
@@ -30,6 +34,8 @@ export async function saveDiagnosticTestAction(formData: FormData) {
 export async function finalizeDiagnosticSessionAction(
   formData: FormData
 ) {
+  await requireAccess('refurb', 'write', false);
+
   const sessionId = String(formData.get("sessionId") || "");
 
   if (!sessionId) {
@@ -110,3 +116,4 @@ export async function finalizeDiagnosticSessionAction(
   revalidatePath(`/admin/diagnostics/${sessionId}`);
   revalidatePath("/admin/diagnostics");
 }
+

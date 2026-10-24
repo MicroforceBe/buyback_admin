@@ -1,9 +1,12 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/diagnostics/new/page.tsx
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
 async function createDiagnosticSession(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
 
   const imei = String(formData.get("imei") || "").trim();
   const serialNumber = String(formData.get("serialNumber") || "").trim();
@@ -39,7 +42,9 @@ async function createDiagnosticSession(formData: FormData) {
   redirect(`/admin/diagnostics/${session.id}`);
 }
 
-export default function NewDiagnosticPage() {
+export default async function NewDiagnosticPage() {
+  await requirePageAccess('refurb', false);
+
   return (
     <div className="p-6 max-w-2xl">
       <h1 className="text-2xl font-bold mb-6">Nieuwe diagnostic sessie</h1>
@@ -87,3 +92,4 @@ export default function NewDiagnosticPage() {
     </div>
   );
 }
+

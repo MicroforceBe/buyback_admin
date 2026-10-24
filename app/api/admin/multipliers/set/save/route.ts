@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { supabaseAdmin as sbExport } from "@/lib/supabaseAdmin";
 function sb(){const any:any=sbExport as any;return typeof any==="function"?any():any;}
@@ -8,6 +9,9 @@ type Body = { category:string; name:string; questions:Questions; order?:string[]
 export async function OPTIONS(){ return new NextResponse(null,{status:204}); }
 
 export async function POST(req:Request){
+  const accessDenied = await apiAccess(req, 'multipliers', 'write', false);
+  if (accessDenied) return accessDenied;
+
   try{
     const p = (await req.json()) as Body;
     const category = (p.category||"").trim();
@@ -24,3 +28,4 @@ export async function POST(req:Request){
     return NextResponse.json({error:e?.message||"Onbekende fout"},{status:500});
   }
 }
+

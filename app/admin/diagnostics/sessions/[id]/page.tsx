@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/sessions/[id]/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -43,6 +44,8 @@ function getBadgeClass(value: string) {
 export default async function DiagnosticsSessionDetailPage({
   params,
 }: Props) {
+  await requirePageAccess('refurb', false);
+
   const { data: session } = await supabaseAdmin
     .from("diagnostics_sessions")
     .select("*")
@@ -221,4 +224,5 @@ export default async function DiagnosticsSessionDetailPage({
     </div>
   );
 }
+
 

@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -13,6 +14,9 @@ export async function GET(
     };
   }
 ) {
+  const accessDenied = await diagnosticAccess(req, 'read');
+  if (accessDenied) return accessDenied;
+
   try {
     const prismaSessionId =
       params.id;
@@ -76,3 +80,4 @@ export async function GET(
     );
   }
 }
+

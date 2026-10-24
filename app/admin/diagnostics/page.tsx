@@ -1,8 +1,11 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
 export default async function DiagnosticsPage() {
+  await requirePageAccess('refurb', false);
+
   const sessions = await prisma.diagnosticSession.findMany({
     orderBy: {
       createdAt: "desc",
@@ -91,4 +94,5 @@ export default async function DiagnosticsPage() {
     </div>
   );
 }
+
 

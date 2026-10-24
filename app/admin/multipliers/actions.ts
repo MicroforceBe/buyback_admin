@@ -1,6 +1,8 @@
 //app/admin/multipliers/actions.ts
 
 'use server';
+import { requireAccess } from '@/lib/security/access';
+
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -18,6 +20,8 @@ const MultRow = z.object({
 
 // Upsert (unique: model,question_key,option_key)
 export async function upsertMultiplier(input: z.input<typeof MultRow>) {
+  await requireAccess('multipliers', 'write', false);
+
   const row = MultRow.parse(input);
   if (row.active === undefined) row.active = true;
   if (row.priority === undefined) row.priority = 100;
@@ -36,6 +40,8 @@ export async function deleteMultiplier(key: {
   question_key: string;
   option_key: string;
 }) {
+  await requireAccess('multipliers', 'write', false);
+
   const { error } = await supabaseAdmin
     .from('buyback_multipliers_norm')
     .delete()
@@ -44,3 +50,4 @@ export async function deleteMultiplier(key: {
   if (error) throw new Error(error.message);
   return { ok: true };
 }
+

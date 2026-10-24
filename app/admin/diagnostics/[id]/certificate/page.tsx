@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/[id]/certificate.tsx
 
 import Link from "next/link";
@@ -11,6 +12,8 @@ export default async function DiagnosticCertificatePage({
     id: string;
   };
 }) {
+  await requirePageAccess('refurb', false);
+
   const session = await prisma.diagnosticSession.findUnique({
     where: {
       id: params.id,
@@ -113,3 +116,4 @@ export default async function DiagnosticCertificatePage({
     </div>
   );
 }
+

@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/erp/labels/page.tsx
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -85,6 +86,8 @@ export default async function ErpLabelsPage({
     grade?: string;
   };
 }) {
+  await requirePageAccess('erp', false);
+
   const sku = String(searchParams?.sku || "").trim();
   const imei = String(searchParams?.imei || "").trim();
   const battery = String(searchParams?.battery || "").trim();
@@ -516,3 +519,4 @@ export default async function ErpLabelsPage({
     </div>
   );
 }
+

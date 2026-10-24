@@ -1,3 +1,4 @@
+import { diagnosticAccess } from '@/lib/security/access';
 // app/api/diagnostics/sessions/update/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -5,6 +6,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const accessDenied = await diagnosticAccess(req, 'write');
+  if (accessDenied) return accessDenied;
+
   try {
     const body = await req.json();
 
@@ -112,3 +116,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

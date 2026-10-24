@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/refurb/locations/page.tsx
 import { revalidatePath } from "next/cache";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -15,23 +17,28 @@ export const revalidate = 0;
 // Wrappers rond de settingsActions zodat de pagina direct ververst
 async function saveLocationRowAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await saveRefurbLocationRow(formData);
   revalidatePath("/admin/refurb/locations");
 }
 
 async function deleteLocationRowAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await deleteRefurbLocationRow(formData);
   revalidatePath("/admin/refurb/locations");
 }
 
 async function setDefaultLocationAction(formData: FormData) {
   "use server";
+  await requireAccess('refurb', 'write', false);
   await setDefaultRefurbLocation(formData);
   revalidatePath("/admin/refurb/locations");
 }
 
 export default async function RefurbLocationsPage() {
+  await requirePageAccess('refurb', true);
+
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     return (
@@ -193,3 +200,4 @@ export default async function RefurbLocationsPage() {
     </div>
   );
 }
+

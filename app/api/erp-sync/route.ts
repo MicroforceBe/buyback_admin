@@ -1,27 +1,17 @@
-// app/api/erp-sync/route.ts
-
-import { NextResponse } from "next/server";
-import { runErpSync } from "@/lib/erpSync";
-
-export const dynamic = "force-dynamic";
+import { NextResponse } from 'next/server';
+import { runErpSync } from '@/lib/erpSync';
+import { bearerMatches } from '@/lib/security/secrets';
+export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
-
-export async function GET() {
+// Vercel Cron uses GET and supplies CRON_SECRET as the bearer token.
+export async function GET(request: Request) {
+  if (!bearerMatches(request.headers.get('authorization'), process.env.CRON_SECRET)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
-    const result = await runErpSync();
-
-    return NextResponse.json(result);
-  } catch (e: any) {
-    console.error("[ERP AUTO SYNC]", e);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: e?.message || "Sync mislukt",
-      },
-      {
-        status: 500,
-      }
-    );
+    return NextResponse.json(await runErpSync());
+  } catch {
+    console.error('[ERP AUTO SYNC] failed');
+    return NextResponse.json({ success: false, error: 'Sync mislukt' }, { status: 500 });
   }
 }

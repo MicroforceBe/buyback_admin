@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/settings/shops/page.tsx
 import ShopsSettingsClient from '@/app/settings/shops/ShopsSettingsClient';
 import { redirect } from 'next/navigation';
@@ -8,6 +9,8 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function Page() {
+  await requirePageAccess('settings', true);
+
   const adminUser = await getCurrentAdminUser();
 
   // Niet ingelogd → eerst naar login
@@ -45,3 +48,4 @@ export default async function Page() {
     </div>
   );
 }
+

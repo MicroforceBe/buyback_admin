@@ -1,8 +1,5 @@
 {
-  "crons": [
-    {
-      "path": "/api/erp-sync",
-      "schedule": "0 */1 * * *"
-    }
-  ]
+  "git": { "deploymentEnabled": false },
+  "crons": []
 }
+

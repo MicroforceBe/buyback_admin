@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 // app/api/admin/multipliers/models/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -11,6 +12,9 @@ const supabase = createClient(
 );
 
 export async function GET(req: Request) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'read', false);
+  if (accessDenied) return accessDenied;
+
   try {
     const { searchParams } = new URL(req.url);
     const cat = (searchParams.get('category') || '').trim();
@@ -39,3 +43,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: e?.message || 'Failed' }, { status: 500 });
   }
 }
+

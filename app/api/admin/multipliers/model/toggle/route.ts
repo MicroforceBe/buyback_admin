@@ -1,3 +1,4 @@
+import { apiAccess } from '@/lib/security/access';
 // app/api/admin/multipliers/model/toggle/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin as sbExport } from "@/lib/supabaseAdmin";
@@ -18,6 +19,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: Request) {
+  const accessDenied = await apiAccess(req, 'multipliers', 'write', false);
+  if (accessDenied) return accessDenied;
+
   try {
     const p = (await req.json()) as Body;
     const model = (p.model || "").trim();
@@ -52,3 +56,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Onbekende fout" }, { status: 500 });
   }
 }
+

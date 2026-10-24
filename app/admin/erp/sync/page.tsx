@@ -1,3 +1,5 @@
+import { requirePageAccess } from '@/lib/security/access';
+import { requireAccess } from '@/lib/security/access';
 // app/admin/erp/sync/page.tsx
 
 import Link from "next/link";
@@ -17,6 +19,7 @@ export const maxDuration = 300;
 
 async function syncErpAction() {
   "use server";
+  await requireAccess('erp', 'write', false);
 
   let redirectUrl = "";
 
@@ -45,6 +48,7 @@ async function syncErpAction() {
 
 async function checkMissingAction() {
   "use server";
+  await requireAccess('erp', 'write', false);
 
   let redirectUrl = "";
 
@@ -74,6 +78,7 @@ async function checkMissingAction() {
 
 async function markMissingInactiveAction() {
   "use server";
+  await requireAccess('erp', 'write', false);
 
   let redirectUrl = "";
 
@@ -118,6 +123,8 @@ export default async function ErpSyncPage({
     missingPreview?: string;
   };
 }) {
+  await requirePageAccess('erp', false);
+
   const success = searchParams?.success === "1";
   const imported = searchParams?.imported || null;
   const skipped = searchParams?.skipped || null;
@@ -385,3 +392,4 @@ export default async function ErpSyncPage({
     </div>
   );
 }
+

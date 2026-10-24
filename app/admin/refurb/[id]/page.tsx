@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/[id]/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import RefurbReceptionTable from "../RefurbReceptionTable";
@@ -277,6 +278,8 @@ export default async function RefurbReceptionDetailPage({
 }: {
   params: { id: string };
 }) {
+  await requirePageAccess('refurb', false);
+
   const reception = await getReception(params.id);
 
   if (!reception) {
@@ -692,3 +695,4 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+

@@ -1,8 +1,12 @@
 "use server";
+import { requireAccess } from '@/lib/security/access';
+
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function actionSaveBranding(formData: FormData) {
+  await requireAccess('settings', 'write', true);
+
   try {
     const payload = {
       key: "branding",
@@ -28,3 +32,4 @@ export async function actionSaveBranding(formData: FormData) {
     throw e;
   }
 }
+

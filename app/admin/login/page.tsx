@@ -1,3 +1,4 @@
+import { requireLoginOrigin } from '@/lib/security/access';
 // app/admin/login/page.tsx
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { cookies, headers } from "next/headers";
@@ -10,6 +11,7 @@ export const runtime = "nodejs";
 
 async function loginAction(formData: FormData) {
   "use server";
+  requireLoginOrigin();
 
   const rawEmail = (formData.get("email") as string | null) ?? "";
   const email = rawEmail.trim().toLowerCase();
@@ -33,7 +35,7 @@ async function loginAction(formData: FormData) {
     return invalidRedirect();
   }
 
-  if (user.is_active === false) {
+  if (user.is_active !== true) {
     return invalidRedirect();
   }
 
@@ -158,3 +160,4 @@ export default async function LoginPage({
     </div>
   );
 }
+

@@ -1,3 +1,4 @@
+import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/models/page.tsx
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import {
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function RefurbModelsPage() {
+  await requirePageAccess('refurb', true);
+
   const user = await getCurrentAdminUser();
   if (!user || user.role !== "admin") {
     return (
@@ -140,3 +143,4 @@ export default async function RefurbModelsPage() {
     </div>
   );
 }
+
