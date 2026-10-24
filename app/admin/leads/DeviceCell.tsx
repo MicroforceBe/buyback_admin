@@ -89,14 +89,15 @@ function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: st
     <input className={input} value={query} placeholder="Zoek op SKU of omschrijving..." aria-label="Zoek ERP-artikel op SKU of omschrijving"
       onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} autoComplete="off" />
     <div className="flex items-center gap-1">
-      <input name={name} className={`${input} font-mono font-semibold tracking-wide`} value={selectedSku} readOnly
-        aria-label="Geselecteerde SKU" aria-invalid={invalid} placeholder="Geen SKU geselecteerd" />
+      <input name={name} className={`${input} font-mono font-semibold tracking-wide`} value={selectedSku}
+        onChange={event => { setSelectedSku(event.target.value); setSelectedTitle(''); }}
+        aria-label="SKU of voorlopige omschrijving" aria-invalid={invalid} placeholder="SKU of omschrijving" />
       <CopyBtn value={selectedSku} title="Kopieer SKU" />
       {selectedSku && <button type="button" className="bb-btn text-xs px-2 h-7" title="SKU wissen" aria-label="SKU wissen"
         onClick={() => { setSelectedSku(''); setSelectedTitle(''); }}>×</button>}
     </div>
     {selectedTitle && <p className="text-[11px] text-slate-600">{selectedTitle}</p>}
-    {!selectedSku && <p className="text-[11px] text-gray-500">Selecteer een artikel uit de zoekresultaten.</p>}
+    <p className="text-[11px] text-gray-500">Een omschrijving mag voorlopig. Voor ‘Controle succesvol’ is een bestaande ERP-SKU nodig.</p>
     {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
     {open && query.trim().length >= 2 && <div className="absolute z-50 mt-1 w-full min-w-[280px] max-h-72 overflow-auto rounded-xl border bg-white shadow-2xl">
       {loading ? <p className="px-3 py-2 text-xs text-slate-500">Zoeken...</p> : results.length ? results.map(row =>

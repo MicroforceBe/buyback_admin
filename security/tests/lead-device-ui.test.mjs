@@ -32,8 +32,12 @@ test('cancellation still requires a reason and permission denial still disables 
 });
 test('typing a description never sets the SKU; selecting a result stores only its code',async()=>{
  const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.type==='input'&&!n.props.name)[0].props.onChange({target:{value:'iPad 128 GB'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'');await h.timers();tree=h.render(h.sku,props);
- const result=findAll(tree,n=>n.type==='button'&&text(n).includes('IPAD-128-A'))[0];assert.ok(result);result.props.onClick();tree=h.render(h.sku,props);const sku=findAll(tree,n=>n.props?.name==='sku')[0];assert.equal(sku.props.value,'IPAD-128-A');assert.equal(sku.props.readOnly,true);assert.ok(sku.props.className.includes('font-mono'));assert.ok(text(tree).includes('iPad 128 GB'));
+ const result=findAll(tree,n=>n.type==='button'&&text(n).includes('IPAD-128-A'))[0];assert.ok(result);result.props.onClick();tree=h.render(h.sku,props);const sku=findAll(tree,n=>n.props?.name==='sku')[0];assert.equal(sku.props.value,'IPAD-128-A');assert.ok(!sku.props.readOnly);assert.ok(sku.props.className.includes('font-mono'));assert.ok(text(tree).includes('iPad 128 GB'));
 });
 test('a lookup failure is visible without exposing provider details or inventing a SKU',async()=>{
  const h=await harness({searchError:true}),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);findAll(tree,n=>n.type==='input'&&!n.props.name)[0].props.onChange({target:{value:'iPad'}});h.render(h.sku,props);await h.timers();tree=h.render(h.sku,props);assert.ok(text(findAll(tree,n=>n.props?.role==='alert')[0]).includes('zoeken mislukt'));assert.ok(!text(tree).includes('PRIVATE'));assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'');
+});
+
+test('the actual SKU field accepts a provisional description without selecting an ERP article',async()=>{
+ const h=await harness(),props={value:'',name:'sku',invalid:false};let tree=h.render(h.sku,props);const field=findAll(tree,n=>n.props?.name==='sku')[0];assert.ok(!field.props.readOnly);field.props.onChange({target:{value:'Voorlopige iPad omschrijving'}});tree=h.render(h.sku,props);assert.equal(findAll(tree,n=>n.props?.name==='sku')[0].props.value,'Voorlopige iPad omschrijving');assert.ok(text(tree).includes('Controle succesvol'));
 });

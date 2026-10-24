@@ -844,12 +844,13 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (statusIssues.length) {
     redirect('/admin/leads?msg=lead_validation_failed&fields=' + encodeURIComponent(statusIssues.join(',')));
   }
-  const skuToCheck = Object.prototype.hasOwnProperty.call(patch, 'sku')
-    ? patch.sku : patch.status === 'check_passed' ? before.sku : null;
+  // Free text is allowed while processing a lead. Only the successful-check
+  // transition requires an existing ERP SKU, including a SKU submitted together.
+  const skuToCheck = patch.status === 'check_passed' ? effectiveFields.sku : null;
   if (typeof skuToCheck === 'string' && skuToCheck.trim()) {
     const { data: article, error: skuError } = await sb.from('erp_articles')
-      .select('sku').eq('sku', skuToCheck.trim()).eq('refurbished_product', true)
-      .eq('vat_margin', true).eq('missing_from_erp', false).maybeSingle();
+      .select('sku').eq('sku', skuToCheck.trim())
+      .eq('missing_from_erp', false).maybeSingle();
     if (skuError || !article) {
       redirect('/admin/leads?msg=lead_validation_failed&fields=' + (skuError ? 'sku_lookup_failed' : 'sku_invalid'));
     }

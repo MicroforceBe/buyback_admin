@@ -41,20 +41,29 @@ test('battery zero is valid, out-of-range values and blank parts are missing',as
  const h=await harness();assert.equal(h.validation.getLeadStatusIssues('check_passed',complete).length,0);
  const issues=h.validation.getLeadStatusIssues('check_passed',{...complete,battery_percentage:101,used_parts_skus:[' ']});assert.deepEqual(Array.from(issues),['battery_percentage','used_parts_skus']);
 });
-test('a description or unknown code cannot be saved as the primary SKU',async()=>{
- for(const sku of ['iPad 128 GB','INVENTED-000']){const h=await harness();await rejected(h,{sku},['sku_invalid']);}
+test('free text and provisional codes can be saved before a successful check without an ERP lookup',async()=>{
+ for(const sku of ['iPad 128 GB','INVENTED-000']){const h=await harness();await assert.rejects(h.api.updateLeadInlineAction(form({sku})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.equal(h.state.writes[0].value.sku,sku);assert.ok(!h.state.reads.includes('erp_articles'));}
+});
+test('a description or unknown code submitted with a successful check blocks the transition',async()=>{
+ for(const sku of ['iPad 128 GB','INVENTED-000']){const h=await harness();await rejected(h,{status:'check_passed',sku},['sku_invalid']);}
 });
 test('passed status rechecks a legacy saved SKU against ERP articles',async()=>{
  const h=await harness({before:{...complete,sku:'iPad 128 GB'}});await rejected(h,{status:'check_passed'},['sku_invalid']);
 });
 test('ERP lookup failure stops all writes and produces only a safe message',async()=>{
- const h=await harness({skuError:true});await rejected(h,{sku:'IPAD-128-A'},['sku_lookup_failed']);const msg=h.validation.leadValidationMessage('sku_lookup_failed,PRIVATE');assert.ok(!msg.includes('PRIVATE'));assert.ok(msg.includes('tijdelijk'));
+ const h=await harness({skuError:true});await rejected(h,{status:'check_passed',sku:'IPAD-128-A'},['sku_lookup_failed']);const msg=h.validation.leadValidationMessage('sku_lookup_failed,PRIVATE');assert.ok(!msg.includes('PRIVATE'));assert.ok(msg.includes('tijdelijk'));
 });
 test('a genuine selected SKU and complete passed check are saved',async()=>{
  const h=await harness();await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.equal(h.state.writes[0].value.status,'check_passed');assert.equal(h.state.mails,0);
 });
+test('an existing manually entered ERP SKU is accepted regardless of search category or VAT filters',async()=>{
+ const h=await harness({rows:[{sku:'IPAD-128-A',title:'ERP article',refurbished_product:false,vat_margin:false,missing_from_erp:false}]});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);
+});
 test('failed check retains existing IMEI-only requirements',async()=>{
- const h=await harness({before:{...complete,customer_number:null,sku:null,battery_percentage:null,used_parts_skus:null}});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_failed_grading'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);
+ const h=await harness({before:{...complete,customer_number:null,sku:'Voorlopige toestelomschrijving',battery_percentage:null,used_parts_skus:null}});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_failed_grading'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.ok(!h.state.reads.includes('erp_articles'));
+});
+test('a real SKU replacing provisional text in the same successful-check request is accepted',async()=>{
+ const h=await harness({before:{...complete,sku:'Voorlopige toestelomschrijving'}});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed',sku:'IPAD-128-A'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.equal(h.state.writes[0].value.status,'check_passed');assert.equal(h.state.writes[0].value.sku,'IPAD-128-A');
 });
 test('lead SKU search uses leads permission, returns real codes and deduplicates',async()=>{
  const h=await harness();const rows=await h.api.searchLeadSkuAction('iPad');assert.equal(rows.length,1);assert.equal(rows[0].sku,'IPAD-128-A');assert.equal(rows[0].title,'iPad 128 GB');assert.deepEqual(Array.from(h.state.permissions[0]),['leads','write',false]);
