@@ -5,15 +5,16 @@ import { prisma } from "@/lib/prisma";
 export async function GET(
   request: Request,
   {
-    params,
+    params: incomingParams,
   }: {
-    params: {
+    params: Promise<{
       id: string;
-    };
+    }>;
   }
 ) {
   const accessDenied = await diagnosticAccess(request, 'read');
   if (accessDenied) return accessDenied;
+  const params = await incomingParams;
 
   try {
     const session =
@@ -60,5 +61,6 @@ export async function GET(
     );
   }
 }
+
 
 

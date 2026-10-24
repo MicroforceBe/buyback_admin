@@ -35,13 +35,14 @@ function asStringArray(value: unknown) {
 }
 
 export default async function DiagnosticSessionPage({
-  params,
+  params: incomingParams,
 }: {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }) {
   await requirePageAccess('refurb', false);
+  const params = await incomingParams;
 
   const session =
     await prisma.diagnosticSession.findUnique({
@@ -677,5 +678,6 @@ export default async function DiagnosticSessionPage({
     </div>
   );
 }
+
 
 

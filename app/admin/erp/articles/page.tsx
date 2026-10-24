@@ -211,11 +211,12 @@ function ToggleButton({
 }
 
 export default async function ErpArticlesPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requirePageAccess('erp', false);
+  const searchParams = await incomingSearchParams;
 
   const q = p(searchParams?.q).trim();
   const grade = p(searchParams?.grade).trim();
@@ -696,4 +697,5 @@ export default async function ErpArticlesPage({
     </div>
   );
 }
+
 

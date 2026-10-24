@@ -7,15 +7,16 @@ export const dynamic = "force-dynamic";
 export async function GET(
   req: Request,
   {
-    params,
+    params: incomingParams,
   }: {
-    params: {
+    params: Promise<{
       id: string;
-    };
+    }>;
   }
 ) {
   const accessDenied = await diagnosticAccess(req, 'read');
   if (accessDenied) return accessDenied;
+  const params = await incomingParams;
 
   try {
     const prismaSessionId =
@@ -80,4 +81,5 @@ export async function GET(
     );
   }
 }
+
 

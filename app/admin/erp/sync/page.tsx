@@ -104,9 +104,9 @@ async function markMissingInactiveAction() {
 }
 
 export default async function ErpSyncPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     success?: string;
     imported?: string;
     skipped?: string;
@@ -121,9 +121,10 @@ export default async function ErpSyncPage({
     updated?: string;
 
     missingPreview?: string;
-  };
+  }>;
 }) {
   await requirePageAccess('erp', false);
+  const searchParams = await incomingSearchParams;
 
   const success = searchParams?.success === "1";
   const imported = searchParams?.imported || null;
@@ -392,4 +393,5 @@ export default async function ErpSyncPage({
     </div>
   );
 }
+
 

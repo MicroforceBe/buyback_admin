@@ -47,8 +47,8 @@ export async function diagnosticAccess(request: Request, mode: PermissionMode) {
 }
 
 // Used by the login action as well as Next's built-in Origin/Host protection.
-export function requireLoginOrigin() {
-  const incoming = headers();
+export async function requireLoginOrigin() {
+  const incoming = await headers();
   const origin = incoming.get('origin');
   const host = incoming.get('host');
   if (!origin || !host) throw new Error('Ongeldige aanmeldingsaanvraag.');
@@ -59,3 +59,4 @@ export function requireLoginOrigin() {
     throw new Error('Ongeldige aanmeldingsaanvraag.');
   }
 }
+

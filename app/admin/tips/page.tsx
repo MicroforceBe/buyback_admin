@@ -6,10 +6,11 @@ import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 
 export const metadata = { title: 'UI Tips — Buyback Admin' };
 
-export default async function Page({ searchParams }: { searchParams: { model?: string } }) {
+export default async function Page({ searchParams: incomingSearchParams }: { searchParams: Promise<{ model?: string }> }) {
   await requirePageAccess('catalog', false);
+  const searchParams = await incomingSearchParams;
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   // Modellen ophalen met tips of vanuit catalogus als fallback
   const { data: tipModels, error: tipsErr } = await supabase
@@ -57,4 +58,5 @@ export default async function Page({ searchParams }: { searchParams: { model?: s
     </main>
   );
 }
+
 

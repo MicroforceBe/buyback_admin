@@ -55,7 +55,7 @@ function normalizePermissions(
  * - Tabel: buyback_admin_sessions + buyback_admin_users
  */
 export async function getCurrentAdminUser(): Promise<AdminUser | null> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const sessionToken = cookieStore.get("bb_admin_session")?.value;
 
   if (!sessionToken || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionToken)) return null;
@@ -101,4 +101,5 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
     permissions,
   };
 }
+
 

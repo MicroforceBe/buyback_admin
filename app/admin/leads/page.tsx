@@ -233,11 +233,12 @@ function hoursSinceCreated(createdAt?: string | null): number | null {
 }
 
 export default async function LeadsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: Promise<SearchParams>;
 }) {
   await requirePageAccess('leads', false);
+  const searchParams = await incomingSearchParams;
 
   const adminUser = await getCurrentAdminUser();
 
@@ -1765,4 +1766,5 @@ export default async function LeadsPage({
     </div>
   );
 }
+
 

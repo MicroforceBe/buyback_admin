@@ -6,13 +6,14 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
 export default async function DiagnosticCertificatePage({
-  params,
+  params: incomingParams,
 }: {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }) {
   await requirePageAccess('refurb', false);
+  const params = await incomingParams;
 
   const session = await prisma.diagnosticSession.findUnique({
     where: {
@@ -116,4 +117,5 @@ export default async function DiagnosticCertificatePage({
     </div>
   );
 }
+
 

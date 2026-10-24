@@ -275,11 +275,12 @@ function moneyEUR(cents: number) {
 }
 
 export default async function RefurbReceptionDetailPage({
-  params,
+  params: incomingParams,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   await requirePageAccess('refurb', false);
+  const params = await incomingParams;
 
   const reception = await getReception(params.id);
 
@@ -697,4 +698,5 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+
 

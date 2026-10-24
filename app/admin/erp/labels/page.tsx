@@ -77,16 +77,17 @@ async function getArticleBySku(sku: string): Promise<Article | null> {
 }
 
 export default async function ErpLabelsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     sku?: string;
     imei?: string;
     battery?: string;
     grade?: string;
-  };
+  }>;
 }) {
   await requirePageAccess('erp', false);
+  const searchParams = await incomingSearchParams;
 
   const sku = String(searchParams?.sku || "").trim();
   const imei = String(searchParams?.imei || "").trim();
@@ -519,4 +520,5 @@ export default async function ErpLabelsPage({
     </div>
   );
 }
+
 

@@ -3,6 +3,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 import IntroTest from "./components/IntroTest";
 import TouchscreenTest from "./components/TouchscreenTest";
@@ -75,13 +76,8 @@ type DeviceInfo = {
   iosVersion?: string | null;
 };
 
-export default function WebDiagnosticsPage({
-  params,
-}: {
-  params: {
-    id: string;
-  };
-}) {
+export default function WebDiagnosticsPage() {
+  const params = useParams<{ id: string }>();
   const [step, setStep] = useState(0);
 
   const [deviceInfo, setDeviceInfo] =
@@ -432,7 +428,7 @@ export default function WebDiagnosticsPage({
                   Model:
                 </span>{" "}
                 {deviceInfo.model ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div>
@@ -440,7 +436,7 @@ export default function WebDiagnosticsPage({
                   iOS:
                 </span>{" "}
                 {deviceInfo.iosVersion ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div>
@@ -449,7 +445,7 @@ export default function WebDiagnosticsPage({
                 </span>{" "}
                 {deviceInfo.batteryHealth
                   ? `${deviceInfo.batteryHealth}%`
-                  : "—"}
+                  : "â€”"}
               </div>
 
               <div>
@@ -457,7 +453,7 @@ export default function WebDiagnosticsPage({
                   Cycles:
                 </span>{" "}
                 {deviceInfo.batteryCycleCount ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div>
@@ -465,7 +461,7 @@ export default function WebDiagnosticsPage({
                   Storage:
                 </span>{" "}
                 {deviceInfo.storageCapacity ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div>
@@ -473,7 +469,7 @@ export default function WebDiagnosticsPage({
                   Activation:
                 </span>{" "}
                 {deviceInfo.activationLockStatus ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div className="col-span-2 truncate">
@@ -481,7 +477,7 @@ export default function WebDiagnosticsPage({
                   IMEI:
                 </span>{" "}
                 {deviceInfo.imei ||
-                  "—"}
+                  "â€”"}
               </div>
 
               <div className="col-span-2 truncate">
@@ -489,7 +485,7 @@ export default function WebDiagnosticsPage({
                   Serial:
                 </span>{" "}
                 {deviceInfo.serialNumber ||
-                  "—"}
+                  "â€”"}
               </div>
             </div>
           </div>
@@ -523,3 +519,5 @@ export default function WebDiagnosticsPage({
     </div>
   );
 }
+
+

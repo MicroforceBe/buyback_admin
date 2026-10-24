@@ -101,11 +101,12 @@ async function saveErpSettingsAction(formData: FormData) {
 }
 
 export default async function ErpSettingsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: { msg?: string };
+  searchParams?: Promise<{ msg?: string }>;
 }) {
   await requirePageAccess('erp', true);
+  const searchParams = await incomingSearchParams;
 
   await requireAdminUser();
   const settings = await getSettings();
@@ -254,4 +255,5 @@ export default async function ErpSettingsPage({
     </div>
   );
 }
+
 

@@ -13,9 +13,10 @@ const supabase = createClient(
 
 function j(data:any, status=200){ return NextResponse.json(data, { status }); }
 
-export async function PATCH(_: Request, { params }: { params: { id: string } }) {
+export async function PATCH(_: Request, { params: incomingParams }: { params: Promise<{ id: string }> }) {
   const accessDenied = await apiAccess(_, 'settings', 'write', false);
   if (accessDenied) return accessDenied;
+  const params = await incomingParams;
 
   const id = params.id;
   const body = await _.json().catch(() => ({}));
@@ -41,13 +42,15 @@ export async function PATCH(_: Request, { params }: { params: { id: string } }) 
   return j({ ok: true, id: data?.id }, 200);
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_: Request, { params: incomingParams }: { params: Promise<{ id: string }> }) {
   const accessDenied = await apiAccess(_, 'settings', 'write', false);
   if (accessDenied) return accessDenied;
+  const params = await incomingParams;
 
   const id = params.id;
   const { error } = await supabase.from('buyback_shops').delete().eq('id', id);
   if (error) return j({ error: error.message }, 500);
   return j({ ok: true }, 200);
 }
+
 

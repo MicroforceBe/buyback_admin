@@ -145,11 +145,12 @@ async function getLeads(from: string, to: string): Promise<AnalyticsLead[]> {
 }
 
 export default async function LeadsAnalyticsPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams: Promise<SearchParams>;
 }) {
   await requirePageAccess('leads', false);
+  const searchParams = await incomingSearchParams;
 
   const adminUser = await getCurrentAdminUser();
 
@@ -189,4 +190,5 @@ export default async function LeadsAnalyticsPage({
     />
   );
 }
+
 

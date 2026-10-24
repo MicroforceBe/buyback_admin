@@ -567,14 +567,15 @@ async function deleteRefurbReceptionAction(
 }
 
 export default async function RefurbListPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string;
     msg?: string;
-  };
+  }>;
 }) {
   await requirePageAccess('refurb', false);
+  const searchParams = await incomingSearchParams;
 
   const q = String(
     searchParams?.q || ""
@@ -941,4 +942,5 @@ export default async function RefurbListPage({
     </div>
   );
 }
+
 

@@ -176,17 +176,18 @@ async function importErpArticlesAction(formData: FormData) {
 }
 
 export default async function ErpImportPage({
-  searchParams,
+  searchParams: incomingSearchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     msg?: string;
     total?: string;
     inserted?: string;
     updated?: string;
     skipped?: string;
-  };
+  }>;
 }) {
   await requirePageAccess('erp', false);
+  const searchParams = await incomingSearchParams;
 
   await requireAdminUser();
   const msg = String(searchParams?.msg || "");
@@ -269,4 +270,5 @@ export default async function ErpImportPage({
     </div>
   );
 }
+
 
