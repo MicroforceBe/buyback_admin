@@ -851,7 +851,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (typeof skuToCheck === 'string' && skuToCheck.trim()) {
     const { data: article, error: skuError } = await sb.from('erp_articles')
       .select('sku').eq('sku', skuToCheck.trim())
-      .eq('missing_from_erp', false).maybeSingle();
+      .eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true).maybeSingle();
     if (skuError || !article) {
       redirect('/admin/leads?msg=lead_validation_failed&fields=' + (skuError ? 'sku_lookup_failed' : 'sku_invalid'));
     }
@@ -1222,7 +1222,7 @@ export async function searchLeadSkuAction(query: string) {
   const base = (untitled = false) => {
     let request = sbClient().from('erp_articles')
       .select('sku,title,price_cents,vat_margin,inventory_qty')
-      .eq('missing_from_erp', false);
+      .eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true);
     if (untitled) return request.is('title', null);
     for (const term of excluded) request = request.not('title', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
     return request;

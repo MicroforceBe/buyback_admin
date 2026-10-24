@@ -64,8 +64,8 @@ test('ERP lookup failure stops all writes and produces only a safe message',asyn
 test('a genuine selected SKU and complete passed check are saved',async()=>{
  const h=await harness();await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.equal(h.state.writes[0].value.status,'check_passed');assert.equal(h.state.mails,0);
 });
-test('an existing manually entered ERP SKU is accepted regardless of search category or VAT filters',async()=>{
- const h=await harness({rows:[{sku:'IPAD-128-A',title:'ERP article',refurbished_product:false,vat_margin:false,missing_from_erp:false}]});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);
+test('an existing manually entered refurbished margin ERP SKU is accepted',async()=>{
+ const h=await harness({rows:[{sku:'IPAD-128-A',title:'ERP article',refurbished_product:true,vat_margin:true,missing_from_erp:false}]});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);
 });
 test('failed check retains existing IMEI-only requirements',async()=>{
  const h=await harness({before:{...complete,customer_number:null,sku:'Voorlopige toestelomschrijving',battery_percentage:null,used_parts_skus:null}});await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_failed_grading'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);assert.ok(!h.state.reads.includes('erp_articles'));
@@ -101,13 +101,29 @@ test('only exclusions or an unfinished minus cannot start an unbounded lookup',a
  const parsed=h.search.parseSkuSearch('IPAD-128-A   -pro  -PRO -max');assert.deepEqual(Array.from(parsed.included),['IPAD-128-A']);assert.deepEqual(Array.from(parsed.excluded),['pro','max']);
 });
 
-test('iPad 2025 -air matches every description word in any order and includes ordinary ERP articles',async()=>{
- const h=await harness({rows:[article('SKU-1','Apple iPad 2025'),{...article('SKU-2','2025 Apple iPad'),vat_margin:false,refurbished_product:false},{...article('SKU-3','Cover for iPad model 2025'),vat_margin:false,refurbished_product:false},article('SKU-4','iPad Air 2025'),article('IPAD-2025-ONLY','Tablet 2024'),article('FAIR-IPAD','iPad 2025')]});
- const expected=['FAIR-IPAD','SKU-1','SKU-2','SKU-3'];
+test('iPad 2025 -air matches every description word in any order within margin ERP articles',async()=>{
+ const h=await harness({rows:[article('SKU-1','Apple iPad 2025'),{...article('SKU-2','2025 Apple iPad'),vat_margin:true,refurbished_product:false},{...article('SKU-3','Cover for iPad model 2025'),vat_margin:false,refurbished_product:false},article('SKU-4','iPad Air 2025'),article('IPAD-2025-ONLY','Tablet 2024'),article('FAIR-IPAD','iPad 2025')]});
+ const expected=['FAIR-IPAD','SKU-1'];
  assert.deepEqual(Array.from(await h.api.searchLeadSkuAction('iPad 2025 -air'),r=>r.sku),expected);
  assert.deepEqual(Array.from(await h.api.searchLeadSkuAction('2025 iPad -AIR'),r=>r.sku),expected);
 });
 test('all matching rows are returned beyond twenty results and across database pages',async()=>{
- const rows=Array.from({length:503},(_,i)=>({...article('SKU-'+String(i).padStart(4,'0'),'2025 Apple iPad '+i),refurbished_product:false,vat_margin:false}));
+ const rows=Array.from({length:503},(_,i)=>({...article('SKU-'+String(i).padStart(4,'0'),'2025 Apple iPad '+i),refurbished_product:true,vat_margin:true}));
  const h=await harness({rows});const found=await h.api.searchLeadSkuAction('iPad 2025 -air');assert.equal(found.length,503);assert.equal(new Set(found.map(r=>r.sku)).size,503);assert.ok(h.state.querySteps.some(s=>s[0]==='range'&&s[1]===500));
+});
+
+test('non-margin and unspecified-margin codes are excluded from search and successful checks',async()=>{
+ for(const vat_margin of [false,null,undefined]){
+  const h=await harness({rows:[{...article('IPAD-128-A','iPad 2025'),vat_margin}]});
+  for(const query of ['iPad','IPAD-128-A','iPad 2025 -air'])assert.equal((await h.api.searchLeadSkuAction(query)).length,0);
+  await rejected(h,{status:'check_passed',sku:'IPAD-128-A'},['sku_invalid']);
+ }
+});
+
+test('non-refurbished and unspecified-refurbished margin codes cannot pass a check or appear in search',async()=>{
+ for(const refurbished_product of [false,null,undefined]){
+  const h=await harness({rows:[{...article('IPAD-128-A','iPad 2025'),refurbished_product}]});
+  for(const query of ['iPad','IPAD-128-A','iPad 2025 -air'])assert.equal((await h.api.searchLeadSkuAction(query)).length,0);
+  await rejected(h,{status:'check_passed',sku:'IPAD-128-A'},['sku_invalid']);
+ }
 });

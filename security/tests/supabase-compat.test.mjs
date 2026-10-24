@@ -22,14 +22,14 @@ test('SKU description filters remain separate AND conditions with database pagin
     assert.equal(requested.origin, origin);
     return json([]);
   } } });
-  await client.from('erp_articles').select('sku,title').eq('missing_from_erp', false)
+  await client.from('erp_articles').select('sku,title').eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true)
     .not('title', 'ilike', '%air%').ilike('title', '%iPad%').ilike('title', '%2025%')
     .order('sku', { ascending: true }).range(500, 999);
   assert.deepEqual(requested.searchParams.getAll('title'), ['not.ilike.%air%', 'ilike.%iPad%', 'ilike.%2025%']);
   assert.equal(requested.searchParams.get('offset'), '500');
   assert.equal(requested.searchParams.get('limit'), '500');
-  assert.equal(requested.searchParams.has('vat_margin'), false);
-  assert.equal(requested.searchParams.has('refurbished_product'), false);
+  assert.equal(requested.searchParams.get('vat_margin'), 'eq.true');
+  assert.equal(requested.searchParams.get('refurbished_product'), 'eq.true');
 });
 function harness({ server = false, env = {}, handler = () => json([]) } = {}) {
   const calls = [], clients = [], state = { cookieReads: 0, cookieWrites: 0 };

@@ -11,7 +11,7 @@ export const leadFieldLabels = {
   imei_sn: 'IMEI of serienummer',
   battery_percentage: 'Batterijpercentage (0–100)',
   used_parts_skus: "Gebruikte onderdelen (SKU’s)",
-  sku_invalid: 'Bestaande ERP-SKU voor Controle succesvol (een omschrijving volstaat niet)',
+  sku_invalid: 'Bestaande ERP-SKU van een refurbished margeartikel voor Controle succesvol (een omschrijving volstaat niet)',
   sku_lookup_failed: 'SKU-controle is tijdelijk niet beschikbaar. Probeer opnieuw',
 } as const;
 export type LeadFieldIssue = keyof typeof leadFieldLabels;
