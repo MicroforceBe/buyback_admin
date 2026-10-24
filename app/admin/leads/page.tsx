@@ -1452,7 +1452,7 @@ export default async function LeadsPage({
                               options={trans.map(t => ({value: t.value, label: t.label, disabled: curr === 'check_passed' && (t.value === 'done' || t.value === 'cancelled') && !canFinalizeLeads}))}
                               savedFields={{customer_number: lead.customer_number, sku: lead.sku, imei_sn: lead.imei_sn, battery_percentage: lead.battery_percentage, used_parts_skus: lead.used_parts_skus}}
                               canSave={!saveDisabled}
-                              cancelReason={lead.cancel_reason}
+                              cancelReason={lead.cancel_reason ?? null}
                               overdueTitle={overdue && overdueTitle ? overdueTitle : undefined}
                             />
                           )}
