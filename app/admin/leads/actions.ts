@@ -1,6 +1,7 @@
 // app/admin/leads/actions.ts
 
 "use server";
+import { getLeadStatusIssues } from '@/lib/leadDeviceValidation';
 import { requireAccess } from '@/lib/security/access';
 
 
@@ -837,54 +838,20 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // Server-side validatie voor kritieke statussen
-  const need = (
-    key:
-      | "customer_number"
-      | "sku"
-      | "imei_sn"
-      | "battery_percentage"
-      | "used_parts_skus"
-  ) => {
-    const value = Object.prototype.hasOwnProperty.call(patch, key)
-      ? patch[key]
-      : (before as any)[key];
-
-    if (key === "used_parts_skus") {
-      return Array.isArray(value) ? value.length > 0 : Boolean(value);
-    }
-
-    if (key === "battery_percentage") {
-      return value !== null && value !== undefined && value !== "";
-    }
-
-    return (value ?? "").toString().trim();
-  };
-
-  if (patch.status === "check_passed") {
-    if (
-      !need("customer_number") ||
-      !need("sku") ||
-      !need("imei_sn") ||
-      !need("battery_percentage") ||
-      !need("used_parts_skus")
-    ) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          "check_passed_requires_customer_sku_imei_battery_used_parts"
-        )}`
-      );
-    }
+  // Validate saved/effective fields before events, updates or email side effects.
+  const effectiveFields = { ...before, ...patch };
+  const statusIssues = getLeadStatusIssues(String(patch.status ?? ''), effectiveFields);
+  if (statusIssues.length) {
+    redirect('/admin/leads?msg=lead_validation_failed&fields=' + encodeURIComponent(statusIssues.join(',')));
   }
-
-  if (
-    patch.status === "check_failed_technical" ||
-    patch.status === "check_failed_grading"
-  ) {
-    if (!need("imei_sn")) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent("failed_check_requires_imei")}`
-      );
+  const skuToCheck = Object.prototype.hasOwnProperty.call(patch, 'sku')
+    ? patch.sku : patch.status === 'check_passed' ? before.sku : null;
+  if (typeof skuToCheck === 'string' && skuToCheck.trim()) {
+    const { data: article, error: skuError } = await sb.from('erp_articles')
+      .select('sku').eq('sku', skuToCheck.trim()).eq('refurbished_product', true)
+      .eq('vat_margin', true).eq('missing_from_erp', false).maybeSingle();
+    if (skuError || !article) {
+      redirect('/admin/leads?msg=lead_validation_failed&fields=' + (skuError ? 'sku_lookup_failed' : 'sku_invalid'));
     }
   }
 
@@ -1241,3 +1208,23 @@ export async function deleteLeadAction(formData: FormData) {
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
 
+
+export async function searchLeadSkuAction(query: string) {
+  await requireAccess('leads', 'write', false);
+  const search = String(query ?? '').trim();
+  if (search.length < 2 || search.length > 120) return [];
+  const escaped = search.replace(/[\\%_]/g, '\\$&');
+  const base = () => sbClient().from('erp_articles')
+    .select('sku,title,price_cents,vat_margin,inventory_qty')
+    .eq('refurbished_product', true).eq('vat_margin', true).eq('missing_from_erp', false);
+  const [codes, titles] = await Promise.all([
+    base().ilike('sku', '%' + escaped + '%').limit(20),
+    base().ilike('title', '%' + escaped.split(/\s+/).join('%') + '%').limit(20),
+  ]);
+  if (codes.error || titles.error) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
+  const unique = new Map<string, {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null}>();
+  for (const row of [...(codes.data ?? []), ...(titles.data ?? [])]) {
+    if (row.sku && !unique.has(row.sku)) unique.set(row.sku, row);
+  }
+  return Array.from(unique.values()).slice(0, 20);
+}

@@ -2,11 +2,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { updateLeadInlineAction } from "./actions";
-import {
-  searchErpArticlesForSku,
-  type ErpSkuSearchResult,
-} from "../refurb/actions";
+import { updateLeadInlineAction, searchLeadSkuAction } from "./actions";
+type ErpSkuSearchResult = Awaited<ReturnType<typeof searchLeadSkuAction>>[number];
 
 type Status =
   | "new"
@@ -65,129 +62,67 @@ function CopyBtn({ value, title }: { value: string; title?: string }) {
   );
 }
 
-function SkuAutocompleteInput({
-  value,
-  name,
-  placeholder,
-}: {
-  value: string;
-  name: string;
-  placeholder?: string;
-}) {
-  const [inputValue, setInputValue] = useState(value);
+function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: string; invalid: boolean}) {
+  const [query, setQuery] = useState('');
+  const [selectedSku, setSelectedSku] = useState(value);
+  const [selectedTitle, setSelectedTitle] = useState('');
   const [results, setResults] = useState<ErpSkuSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setInputValue(value);
-  }, [value]);
-
+  const [error, setError] = useState('');
+  useEffect(() => { setSelectedSku(value); setSelectedTitle(''); }, [value]);
   useEffect(() => {
     let cancelled = false;
-
-    async function run() {
-      const q = inputValue.trim();
-
-      if (q.length < 2) {
-        setResults([]);
-        return;
-      }
-
-      try {
-        setLoading(true);
-
-        const rows = await searchErpArticlesForSku(q, "margin");
-
-        if (!cancelled) {
-          setResults(rows || []);
-        }
-      } catch (e) {
-        console.error("[LEADS] SKU search error", e);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    const timer = setTimeout(run, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inputValue]);
-
-  return (
-    <div className="relative">
-      <div className="flex items-center gap-1">
-        <input
-          name={name}
-          className={input}
-          value={inputValue}
-          placeholder={placeholder ?? "SKU"}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setTimeout(() => setOpen(false), 150);
-          }}
-        />
-
-        <CopyBtn value={inputValue.trim()} title="Copy SKU" />
-      </div>
-
-      {open && (results.length > 0 || loading) && (
-        <div className="absolute z-50 mt-1 w-[520px] overflow-hidden rounded-xl border bg-white shadow-2xl">
-          {loading && (
-            <div className="px-3 py-2 text-[11px] text-slate-500">
-              Zoeken...
-            </div>
-          )}
-
-          {!loading &&
-            results.map((r) => (
-              <button
-                key={`${r.sku}-${r.title}`}
-                type="button"
-                className="flex w-full flex-col border-b px-3 py-2 text-left hover:bg-slate-50"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setInputValue(r.sku);
-                  setOpen(false);
-                }}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium text-[11px] text-slate-900">
-                    {r.sku}
-                  </div>
-
-                  <div className="text-[10px] text-slate-500">
-                    Stock: {r.inventory_qty ?? 0}
-                  </div>
-                </div>
-
-                <div className="mt-1 text-[11px] text-slate-600 line-clamp-2">
-                  {r.title || "—"}
-                </div>
-
-                <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
-                  <span>{((r.price_cents || 0) / 100).toFixed(2)}€</span>
-                  <span>{r.vat_margin ? "Margin VAT" : "Normal VAT"}</span>
-                </div>
-              </button>
-            ))}
-        </div>
-      )}
+    const search = query.trim();
+    if (search.length < 2) { setResults([]); setLoading(false); setError(''); return; }
+    setLoading(true); setError('');
+    const timer = setTimeout(async () => {
+      try { const rows = await searchLeadSkuAction(search); if (!cancelled) setResults(rows); }
+      catch { if (!cancelled) { setResults([]); setError('Artikelen zoeken mislukt. Probeer opnieuw.'); } }
+      finally { if (!cancelled) setLoading(false); }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query]);
+  return <div className="relative space-y-1" onBlur={event => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+  }}>
+    <input className={input} value={query} placeholder="Zoek op SKU of omschrijving..." aria-label="Zoek ERP-artikel op SKU of omschrijving"
+      onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} autoComplete="off" />
+    <div className="flex items-center gap-1">
+      <input name={name} className={`${input} font-mono font-semibold tracking-wide`} value={selectedSku} readOnly
+        aria-label="Geselecteerde SKU" aria-invalid={invalid} placeholder="Geen SKU geselecteerd" />
+      <CopyBtn value={selectedSku} title="Kopieer SKU" />
+      {selectedSku && <button type="button" className="bb-btn text-xs px-2 h-7" title="SKU wissen" aria-label="SKU wissen"
+        onClick={() => { setSelectedSku(''); setSelectedTitle(''); }}>×</button>}
     </div>
-  );
+    {selectedTitle && <p className="text-[11px] text-slate-600">{selectedTitle}</p>}
+    {!selectedSku && <p className="text-[11px] text-gray-500">Selecteer een artikel uit de zoekresultaten.</p>}
+    {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+    {open && query.trim().length >= 2 && <div className="absolute z-50 mt-1 w-full min-w-[280px] max-h-72 overflow-auto rounded-xl border bg-white shadow-2xl">
+      {loading ? <p className="px-3 py-2 text-xs text-slate-500">Zoeken...</p> : results.length ? results.map(row =>
+        <button key={row.sku} type="button" className="flex w-full flex-col border-b px-3 py-2 text-left hover:bg-slate-50"
+          onMouseDown={event => event.preventDefault()} onClick={() => { setSelectedSku(row.sku); setSelectedTitle(row.title ?? ''); setOpen(false); setQuery(''); }}>
+          <span className="font-mono text-xs font-semibold text-slate-900">{row.sku}</span>
+          <span className="mt-1 text-[11px] text-slate-600">{row.title || '—'}</span>
+          <span className="mt-1 text-[10px] text-slate-500">Voorraad: {row.inventory_qty ?? 0} · {((row.price_cents ?? 0)/100).toFixed(2)} €</span>
+        </button>) : !error && <p className="px-3 py-2 text-xs text-slate-500">Geen artikelen gevonden.</p>}
+    </div>}
+  </div>;
 }
 
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
+  const [missing, setMissing] = useState<string[]>([]);
+  useEffect(() => {
+    const show = (event: Event) => {
+      const detail = (event as CustomEvent<{id: string; fields: string[]}>).detail;
+      if (detail?.id !== p.id) return;
+      setMissing(detail.fields);
+      if (detail.fields.some(key => ['sku', 'imei_sn', 'battery_percentage', 'used_parts_skus'].includes(key))) setOpen(true);
+    };
+    window.addEventListener('lead-device-validation', show);
+    return () => window.removeEventListener('lead-device-validation', show);
+  }, [p.id]);
 
   const status: Status = (p.status ?? "new") as Status;
   const isEditable = !!p.canEdit;
@@ -265,7 +200,7 @@ export default function DeviceCell(p: Props) {
                   SKU{" "}
                   <span
                     data-device-warning="sku"
-                    className="text-orange-500 ml-1 hidden"
+                    className={`text-red-700 ml-1 ${missing.includes("sku") ? "" : "hidden"}`}
                     title="Verplicht bij controle"
                   >
                     ⚠
@@ -275,7 +210,7 @@ export default function DeviceCell(p: Props) {
                 <SkuAutocompleteInput
                   name="sku"
                   value={p.sku ?? ""}
-                  placeholder="Zoek SKU..."
+                  invalid={missing.includes("sku")}
                 />
               </div>
 
@@ -284,7 +219,7 @@ export default function DeviceCell(p: Props) {
                   IMEI (15c) of Serienummer{" "}
                   <span
                     data-device-warning="imei_sn"
-                    className="text-orange-500 ml-1 hidden"
+                    className={`text-red-700 ml-1 ${missing.includes("imei_sn") ? "" : "hidden"}`}
                     title="Verplicht bij controle"
                   >
                     ⚠
@@ -303,7 +238,7 @@ export default function DeviceCell(p: Props) {
                   Batterij (%){" "}
                   <span
                     data-device-warning="battery_percentage"
-                    className="text-orange-500 ml-1 hidden"
+                    className={`text-red-700 ml-1 ${missing.includes("battery_percentage") ? "" : "hidden"}`}
                     title="Verplicht bij controle"
                   >
                     ⚠
@@ -329,7 +264,7 @@ export default function DeviceCell(p: Props) {
                   Gebruikte onderdelen (SKU&apos;s){" "}
                   <span
                     data-device-warning="used_parts_skus"
-                    className="text-orange-500 ml-1 hidden"
+                    className={`text-red-700 ml-1 ${missing.includes("used_parts_skus") ? "" : "hidden"}`}
                     title="Verplicht bij controle"
                   >
                     ⚠
@@ -443,3 +378,4 @@ export default function DeviceCell(p: Props) {
     </div>
   );
 }
+

@@ -9,6 +9,8 @@ import {
 } from "./actions";
 import CustomerCell from "./CustomerCell";
 import DeviceCell from "./DeviceCell";
+import LeadStatusForm from "./LeadStatusForm";
+import { leadValidationMessage } from "@/lib/leadDeviceValidation";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 import { hasPermission } from "@/lib/adminPermissions";
 import { redirect } from "next/navigation";
@@ -143,6 +145,8 @@ type Lead = {
 };
 
 type SearchParams = {
+  msg?: string;
+  fields?: string;
   q?: string;
   from?: string;
   to?: string;
@@ -1060,6 +1064,12 @@ export default async function LeadsPage({
         </details>
       </div>
 
+      {searchParams.msg === 'lead_validation_failed' && (
+        <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {leadValidationMessage(searchParams.fields)}
+        </div>
+      )}
+
       <div className="overflow-auto">
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
@@ -1364,7 +1374,7 @@ export default async function LeadsPage({
                             sku: lead.sku,
                             imei_sn: lead.imei_sn,
                             delivery_method: lead.delivery_method,
-                          }).filter((t) => t.ok);
+                          }).filter((t) => t.ok || ["check_passed", "check_failed_technical", "check_failed_grading"].includes(t.value));
                       const hasChoices = trans.length > 0;
 
                       const trackingHref =
@@ -1434,119 +1444,17 @@ export default async function LeadsPage({
                               )}
                             </div>
                           ) : (
-                            <form
-                              action={updateLeadInlineAction}
-                              className="space-y-1"
-                              data-lead-id={lead.id}
-                            >
-                              <input type="hidden" name="id" value={lead.id} />
-                              <input
-                                type="hidden"
-                                name="change_type"
-                                value="status"
-                              />
-                              <input
-                                type="hidden"
-                                name="previous_status"
-                                value={lead.status ?? ""}
-                              />
-                              <div className="inline-flex items-center gap-2">
-                                <select
-                                  name="status"
-                                  defaultValue={curr}
-                                  className="bb-select-sm inline-block pr-8"
-                                  title={
-                                    hasChoices
-                                      ? "Status wijzigen"
-                                      : "Geen vervolgstatus mogelijk"
-                                  }
-                                  disabled={!hasChoices}
-                                  data-status-select
-                                >
-                                  <option value={curr}>
-                                    {statusLabel(curr)}
-                                  </option>
-                                  {trans.map((t) => {
-                                    const isFinalTarget =
-                                      t.value === "done" ||
-                                      t.value === "cancelled";
-                                    const optionDisabled =
-                                      curr === "check_passed" &&
-                                      isFinalTarget &&
-                                      !canFinalizeLeads;
-                                    return (
-                                      <option
-                                        key={t.value}
-                                        value={t.value}
-                                        disabled={optionDisabled}
-                                      >
-                                        {t.label}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-
-                                {overdue && overdueTitle && (
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold cursor-help"
-                                    title={overdueTitle}
-                                    aria-label={overdueTitle}
-                                  >
-                                    !
-                                  </button>
-                                )}
-
-                                <button
-                                  className="bb-btn subtle h-8 text-xs px-2"
-                                  type="submit"
-                                  disabled={saveDisabled}
-                                  title={
-                                    saveDisabled
-                                      ? "Geen geldige overgang"
-                                      : "Opslaan"
-                                  }
-                                  aria-label="Opslaan"
-                                  data-save-button
-                                >
-                                  💾
-                                </button>
-                              </div>
-
-                              <div
-                                className="mt-1 text-[11px]"
-                                data-cancel-block
-                                style={{ display: "none" }}
-                              >
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-xs text-gray-600">
-                                    Reden annulatie
-                                  </span>
-                                  <select
-                                    name="cancel_reason"
-                                    defaultValue={lead.cancel_reason ?? ""}
-                                    className="bb-select-sm inline-block pr-6"
-                                    data-cancel-select
-                                  >
-                                    <option value="">-- Kies reden --</option>
-                                    <option value="Fake order">Fake order</option>
-                                    <option value="Technische problemen met toestel">
-                                      Technische problemen met toestel
-                                    </option>
-                                    <option value="Klant heeft zich bedacht">
-                                      Klant heeft zich bedacht
-                                    </option>
-                                    <option value="Klant niet akkoord met nieuwe prijs">
-                                      Klant niet akkoord met nieuwe prijs
-                                    </option>
-                                    <option value="Klant vindt dat het te lang duurt">
-                                      Klant vindt dat het te lang duurt
-                                    </option>
-                                    <option value="Test Order">Test Order</option>
-                                  </select>
-                                </label>
-                              </div>
-                            </form>
+                            <LeadStatusForm
+                              key={`${lead.id}:${lead.updated_at}`}
+                              id={lead.id}
+                              currentStatus={curr}
+                              currentLabel={statusLabel(curr)}
+                              options={trans.map(t => ({value: t.value, label: t.label, disabled: curr === 'check_passed' && (t.value === 'done' || t.value === 'cancelled') && !canFinalizeLeads}))}
+                              savedFields={{customer_number: lead.customer_number, sku: lead.sku, imei_sn: lead.imei_sn, battery_percentage: lead.battery_percentage, used_parts_skus: lead.used_parts_skus}}
+                              canSave={!saveDisabled}
+                              cancelReason={lead.cancel_reason}
+                              overdueTitle={overdue && overdueTitle ? overdueTitle : undefined}
+                            />
                           )}
 
                           {shippingVisible && (
@@ -1655,115 +1563,7 @@ export default async function LeadsPage({
         )}
       </div>
 
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            (function() {
-              function initForm(form) {
-                if (!form) return;
-                var statusSelect = form.querySelector('[data-status-select]');
-                var cancelBlock = form.querySelector('[data-cancel-block]');
-                var cancelSelect = form.querySelector('[data-cancel-select]');
-                var saveBtn = form.querySelector('[data-save-button]');
-                if (!statusSelect || !saveBtn || !cancelBlock) return;
 
-                function sync() {
-                  var status = statusSelect.value;
-                  if (status === 'cancelled') {
-                    cancelBlock.style.display = 'block';
-                    if (cancelSelect) {
-                      var hasReason = (cancelSelect.value || '').trim().length > 0;
-                      if (saveBtn._disabledByPerm === true) {
-                        saveBtn.disabled = true;
-                      } else {
-                        saveBtn.disabled = !hasReason;
-                      }
-                    } else {
-                      saveBtn.disabled = true;
-                    }
-                  } else {
-                    cancelBlock.style.display = 'none';
-                    if (saveBtn._disabledByPerm === true) {
-                      saveBtn.disabled = true;
-                    } else {
-                      saveBtn.disabled = false;
-                    }
-                  }
-                }
-
-                function validateDeviceFields() {
-                  var status = statusSelect.value;
-                  if (
-                    status !== 'check_passed' &&
-                    status !== 'check_failed_technical' &&
-                    status !== 'check_failed_grading'
-                  ) return true;
-
-                  var row = form.closest('tr');
-                  if (!row) return true;
-
-                  var requiredKeys =
-                    status === 'check_passed'
-                      ? ['sku','imei_sn','battery_percentage','used_parts_skus']
-                      : ['imei_sn'];
-
-                  var ok = true;
-
-                  requiredKeys.forEach(function(key) {
-                    var warning = row.querySelector('[data-device-warning="' + key + '"]');
-                    if (warning) warning.style.display = 'none';
-
-                    var input;
-                    if (key === 'used_parts_skus') {
-                      input = row.querySelector('input[name="used_parts_skus"]');
-                    } else if (key === 'battery_percentage') {
-                      input = row.querySelector('input[name="battery_percentage"]');
-                    } else {
-                      input = row.querySelector('input[name="' + key + '"]');
-                    }
-
-                    var value = input && (input.value || '').trim();
-                    if (!value) {
-                      ok = false;
-                      if (warning) warning.style.display = 'inline';
-                    }
-                  });
-
-                  return ok;
-                }
-
-                if (saveBtn.disabled) {
-                  saveBtn._disabledByPerm = true;
-                }
-
-                statusSelect.addEventListener('change', sync);
-                if (cancelSelect) {
-                  cancelSelect.addEventListener('change', sync);
-                }
-
-                form.addEventListener('submit', function(ev) {
-                  if (!validateDeviceFields()) {
-                    ev.preventDefault();
-                  }
-                });
-
-                sync();
-              }
-
-              function initAll() {
-                var forms = document.querySelectorAll('form[data-lead-id]');
-                forms.forEach(initForm);
-              }
-
-              if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initAll);
-              } else {
-                initAll();
-              }
-            })();
-          `,
-        }}
-      />
     </div>
   );
 }
