@@ -546,7 +546,17 @@ async function deleteRefurbReceptionAction(
     );
   }
 
-  await deleteRefurbReception(receptionId);
+  let deletionFailed = false;
+  try {
+    await deleteRefurbReception(receptionId);
+  } catch {
+    deletionFailed = true;
+  }
+
+  // redirect throws internally: keep it outside the try/catch.
+  if (deletionFailed) {
+    redirect("/admin/refurb?msg=delete_reception_failed");
+  }
 
   revalidatePath("/admin/refurb");
 
@@ -560,6 +570,7 @@ export default async function RefurbListPage({
 }: {
   searchParams?: {
     q?: string;
+    msg?: string;
   };
 }) {
   await requirePageAccess('refurb', false);
@@ -580,6 +591,18 @@ export default async function RefurbListPage({
 
   return (
     <div className="space-y-4">
+      {searchParams?.msg === "delete_reception_failed" && (
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          De receptie is niet verwijderd. Een receptie met geboekte toestellen mag
+          niet worden verwijderd. Controleer de toestelstatussen en probeer het
+          indien nodig opnieuw.
+        </div>
+      )}
+      {searchParams?.msg === "deleted_reception" && (
+        <div role="status" className="rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          De receptie is verwijderd.
+        </div>
+      )}
       <details
         className="rounded-md border bg-white"
         open={!!q}
