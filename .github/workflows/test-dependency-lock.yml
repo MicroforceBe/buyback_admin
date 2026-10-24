@@ -5,6 +5,7 @@ on:
     paths:
       - package.json
       - package-lock.json
+      - security/tests/zod-compat.test.mjs
       - .github/workflows/test-dependency-lock.yml
 permissions:
   contents: read
@@ -24,6 +25,8 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Check clean installation from generated lock
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify real application validation schemas without external services
+        run: node --test security/tests/zod-compat.test.mjs
       - name: Collect production dependency audit
         shell: bash
         run: |
@@ -31,7 +34,7 @@ jobs:
           if [ "$result" -gt 1 ]; then exit "$result"; fi
       - name: Record tested source and installed framework
         run: |
-          node -e "const fs=require('fs'); fs.writeFileSync('dependency-review.json',JSON.stringify({commit:process.env.GITHUB_SHA,node:process.version,next:require('next/package.json').version,react:require('react/package.json').version},null,2))"
+          node -e "const fs=require('fs'); fs.writeFileSync('dependency-review.json',JSON.stringify({commit:process.env.GITHUB_SHA,node:process.version,next:require('next/package.json').version,react:require('react/package.json').version,zod:require('zod/package.json').version},null,2))"
       - name: Make dependency review readable to the connected reviewer
         run: |
           node -e "const fs=require('fs'),z=require('zlib'); const data=Object.fromEntries(['package-lock.json','dependency-audit.json','dependency-review.json'].map(p=>[p,fs.readFileSync(p,'utf8')])); const text=z.gzipSync(JSON.stringify(data)).toString('base64'); console.log('REVIEW_BUNDLE_START'); for(let i=0;i<text.length;i+=3000)console.log(text.slice(i,i+3000)); console.log('REVIEW_BUNDLE_END')"
