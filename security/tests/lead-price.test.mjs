@@ -30,7 +30,7 @@ const request=body=>new Request('https://test.invalid/api/buyback/lead',{method:
 
 test('server derives base, condition price, voucher total and bonus from stored data',async()=>{
  const h=await harness();const quote=await h.price.verifyLeadPrice(h.db,payload);
- assert.deepEqual(JSON.parse(JSON.stringify(quote)),{base_price_cents:10000,final_price_cents:8500,final_price_with_voucher_cents:9000,voucher_bonus_cents:500});
+ assert.deepEqual(JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(quote).filter(([key])=>key!=='questions_answers_html')))),{base_price_cents:10000,final_price_cents:8500,final_price_with_voucher_cents:9000,voucher_bonus_cents:500});
 });
 test('all eight fixture answer combinations agree with the existing widget',async()=>{
  const h=await harness();for(const functional of ['good','bad'])for(const screen of ['good','bad'])for(const housing of ['good','bad']){
@@ -80,6 +80,22 @@ test('real lead route rejects forged price before order allocation, persistence 
 test('real lead route stores verified totals and rebuilds supplied HTML from validated answers',async()=>{
  const h=await harness();const response=await h.route.POST(request({...payload,questions_answers_html:'<img src=x onerror=alert(1)>'}));assert.equal(response.status,201);assert.equal(h.state.writes.length,1);
  const saved=h.state.writes[0];assert.equal(saved.final_price_cents,8500);assert.equal(saved.final_price_with_voucher_cents,9000);assert.equal(saved.voucher_bonus_cents,500);assert.ok(!saved.questions_answers_html.includes('<img'));assert.equal(h.state.mails[0].final_price_cents,9000);
+});
+
+test('confirmation summary uses stored question titles and labels, not option keys or supplied HTML',async()=>{
+ const q={functional:{title:'Werkt het toestel?',options:[{key:'opt_1',label:'Ja, volledig',type:'fixed',value:0}]},screen:{title:'Schermconditie',options:[{key:'opt_1',label:'Als nieuw',type:'fixed',value:0}]}};
+ const h=await harness({category:[{category:'TEST',questions_json:{questions:q,question_order:['screen','functional']}}]});
+ const response=await h.route.POST(request({...payload,answers:{functional:'opt_1',screen:'opt_1'},final_price_cents:10000,questions_answers_html:'<img src=x onerror=alert(1)>'}));
+ assert.equal(response.status,201);const saved=h.state.writes[0];const html=saved.questions_answers_html;
+ assert.ok(html.includes('Werkt het toestel?'));assert.ok(html.includes('Ja, volledig'));assert.ok(html.includes('Als nieuw'));assert.ok(html.indexOf('Schermconditie')<html.indexOf('Werkt het toestel?'));assert.ok(!html.includes('opt_1'));assert.ok(!html.includes('<img'));
+ assert.equal(h.state.mails[0].questions_answers_html,html);assert.deepEqual(JSON.parse(JSON.stringify(saved.answers)),{functional:'opt_1',screen:'opt_1'});
+});
+
+test('custom model label overrides the same option key in the category and is HTML escaped',async()=>{
+ const custom={functional:{title:'Vraag <script> & "titel"',options:[{key:'opt_1',label:'Eigen <b>label</b> & "waarde"',type:'fixed',value:0}]}};
+ const h=await harness({assignments:[{model:'TEST Device',category:'TEST',uses_category:false,assigned_set:'CUSTOM'}],sets:[{name:'CUSTOM',category:'TEST',questions:custom,order:['functional']}]});
+ const quote=await h.price.verifyLeadPrice(h.db,{...payload,answers:{functional:'opt_1'},final_price_cents:10000});
+ assert.ok(quote.questions_answers_html.includes('Eigen &lt;b&gt;label&lt;/b&gt; &amp; &quot;waarde&quot;'));assert.ok(quote.questions_answers_html.includes('Vraag &lt;script&gt;'));assert.ok(!quote.questions_answers_html.includes('<script>'));assert.ok(!quote.questions_answers_html.includes('opt_1'));
 });
 
 

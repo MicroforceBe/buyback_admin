@@ -1,8 +1,12 @@
 name: Production release verification
 on:
   push:
-    branches: [release/security-20261024]
+    branches: [release/security-20261024, main]
     paths:
+      - lib/verifyLeadPrice.ts
+      - app/api/buyback/lead/route.ts
+      - security/tests/lead-price.test.mjs
+      - .github/workflows/release-verification.yml
       - package.json
       - package-lock.json
       - security/tests/zod-compat.test.mjs
@@ -29,7 +33,6 @@ permissions:
   contents: read
 jobs:
   review:
-    if: github.ref == 'refs/heads/release/security-20261024'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
