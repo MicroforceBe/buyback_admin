@@ -120,6 +120,30 @@ function parseRows(buffer: Buffer) {
   });
 }
 
+function validateImportRows(rows: any[]) {
+  if (!rows.length) throw new Error("ERP-bestand is leeg; er is niets gewijzigd.");
+  const required = ["Variant SKU [ID]", "Status", "Variant Price"];
+  if (required.some(key => !Object.prototype.hasOwnProperty.call(rows[0], key))) {
+    throw new Error("ERP-bestand heeft niet de verwachte kolommen; er is niets gewijzigd.");
+  }
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const sku = normalizeSku(row["Variant SKU [ID]"]);
+    if (!sku) continue;
+    if (seen.has(sku)) throw new Error("ERP-bestand bevat dubbele SKU's; er is niets gewijzigd.");
+    seen.add(sku);
+  }
+  if (!seen.size) throw new Error("ERP-bestand bevat geen geldige SKU's; er is niets gewijzigd.");
+}
+
+async function loadErpSnapshot() {
+  const settings = await getErpSettings();
+  const { buffer, remotePath } = await downloadErpXlsx(settings);
+  const rows = parseRows(buffer);
+  validateImportRows(rows);
+  return { rows, remotePath };
+}
+
 function rowToPayload(row: any) {
   const sku = normalizeSku(row["Variant SKU [ID]"]);
 
@@ -258,12 +282,8 @@ async function fetchAllErpArticles() {
   return all;
 }
 
-export async function findMissingErpArticles() {
-  const settings = await getErpSettings();
-
-  const { buffer } = await downloadErpXlsx(settings);
-
-  const rows = parseRows(buffer);
+async function findMissingFromRows(rows: any[]) {
+  validateImportRows(rows);
 
   const xlsxSkus = new Set<string>();
 
@@ -296,9 +316,16 @@ export async function findMissingErpArticles() {
   };
 }
 
-export async function markMissingErpArticlesInactive() {
-  const result = await findMissingErpArticles();
+export async function findMissingErpArticles() {
+  const { rows } = await loadErpSnapshot();
+  return findMissingFromRows(rows);
+}
 
+export async function markMissingErpArticlesInactive() {
+  return markMissingResult(await findMissingErpArticles());
+}
+
+async function markMissingResult(result: Awaited<ReturnType<typeof findMissingFromRows>>) {
   console.log(
     "[ERP SYNC] Artikels in XLSX:",
     result.totalInXlsx
@@ -312,13 +339,6 @@ export async function markMissingErpArticlesInactive() {
   console.log(
     "[ERP SYNC] Missing artikels gevonden:",
     result.missing.length
-  );
-
-  console.log(
-    "[ERP SYNC] Eerste missing SKUs:",
-    result.missing
-      .slice(0, 20)
-      .map((x: any) => x.sku)
   );
 
   const ids = result.missing
@@ -362,17 +382,7 @@ export async function runErpSync(): Promise<ErpSyncResult> {
 
   console.log("[ERP SYNC] Sync gestart");
 
-  const settings = await getErpSettings();
-
-  const { buffer, remotePath } =
-    await downloadErpXlsx(settings);
-
-  console.log(
-    "[ERP SYNC] Bestand gedownload:",
-    remotePath
-  );
-
-  const rows = parseRows(buffer);
+  const { rows } = await loadErpSnapshot();
 
   console.log(
     "[ERP SYNC] Rows gevonden:",
@@ -394,11 +404,10 @@ export async function runErpSync(): Promise<ErpSyncResult> {
     payloads.push(payload);
   }
 
-  const imported =
-    await bulkUpsertArticles(payloads);
-
-  const missingResult =
-    await markMissingErpArticlesInactive();
+  // Read and validate missing rows before any write, using the same downloaded snapshot.
+  const missingPreview = await findMissingFromRows(rows);
+  const imported = await bulkUpsertArticles(payloads);
+  const missingResult = await markMissingResult(missingPreview);
 
   const duration = Math.round(
     (Date.now() - startedAt) / 1000
@@ -423,3 +432,5 @@ export async function runErpSync(): Promise<ErpSyncResult> {
       missingResult.updated,
   };
 }
+
+

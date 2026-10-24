@@ -21,6 +21,7 @@ async function load(file, { env = {}, response = { data: { id: 'synthetic-id' },
   });
   await m.link(spec => {
     if (spec === 'server-only') return moduleFor({});
+    if (spec === '@/lib/security/labelLinks') return moduleFor({ normalizeCustomerLabelLink: value => value });
     if (spec === '@/lib/security/access') return moduleFor({ requireAccess: async (...args) => { calls.access++; assert.equal(args.join(','), 'leads,write,true'); if (failAccess) throw Error('denied'); } });
     if (spec === 'resend') return moduleFor({ Resend: class { emails = { send: async payload => { calls.provider.push(payload); if (providerThrows) throw Error('secret provider detail'); return response; } }; } });
     if (spec === './templates') return moduleFor({ renderStatusEmail: async input => { calls.render.push(input); return { subject: 'TEST status', html: '<p>TEST</p>' }; } });
