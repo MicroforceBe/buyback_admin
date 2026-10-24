@@ -1,6 +1,7 @@
 // app/admin/leads/actions.ts
 
 "use server";
+import { parseSkuSearch, escapeSkuSearchPattern, matchesSkuExclusions } from '@/lib/skuSearch';
 import { getLeadStatusIssues } from '@/lib/leadDeviceValidation';
 import { requireAccess } from '@/lib/security/access';
 
@@ -1214,18 +1215,31 @@ export async function searchLeadSkuAction(query: string) {
   await requireAccess('leads', 'write', false);
   const search = String(query ?? '').trim();
   if (search.length < 2 || search.length > 120) return [];
-  const escaped = search.replace(/[\\%_]/g, '\\$&');
-  const base = () => sbClient().from('erp_articles')
-    .select('sku,title,price_cents,vat_margin,inventory_qty')
-    .eq('refurbished_product', true).eq('vat_margin', true).eq('missing_from_erp', false);
-  const [codes, titles] = await Promise.all([
+  const { included, excluded } = parseSkuSearch(search);
+  const positiveSearch = included.join(' ');
+  if (positiveSearch.length < 2) return [];
+  const escaped = escapeSkuSearchPattern(positiveSearch);
+  const base = (untitled = false) => {
+    let request = sbClient().from('erp_articles')
+      .select('sku,title,price_cents,vat_margin,inventory_qty')
+      .eq('refurbished_product', true).eq('vat_margin', true).eq('missing_from_erp', false);
+    // Exclude before limiting, so excluded rows cannot crowd out valid matches.
+    for (const term of excluded) request = request.not('sku', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
+    if (untitled) return request.is('title', null);
+    for (const term of excluded) request = request.not('title', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
+    return request;
+  };
+  const requests = [
     base().ilike('sku', '%' + escaped + '%').limit(20),
     base().ilike('title', '%' + escaped.split(/\s+/).join('%') + '%').limit(20),
-  ]);
-  if (codes.error || titles.error) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
+  ];
+  // NOT ILIKE excludes nulls in SQL. Preserve code matches with no description.
+  if (excluded.length) requests.push(base(true).ilike('sku', '%' + escaped + '%').limit(20));
+  const groups = await Promise.all(requests);
+  if (groups.some(group => group.error)) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
   const unique = new Map<string, {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null}>();
-  for (const row of [...(codes.data ?? []), ...(titles.data ?? [])]) {
-    if (row.sku && !unique.has(row.sku)) unique.set(row.sku, row);
+  for (const group of groups) for (const row of group.data ?? []) {
+    if (row.sku && !unique.has(row.sku) && matchesSkuExclusions(row, excluded)) unique.set(row.sku, row);
   }
   return Array.from(unique.values()).slice(0, 20);
 }

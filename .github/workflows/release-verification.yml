@@ -9,6 +9,7 @@ on:
       - .github/workflows/release-verification.yml
       - app/admin/leads/**
       - lib/leadDeviceValidation.ts
+      - lib/skuSearch.ts
       - security/tests/lead-device-*.test.mjs
       - package.json
       - package-lock.json
