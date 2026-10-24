@@ -75,47 +75,35 @@ async function getErpSettings() {
 
 async function downloadErpXlsx(settings: ErpSettingsRow) {
   const client = new Client(30000);
-
   client.ftp.verbose = false;
 
-  await client.access({
-    host: settings.ftp_host!
-      .replace("ftp://", "")
-      .replace("ftps://", ""),
-
-    port: settings.ftp_port || 21,
-
-    user: settings.ftp_user!,
-
-    password: settings.ftp_password!,
-
-    secure: settings.ftp_secure || false,
-  });
-
-  const chunks: Buffer[] = [];
-
-  const remotePath = `${settings.ftp_directory || ""}/${settings.ftp_filename}`.replace(
-    /^\/+/,
-    ""
-  );
-
-  const writable = new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(Buffer.from(chunk));
-      callback();
-    },
-  });
-
   try {
+    await client.access({
+      host: settings.ftp_host!
+        .replace("ftp://", "")
+        .replace("ftps://", ""),
+      port: settings.ftp_port || 21,
+      user: settings.ftp_user!,
+      password: settings.ftp_password!,
+      secure: settings.ftp_secure || false,
+    });
+
+    const chunks: Buffer[] = [];
+    const remotePath = `${settings.ftp_directory || ""}/${settings.ftp_filename}`.replace(
+      /^\/+/, ""
+    );
+    const writable = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    });
     await client.downloadTo(writable, remotePath);
+    return { buffer: Buffer.concat(chunks), remotePath };
   } finally {
+    // Also close the connection when authentication or setup fails.
     client.close();
   }
-
-  return {
-    buffer: Buffer.concat(chunks),
-    remotePath,
-  };
 }
 
 function parseRows(buffer: Buffer) {

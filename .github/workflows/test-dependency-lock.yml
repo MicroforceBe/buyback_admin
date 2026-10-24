@@ -6,6 +6,8 @@ on:
       - package.json
       - package-lock.json
       - security/tests/zod-compat.test.mjs
+      - security/tests/ftp-compat.test.mjs
+      - lib/erpSync.ts
       - .github/workflows/test-dependency-lock.yml
 permissions:
   contents: read
@@ -27,6 +29,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify real application validation schemas without external services
         run: node --test security/tests/zod-compat.test.mjs
+      - name: Verify ERP download using loopback FTP fixtures only
+        run: node --test security/tests/ftp-compat.test.mjs
       - name: Collect production dependency audit
         shell: bash
         run: |
