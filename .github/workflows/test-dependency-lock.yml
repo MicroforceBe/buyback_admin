@@ -9,6 +9,7 @@ on:
       - security/tests/ftp-compat.test.mjs
       - lib/erpSync.ts
       - security/tests/prisma-compat.test.mjs
+      - security/tests/xlsx-compat.test.mjs
       - prisma/schema.prisma
       - lib/prisma.ts
       - .github/workflows/test-dependency-lock.yml
@@ -42,6 +43,8 @@ jobs:
           npx --no-install prisma validate --schema=prisma/schema.prisma
           npx --no-install prisma generate --schema=prisma/schema.prisma
           node --test security/tests/prisma-compat.test.mjs
+      - name: Verify actual ERP Excel parsing using synthetic in-memory workbooks
+        run: node --test security/tests/xlsx-compat.test.mjs
       - name: Collect production dependency audit
         shell: bash
         run: |
