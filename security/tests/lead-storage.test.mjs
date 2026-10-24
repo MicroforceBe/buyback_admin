@@ -9,7 +9,7 @@ async function load(stage,error){
  const context=vm.createContext({Request,Response,console:{info(){},warn(){},error:(...args)=>state.logs.push(args)},process:{env:{}}});
  const source=fs.readFileSync(new URL('../../app/api/buyback/lead/route.ts',import.meta.url),'utf8');
  const m=new vm.SourceTextModule(stripTypeScriptTypes(source,{mode:'strip'}),{context});
- const deps={'next/server':{NextResponse:Response},'@supabase/supabase-js':{createClient:()=>db},'@/app/api/buyback/email/sendStatusMail':{sendStatusMail:async()=>{state.mails++;}}};
+ const deps={'@/lib/verifyLeadPrice':{verifyLeadPrice:async()=>({base_price_cents:10000,final_price_cents:10000,final_price_with_voucher_cents:10000,voucher_bonus_cents:0}),LeadPriceError:class extends Error {}},'next/server':{NextResponse:Response},'@supabase/supabase-js':{createClient:()=>db},'@/app/api/buyback/email/sendStatusMail':{sendStatusMail:async()=>{state.mails++;}}};
  await m.link(spec=>{const e=deps[spec];if(!e)throw Error('Unexpected dependency');return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return {api:m.namespace,state};
 }
 for(const stage of ['order_code','insert'])test(stage+' failure logs safe stage/code and never form fields or raw error',async()=>{

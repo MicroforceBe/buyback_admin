@@ -1,5 +1,6 @@
 // app/api/buyback/lead/route.ts
 import { NextResponse } from 'next/server';
+import { verifyLeadPrice, LeadPriceError } from '@/lib/verifyLeadPrice';
 import { createClient } from '@supabase/supabase-js';
 import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
 
@@ -170,15 +171,15 @@ export async function POST(req: Request) {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
-  // 🧠 NIEUW: HTML uit de widget gebruiken als die bestaat
-  let questions_answers_html: string | null = null;
-  if (typeof body?.questions_answers_html === 'string' && body.questions_answers_html.trim()) {
-    questions_answers_html = body.questions_answers_html;
-    console.info('[ADMIN][LEAD] using questions_answers_html from widget');
-  } else {
-    questions_answers_html = buildQuestionsAnswersHtml(answers);
-    console.info('[ADMIN][LEAD] using server-side fallback questions_answers_html');
+  let quote: Awaited<ReturnType<typeof verifyLeadPrice>>;
+  try {
+    quote = await verifyLeadPrice(supabase, body);
+  } catch (error) {
+    if (error instanceof LeadPriceError) return j({ error: error.message, code: error.code }, error.status);
+    return j({ error: 'Prijscontrole tijdelijk niet beschikbaar.', code: 'QUOTE_UNAVAILABLE' }, 503);
   }
+  // Generate text from validated answers; never trust client-supplied email HTML.
+  const questions_answers_html = buildQuestionsAnswersHtml(answers);
 
   // Idempotency: als dezelfde key al eerder gebruikt werd, geef dat record terug
   if (idempotency_key) {
@@ -192,14 +193,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // voucher +5% — afronden op 5 euro (zoals in de widget)
-  let voucher_bonus_cents = 0;
-  let final_price_with_voucher_cents = final_price_cents;
-  if (wants_voucher) {
-    const withBonus = Math.round(final_price_cents * 1.05);
-    final_price_with_voucher_cents = Math.round(withBonus / 500) * 500;
-    voucher_bonus_cents = final_price_with_voucher_cents - final_price_cents;
-  }
+  const { voucher_bonus_cents, final_price_with_voucher_cents } = quote;
 
   // Als er een shop_id is, haal naam/adres/openingsuren op (maildetails)
   let resolved_shop_location = shop_location as string | null;
@@ -237,7 +231,7 @@ export async function POST(req: Request) {
     .insert([{
       source, model, capacity_gb, answers,
       variant: variant || null,
-      base_price_cents, final_price_cents,
+      base_price_cents: quote.base_price_cents, final_price_cents: quote.final_price_cents,
       final_price_with_voucher_cents, voucher_bonus_cents,
       first_name, last_name, customer_name,
       email, phone,
@@ -276,8 +270,8 @@ export async function POST(req: Request) {
       model,
       capacity_gb,
       variant: variant || null,   // ⬅️ VARIANT HIER MEEGEVEN
-      base_price_cents,
-      final_price_cents: wants_voucher ? final_price_with_voucher_cents : final_price_cents,
+      base_price_cents: quote.base_price_cents,
+      final_price_cents: wants_voucher ? final_price_with_voucher_cents : quote.final_price_cents,
       wants_voucher,
 
       // antwoorden/conditie uit de widget (ruw object én HTML)
