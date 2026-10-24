@@ -10,6 +10,9 @@ on:
       - lib/erpSync.ts
       - security/tests/prisma-compat.test.mjs
       - security/tests/xlsx-compat.test.mjs
+      - security/tests/supabase-compat.test.mjs
+      - lib/supabaseAdmin.ts
+      - lib/supabaseServer.ts
       - prisma/schema.prisma
       - lib/prisma.ts
       - .github/workflows/test-dependency-lock.yml
@@ -45,6 +48,14 @@ jobs:
           node --test security/tests/prisma-compat.test.mjs
       - name: Verify actual ERP Excel parsing using synthetic in-memory workbooks
         run: node --test security/tests/xlsx-compat.test.mjs
+      - name: Verify Supabase SDK and cookie contracts with mocked transport only
+        run: node --test security/tests/supabase-compat.test.mjs
+      - name: Recheck access, sessions, reception and lead security
+        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
+      - name: Check application types against the updated SDK
+        run: |
+          node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
+          npx --no-install tsc --noEmit
       - name: Collect production dependency audit
         shell: bash
         run: |

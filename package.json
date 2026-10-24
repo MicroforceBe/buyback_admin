@@ -9,8 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@supabase/ssr": "0.5.0",
-    "@supabase/supabase-js": "2.45.4",
+    "@supabase/ssr": "0.5.2",
+    "@supabase/supabase-js": "2.118.0",
     "@supabase/auth-helpers-nextjs": "0.10.0",
     "next": "15.5.28",
     "react": "18.3.1",
@@ -50,5 +50,8 @@
     "@prisma/config": {
       "deepmerge-ts": "8.0.0"
     }
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
