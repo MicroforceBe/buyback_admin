@@ -861,19 +861,7 @@ export default async function RefurbListPage({
                     <span className="font-medium text-slate-700">
                       {reception.finished_percent ?? 0}%
                     </span>{" "}
-                    afgewerkt
-                  
-                    <span className="mx-1">•</span>
-                  
-                    <span>
-                      {totalItems} {totalItems === 1 ? "artikel" : "artikels"}
-                    </span>
-                  
-                    <span className="mx-1">•</span>
-                  
-                    <span>
-                      {finishedItems} van {totalItems} afgewerkt
-                    </span>
+                    afgewerkt, nog {Math.max(0, totalItems - finishedItems)} van {totalItems} {totalItems === 1 ? "artikel" : "artikels"} open
                   </div>
                 </td>
 
