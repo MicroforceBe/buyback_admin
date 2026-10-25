@@ -34,6 +34,8 @@ on:
       - lib/refurbStatusFilter.ts
       - lib/supplierRma.ts
       - security/tests/supplier-rma*.test.mjs
+      - security/tests/security.test.mjs
+      - security/sql/*supplier-rma*.sql
       - security/tests/reception-status-*.test.mjs
       - lib/refurbAnalytics.ts
       - security/tests/refurb-analytics*.test.mjs
