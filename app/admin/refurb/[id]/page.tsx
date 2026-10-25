@@ -497,31 +497,24 @@ export default async function RefurbReceptionDetailPage({
   const canDelete = permits(user, "refurb", "write", true);
 
   return (
-    <div className={`${ui.workspace} ${styles.reception}`}>
-      <header className="rma-hero"><div><div className="rma-kicker">Refurb / receptiedossier</div><h1>Receptie {reception.reception_number}</h1><p>{supplierName}</p><div className="rma-hero-meta"><span className="rma-badge">{vatLabel}</span><span className="text-xs">{reception.reception_date}</span></div></div><a href="/admin/refurb" className="bb-btn">← Alle recepties</a></header>
+    <div className={`${ui.workspace} ${styles.reception} reception-detail`}>
+      <header className="reception-compact-header"><div><h1>Receptie {reception.reception_number}</h1><p>{supplierName} <span aria-hidden="true">·</span> {reception.reception_date} <span aria-hidden="true">·</span> {totalItems} artikelen</p></div><div className="reception-header-actions"><a href="#reception-items" className="bb-btn">Naar artikelen ↓</a><a href="/admin/refurb" className="bb-btn">← Alle recepties</a></div></header>
       {query?.meta&&<p role={query.meta==='saved'?'status':'alert'}>{query.meta==='saved'?'Receptiegegevens opgeslagen.':query.meta==='conflict'?'Deze receptie is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.':'Niet opgeslagen. Controleer het factuurnummer en het gehele aantal RMA-dagen (0–36500).'}</p>}
-      <div className="rma-stats">{[{name:'Artikelen',value:String(totalItems),note:'Toestellen in deze receptie'},{name:'Aankoopwaarde',value:moneyEUR(totalValueAllCents),note:'Totale waarde van de artikelen'},{name:'RMA-termijn',value:receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)+' dagen',note:'Vastgelegd voor deze receptie'},{name:'RMA vervaldatum',value:reception.rma_expiry_date||'Nog niet ingesteld',note:'Vanaf de receptiedatum'}].map(row=><div key={row.name} className="rma-stat"><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div>
-      <section className="rma-section"><h2>Receptiegegevens</h2><p>Facturatie en RMA-afspraken van deze levering.</p><dl className="reception-key-values">
+
+      <details className="reception-panel" open={Boolean(query?.meta)}><summary className="reception-panel-heading"><span><strong>Receptiegegevens</strong><small>Facturatie en RMA-afspraken</small></span><span className="reception-chevron" aria-hidden="true">›</span></summary><div className="reception-panel-body">      <div className="rma-stats">{[{name:'Artikelen',value:String(totalItems),note:'Toestellen in deze receptie'},{name:'Aankoopwaarde',value:moneyEUR(totalValueAllCents),note:'Totale waarde van de artikelen'},{name:'RMA-termijn',value:receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)+' dagen',note:'Vastgelegd voor deze receptie'},{name:'RMA vervaldatum',value:reception.rma_expiry_date||'Nog niet ingesteld',note:'Vanaf de receptiedatum'}].map(row=><div key={row.name} className="rma-stat"><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div><p>Facturatie en RMA-afspraken van deze levering.</p><dl className="reception-key-values">
         <div><dt>Receptie nr</dt><dd>{reception.reception_number}</dd></div><div><dt>Receptiedatum</dt><dd>{reception.reception_date}</dd></div><div><dt>Leverancier</dt><dd>{supplierName}{supplierVat&&<small className="block">{supplierVat}</small>}{supplierEmail&&<a className="block text-xs" href={'mailto:'+supplierEmail}>{supplierEmail}</a>}</dd></div><div><dt>BTW regeling</dt><dd>{vatLabel}</dd></div><div><dt>Factuurnummer leverancier</dt><dd>{reception.supplier_invoice_nr}</dd></div>
       </dl><form action={updateReceptionMetadata} className="reception-meta-form"><input type="hidden" name="reception_id" value={reception.id}/><input type="hidden" name="updated_at" value={reception.updated_at}/>
         <label>Intern factuurnr<input name="internal_invoice_nr" defaultValue={reception.internal_invoice_nr||''} maxLength={250} disabled={!permits(user,'refurb','write')} className="bb-input" placeholder="Intern factuurnummer"/></label>
         <label>RMA Expire Date (dagen)<input name="rma_expiry_days" type="number" min={0} max={36500} step={1} required defaultValue={receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} disabled={!permits(user,'refurb','write')} className="bb-input"/></label>
         <div><span className="block text-xs text-slate-500">Huidige vervaldatum</span><strong>{reception.rma_expiry_date||'Wordt berekend na opslaan'}</strong></div>
         <div className="reception-meta-footer"><p>De termijn telt vanaf de receptiedatum. Wijzigingen aan de leverancier veranderen bestaande recepties niet.</p>{permits(user,'refurb','write')&&<button className="bb-btn bb-btn-primary">Receptiegegevens opslaan</button>}</div>
-      </form></section>
+      </form></div></details>
 
       {/* ✅ ENKEL 1 statusblok: uitklapbaar (standaard dicht) met donut + legenda + waardes + modellen */}
-<details className="border rounded-md bg-white text-xs group">
-  <summary className="cursor-pointer select-none px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
-    <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">
-      Status verdeling in deze receptie
-    </div>
-    <div className="text-[11px] text-slate-600 transition-transform group-open:rotate-180">
-      ▼
-    </div>
-  </summary>
+<details className="reception-panel">
+  <summary className="reception-panel-heading"><span><strong>Statusverdeling</strong><small>Aantallen, waarden en modellen</small></span><span className="reception-chevron" aria-hidden="true">›</span></summary>
 
-  <div className="p-3">
+  <div className="reception-panel-body">
     <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
       <div>
         <div className="text-[11px] font-medium text-slate-500 uppercase mb-2">
