@@ -48,6 +48,14 @@ BEGIN
   IF NOT blocked OR NOT EXISTS(SELECT 1 FROM public.supplier_rma_cases WHERE id=dossier AND stage='closed') THEN RAISE EXCEPTION 'Reopen conflict was not atomic'; END IF;
   IF (SELECT count(*) FROM public.supplier_rma_history WHERE case_id=dossier)<>3 THEN RAISE EXCEPTION 'Audit events missing or failed events recorded'; END IF;
   IF (SELECT count(*) FROM public.supplier_rma_status_history WHERE reception_item_id=a)<5 THEN RAISE EXCEPTION 'Source history missing'; END IF;
+  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=second_dossier;
+  PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',second_dossier,'version',v,'stage','refunded','supplier_reference','TEST-RMA-123','supplier_credit_note','TEST-CN-456'), 'test@example.invalid');
+  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_cases WHERE id=second_dossier AND stage='refunded' AND supplier_reference='TEST-RMA-123' AND supplier_credit_note='TEST-CN-456') THEN RAISE EXCEPTION 'Supplier references not saved'; END IF;
+  IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=second_dossier AND active) THEN RAISE EXCEPTION 'Refunded dossier remains active'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_history WHERE case_id=second_dossier AND details->'change'->>'supplier_credit_note'='TEST-CN-456') THEN RAISE EXCEPTION 'Credit note missing from audit'; END IF;
+  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=second_dossier;
+  PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',second_dossier,'version',v,'stage','closed'), 'test@example.invalid');
+  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_cases WHERE id=second_dossier AND supplier_credit_note='TEST-CN-456' AND supplier_reference='TEST-RMA-123') THEN RAISE EXCEPTION 'References lost after later status change'; END IF;
 END $$;
 ROLLBACK;
 SELECT 'PASS: auto compensation, overrides, once RMA always RMA, dossiers, receipts, conflicts, audit; all fixtures rolled back' AS verification;

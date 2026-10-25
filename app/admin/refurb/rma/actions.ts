@@ -37,7 +37,7 @@ export async function updateSupplierRmaCase(form: FormData) {
     if (!Object.prototype.hasOwnProperty.call(supplierRmaStages, stage)) throw Error('RMA_INPUT');
     const sent_on = rmaDate(form.get('sent_on')), received_on = rmaDate(form.get('received_on'));
     if (sent_on && received_on && sent_on > received_on) throw Error('RMA_INPUT');
-    await mutate('update_case', { case_id: id, version: version(form), stage, supplier_reference: short(form, 'supplier_reference'), tracking_reference: short(form, 'tracking_reference'), sent_on, received_on, followup_on: rmaDate(form.get('followup_on')), notes: short(form, 'notes', 10000) }, user.email);
+    await mutate('update_case', { case_id: id, version: version(form), stage, supplier_reference: short(form, 'supplier_reference'), supplier_credit_note: short(form, 'supplier_credit_note'), tracking_reference: short(form, 'tracking_reference'), sent_on, received_on, followup_on: rmaDate(form.get('followup_on')), notes: short(form, 'notes', 10000) }, user.email);
   } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
   revalidatePath('/admin/refurb/rma'); revalidatePath('/admin/refurb/rma/' + id);
   redirect('/admin/refurb/rma/' + id + '?saved=1');

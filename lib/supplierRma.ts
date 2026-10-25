@@ -1,7 +1,7 @@
 export const supplierRmaStages = {
   draft: 'Concept', submitted: 'Aangemeld', approved: 'Goedgekeurd', sent: 'Verzonden',
   received: 'Ontvangen door leverancier', awaiting_compensation: 'Wacht op compensatie',
-  closed: 'Afgesloten', rejected: 'Geweigerd', cancelled: 'Geannuleerd',
+  refunded: 'Refunded', closed: 'Afgesloten', rejected: 'Geweigerd', cancelled: 'Geannuleerd',
 } as const;
 export type SupplierRmaStage = keyof typeof supplierRmaStages;
 export const mentionsRma = (value: string | null | undefined) => /(^|[^a-z0-9])rma([^a-z0-9]|$)/i.test(value ?? '');

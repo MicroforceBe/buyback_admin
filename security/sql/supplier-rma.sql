@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS public.supplier_rma_cases (
   supplier_id uuid REFERENCES public.refurb_suppliers(id) ON DELETE RESTRICT,
   supplier_name text NOT NULL CHECK (length(trim(supplier_name)) BETWEEN 1 AND 250),
   supplier_reference text NOT NULL DEFAULT '',
-  stage text NOT NULL DEFAULT 'draft' CHECK (stage IN ('draft','submitted','approved','sent','received','awaiting_compensation','closed','rejected','cancelled')),
+  supplier_credit_note text NOT NULL DEFAULT '' CHECK(length(supplier_credit_note)<=250),
+  stage text NOT NULL DEFAULT 'draft' CHECK (stage IN ('draft','submitted','approved','sent','received','awaiting_compensation','refunded','closed','rejected','cancelled')),
   tracking_reference text NOT NULL DEFAULT '',
   sent_on date, received_on date, followup_on date,
   notes text NOT NULL DEFAULT '',
@@ -115,7 +116,7 @@ BEGIN
     created_id := c.id;
   END IF;
   IF p_command IN ('create','add_items') THEN
-    IF c.stage IN ('closed','rejected','cancelled') THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;
+    IF c.stage IN ('refunded','closed','rejected','cancelled') THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;
     SELECT array_agg(DISTINCT value::uuid) INTO item_ids FROM jsonb_array_elements_text(p_data->'item_ids');
     wanted := cardinality(item_ids);
     IF coalesce(wanted,0)<1 OR wanted>200 THEN RAISE EXCEPTION 'RMA_ITEMS_REQUIRED'; END IF;
@@ -127,10 +128,10 @@ BEGIN
     END LOOP;
   ELSIF p_command='update_case' THEN
     previous := to_jsonb(c);
-    UPDATE public.supplier_rma_cases SET stage=p_data->>'stage',supplier_reference=coalesce(p_data->>'supplier_reference',''),tracking_reference=coalesce(p_data->>'tracking_reference',''),sent_on=nullif(p_data->>'sent_on','')::date,received_on=nullif(p_data->>'received_on','')::date,followup_on=nullif(p_data->>'followup_on','')::date,notes=coalesce(p_data->>'notes','') WHERE id=c.id;
-    UPDATE public.supplier_rma_items SET active=(p_data->>'stage') NOT IN ('closed','rejected','cancelled') WHERE case_id=c.id;
+    UPDATE public.supplier_rma_cases SET stage=p_data->>'stage',supplier_reference=coalesce(p_data->>'supplier_reference',c.supplier_reference),supplier_credit_note=coalesce(p_data->>'supplier_credit_note',c.supplier_credit_note),tracking_reference=coalesce(p_data->>'tracking_reference',''),sent_on=nullif(p_data->>'sent_on','')::date,received_on=nullif(p_data->>'received_on','')::date,followup_on=nullif(p_data->>'followup_on','')::date,notes=coalesce(p_data->>'notes','') WHERE id=c.id;
+    UPDATE public.supplier_rma_items SET active=(p_data->>'stage') NOT IN ('refunded','closed','rejected','cancelled') WHERE case_id=c.id;
   ELSIF p_command='update_item' THEN
-    IF c.stage IN ('closed','rejected','cancelled') THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;
+    IF c.stage IN ('refunded','closed','rejected','cancelled') THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;
     SELECT to_jsonb(i) INTO previous FROM public.supplier_rma_items i WHERE i.id=(p_data->>'item_id')::uuid AND i.case_id=c.id FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'RMA_ITEM_NOT_FOUND'; END IF;
     UPDATE public.supplier_rma_items SET expected_cents=nullif(p_data->>'expected_cents','')::integer,received_cents=(p_data->>'received_cents')::integer,notes=coalesce(p_data->>'notes','') WHERE id=(p_data->>'item_id')::uuid AND case_id=c.id;
