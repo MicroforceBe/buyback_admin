@@ -12,6 +12,9 @@ BEGIN
   definition:=pg_get_functiondef(to_regprocedure(signature));
   IF definition IS NULL THEN RAISE EXCEPTION 'Required RMA function missing: %',signature; END IF;
   definition:=replace(definition,'''refunded'',''closed'',''rejected'',''cancelled''','''handled'',''refunded'',''closed'',''rejected'',''cancelled''');
+  IF signature='public.manage_supplier_rma(text,jsonb,text)' THEN
+    definition:=regexp_replace(definition,$find$(ELSIF p_command='update_item' THEN\s*)IF c.stage IN \([^)]*\) THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;$find$,$replacement$\1IF c.stage='handled' THEN RAISE EXCEPTION 'RMA_FINALIZED'; END IF;$replacement$);
+  END IF;
   EXECUTE definition;
  END LOOP;
 END $$;
@@ -45,7 +48,6 @@ BEGIN
  IF c.version IS DISTINCT FROM (p_data->>'version')::integer THEN RAISE EXCEPTION 'RMA_CONFLICT'; END IF;
  SELECT jsonb_agg(jsonb_build_object('id',id,'expected_cents',expected_cents,'received_cents',received_cents) ORDER BY id) INTO previous FROM public.supplier_rma_items WHERE case_id=c.id;
  IF p_command IN ('copy_item','copy_all') THEN
-  IF c.stage IN ('handled','refunded','closed','rejected','cancelled') THEN RAISE EXCEPTION 'RMA_CASE_CLOSED'; END IF;
   IF p_command='copy_item' AND NOT EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c.id AND id=(p_data->>'item_id')::uuid) THEN RAISE EXCEPTION 'RMA_ITEM_NOT_FOUND'; END IF;
   IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c.id AND (p_command='copy_all' OR id=(p_data->>'item_id')::uuid) AND expected_cents IS NULL) THEN RAISE EXCEPTION 'RMA_EXPECTATION_MISSING'; END IF;
   UPDATE public.supplier_rma_items SET received_cents=expected_cents WHERE case_id=c.id AND (p_command='copy_all' OR id=(p_data->>'item_id')::uuid);

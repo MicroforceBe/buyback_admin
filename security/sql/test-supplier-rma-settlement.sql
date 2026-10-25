@@ -26,6 +26,12 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'Foreign item receipt accepted'; END IF;
  blocked:=false; BEGIN PERFORM public.settle_supplier_rma('finalize',jsonb_build_object('case_id',c,'version',v),'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_CONFIRMATION_REQUIRED' THEN blocked:=true; ELSE RAISE; END IF; END;
  IF NOT blocked THEN RAISE EXCEPTION 'Unconfirmed finalization accepted'; END IF;
+ PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c,'version',v,'stage','refunded'),'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ PERFORM public.manage_supplier_rma('update_item',jsonb_build_object('case_id',c,'version',v,'item_id',line_a,'expected_cents',10000,'received_cents',5000),'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ PERFORM public.settle_supplier_rma('copy_item',jsonb_build_object('case_id',c,'version',v,'item_id',line_a),'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
  PERFORM public.settle_supplier_rma('finalize',jsonb_build_object('case_id',c,'version',v,'confirmed',true),'test@example.invalid');
  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_cases WHERE id=c AND stage='handled' AND finalized_at IS NOT NULL) OR EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c AND active) THEN RAISE EXCEPTION 'Finalization incomplete'; END IF;
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
@@ -39,7 +45,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE reception_item_id=a) THEN RAISE EXCEPTION 'New article attached to handled dossier'; END IF;
  c2:=public.prepare_reception_supplier_rma(r,NULL,false,'test@example.invalid');
  IF c2=c THEN RAISE EXCEPTION 'Handled dossier reused'; END IF;
- IF (SELECT count(*) FROM public.supplier_rma_history WHERE case_id=c AND event IN ('copy_item','copy_all','finalize'))<>3 THEN RAISE EXCEPTION 'Receipt/finalization audit missing'; END IF;
+ IF (SELECT count(*) FROM public.supplier_rma_history WHERE case_id=c AND event IN ('copy_item','copy_all','finalize'))<>4 THEN RAISE EXCEPTION 'Receipt/finalization audit missing'; END IF;
 END $$;
 ROLLBACK;
 SELECT 'PASS: receipt row/bulk copy including zero, optimistic locks, membership, confirmation, immutable handling, later dossier and audit; fixtures rolled back' AS verification;
