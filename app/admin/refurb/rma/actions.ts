@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 const uuid = (raw: unknown) => { const value = String(raw ?? ''); if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw Error('RMA_INPUT'); return value; };
 const short = (form: FormData, key: string, max = 250) => { const value = String(form.get(key) ?? '').trim(); if (value.length > max) throw Error('RMA_INPUT'); return value; };
 function version(form: FormData) { const value = Number(form.get('version')); if (!Number.isSafeInteger(value) || value < 1) throw Error('RMA_INPUT'); return value; }
-function errorCode(error: unknown) { const message = error instanceof Error ? error.message : ''; if (message.includes('RMA_CONFLICT')) return 'conflict'; if (message.includes('RMA_COMPENSATION_REQUIRED')) return 'compensation'; if (message.includes('RMA_REFUNDED')) return 'refunded'; if (message.includes('RMA_PRICE_MISSING')) return 'price_missing'; if (message.includes('RMA_NO_NEW_ITEMS')) return 'no_new_items'; if (message.includes('RMA_ALREADY_LINKED') || message.includes('supplier_rma_one_active_case')) return 'already_linked'; if (message.includes('RMA_SUPPLIER_MISMATCH')) return 'supplier'; if (message.includes('RMA_CASE_CLOSED')) return 'closed'; return 'invalid'; }
+function errorCode(error: unknown) { const message = error instanceof Error ? error.message : ''; if (message.includes('RMA_FINALIZED')) return 'finalized'; if (message.includes('RMA_EXPECTATION_MISSING')) return 'expectation_missing'; if (message.includes('RMA_CONFLICT')) return 'conflict'; if (message.includes('RMA_COMPENSATION_REQUIRED')) return 'compensation'; if (message.includes('RMA_REFUNDED')) return 'refunded'; if (message.includes('RMA_PRICE_MISSING')) return 'price_missing'; if (message.includes('RMA_NO_NEW_ITEMS')) return 'no_new_items'; if (message.includes('RMA_ALREADY_LINKED') || message.includes('supplier_rma_one_active_case')) return 'already_linked'; if (message.includes('RMA_SUPPLIER_MISMATCH')) return 'supplier'; if (message.includes('RMA_CASE_CLOSED')) return 'closed'; return 'invalid'; }
 async function mutate(command: string, data: Record<string, unknown>, actor: string) {
   const { data: result, error } = await supabaseAdmin.rpc('manage_supplier_rma', { p_command: command, p_data: data, p_actor: actor });
   if (error) throw Error(error.message);
@@ -34,7 +34,7 @@ export async function updateSupplierRmaCase(form: FormData) {
   try {
     id = uuid(form.get('case_id'));
     const stage = short(form, 'stage');
-    if (!Object.prototype.hasOwnProperty.call(supplierRmaStages, stage)) throw Error('RMA_INPUT');
+    if (stage==='handled' || !Object.prototype.hasOwnProperty.call(supplierRmaStages, stage)) throw Error('RMA_INPUT');
     const sent_on = rmaDate(form.get('sent_on')), received_on = rmaDate(form.get('received_on'));
     if (sent_on && received_on && sent_on > received_on) throw Error('RMA_INPUT');
     await mutate('update_case', { case_id: id, version: version(form), stage, supplier_reference: short(form, 'supplier_reference'), supplier_credit_note: short(form, 'supplier_credit_note'), tracking_reference: short(form, 'tracking_reference'), sent_on, received_on, followup_on: rmaDate(form.get('followup_on')), notes: short(form, 'notes', 10000) }, user.email);
@@ -91,4 +91,31 @@ export async function registerLateReceptionRma(form: FormData) {
   } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
   revalidatePath('/admin/refurb'); revalidatePath('/admin/refurb/rma');
   redirect('/admin/refurb/rma/' + id);
+}
+
+export async function copySupplierRmaExpected(form: FormData) {
+  const user = await requireAccess('refurb', 'write', true);
+  let id: string;
+  try {
+    id=uuid(form.get('case_id'));
+    const all=form.get('all')==='1';
+    const {data,error}=await supabaseAdmin.rpc('settle_supplier_rma', {p_command:all?'copy_all':'copy_item',p_data:{case_id:id,version:version(form),...(all?{}:{item_id:uuid(form.get('item_id'))})},p_actor:user.email});
+    if(error)throw Error(error.message);
+    uuid(data);
+  } catch(error) {redirect('/admin/refurb/rma?msg='+errorCode(error));}
+  revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);
+  redirect('/admin/refurb/rma/'+id+'?saved=1');
+}
+export async function finalizeSupplierRma(form: FormData) {
+  const user = await requireAccess('refurb', 'write', true);
+  let id: string;
+  try {
+    id=uuid(form.get('case_id'));
+    if(form.get('confirm_final')!=='1')throw Error('RMA_INPUT');
+    const {data,error}=await supabaseAdmin.rpc('settle_supplier_rma', {p_command:'finalize',p_data:{case_id:id,version:version(form),confirmed:true},p_actor:user.email});
+    if(error)throw Error(error.message);
+    uuid(data);
+  } catch(error) {redirect('/admin/refurb/rma?msg='+errorCode(error));}
+  revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);
+  redirect('/admin/refurb/rma/'+id+'?saved=1');
 }
