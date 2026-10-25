@@ -2,7 +2,7 @@ import 'server-only';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { isSupplierRmaItem } from '@/lib/supplierRma';
 
-export type RmaCase = { id: string; code: string; supplier_id: string | null; supplier_name: string; supplier_reference: string; stage: string; tracking_reference: string; sent_on: string | null; received_on: string | null; followup_on: string | null; notes: string; version: number; created_at: string; updated_at: string };
+export type RmaCase = { id: string; code: string; supplier_id: string | null; supplier_name: string; supplier_reference: string; supplier_credit_note: string; stage: string; tracking_reference: string; sent_on: string | null; received_on: string | null; followup_on: string | null; notes: string; version: number; created_at: string; updated_at: string };
 export type RmaCaseItem = { id: string; case_id: string; reception_item_id: string; expected_cents: number | null; received_cents: number; notes: string; active: boolean };
 export type RmaSource = { id: string; reception_id: string; refurb_status: string | null; description: string | null; imei_sn: string | null; manual_sn: string | null; sku: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered: boolean; rma_defect_description: string | null };
 type Reception = { id: string; reception_number: string; supplier_id: string | null; supplier: string; supplier_invoice_nr: string };
@@ -19,7 +19,7 @@ export async function loadSupplierRmaData() {
     }
   }
   const [cases, caseItems, sourceItems, receptions, statuses, transitions, history, statusHistory] = await Promise.all([
-    all<RmaCase>('supplier_rma_cases', 'id,code,supplier_id,supplier_name,supplier_reference,stage,tracking_reference,sent_on,received_on,followup_on,notes,version,created_at,updated_at'),
+    all<RmaCase>('supplier_rma_cases', 'id,code,supplier_id,supplier_name,supplier_reference,supplier_credit_note,stage,tracking_reference,sent_on,received_on,followup_on,notes,version,created_at,updated_at'),
     all<RmaCaseItem>('supplier_rma_items', 'id,case_id,reception_item_id,expected_cents,received_cents,notes,active'),
     all<RmaSource>('refurb_reception_items', 'id,reception_id,refurb_status,description,imei_sn,manual_sn,sku,price_cents,compensation_cents,rma_registered,rma_defect_description'),
     all<Reception>('refurb_receptions', 'id,reception_number,supplier_id,supplier,supplier_invoice_nr'),
