@@ -42,6 +42,6 @@ test('linked RMA devices are grouped under clickable dossiers and excluded from 
 
 test('packaging label link appears only for Finished and Ready to book, including configured labels',async()=>{
  const h=await harness(),p={...props,initialItems:['Finished','Ready to book','RMA Refunded (Finished)','Booked','New','finish_code'].map((status,index)=>({...props.initialItems[0],id:'item-'+index,row_index:index,refurb_status:status})),statusOptions:[...props.statusOptions,{value:'Finished',label:'Finished'},{value:'Ready to book',label:'Ready to book'},{value:'finish_code',label:'Finished'}]};
- h.render(p);const tree=h.render(p),links=nodes(tree,n=>n.type==='a'&&n.props['aria-label']==='Verpakkingslabel bekijken en printen');
+ h.render(p);let tree=h.render(p);nodes(tree,n=>n.type==='button'&&text(n).trim().startsWith('Afgewerkt ('))[0].props.onClick();tree=h.render(p);const links=nodes(tree,n=>n.type==='a'&&n.props['aria-label']==='Verpakkingslabel bekijken en printen');
  assert.deepEqual(links.map(n=>n.props.href).sort(),['/admin/erp/labels?item=item-0','/admin/erp/labels?item=item-1','/admin/erp/labels?item=item-5'].sort());assert.ok(links.every(n=>n.props.target==='_blank'&&n.props.rel==='noopener noreferrer'));
 });
