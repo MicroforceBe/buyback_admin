@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma';
 import { parseSessionInput } from '@/lib/diagnosticsUsb';
 
 export async function createDiagnosticSession(formData: FormData): Promise<{error?:string;sessionId?:string}> {
-  'use server';
   await requireAccess('refurb', 'write', false);
   let input: ReturnType<typeof parseSessionInput>;
   try { input=parseSessionInput(Object.fromEntries(formData.entries())); }
@@ -36,4 +35,3 @@ export async function createDiagnosticSession(formData: FormData): Promise<{erro
     return {error:e instanceof Error && e.message==='IDENTITY_CONFLICT'?'Deze toestelgegevens komen overeen met verschillende bestaande toestellen. Controleer IMEI en serienummer.':'Opslaan lukt niet. Controleer de gegevens en probeer opnieuw. Er is geen gedeeltelijke sessie bewaard.'};
   }
 }
-
