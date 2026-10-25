@@ -16,7 +16,7 @@ export async function loadAnalyticsInput(): Promise<AnalyticsInput> {
   }
   const [receptions, items, models, statuses, transitions, suppliers] = await Promise.all([
     all('refurb_receptions', 'id,reception_number,supplier,supplier_id,reception_date'),
-    all('refurb_reception_items', 'id,reception_id,refurb_status,description,price_cents,compensation_cents'),
+    all('refurb_reception_items', 'id,reception_id,refurb_status,description,price_cents,compensation_cents,rma_registered'),
     all('refurb_models', 'id,name,search_keywords'),
     all('refurb_status_options', 'id,value,label'),
     all('refurb_status_transitions', 'id,from_status_id,to_status_id'),
@@ -24,3 +24,4 @@ export async function loadAnalyticsInput(): Promise<AnalyticsInput> {
   ]);
   return { receptions, items, models, statuses, transitions, suppliers } as AnalyticsInput;
 }
+

@@ -23,7 +23,7 @@ test('analytics requires admin refurb access before loading and shows safe read 
  const failed=await run({failure:true});assert.equal(nodes(failed.tree,n=>n.props?.role==='alert').length,1);assert.ok(!text(failed.tree).includes('PRIVATE'));assert.equal(nodes(failed.tree,n=>n.type==='table').length,0);
 });
 test('real page renders supplier and combined breakdown tables with filters and explicit RMA definition',async()=>{
- const {tree}=await run();assert.ok(text(tree).includes('Aankopen en RMA per leverancier'));assert.ok(text(tree).includes('RMA totaal telt elk artikel één keer'));assert.ok(text(tree).includes('Herstelde RMA’s'));assert.ok(text(tree).includes('Repaired iPad'));assert.equal(nodes(tree,n=>n.type==='Link'&&n.props.href==='/admin/refurb/a').length,2);assert.equal(nodes(tree,n=>n.type==='table').length,6);assert.equal(nodes(tree,n=>n.type==='input'&&n.props.type==='date').length,2);assert.ok(nodes(tree,n=>n.type==='select'&&n.props.name==='supplier').length);
+ const {tree}=await run();assert.ok(text(tree).includes('Aankopen en RMA per leverancier'));assert.ok(text(tree).includes('RMA totaal telt elk artikel één keer'));assert.ok(text(tree).includes('RMA’s met compensatie'));assert.ok(text(tree).includes('Repaired iPad'));assert.equal(nodes(tree,n=>n.type==='Link'&&n.props.href==='/admin/refurb/a').length,2);assert.equal(nodes(tree,n=>n.type==='table').length,6);assert.equal(nodes(tree,n=>n.type==='input'&&n.props.type==='date').length,2);assert.ok(nodes(tree,n=>n.type==='select'&&n.props.name==='supplier').length);
 });
 test('open charts precede purchase history, expose exact labels and safely handle zero amounts',async()=>{
  const {tree,chart}=await run();assert.ok(text(tree).indexOf('Openstaand overzicht')<text(tree).indexOf('Alle aankopen en RMA binnen de selectie'));assert.ok(text(tree).includes('Nog niet verwerkte RMA-bedragen en compensaties'));
@@ -37,3 +37,4 @@ test('analytics tab is admin only and only the correct tab is active',async()=>{
  const admin=await run({tabs:true});const active=nodes(admin.tree,n=>n.props?.['aria-current']==='page');assert.equal(active.length,1);assert.equal(active[0].props.href,'/admin/refurb/analytics');
  const staff=await run({tabs:true,role:'user'});assert.equal(nodes(staff.tree,n=>n.props?.href==='/admin/refurb/analytics').length,0);
 });
+

@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models" | "analytics";
+type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models" | "analytics" | "rma";
 
 type Props = {
   /**
@@ -38,6 +38,7 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     { key: "statuses", href: "/admin/refurb/statuses", label: "Statussen", adminOnly: true },
     { key: "locations", href: "/admin/refurb/locations", label: "Locaties", adminOnly: true },
     { key: "models", href: "/admin/refurb/models", label: "Modellen", adminOnly: true },
+    { key: "rma", href: "/admin/refurb/rma", label: "RMA Supplier", adminOnly: true },
     { key: "analytics", href: "/admin/refurb/analytics", label: "Analytics", adminOnly: true },
   ];
 
@@ -72,4 +73,5 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     </div>
   );
 }
+
 

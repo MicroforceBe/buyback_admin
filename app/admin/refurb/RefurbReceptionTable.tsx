@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { isSupplierRmaItem, compensationOnRmaEntry } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import { useRouter } from "next/navigation";
 import {
@@ -556,17 +557,7 @@ export default function RefurbReceptionTable({
 
   const hasItems = items.length > 0;
 
-  const rmaItems = useMemo(() => {
-  return items.filter((item) => {
-    const status = canonicalizeStatusValue(
-      item.refurb_status,
-      statusOptions || [],
-      defaultStatusValue
-    );
-
-    return norm(status) === "rma";
-  });
-}, [items, statusOptions, defaultStatusValue]);
+  const rmaItems = useMemo(() => items.filter(item => isSupplierRmaItem(item, statusOptions)), [items, statusOptions]);
 
 const totalRmaCompensationCents = useMemo(() => {
   return rmaItems.reduce((total, item) => {
@@ -1069,7 +1060,7 @@ async function copyCompleteRmaOverview() {
         }
 
         if (field === "refurb_status") {
-          return { ...it, refurb_status: value || null } as RefurbItem;
+          return { ...it, refurb_status: value || null, compensation_cents: compensationOnRmaEntry(it, value), rma_registered: isSupplierRmaItem(it, statusOptions) || isSupplierRmaItem({ refurb_status: value }, statusOptions) } as RefurbItem;
         }
 
         return { ...it, [field]: value || null } as RefurbItem;
@@ -1742,6 +1733,7 @@ async function copyCompleteRmaOverview() {
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      key={it.id + ":" + String(it.compensation_cents ?? "")}
                       defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
                       disabled={!canWrite || rowBooked}
                       placeholder="0,00"
@@ -1959,7 +1951,7 @@ async function copyCompleteRmaOverview() {
 
             {rmaItems.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
-                Er zijn momenteel geen items met status RMA.
+                Er zijn nog geen geregistreerde RMA-artikelen in deze receptie.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-md border">
@@ -2339,5 +2331,6 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
+
 
 

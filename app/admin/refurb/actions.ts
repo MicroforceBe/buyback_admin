@@ -11,6 +11,7 @@ import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 export type VatScheme = "margin" | "normal";
 
 export type RefurbItem = {
+  rma_registered?: boolean;
   id: string;
   reception_id: string;
   row_index: number;
@@ -342,6 +343,7 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
       rma_defect_description,
       rma,
       compensation_cents,
+      rma_registered,
       imei_sn,
       manual_sn,
       location
@@ -1088,4 +1090,5 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
 
   revalidatePath("/admin/refurb");
 }
+
 

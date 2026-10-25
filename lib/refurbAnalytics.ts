@@ -1,5 +1,5 @@
 export type AnalyticsReception = { id: string; reception_number?: string | null; supplier: string | null; supplier_id: string | null; reception_date: string | null };
-export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; description: string | null; price_cents: number | null; compensation_cents: number | null };
+export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; description: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered?: boolean };
 export type AnalyticsModel = { id: string; name: string; search_keywords: string | null };
 export type AnalyticsStatus = { id: string; value: string; label: string | null };
 export type AnalyticsTransition = { from_status_id: string; to_status_id: string };
@@ -71,7 +71,7 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     row.purchased++; row.purchaseCents += cents; row.missingPrices += priced ? 0 : 1;
     const repaired = typeof item.compensation_cents === 'number' && Number.isFinite(item.compensation_cents);
     const currentRmaStatus = rmaStatuses.has(status) || mentionsRma(status);
-    const isRma = repaired || currentRmaStatus;
+    const isRma = !!item.rma_registered || repaired || currentRmaStatus;
     const finished = isFinished(status);
     if (currentRmaStatus && !finished) {
       const pending = pendingRmaGroups.get(supplier.key) ?? { ...supplier, count: 0, purchaseCents: 0, missingPrices: 0, compensationCents: 0, withCompensation: 0, withoutCompensation: 0 };
@@ -113,3 +113,4 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
   };
   return { availableSuppliers, supplierRows, totals, rmaPercent: totals.purchased ? totals.rma / totals.purchased * 100 : 0, repairedRows, rmaByStatus: Array.from(rmaStatusGroups.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'nl')), openRows, openSuppliers, openTotals, pendingRmaSuppliers, pendingRmaTotals, pendingRmaRows, byModel: summarize('model'), bySupplier: summarize('supplier'), byStatus: summarize('status') };
 }
+

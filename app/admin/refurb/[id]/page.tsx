@@ -142,6 +142,7 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
       rma_defect_description,
       rma,
       compensation_cents,
+      rma_registered,
       imei_sn,
       manual_sn,
       location
@@ -686,6 +687,7 @@ export default async function RefurbReceptionDetailPage({
 
 
       <RefurbReceptionTable
+        supplierInvoiceNr={reception.supplier_invoice_nr}
         receptionId={reception.id}
         initialStatusFilter={initialStatusFilter}
         initialItems={items as any}
@@ -703,6 +705,7 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+
 
 
 
