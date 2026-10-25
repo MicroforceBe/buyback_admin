@@ -32,6 +32,14 @@ BEGIN
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
  PERFORM public.settle_supplier_rma('copy_item',jsonb_build_object('case_id',c,'version',v,'item_id',line_a),'test@example.invalid');
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ blocked:=false; BEGIN PERFORM public.settle_supplier_rma('finalize',jsonb_build_object('case_id',c,'version',v,'confirmed',true),'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_FINAL_FIELDS_REQUIRED' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Missing supplier numbers accepted'; END IF;
+ PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c,'version',v,'stage','refunded','supplier_reference','TEST-RMA-123','supplier_credit_note','  '),'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ blocked:=false; BEGIN PERFORM public.settle_supplier_rma('finalize',jsonb_build_object('case_id',c,'version',v,'confirmed',true),'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_FINAL_FIELDS_REQUIRED' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Whitespace credit note accepted'; END IF;
+ PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c,'version',v,'stage','refunded','supplier_reference','TEST-RMA-123','supplier_credit_note','TEST-CN-456'),'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
  PERFORM public.settle_supplier_rma('finalize',jsonb_build_object('case_id',c,'version',v,'confirmed',true),'test@example.invalid');
  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_cases WHERE id=c AND stage='handled' AND finalized_at IS NOT NULL) OR EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c AND active) THEN RAISE EXCEPTION 'Finalization incomplete'; END IF;
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;

@@ -21,6 +21,7 @@ END $$;
 CREATE OR REPLACE FUNCTION public.protect_final_supplier_rma_case() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
 BEGIN
  IF OLD.stage='handled' THEN RAISE EXCEPTION 'RMA_FINALIZED'; END IF;
+ IF NEW.stage='handled' AND (nullif(trim(NEW.stage),'') IS NULL OR nullif(trim(NEW.supplier_reference),'') IS NULL OR nullif(trim(NEW.supplier_credit_note),'') IS NULL) THEN RAISE EXCEPTION 'RMA_FINAL_FIELDS_REQUIRED'; END IF;
  IF NEW.stage='handled' AND (NEW.finalized_at IS NULL OR EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=NEW.id AND active)) THEN RAISE EXCEPTION 'RMA_FINALIZATION_REQUIRED'; END IF;
  RETURN NEW;
 END $$;
@@ -55,6 +56,7 @@ BEGIN
   IF changed=0 THEN RAISE EXCEPTION 'RMA_ITEMS_REQUIRED'; END IF;
  ELSIF p_command='finalize' THEN
   IF coalesce((p_data->>'confirmed')::boolean,false) IS NOT TRUE THEN RAISE EXCEPTION 'RMA_CONFIRMATION_REQUIRED'; END IF;
+  IF nullif(trim(c.stage),'') IS NULL OR nullif(trim(c.supplier_reference),'') IS NULL OR nullif(trim(c.supplier_credit_note),'') IS NULL THEN RAISE EXCEPTION 'RMA_FINAL_FIELDS_REQUIRED'; END IF;
   IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c.id AND expected_cents IS NULL) THEN RAISE EXCEPTION 'RMA_EXPECTATION_MISSING'; END IF;
   UPDATE public.supplier_rma_items SET active=false WHERE case_id=c.id;
   UPDATE public.supplier_rma_cases SET stage='handled',finalized_at=now(),version=version+1,updated_at=now() WHERE id=c.id;
