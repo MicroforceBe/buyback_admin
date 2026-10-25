@@ -1885,9 +1885,9 @@ async function copyCompleteRmaOverview() {
             </div>
 
             <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-4">
+              <div className="bulk-target-options flex items-center gap-4">
                 <div className="text-[11px] text-slate-500">Toepassen op:</div>
-                <label className="flex items-center gap-2 text-[11px]">
+                <label className="bulk-target-option flex items-center gap-2 text-[11px]">
                   <input
                     type="radio"
                     name="bulkTarget"
@@ -1896,7 +1896,7 @@ async function copyCompleteRmaOverview() {
                   />
                   geselecteerde rijen
                 </label>
-                <label className="flex items-center gap-2 text-[11px]">
+                <label className="bulk-target-option flex items-center gap-2 text-[11px]">
                   <input type="radio" name="bulkTarget" checked={bulkTarget === "imei"} onChange={() => setBulkTarget("imei")} />
                   rijen met IMEI/SN uit textarea
                 </label>

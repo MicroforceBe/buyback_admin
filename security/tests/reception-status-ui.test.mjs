@@ -45,3 +45,13 @@ test('packaging label link appears only for Finished and Ready to book, includin
  h.render(p);let tree=h.render(p);nodes(tree,n=>n.type==='button'&&text(n).trim().startsWith('Afgewerkt ('))[0].props.onClick();tree=h.render(p);const links=nodes(tree,n=>n.type==='RefurbLabelPrintButton');
  assert.deepEqual(links.map(n=>n.props.itemId).sort(),['item-0','item-1','item-5']);assert.equal(nodes(tree,n=>n.type==='a'&&String(n.props.href).includes('/erp/labels')).length,0);
 });
+
+test('bulk panel retains both target modes and all existing field controls',async()=>{
+ const h=await harness(),p={...props,canWrite:true};h.render(p);let tree=h.render(p);
+ nodes(tree,n=>n.type==='button'&&text(n).trim().toLowerCase().startsWith('bulk update'))[0].props.onClick();tree=h.render(p);
+ const group=nodes(tree,n=>n.props?.className?.includes('bulk-target-options'))[0];assert.ok(group);assert.ok(text(group).includes('geselecteerde rijen'));assert.ok(text(group).includes('rijen met IMEI/SN uit textarea'));
+ let radios=nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget');assert.equal(radios.length,2);assert.equal(radios[0].props.checked,true);assert.equal(radios[1].props.checked,false);
+ radios[1].props.onChange();tree=h.render(p);radios=nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget');assert.equal(radios[0].props.checked,false);assert.equal(radios[1].props.checked,true);
+ radios[0].props.onChange();tree=h.render(p);radios=nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget');assert.equal(radios[0].props.checked,true);
+ assert.ok(nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('used parts')).length===1);assert.ok(nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('IMEI/SN')).length===1);assert.equal(nodes(tree,n=>n.type==='button'&&text(n).includes('Apply bulk update')).length,1);
+});
