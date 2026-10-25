@@ -11,7 +11,7 @@
 .reception :global(.reception-inline-meta) { display:flex; gap:6px; align-items:center; min-width:200px; }
 .reception :global(.reception-inline-meta) input { height:34px !important; min-height:34px; font-size:12px; max-width:150px; }
 .reception :global(.reception-inline-meta) button { min-height:34px; padding:6px 9px; }
-.reception :global(#reception-items) { background:white; border:1px solid #dce5ee; border-radius:12px; }
+.reception :global(#reception-items) { overflow-x:auto; background:white; border:1px solid #dce5ee; border-radius:12px; }
 .reception :global(#reception-items) input:not([type=checkbox]):not([type=radio]), .reception :global(#reception-items) select { height:34px !important; min-height:34px; padding:0 7px !important; font-size:12px; line-height:normal !important; }
 .reception :global(#reception-items) select { padding-right:25px !important; background-position:right 6px center; background-size:12px; }
 .reception :global(#reception-items) td, .reception :global(#reception-items) th { padding:6px 4px; font-size:11px; }
@@ -23,3 +23,31 @@
 .reception :global(.bulk-target-options) { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; min-width:0; }
 .reception :global(.bulk-target-option) { display:inline-flex; align-items:center; gap:8px; flex:0 1 auto; min-width:0; max-width:100%; line-height:1.5; cursor:pointer; }
 @media(max-width:640px) { .reception :global(.bulk-target-options) { align-items:flex-start; flex-direction:column; gap:12px; } }
+
+.reception:global(.reception-detail) { padding:16px; gap:10px; }
+.reception :global(.reception-compact-header) { display:flex; justify-content:space-between; align-items:center; gap:14px; padding:13px 16px; background:#fff; border:1px solid #dce5ee; border-radius:12px; }
+.reception :global(.reception-compact-header) h1 { font-size:20px; line-height:1.25; letter-spacing:-.4px; }
+.reception :global(.reception-compact-header) p { margin-top:4px; font-size:12px; }
+.reception :global(.reception-header-actions) { display:flex; gap:8px; flex-wrap:wrap; }
+.reception :global(.reception-work-area) { display:grid; gap:10px; min-width:0; }
+.reception :global(.reception-panel) { min-width:0; border:1px solid #dce5ee; border-radius:11px; background:#fff; overflow:hidden; }
+.reception :global(.reception-panel-heading) { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:46px; padding:10px 14px; margin:0; border:0; background:#f8fafc; color:#244158; text-align:left; font-size:12px; font-weight:650; line-height:1.4; list-style:none; }
+.reception button:global(.reception-panel-heading), .reception summary:global(.reception-panel-heading) { cursor:pointer; }
+.reception summary:global(.reception-panel-heading)::-webkit-details-marker { display:none; }
+.reception :global(.reception-panel-heading) strong { font-size:12px; font-weight:700; }
+.reception :global(.reception-panel-heading) small { margin-left:12px; color:#64798b; font-size:11px; font-weight:400; }
+.reception :global(.reception-panel-heading):focus-visible { outline:2px solid #087ba6; outline-offset:-3px; }
+.reception :global(.reception-panel-heading):hover { background:#f0f5f9; }
+.reception :global(.reception-chevron) { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; flex:0 0 24px; border-radius:6px; background:#eaf1f6; color:#49677e; font-size:23px; line-height:1; transition:transform .15s; }
+.reception details[open] > summary :global(.reception-chevron), .reception button[aria-expanded=true] :global(.reception-chevron), .reception :global(.reception-chevron)[aria-expanded=true] { transform:rotate(90deg); }
+.reception :global(.reception-panel-body) { padding:16px; border-top:1px solid #e2eaf1; }
+.reception :global(.reception-panel-body) > :global(.rma-stats) { margin-bottom:18px; }
+.reception :global(.reception-items-heading) { flex-wrap:wrap; cursor:default; border-bottom:1px solid #dce5ee; }
+.reception :global(.reception-items-heading) > div { flex-wrap:wrap; }
+.reception :global(.reception-count) { margin-left:6px; display:inline-flex; align-items:center; justify-content:center; min-width:22px; padding:1px 6px; border-radius:99px; background:#e2edf5; color:#34556d; font-size:11px; }
+@media(max-width:640px) {
+ .reception:global(.reception-detail) { padding:8px; }
+ .reception :global(.reception-compact-header) { align-items:flex-start; flex-direction:column; padding:12px; }
+ .reception :global(.reception-panel-heading) small { display:none; }
+ .reception :global(.reception-panel-body) { padding:12px; }
+}

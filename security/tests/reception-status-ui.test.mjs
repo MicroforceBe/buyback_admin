@@ -55,3 +55,11 @@ test('bulk panel retains both target modes and all existing field controls',asyn
  radios[0].props.onChange();tree=h.render(p);radios=nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget');assert.equal(radios[0].props.checked,true);
  assert.ok(nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('used parts')).length===1);assert.ok(nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('IMEI/SN')).length===1);assert.equal(nodes(tree,n=>n.type==='button'&&text(n).includes('Apply bulk update')).length,1);
 });
+
+test('article-first workspace keeps bulk collapsed by default and preserves drafts when folding',async()=>{
+ const h=await harness(),p={...props,canWrite:true};h.render(p);let tree=h.render(p);
+ let toggle=nodes(tree,n=>n.type==='button'&&text(n).trim().toLowerCase().startsWith('bulk update'))[0];assert.equal(toggle.props['aria-expanded'],false);assert.equal(nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget').length,0);assert.ok(text(tree).includes('UNIQUE_NEW_DEVICE'));
+ toggle.props.onClick();tree=h.render(p);let textarea=nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('IMEI/SN'))[0];textarea.props.onChange({target:{value:'KEEP-DRAFT-SERIAL'}});
+ tree=h.render(p);nodes(tree,n=>n.type==='button'&&text(n).trim().toLowerCase().startsWith('bulk update'))[0].props.onClick();tree=h.render(p);nodes(tree,n=>n.type==='button'&&text(n).trim().toLowerCase().startsWith('bulk update'))[0].props.onClick();tree=h.render(p);
+ textarea=nodes(tree,n=>n.type==='textarea'&&n.props.placeholder?.includes('IMEI/SN'))[0];assert.equal(textarea.props.value,'KEEP-DRAFT-SERIAL');assert.equal(nodes(tree,n=>n.type==='input'&&n.props.name==='bulkTarget')[0].props.checked,true);
+});
