@@ -9,6 +9,7 @@ import {
 } from "./actions";
 import CustomerCell from "./CustomerCell";
 import DeviceCell from "./DeviceCell";
+import styles from "./leads.module.css";
 import {getLeadLabelReadiness} from "./labelData";
 import LeadStatusForm from "./LeadStatusForm";
 import { leadValidationMessage } from "@/lib/leadDeviceValidation";
@@ -856,10 +857,10 @@ export default async function LeadsPage({
       : null;
 
   return (
-    <div className="w-full p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-xl font-semibold">Leads</h1>
+    <div className={styles.workspace}>
+      <div className="leads-header">
+        <div><div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold">Buyback leads</h1>
           <Link
             href="/admin/leads/help"
             className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-sm font-semibold hover:bg-gray-50"
@@ -868,9 +869,9 @@ export default async function LeadsPage({
           >
             ?
           </Link>
-        </div>
+        </div><p>{total} leads{hasActiveFilters ? " in deze selectie" : ""} · Pagina {page} van {totalPages}</p></div>
 
-        <div className="flex items-center gap-2">
+        <div className="leads-header-actions">
            {(adminUser as any).role === "admin" && (
             <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
               Analyse
@@ -887,7 +888,7 @@ export default async function LeadsPage({
 
       <div className="space-y-2">
         {chipItems.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-center">
+          <div className="leads-filter-chips flex flex-wrap gap-2 items-center">
             <span className="text-xs text-gray-500">Actieve filters:</span>
             {chipItems.map(chip)}
             <Link
@@ -899,17 +900,17 @@ export default async function LeadsPage({
           </div>
         )}
 
-        <details className="border rounded-lg bg-white" open>
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium flex items-center gap-2">
+        <details className="leads-filters" open>
+          <summary className="leads-panel-heading"><span>
             Filters{" "}
             {hasActiveFilters ? (
               <span className="text-xs text-gray-500">
                 ({chipItems.length} actief)
               </span>
-            ) : null}
+            ) : null}</span><span className="leads-chevron" aria-hidden="true">›</span>
           </summary>
 
-          <form className="p-3 pt-0">
+          <form className="leads-filter-form">
             {Object.entries(qsBase).map(([k, v]) =>
               ![
                 "q",
@@ -1072,7 +1073,7 @@ export default async function LeadsPage({
         </div>
       )}
 
-      <div className="overflow-auto">
+      <div className="leads-table-panel"><div className="leads-panel-heading"><strong>Leadoverzicht</strong><span className="text-[11px] font-normal text-slate-500">{data?.length ?? 0} getoond van {total}</span></div>
         <table className="w-full text-sm border border-gray-200">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-700">
@@ -1544,7 +1545,7 @@ export default async function LeadsPage({
         </table>
       </div>
 
-      <div className="flex items-center justify-center gap-2">
+      <div className="leads-pagination">
         {page > 1 ? (
           <Link className="bb-btn h-8 text-xs px-3" href={pageHref(page - 1)}>
             ← Vorige
