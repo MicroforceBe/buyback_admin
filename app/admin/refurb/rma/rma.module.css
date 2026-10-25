@@ -55,7 +55,7 @@
 .workspace :global(.rma-form-heading) p { font-size: 12px; margin-top: 3px; }
 .workspace :global(.rma-form-footer) { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding-top: 17px; border-top: 1px solid #e8edf3; }
 .workspace :global(.rma-form-footer) p { max-width: 700px; font-size: 11px; }
-.workspace input:not([type="checkbox"]):not([type="hidden"]), .workspace select, .workspace textarea {
+.workspace input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), .workspace select, .workspace textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -68,7 +68,7 @@
   font-size: 14px;
   box-shadow: 0 1px 2px #172c4303;
 }
-.workspace input:not([type="checkbox"]):not([type="hidden"]), .workspace select { height: 44px !important; min-height: 44px; padding: 0 12px !important; line-height: normal !important; }
+.workspace input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), .workspace select { height: 44px !important; min-height: 44px; padding: 0 12px !important; line-height: normal !important; }
 .workspace select { appearance: none; padding-right: 38px !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2353677c' stroke-width='1.8'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position: right 12px center; background-repeat: no-repeat; background-size: 16px; }
 .workspace select option { color: #19344d; background: #fff; font-size: 14px; }
 .workspace textarea { min-height: 112px; padding: 12px; line-height: 1.6; resize: vertical; }
@@ -110,3 +110,5 @@
 .workspace :global(.sr-only) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 1100px) { .workspace :global(.rma-stats) { grid-template-columns: repeat(2,minmax(0,1fr)); } .workspace :global(.rma-edit-form) { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 640px) { .workspace { padding: 14px; gap: 16px; border-radius: 12px; } .workspace :global(.rma-hero) { padding: 22px 18px; } .workspace h1 { font-size: 22px; } .workspace :global(.rma-stats), .workspace :global(.rma-edit-form) { grid-template-columns: 1fr; } .workspace :global(.rma-section), .workspace :global(.rma-edit-form), .workspace :global(.rma-filter), .workspace :global(.rma-finalize) { padding: 18px; } .workspace :global(.rma-stat) { min-height: 125px; padding: 18px; } .workspace :global(.rma-stat-value) { font-size: 25px; } .workspace :global(.rma-filter) label:first-child { width: 100%; min-width: 0; } }
+
+.workspace input[type="radio"] { appearance:auto; width:16px; height:16px !important; min-height:16px; padding:0 !important; flex:0 0 16px; margin:0; accent-color:#087ba6; }

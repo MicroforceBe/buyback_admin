@@ -12,10 +12,14 @@
 .reception :global(.reception-inline-meta) input { height:34px !important; min-height:34px; font-size:12px; max-width:150px; }
 .reception :global(.reception-inline-meta) button { min-height:34px; padding:6px 9px; }
 .reception :global(#reception-items) { background:white; border:1px solid #dce5ee; border-radius:12px; }
-.reception :global(#reception-items) input:not([type=checkbox]), .reception :global(#reception-items) select { height:34px !important; min-height:34px; padding:0 7px !important; font-size:12px; line-height:normal !important; }
+.reception :global(#reception-items) input:not([type=checkbox]):not([type=radio]), .reception :global(#reception-items) select { height:34px !important; min-height:34px; padding:0 7px !important; font-size:12px; line-height:normal !important; }
 .reception :global(#reception-items) select { padding-right:25px !important; background-position:right 6px center; background-size:12px; }
 .reception :global(#reception-items) td, .reception :global(#reception-items) th { padding:6px 4px; font-size:11px; }
 .reception :global(form input[type=radio][name=vat_scheme]) { width:16px; height:16px !important; min-height:16px; padding:0 !important; accent-color:#087ba6; }
 .reception :global(.reception-new-grid) { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media(max-width:900px) { .reception :global(.reception-key-values), .reception :global(.reception-meta-form) {grid-template-columns:repeat(2,minmax(0,1fr));} }
 @media(max-width:640px) { .reception :global(.reception-key-values), .reception :global(.reception-meta-form), .reception :global(.reception-new-grid) {grid-template-columns:1fr;} }
+
+.reception :global(.bulk-target-options) { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; min-width:0; }
+.reception :global(.bulk-target-option) { display:inline-flex; align-items:center; gap:8px; flex:0 1 auto; min-width:0; max-width:100%; line-height:1.5; cursor:pointer; }
+@media(max-width:640px) { .reception :global(.bulk-target-options) { align-items:flex-start; flex-direction:column; gap:12px; } }
