@@ -1776,16 +1776,18 @@ async function copyCompleteRmaOverview() {
   };
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="reception-work-area">
       {!canWrite && <p role="status" className="text-sm text-slate-600">Alleen lezen: je kunt deze receptie bekijken, maar geen toestellen toevoegen, wijzigen of verwijderen.</p>}
       {/* Bulk Update (collapsible) */}
-      {canWrite && <div className="border rounded-md bg-white text-xs">
+      {canWrite && <div className="reception-panel">
         <button
           type="button"
-          className="w-full flex items-center justify-between px-3 py-2 border-b bg-slate-50"
+          className="reception-panel-heading"
+          aria-expanded={bulkOpen}
+          aria-controls={'bulk-panel-'+receptionId}
           onClick={() => setBulkOpen((v) => !v)}
         >
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">Bulk Update</div>
+          <strong>Bulk update</strong>
           <div className="flex items-center gap-2 text-[11px] text-slate-600">
             {isBulkUpdating && (
               <>
@@ -1796,12 +1798,12 @@ async function copyCompleteRmaOverview() {
                 <span>Bezig...</span>
               </>
             )}
-            <span className="ml-2">{bulkOpen ? "▲" : "▼"}</span>
+            <span className="reception-chevron" aria-hidden="true">›</span>
           </div>
         </button>
 
         {bulkOpen && (
-          <div className="p-3">
+          <div id={'bulk-panel-'+receptionId} className="reception-panel-body">
             <div className="md:flex gap-3 items-stretch">
               {/* links */}
               <div className="flex-1 flex flex-col gap-3">
@@ -1916,7 +1918,7 @@ async function copyCompleteRmaOverview() {
       </div>}
       {/* RMA overzicht */}
       <div className="overflow-hidden rounded-md border border-red-200 bg-white text-xs">
-        <div className="flex w-full items-center justify-between border-b border-red-200 bg-red-50 px-3 py-2">
+        <div className="reception-panel-heading">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white">
               {rmaItems.length}
@@ -1929,7 +1931,9 @@ async function copyCompleteRmaOverview() {
 
           <button
             type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded border border-red-200 bg-white text-[11px] text-red-700 hover:bg-red-100"
+            className="reception-chevron"
+            aria-expanded={rmaOpen}
+            aria-controls={'rma-overview-'+receptionId}
             onClick={() => setRmaOpen((value) => !value)}
             aria-label={
               rmaOpen
@@ -1938,12 +1942,12 @@ async function copyCompleteRmaOverview() {
             }
             title={rmaOpen ? "Inklappen" : "Uitklappen"}
           >
-            {rmaOpen ? "▲" : "▼"}
+            <span aria-hidden="true">›</span>
           </button>
         </div>
 
         {rmaOpen && (
-          <div className="space-y-3 p-3">
+          <div id={'rma-overview-'+receptionId} className="reception-panel-body space-y-3">
             <div className="flex flex-col gap-3 rounded-md border border-red-100 bg-red-50 px-3 py-2 md:flex-row md:items-center md:justify-between">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -2087,9 +2091,9 @@ async function copyCompleteRmaOverview() {
 
       {/* Table */}
       {/* Table */}
-      <div id="reception-items" className="border rounded-md overflow-x-auto text-xs scroll-mt-4">
-        <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
-          <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
+      <div id="reception-items" className="reception-panel overflow-x-auto text-xs scroll-mt-4">
+        <div className="reception-panel-heading reception-items-heading">
+          <strong>Artikelen <span className="reception-count">{items.length}</span></strong>
 
           <div className="flex items-center gap-3">
             {isPasting && (
