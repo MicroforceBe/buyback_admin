@@ -32,8 +32,10 @@ async function loadActions({allowed=true,admin=false,current='new',lookupError=f
     'next/cache':{revalidatePath(){}},
   };
   const code=stripTypeScriptTypes(fs.readFileSync(path.join(root,'app/admin/refurb/actions.ts'),'utf8'),{mode:'strip'});
+  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(path.join(root,'lib/receptionTerms.ts'),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected helper dependency')});await terms.evaluate();
   const m=new vm.SourceTextModule(code,{context});
   await m.link(spec=>{
+    if(spec==='@/lib/receptionTerms')return terms;
     const e=exports[spec];if(!e)throw Error('Unmocked dependency '+spec);
     return new vm.SyntheticModule(Object.keys(e),function(){for(const [k,v]of Object.entries(e))this.setExport(k,v);},{context});
   });await m.evaluate();return {api:m.namespace,state};
@@ -73,3 +75,4 @@ test('reception deletion uses one atomic RPC instead of two independent deletes'
   assert.equal(h.state.rpcCalls[0].name,'delete_refurb_reception_secure');
   assert.equal(h.state.writes,0);
 });
+

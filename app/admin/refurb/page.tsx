@@ -1,3 +1,7 @@
+import ui from './rma/rma.module.css';
+import styles from './reception.module.css';
+import { receptionRmaDays } from '@/lib/receptionTerms';
+import { updateReceptionMetadata } from './receptionMetadataActions';
 import { permits } from '@/lib/security/policy';
 import { deleteRefurbReception } from "./actions";
 import { requirePageAccess } from '@/lib/security/access';
@@ -21,12 +25,16 @@ type RefurbReception = {
   vat_scheme: "margin" | "normal";
   supplier_invoice_nr: string;
   internal_invoice_nr: string | null;
+  updated_at:string;
+  rma_expiry_days:number|null;
+  rma_expiry_date:string|null;
   total_items?: number;
   ready_to_book_count?: number;
   waiting_for_sku_count?: number;
   rma_count?: number;
   finished_items_count?: number;
   finished_percent?: number;
+  open_status_counts?: { value: string; label: string; color: string; count: number; order: number }[];
 };
 
 type ReceptionItemStatsRow = {
@@ -39,6 +47,9 @@ type RefurbStatusOptionRow = {
   id: string;
   value: string;
   label: string | null;
+  color?: string | null;
+  sort_order?: number;
+  is_default?: boolean;
 };
 
 type RefurbStatusTransitionRow = {
@@ -108,11 +119,13 @@ async function getFinalStatusValues(): Promise<{
   hasConfiguredTransitions: boolean;
   finalStatusValues: Set<string>;
   canonicalStatusByInput: Map<string, string>;
+  statusDetails: Map<string, { value: string; label: string; color: string; order: number }>;
+  defaultStatus: string;
 }> {
   const [statusResult, transitionResult] = await Promise.all([
     supabaseAdmin
       .from("refurb_status_options")
-      .select("id, value, label"),
+      .select("id, value, label, color, sort_order, is_default").order("sort_order", { ascending: true }).order("label", { ascending: true }),
 
     supabaseAdmin
       .from("refurb_status_transitions")
@@ -151,6 +164,8 @@ async function getFinalStatusValues(): Promise<{
 
   const finalStatusValues = new Set<string>();
   const canonicalStatusByInput = new Map<string, string>();
+  const statusDetails = new Map<string, { value: string; label: string; color: string; order: number }>();
+  const defaultStatus = normalizeStatus(statusOptions.find(option => option.is_default)?.value || statusOptions[0]?.value);
 
   for (const option of statusOptions) {
     const optionId = String(option.id || "").trim();
@@ -160,6 +175,7 @@ async function getFinalStatusValues(): Promise<{
     if (!value) continue;
 
     const normalizedValue = normalizeStatus(value);
+    statusDetails.set(normalizedValue, { value, label: label || value, color: option.color || "#64748b", order: option.sort_order ?? 0 });
 
     canonicalStatusByInput.set(
       normalizedValue,
@@ -186,6 +202,8 @@ async function getFinalStatusValues(): Promise<{
     hasConfiguredTransitions,
     finalStatusValues,
     canonicalStatusByInput,
+    statusDetails,
+    defaultStatus,
   };
 }
 
@@ -200,7 +218,10 @@ async function getReceptions(): Promise<RefurbReception[]> {
       supplier,
       vat_scheme,
       supplier_invoice_nr,
-      internal_invoice_nr
+      internal_invoice_nr,
+      updated_at,
+      rma_expiry_days,
+      rma_expiry_date
       `
     )
     .order("reception_date", { ascending: false });
@@ -290,6 +311,8 @@ while (true) {
     });
   }
 
+  const openStatusCounts = new Map<string, Map<string, { value: string; label: string; color: string; count: number; order: number }>>();
+
   for (const item of items) {
     const receptionId = String(
       item.reception_id || ""
@@ -318,7 +341,7 @@ while (true) {
 
     const canonicalStatus =
       statusConfig.canonicalStatusByInput.get(rawStatus) ||
-      rawStatus;
+      rawStatus || statusConfig.defaultStatus;
 
     if (isReadyToBookStatus(canonicalStatus)) {
       currentStats.readyToBook += 1;
@@ -338,6 +361,13 @@ while (true) {
 
     if (isFinished) {
       currentStats.finished += 1;
+    } else if (canonicalStatus) {
+      const counts = openStatusCounts.get(receptionId) || new Map();
+      const detail = statusConfig.statusDetails.get(canonicalStatus) || { value: canonicalStatus, label: item.refurb_status?.trim() || canonicalStatus, color: "#64748b", order: Number.MAX_SAFE_INTEGER };
+      const badge = counts.get(canonicalStatus) || { ...detail, count: 0 };
+      badge.count++;
+      counts.set(canonicalStatus, badge);
+      openStatusCounts.set(receptionId, counts);
     }
 
     stats.set(receptionId, currentStats);
@@ -358,9 +388,9 @@ while (true) {
 
     const finishedPercent =
       totalItems > 0
-        ? Math.round(
+        ? Math.min(finishedItems === totalItems ? 100 : 99, Math.round(
             (finishedItems / totalItems) * 100
-          )
+          ))
         : 0;
 
     return {
@@ -373,6 +403,7 @@ while (true) {
       rma_count: receptionStats.rma,
       finished_items_count: finishedItems,
       finished_percent: finishedPercent,
+      open_status_counts: Array.from(openStatusCounts.get(reception.id)?.values() || []).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "nl")),
     };
   });
 }
@@ -572,6 +603,8 @@ export default async function RefurbListPage({
   searchParams?: Promise<{
     q?: string;
     msg?: string;
+    show_completed?: string;
+    meta?:string;
   }>;
 }) {
   await requirePageAccess('refurb', false);
@@ -591,8 +624,22 @@ export default async function RefurbListPage({
   const isAdmin =
     !!user && (user as any).role === "admin";
 
+  const showCompleted = searchParams?.show_completed === "1";
+  const completedCount = receptions.filter((reception) =>
+    (reception.total_items ?? 0) > 0 &&
+    reception.finished_items_count === reception.total_items
+  ).length;
+  const visibleReceptions = showCompleted ? receptions : receptions.filter((reception) =>
+    !(reception.total_items && reception.finished_items_count === reception.total_items)
+  );
+  const toggleParams = new URLSearchParams();
+  if (q) toggleParams.set("q", q);
+  if (!showCompleted) toggleParams.set("show_completed", "1");
+  const toggleHref = "/admin/refurb" + (toggleParams.size ? "?" + toggleParams.toString() : "");
+
   return (
-    <div className="space-y-4">
+    <div className={`${ui.workspace} ${styles.reception}`}>
+      {searchParams?.meta&&<p role={searchParams.meta==='saved'?'status':'alert'}>{searchParams.meta==='saved'?'Intern factuurnummer opgeslagen.':searchParams.meta==='conflict'?'Deze receptie is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.':'Niet opgeslagen. Controleer het factuurnummer.'}</p>}
       {searchParams?.msg === "delete_reception_failed" && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           De receptie is niet verwijderd. Een receptie met geboekte toestellen mag
@@ -624,6 +671,7 @@ export default async function RefurbListPage({
             className="flex gap-2"
             action="/admin/refurb"
           >
+            {showCompleted && <input type="hidden" name="show_completed" value="1" />}
             <input
               name="q"
               defaultValue={q}
@@ -719,27 +767,22 @@ export default async function RefurbListPage({
         </div>
       </details>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">
-            Refurb
-          </h1>
-
-          <p className="text-sm text-slate-500">
-            Binnenkomende refurb toestellen
-            verwerken per receptie
-          </p>
-        </div>
-
-        {permits(await getCurrentAdminUser(), "refurb", "write") && <Link
-          href="/admin/refurb/new"
-          className="bb-btn bb-btn-primary text-sm"
+      <header className="rma-hero"><div><div className="rma-kicker">Refurb / inkomende leveringen</div><h1>Recepties</h1><p>Verwerk toestellen, bewaak RMA-termijnen en volg leveranciers op.</p></div>{permits(user,'refurb','write')&&<Link href="/admin/refurb/new" className="bb-btn">+ Nieuwe receptie</Link>}</header>
+      <div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount,note:'Nog te verwerken leveringen'},{name:'Afgewerkte recepties',value:completedCount,note:showCompleted?'Zichtbaar in het overzicht':'Verborgen voor een rustig overzicht'},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0),note:'Binnen de getoonde recepties'},{name:'Leveranciers',value:new Set(visibleReceptions.map(row=>row.supplier)).size,note:'In de getoonde selectie'}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div>
+      <div className="flex justify-end text-sm">
+        <Link
+          href={toggleHref}
+          prefetch={false}
+          role="switch"
+          aria-checked={showCompleted}
+          aria-label="Afgewerkte recepties tonen"
+          className="bb-btn text-sm"
         >
-          Nieuwe receptie
-        </Link>}
+          {showCompleted ? "Verberg afgewerkte recepties" : "Toon afgewerkte recepties"}
+        </Link>
       </div>
 
-      <table className="w-full text-sm border-collapse">
+      <section className="rma-section"><h2>Leveringen</h2><div className="overflow-x-auto"><table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-slate-50">
             <th className="px-2 py-1 text-left">
@@ -766,6 +809,7 @@ export default async function RefurbListPage({
               Intern factuur nr
             </th>
 
+            <th className="px-2 py-1 text-left">RMA-termijn</th>
             {isAdmin && (
               <th className="px-2 py-1 text-left">
                 Acties
@@ -775,7 +819,7 @@ export default async function RefurbListPage({
         </thead>
 
         <tbody>
-          {receptions.map((reception) => {
+          {visibleReceptions.map((reception) => {
             const totalItems =
               reception.total_items || 0;
 
@@ -791,46 +835,28 @@ export default async function RefurbListPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
                       href={`/admin/refurb/${reception.id}`}
+                      prefetch={false}
                       className="text-blue-600 underline"
                     >
                       {reception.reception_number}
                     </Link>
 
-                    {(reception.ready_to_book_count ??
-                      0) > 0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.ready_to_book_count} ready to book`}
+                    {(reception.open_status_counts || []).map((badge) => (
+                      <Link
+                        key={badge.value}
+                        href={`/admin/refurb/${reception.id}?status=${encodeURIComponent(badge.value)}#reception-items`}
+                        prefetch={false}
+                        aria-label={`${badge.label}: ${badge.count} artikelen. Open gefilterde receptie`}
+                        title={`${badge.label}: ${badge.count}`}
+                        className="inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full border border-slate-200 bg-white px-1.5 text-[11px] font-bold text-slate-800 hover:border-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
                       >
-                        {
-                          reception.ready_to_book_count
-                        }
-                      </span>
-                    )}
-
-                    {(reception.waiting_for_sku_count ??
-                      0) > 0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-green-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.waiting_for_sku_count} waiting for sku`}
-                      >
-                        {
-                          reception.waiting_for_sku_count
-                        }
-                      </span>
-                    )}
-
-                    {(reception.rma_count ?? 0) >
-                      0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.rma_count} RMA`}
-                      >
-                        {reception.rma_count}
-                      </span>
-                    )}
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: badge.color }} />
+                        {badge.count}
+                      </Link>
+                    ))}
                   </div>
 
+                  <div className="reception-progress" aria-hidden="true"><span style={{width:(reception.finished_percent??0)+'%'}}/></div>
                   <div className="mt-1 text-[11px] text-slate-500">
                     <span className="font-medium text-slate-700">
                       {reception.finished_percent ?? 0}%
@@ -871,10 +897,10 @@ export default async function RefurbListPage({
                 </td>
 
                 <td className="px-2 py-1">
-                  {reception.internal_invoice_nr ||
-                    "—"}
+                  {permits(user,'refurb','write')?<form action={updateReceptionMetadata} className="reception-inline-meta"><input type="hidden" name="list" value="1"/><input type="hidden" name="show_completed" value={showCompleted?'1':'0'}/><input type="hidden" name="reception_id" value={reception.id}/><input type="hidden" name="updated_at" value={reception.updated_at}/><input name="internal_invoice_nr" aria-label={'Intern factuurnummer '+reception.reception_number} defaultValue={reception.internal_invoice_nr||''} maxLength={250}/><button className="bb-btn" aria-label={'Factuurnummer opslaan '+reception.reception_number}>Opslaan</button></form>:reception.internal_invoice_nr||'—'}
                 </td>
 
+                <td className="px-2 py-1"><strong>{receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} dagen</strong><span className="block text-xs text-slate-500">{reception.rma_expiry_date||'Nog geen vervaldatum'}</span></td>
                 {isAdmin && (
                   <td className="px-2 py-1">
                     <details className="inline-block">
@@ -927,20 +953,25 @@ export default async function RefurbListPage({
             );
           })}
 
-          {receptions.length === 0 && (
+          {visibleReceptions.length === 0 && (
             <tr>
               <td
-                colSpan={isAdmin ? 7 : 6}
+                colSpan={isAdmin ? 8 : 7}
                 className="px-4 py-8 text-center text-sm text-slate-500"
               >
-                Geen recepties gevonden.
+                {!showCompleted && completedCount > 0
+                  ? "Geen openstaande recepties. Toon de afgewerkte recepties om ze te bekijken."
+                  : "Geen recepties gevonden."}
               </td>
             </tr>
           )}
         </tbody>
-      </table>
+      </table></div></section>
     </div>
   );
 }
+
+
+
 
 

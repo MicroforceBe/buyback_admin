@@ -31,6 +31,8 @@ on:
       - lib/supabaseServer.ts
       - app/admin/refurb/**
       - security/tests/reception-list.test.mjs
+      - lib/receptionTerms.ts
+      - security/tests/reception-terms.test.mjs
       - lib/refurbStatusFilter.ts
       - lib/supplierRma.ts
       - security/tests/supplier-rma*.test.mjs
@@ -85,6 +87,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
       - name: Verify supplier RMA rules and authenticated actions without live services
         run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-reception-data.test.mjs
+      - name: Verify reception RMA terms and guarded metadata updates
+        run: node --experimental-vm-modules --test security/tests/reception-terms.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"

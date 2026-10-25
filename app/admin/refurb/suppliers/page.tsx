@@ -1,3 +1,6 @@
+import ui from '../rma/rma.module.css';
+import styles from '../reception.module.css';
+import { updateSupplierRmaDays } from '../receptionMetadataActions';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/suppliers/page.tsx
 import { redirect } from "next/navigation";
@@ -15,12 +18,13 @@ type SupplierRow = {
   vat_number: string | null;
   contact_email: string | null;
   created_at: string;
+  rma_expiry_days:number;
 };
 
 async function getSuppliers(): Promise<SupplierRow[]> {
   const { data, error } = await supabaseAdmin
     .from("refurb_suppliers")
-    .select("id, name, vat_number, contact_email, created_at")
+    .select("id, name, vat_number, contact_email, created_at, rma_expiry_days")
     .order("name", { ascending: true });
 
   if (error) {
@@ -31,7 +35,7 @@ async function getSuppliers(): Promise<SupplierRow[]> {
   return data as SupplierRow[];
 }
 
-export default async function RefurbSuppliersPage() {
+export default async function RefurbSuppliersPage({searchParams}:{searchParams?:Promise<{meta?:string}>}) {
   await requirePageAccess('refurb', true);
 
   const user = await getCurrentAdminUser();
@@ -56,13 +60,16 @@ export default async function RefurbSuppliersPage() {
   }
 
   const suppliers = await getSuppliers();
+  const query=await searchParams;
 
   return (
-    <div className="space-y-4">
+    <div className={`${ui.workspace} ${styles.reception}`}>
+      <header className="rma-hero"><div><div className="rma-kicker">Refurb / instellingen</div><h1>Leveranciers</h1><p>Beheer contacten en de standaard RMA-termijn voor nieuwe recepties.</p></div><span className="rma-badge">{suppliers.length} leveranciers</span></header>
+      {query?.meta&&<p role={query.meta==='saved'?'status':'alert'}>{query.meta==='saved'?'RMA-termijn opgeslagen. Deze geldt voor nieuwe recepties.':query.meta==='conflict'?'De termijn is intussen gewijzigd. Vernieuw de pagina.':'Niet opgeslagen. Vul een geheel aantal dagen in (0–36500).'}</p>}
       {/* Nieuwe leverancier formulier */}
-      <div className="border rounded-md bg-white p-3 text-sm">
+      <div className="rma-section">
         <h2 className="text-sm font-semibold mb-2">Nieuwe leverancier</h2>
-        <form action={createRefurbSupplierFromForm} className="grid gap-3 md:grid-cols-3">
+        <form action={createRefurbSupplierFromForm} className="reception-new-grid">
           <div className="flex flex-col gap-1">
             <label
               htmlFor="name"
@@ -112,7 +119,8 @@ export default async function RefurbSuppliersPage() {
             />
           </div>
 
-          <div className="md:col-span-3 flex justify-end mt-1">
+          <label className="flex flex-col gap-1 text-xs">RMA Expire Date (dagen)<input type="number" name="rma_expiry_days" defaultValue={30} min={0} max={36500} step={1} required className="bb-input"/></label>
+          <div className="flex justify-end mt-1">
             <button
               type="submit"
               className="bb-btn bb-btn-primary h-8 px-4 text-xs"
@@ -134,13 +142,14 @@ export default async function RefurbSuppliersPage() {
               <th className="px-3 py-2 border-b text-left whitespace-nowrap">
                 Aangemaakt op
               </th>
+              <th className="px-3 py-2 border-b text-left">RMA Expire Date (dagen)</th>
             </tr>
           </thead>
           <tbody>
             {suppliers.length === 0 && (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={5}
                   className="px-3 py-3 text-xs text-slate-500 text-center"
                 >
                   Nog geen leveranciers gevonden. Voeg de eerste leverancier toe
@@ -174,6 +183,7 @@ export default async function RefurbSuppliersPage() {
                     ? new Date(s.created_at).toLocaleDateString("nl-BE")
                     : "—"}
                 </td>
+                <td className="px-3 py-2"><form action={updateSupplierRmaDays} className="reception-inline-meta"><input type="hidden" name="supplier_id" value={s.id}/><input type="hidden" name="original_days" value={s.rma_expiry_days}/><input name="rma_expiry_days" aria-label={'RMA-termijn '+s.name} type="number" min={0} max={36500} step={1} required defaultValue={s.rma_expiry_days}/><button className="bb-btn">Opslaan</button></form></td>
               </tr>
             ))}
           </tbody>
@@ -182,4 +192,5 @@ export default async function RefurbSuppliersPage() {
     </div>
   );
 }
+
 
