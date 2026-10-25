@@ -3,12 +3,12 @@
 
 import { createReceptionSupplierRma, registerLateReceptionRma } from "./rma/actions";
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { isSupplierRmaItem, compensationOnRmaEntry } from "@/lib/supplierRma";
+import { isSupplierRmaItem, compensationOnRmaEntry, isRefundedRmaItem } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import { useRouter } from "next/navigation";
 import {
   RefurbItem,
-  updateRefurbItemCell,
+  tryUpdateRefurbItemCell as updateRefurbItemCell,
   pasteIntoRefurbColumn,
   bulkUpdateRefurbItems,
   fetchReceptionItems,
@@ -104,6 +104,8 @@ function canonicalizeStatusValue(
 
   const exact = statusOptions.find((o: any) => String(o?.value ?? "").trim() === v);
   if (exact) return exact.value;
+  const sameValue = statusOptions.find(o => norm(o.value) === norm(v));
+  if (sameValue) return sameValue.value;
 
   const vNorm = norm(v);
   const byLabel = statusOptions.find((o: any) => norm(String(o?.label ?? "")) === vNorm);
@@ -945,11 +947,11 @@ async function copyCompleteRmaOverview() {
     const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
 
     return (statusValue: string) => {
-      if (!hasAnyTransitions) return false;
+      if (!hasAnyTransitions || norm(statusValue) === norm(defaultStatusValue) || !statusOptions.some(o=>norm(o.value)===norm(statusValue))) return false;
       const next = t?.[statusValue] ?? [];
       return !next || next.length === 0;
     };
-  }, [transitions]);
+  }, [transitions, defaultStatusValue, statusOptions]);
 
   // split done vs not done blocks
   const filteredNotDoneRows = useMemo(() => {
@@ -1069,7 +1071,8 @@ async function copyCompleteRmaOverview() {
     );
 
     try {
-      await updateRefurbItemCell(itemId, field as any, value);
+      const result = await updateRefurbItemCell(itemId, field as any, value);
+      if (result?.error) throw new Error(result.error);
       if (field === "refurb_status" || field === "location") {
         router.refresh();
       }
@@ -1499,7 +1502,7 @@ async function copyCompleteRmaOverview() {
                   />
                   <select
                     value={currentStatus}
-                    disabled={!canWrite || rowBooked || (mapModeForRow && !rowHasChoices)}
+                    disabled={!canWrite || rowBooked || isRefundedRmaItem(it, statusOptions) || (mapModeForRow && !rowHasChoices)}
                     onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
                     className="bb-select bb-select-sm w-full text-slate-900"
                     title={
@@ -1933,7 +1936,8 @@ async function copyCompleteRmaOverview() {
 
               {canWrite && canUseAdminStatuses && <form action={createReceptionSupplierRma}>
                 <input type="hidden" name="reception_id" value={receptionId}/>
-                <button disabled={!rmaItems.length} className="bb-btn bb-btn-primary text-xs">RMA Supplier aanmaken / openen</button>
+                <label className="mr-3 text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
+                <button disabled={!rmaItems.some(item=>!isRefundedRmaItem(item,statusOptions))} className="bb-btn bb-btn-primary text-xs">RMA Supplier aanmaken / openen</button>
               </form>}
               <button
                 type="button"
@@ -1959,7 +1963,8 @@ async function copyCompleteRmaOverview() {
               <p className="my-2 text-xs text-slate-500">Selecteer de betrokken artikelen. Ze worden gekoppeld aan het actieve dossier of aan een nieuw dossier als het vorige is afgesloten. Een boeking, toestelstatus of prijs wordt hierdoor niet gewijzigd.</p>
               <form action={registerLateReceptionRma} className="space-y-3">
                 <input type="hidden" name="reception_id" value={receptionId}/>
-                <div className="max-h-64 space-y-2 overflow-auto">{items.map(item=><label key={item.id} className="flex items-start gap-2"><input type="checkbox" name="item_ids" value={item.id}/><span>{item.imei_sn||item.manual_sn||'—'} · {item.description||'Artikel'} · {item.refurb_status}</span></label>)}</div>
+                <div className="max-h-64 space-y-2 overflow-auto">{items.filter(item=>!isRefundedRmaItem(item,statusOptions)).map(item=><label key={item.id} className="flex items-start gap-2"><input type="checkbox" name="item_ids" value={item.id}/><span>{item.imei_sn||item.manual_sn||'—'} · {item.description||'Artikel'} · {item.refurb_status}</span></label>)}</div>
+                <label className="block text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
                 <button className="bb-btn bb-btn-primary text-xs">Geselecteerde artikelen als RMA melden</button>
               </form>
             </details>}

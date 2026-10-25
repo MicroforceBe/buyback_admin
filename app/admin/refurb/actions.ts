@@ -192,7 +192,7 @@ async function resolveStatusValueAndId(input: string): Promise<{ value: string; 
   const byValue = await supabaseAdmin
     .from("refurb_status_options")
     .select("id, value")
-    .eq("value", raw)
+    .ilike("value", raw.replace(/[\\%_]/g, char => "\\" + char))
     .limit(1);
 
   if (byValue.error) {
@@ -1092,3 +1092,16 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
 }
 
 
+
+export async function tryUpdateRefurbItemCell(itemId: string, field: EditableField, value: string): Promise<{ error?: string }> {
+  await requireAccess('refurb', 'write', false);
+  try { await updateRefurbItemCell(itemId, field, value); return {}; }
+  catch (error) {
+    const message=error instanceof Error?error.message:'';
+    if (message.includes('RMA_COMPENSATION_REQUIRED')) return {error:'Vul eerst een compensatiebedrag in voordat dit artikel aan RMA Supplier wordt gekoppeld.'};
+    if (message.includes('RMA_REFUNDED')) return {error:'Een refunded artikel kan niet opnieuw als RMA worden gemeld.'};
+    if (message.includes('vergrendeld')) return {error:'Dit artikel is geboekt. Gebruik Nieuw RMA melden (ook na afwerking) in het RMA-overzicht.'};
+    if (message.startsWith('Status "') || message.includes('SKU is verplicht') || message.includes('rechten om deze status')) return {error:message};
+    return {error:'De wijziging is niet opgeslagen. Controleer de toegelaten statustransitie en probeer opnieuw.'};
+  }
+}

@@ -34,7 +34,7 @@ BEGIN
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c2;
  PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c2,'version',v,'stage','closed'),'test@example.invalid');
  INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents,description) VALUES(r,4,'Booked',7000,'ORIGINAL BOOKED DEVICE') RETURNING id INTO d;
- c2:=public.register_late_reception_rma(r,array[d],'test@example.invalid');
+ c2:=public.prepare_reception_supplier_rma(r,array[d],true,'test@example.invalid');
  IF NOT EXISTS(SELECT 1 FROM public.refurb_reception_items WHERE id=d AND refurb_status='Booked' AND price_cents=7000 AND rma_registered) THEN RAISE EXCEPTION 'Late booked RMA changed accounting'; END IF;
  IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c2 AND reception_item_id=d) THEN RAISE EXCEPTION 'Late booked RMA not linked'; END IF;
  blocked:=false; BEGIN UPDATE public.refurb_reception_items SET price_cents=1 WHERE id=d; EXCEPTION WHEN OTHERS THEN blocked:=true; END;
@@ -45,7 +45,7 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'Booked delete protection weakened'; END IF;
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c2;
  PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c2,'version',v,'stage','closed'),'test@example.invalid');
- c2:=public.register_late_reception_rma(r,array[d],'test@example.invalid');
+ c2:=public.prepare_reception_supplier_rma(r,array[d],true,'test@example.invalid');
  IF (SELECT count(*) FROM public.supplier_rma_items WHERE reception_item_id=d)<>2 THEN RAISE EXCEPTION 'Explicit repeat RMA after closure not supported'; END IF;
  blocked:=false; BEGIN PERFORM public.register_late_reception_rma(r,array[other_item],'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_RECEPTION_MISMATCH' THEN blocked:=true; ELSE RAISE; END IF; END;
  IF NOT blocked THEN RAISE EXCEPTION 'Forged reception selection accepted'; END IF;

@@ -1,6 +1,6 @@
 import 'server-only';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { isSupplierRmaItem } from '@/lib/supplierRma';
+import { isSupplierRmaItem, isRefundedRmaItem } from '@/lib/supplierRma';
 
 export type RmaCase = { id: string; code: string; supplier_id: string | null; supplier_name: string; supplier_reference: string; supplier_credit_note: string; reception_id: string | null; stage: string; tracking_reference: string; sent_on: string | null; received_on: string | null; followup_on: string | null; notes: string; version: number; created_at: string; updated_at: string };
 export type RmaCaseItem = { id: string; case_id: string; reception_item_id: string; expected_cents: number | null; received_cents: number; notes: string; active: boolean };
@@ -37,7 +37,7 @@ export async function loadSupplierRmaData() {
     const option = statuses.find(row => row.value.toLowerCase() === value || row.label.toLowerCase() === value);
     return transitions.length ? !!option && !outgoing.has(option.id) : ['booked', 'ready to book', 'ready_to_book'].includes(value) || value.includes('finished');
   };
-  const candidates = sourceItems.filter(row => isSupplierRmaItem(row, statuses) && !activeItems.has(row.id)).map(row => ({ ...row, reception: receptionById.get(row.reception_id), finished: isFinal(row.refurb_status) })).filter(row => row.reception);
+  const candidates = sourceItems.filter(row => isSupplierRmaItem(row, statuses) && !isRefundedRmaItem(row,statuses) && row.compensation_cents != null && !activeItems.has(row.id)).map(row => ({ ...row, reception: receptionById.get(row.reception_id), finished: isFinal(row.refurb_status) })).filter(row => row.reception);
   const suppliers = Array.from(new Map(receptions.map(row => [row.supplier_id || 'name:' + row.supplier.trim().toLowerCase(), { key: row.supplier_id || 'name:' + row.supplier.trim().toLowerCase(), name: row.supplier }])).values()).sort((a, b) => a.name.localeCompare(b.name, 'nl'));
   return { cases: cases.sort((a, b) => b.updated_at.localeCompare(a.updated_at)), caseItems, sourceById, receptionById, candidates, suppliers, history, statusHistory };
 }
