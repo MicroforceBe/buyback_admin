@@ -3,6 +3,9 @@ on:
   push:
     branches: [release/security-20261024, main, security-test]
     paths:
+      - lib/diagnosticsUsb.ts
+      - tools/usb-test/**
+      - security/tests/diagnostics-usb.test.mjs
       - lib/diagnostics.ts
       - app/admin/diagnostics/**
       - app/api/diagnostics/**
@@ -105,6 +108,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/product-label.test.mjs
       - name: Verify guided diagnostics storage, completion and UI without devices or live data
         run: node --experimental-vm-modules --test security/tests/diagnostics.test.mjs
+      - name: Verify USB identity and test-only local bridge without devices
+        run: node --experimental-vm-modules --test security/tests/diagnostics-usb.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
