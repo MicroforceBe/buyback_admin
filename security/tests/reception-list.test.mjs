@@ -32,7 +32,7 @@ const receptionLinks=tree=>nodes(tree,n=>n.type==='Link'&&/^\/admin\/refurb\/[^?
 
 test('completed receptions are absent from the server output by default; open and empty remain visible',async()=>{
  const {tree,userReads}=await render();assert.deepEqual(receptionLinks(tree).map(n=>n.props.href),['/admin/refurb/open','/admin/refurb/empty']);
- assert.ok(!text(tree).includes('Reception done'));assert.ok(text(tree).includes('1 afgewerkt verborgen'));
+ assert.ok(!text(tree).includes('Reception done'));assert.ok(!text(tree).includes('afgewerkt verborgen'));
  const toggle=nodes(tree,n=>n.props?.role==='switch')[0];assert.equal(toggle.props['aria-checked'],false);assert.equal(toggle.props.href,'/admin/refurb?show_completed=1');assert.equal(toggle.props.prefetch,false);
  for(const link of receptionLinks(tree))assert.equal(link.props.prefetch,false);assert.equal(userReads,1);
 });
@@ -57,3 +57,14 @@ test('all completed list has a useful empty state and errors cannot falsely hide
 test('page permission denial still stops all loading',async()=>{
  await assert.rejects(render({allowed:false}),/ACCESS_DENIED/);
 });
+
+test('all nonfinal statuses receive counted links, canonical labels and configured colors',async()=>{
+ const options=[{id:'new',value:'New',label:'Nieuw',color:'#123456',sort_order:1,is_default:true},{id:'rma',value:'RMA',label:'Retour',color:'#dd0000',sort_order:2},{id:'battery',value:'Battery',label:'Batterij',sort_order:3},{id:'end',value:'Booked',label:'Geboekt',sort_order:4}];
+ const transitions=['new','rma','battery'].map(from_status_id=>({from_status_id,to_status_id:'end'}));
+ const {tree}=await render({receptions:[reception('open')],options,transitions,items:[item('1','open','New'),item('2','open','Nieuw'),item('3','open','Retour'),item('4','open','Battery'),item('5','open','Booked'),item('6','open','custom / status'),item('7','open',null)]});
+ const badges=nodes(tree,n=>n.type==='Link'&&n.props?.['aria-label']?.includes('Open gefilterde receptie'));assert.equal(badges.length,4);assert.equal(badges[0].props.title,'Nieuw: 3');assert.equal(badges[1].props.title,'Retour: 1');assert.equal(badges[2].props.title,'Batterij: 1');
+ assert.equal(nodes(badges[0],n=>n.props?.style?.backgroundColor)[0].props.style.backgroundColor,'#123456');
+ for(const badge of badges){const url=new URL(badge.props.href,'https://synthetic.invalid');assert.equal(url.pathname,'/admin/refurb/open');assert.equal(url.hash,'#reception-items');assert.ok(url.searchParams.get('status'));assert.notEqual(url.searchParams.get('status'),'Booked');assert.equal(badge.props.prefetch,false);}
+ assert.equal(new URL(badges[3].props.href,'https://synthetic.invalid').searchParams.get('status'),'custom / status');
+});
+

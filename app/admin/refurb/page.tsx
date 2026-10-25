@@ -27,6 +27,7 @@ type RefurbReception = {
   rma_count?: number;
   finished_items_count?: number;
   finished_percent?: number;
+  open_status_counts?: { value: string; label: string; color: string; count: number; order: number }[];
 };
 
 type ReceptionItemStatsRow = {
@@ -39,6 +40,9 @@ type RefurbStatusOptionRow = {
   id: string;
   value: string;
   label: string | null;
+  color?: string | null;
+  sort_order?: number;
+  is_default?: boolean;
 };
 
 type RefurbStatusTransitionRow = {
@@ -108,11 +112,13 @@ async function getFinalStatusValues(): Promise<{
   hasConfiguredTransitions: boolean;
   finalStatusValues: Set<string>;
   canonicalStatusByInput: Map<string, string>;
+  statusDetails: Map<string, { value: string; label: string; color: string; order: number }>;
+  defaultStatus: string;
 }> {
   const [statusResult, transitionResult] = await Promise.all([
     supabaseAdmin
       .from("refurb_status_options")
-      .select("id, value, label"),
+      .select("id, value, label, color, sort_order, is_default").order("sort_order", { ascending: true }).order("label", { ascending: true }),
 
     supabaseAdmin
       .from("refurb_status_transitions")
@@ -151,6 +157,8 @@ async function getFinalStatusValues(): Promise<{
 
   const finalStatusValues = new Set<string>();
   const canonicalStatusByInput = new Map<string, string>();
+  const statusDetails = new Map<string, { value: string; label: string; color: string; order: number }>();
+  const defaultStatus = normalizeStatus(statusOptions.find(option => option.is_default)?.value || statusOptions[0]?.value);
 
   for (const option of statusOptions) {
     const optionId = String(option.id || "").trim();
@@ -160,6 +168,7 @@ async function getFinalStatusValues(): Promise<{
     if (!value) continue;
 
     const normalizedValue = normalizeStatus(value);
+    statusDetails.set(normalizedValue, { value, label: label || value, color: option.color || "#64748b", order: option.sort_order ?? 0 });
 
     canonicalStatusByInput.set(
       normalizedValue,
@@ -186,6 +195,8 @@ async function getFinalStatusValues(): Promise<{
     hasConfiguredTransitions,
     finalStatusValues,
     canonicalStatusByInput,
+    statusDetails,
+    defaultStatus,
   };
 }
 
@@ -290,6 +301,8 @@ while (true) {
     });
   }
 
+  const openStatusCounts = new Map<string, Map<string, { value: string; label: string; color: string; count: number; order: number }>>();
+
   for (const item of items) {
     const receptionId = String(
       item.reception_id || ""
@@ -318,7 +331,7 @@ while (true) {
 
     const canonicalStatus =
       statusConfig.canonicalStatusByInput.get(rawStatus) ||
-      rawStatus;
+      rawStatus || statusConfig.defaultStatus;
 
     if (isReadyToBookStatus(canonicalStatus)) {
       currentStats.readyToBook += 1;
@@ -338,6 +351,13 @@ while (true) {
 
     if (isFinished) {
       currentStats.finished += 1;
+    } else if (canonicalStatus) {
+      const counts = openStatusCounts.get(receptionId) || new Map();
+      const detail = statusConfig.statusDetails.get(canonicalStatus) || { value: canonicalStatus, label: item.refurb_status?.trim() || canonicalStatus, color: "#64748b", order: Number.MAX_SAFE_INTEGER };
+      const badge = counts.get(canonicalStatus) || { ...detail, count: 0 };
+      badge.count++;
+      counts.set(canonicalStatus, badge);
+      openStatusCounts.set(receptionId, counts);
     }
 
     stats.set(receptionId, currentStats);
@@ -373,6 +393,7 @@ while (true) {
       rma_count: receptionStats.rma,
       finished_items_count: finishedItems,
       finished_percent: finishedPercent,
+      open_status_counts: Array.from(openStatusCounts.get(reception.id)?.values() || []).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "nl")),
     };
   });
 }
@@ -754,10 +775,7 @@ export default async function RefurbListPage({
         </Link>}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span className="text-slate-500">
-          {showCompleted ? `${receptions.length} recepties` : `${visibleReceptions.length} openstaande recepties · ${completedCount} afgewerkt verborgen`}
-        </span>
+      <div className="flex justify-end text-sm">
         <Link
           href={toggleHref}
           prefetch={false}
@@ -828,39 +846,19 @@ export default async function RefurbListPage({
                       {reception.reception_number}
                     </Link>
 
-                    {(reception.ready_to_book_count ??
-                      0) > 0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.ready_to_book_count} ready to book`}
+                    {(reception.open_status_counts || []).map((badge) => (
+                      <Link
+                        key={badge.value}
+                        href={`/admin/refurb/${reception.id}?status=${encodeURIComponent(badge.value)}#reception-items`}
+                        prefetch={false}
+                        aria-label={`${badge.label}: ${badge.count} artikelen. Open gefilterde receptie`}
+                        title={`${badge.label}: ${badge.count}`}
+                        className="inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full border border-slate-200 bg-white px-1.5 text-[11px] font-bold text-slate-800 hover:border-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
                       >
-                        {
-                          reception.ready_to_book_count
-                        }
-                      </span>
-                    )}
-
-                    {(reception.waiting_for_sku_count ??
-                      0) > 0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-green-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.waiting_for_sku_count} waiting for sku`}
-                      >
-                        {
-                          reception.waiting_for_sku_count
-                        }
-                      </span>
-                    )}
-
-                    {(reception.rma_count ?? 0) >
-                      0 && (
-                      <span
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white"
-                        title={`${reception.rma_count} RMA`}
-                      >
-                        {reception.rma_count}
-                      </span>
-                    )}
+                        <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: badge.color }} />
+                        {badge.count}
+                      </Link>
+                    ))}
                   </div>
 
                   <div className="mt-1 text-[11px] text-slate-500">
@@ -976,6 +974,7 @@ export default async function RefurbListPage({
     </div>
   );
 }
+
 
 
 

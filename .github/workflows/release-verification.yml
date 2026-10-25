@@ -31,6 +31,8 @@ on:
       - lib/supabaseServer.ts
       - app/admin/refurb/**
       - security/tests/reception-list.test.mjs
+      - lib/refurbStatusFilter.ts
+      - security/tests/reception-status-*.test.mjs
       - lib/refurbAnalytics.ts
       - security/tests/refurb-analytics*.test.mjs
       - prisma/schema.prisma
@@ -69,6 +71,8 @@ jobs:
         run: node --test security/tests/supabase-compat.test.mjs
       - name: Recheck access, sessions, reception and lead security
         run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
+      - name: Verify reception status links and filtered item lists without external services
+        run: node --experimental-vm-modules --test security/tests/reception-status-filter.test.mjs security/tests/reception-status-ui.test.mjs
       - name: Verify label authorization and ERP orchestration
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify lead status validation and SKU selection without live services
@@ -99,3 +103,4 @@ jobs:
             dependency-review.json
           retention-days: 7
           if-no-files-found: error
+

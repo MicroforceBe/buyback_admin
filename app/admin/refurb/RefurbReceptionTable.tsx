@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import { useRouter } from "next/navigation";
 import {
   RefurbItem,
@@ -20,6 +21,7 @@ type StatusTransitionsMap = Record<string, string[]>;
 
 type Props = {
   receptionId: string;
+  initialStatusFilter?: string;
   initialItems: RefurbItem[];
   statusOptions: RefurbStatusOption[];
   locationOptions: RefurbLocationOption[];
@@ -466,6 +468,7 @@ function SkuAutocompleteCell({
 
 export default function RefurbReceptionTable({
   receptionId,
+  initialStatusFilter,
   initialItems,
   statusOptions,
   locationOptions,
@@ -506,7 +509,7 @@ export default function RefurbReceptionTable({
   const [openDone, setOpenDone] = useState(false);
 
   // header filters
-  const [statusFilter, setStatusFilter] = useState<string>("__all__");
+  const [statusFilter, setStatusFilter] = useState<string>(() => resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
   const [locationFilter, setLocationFilter] = useState<string>("__all__");
   const [imeiQuery, setImeiQuery] = useState<string>("");
   const [descQuery, setDescQuery] = useState<string>("");
@@ -536,6 +539,20 @@ export default function RefurbReceptionTable({
     setItems(normalizedInitialItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedInitialItems]);
+
+  useEffect(() => {
+    const selected = resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems);
+    setStatusFilter(selected);
+    setLocationFilter("__all__");
+    setImeiQuery("");
+    setDescQuery("");
+    setSelectedIds(new Set());
+    setOpenNotDone(true);
+    const map = statusNextMap ?? statusTransitions;
+    setOpenDone(selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
+    // Reapply a deep link when navigating between statuses on the same reception.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receptionId, initialStatusFilter]);
 
   const hasItems = items.length > 0;
 
@@ -914,7 +931,7 @@ async function copyCompleteRmaOverview() {
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
         const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-        const okStatus = statusFilter === "__all__" || st === statusFilter;
+        const okStatus = statusFilter === "__all__" || norm(st) === norm(statusFilter);
 
         const loc = ((it as any).location ?? "").trim();
         const okLoc = locationFilter === "__all__" || loc === locationFilter;
@@ -2029,7 +2046,7 @@ async function copyCompleteRmaOverview() {
 
       {/* Table */}
       {/* Table */}
-      <div className="border rounded-md overflow-x-auto text-xs">
+      <div id="reception-items" className="border rounded-md overflow-x-auto text-xs scroll-mt-4">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
           <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
 
@@ -2322,4 +2339,5 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
+
 

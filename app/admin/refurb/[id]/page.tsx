@@ -276,11 +276,15 @@ function moneyEUR(cents: number) {
 
 export default async function RefurbReceptionDetailPage({
   params: incomingParams,
+  searchParams: incomingSearchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ status?: string | string[] }>;
 }) {
   await requirePageAccess('refurb', false);
   const params = await incomingParams;
+  const query = await incomingSearchParams;
+  const initialStatusFilter = typeof query?.status === "string" ? query.status : undefined;
 
   const reception = await getReception(params.id);
 
@@ -683,6 +687,7 @@ export default async function RefurbReceptionDetailPage({
 
       <RefurbReceptionTable
         receptionId={reception.id}
+        initialStatusFilter={initialStatusFilter}
         initialItems={items as any}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
@@ -698,6 +703,7 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+
 
 
 
