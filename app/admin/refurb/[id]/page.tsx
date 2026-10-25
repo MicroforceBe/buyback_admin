@@ -1,3 +1,7 @@
+import ui from '../rma/rma.module.css';
+import styles from '../reception.module.css';
+import { receptionRmaDays } from '@/lib/receptionTerms';
+import { updateReceptionMetadata } from '../receptionMetadataActions';
 import { loadReceptionRmaLinks } from '../rma/receptionData';
 import { permits } from '@/lib/security/policy';
 import { requirePageAccess } from '@/lib/security/access';
@@ -31,6 +35,8 @@ type RefurbReception = {
   internal_invoice_nr: string | null;
   supplier: SupplierInfo | null;
   rma_expiry_date: string | null;
+  rma_expiry_days: number | null;
+  updated_at: string;
 };
 
 type RefurbItemRow = {
@@ -73,6 +79,8 @@ async function getReception(id: string): Promise<RefurbReception | null> {
       supplier_invoice_nr,
       internal_invoice_nr,
       rma_expiry_date,
+      rma_expiry_days,
+      updated_at,
       supplier:supplier_id (
         id,
         name,
@@ -117,6 +125,8 @@ async function getReception(id: string): Promise<RefurbReception | null> {
     internal_invoice_nr:
       raw.internal_invoice_nr !== undefined && raw.internal_invoice_nr !== null ? String(raw.internal_invoice_nr) : null,
     supplier,
+    rma_expiry_days: raw.rma_expiry_days??null,
+    updated_at:String(raw.updated_at),
     rma_expiry_date:
       raw.rma_expiry_date !== undefined && raw.rma_expiry_date !== null ? String(raw.rma_expiry_date) : null,
   };
@@ -281,7 +291,7 @@ export default async function RefurbReceptionDetailPage({
   searchParams: incomingSearchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ status?: string | string[] }>;
+  searchParams?: Promise<{ status?: string | string[]; meta?:string }>;
 }) {
   await requirePageAccess('refurb', false);
   const params = await incomingParams;
@@ -487,67 +497,18 @@ export default async function RefurbReceptionDetailPage({
   const canDelete = permits(user, "refurb", "write", true);
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Refurb reception {reception.reception_number}</h1>
-          <p className="text-xs text-slate-500">
-            Leverancier: <span className="font-medium">{supplierName}</span>
-            {supplierVat && <span className="ml-2 text-[11px] text-slate-500">(BTW: {supplierVat})</span>}
-          </p>
-          {supplierEmail && (
-            <p className="text-[11px] text-slate-500">
-              Contact:{" "}
-              <a href={`mailto:${supplierEmail}`} className="underline">
-                {supplierEmail}
-              </a>
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-3 text-xs bg-slate-50 border rounded-md p-3 md:grid-cols-3">
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">Receptie nr</div>
-          <div className="mt-0.5">{reception.reception_number}</div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">Datum</div>
-          <div className="mt-0.5">{reception.reception_date}</div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">Leverancier</div>
-          <div className="mt-0.5">
-            {supplierName}
-            {supplierVat && <span className="block text-[10px] text-slate-500">BTW: {supplierVat}</span>}
-            {supplierEmail && <span className="block text-[10px] text-slate-500">{supplierEmail}</span>}
-          </div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">BTW regeling</div>
-          <div className="mt-0.5">{vatLabel}</div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">Supplier invoice nr</div>
-          <div className="mt-0.5">{reception.supplier_invoice_nr}</div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">Intern factuurnr</div>
-          <div className="mt-0.5">{reception.internal_invoice_nr || <span className="text-slate-400">—</span>}</div>
-        </div>
-
-        <div>
-          <div className="text-[11px] font-medium text-slate-500 uppercase">RMA vervaldatum</div>
-          <div className="mt-0.5">
-            {reception.rma_expiry_date ? reception.rma_expiry_date : <span className="text-slate-400">—</span>}
-          </div>
-        </div>
-      </div>
+    <div className={`${ui.workspace} ${styles.reception}`}>
+      <header className="rma-hero"><div><div className="rma-kicker">Refurb / receptiedossier</div><h1>Receptie {reception.reception_number}</h1><p>{supplierName}</p><div className="rma-hero-meta"><span className="rma-badge">{vatLabel}</span><span className="text-xs">{reception.reception_date}</span></div></div><a href="/admin/refurb" className="bb-btn">← Alle recepties</a></header>
+      {query?.meta&&<p role={query.meta==='saved'?'status':'alert'}>{query.meta==='saved'?'Receptiegegevens opgeslagen.':query.meta==='conflict'?'Deze receptie is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.':'Niet opgeslagen. Controleer het factuurnummer en het gehele aantal RMA-dagen (0–36500).'}</p>}
+      <div className="rma-stats">{[{name:'Artikelen',value:String(totalItems),note:'Toestellen in deze receptie'},{name:'Aankoopwaarde',value:moneyEUR(totalValueAllCents),note:'Totale waarde van de artikelen'},{name:'RMA-termijn',value:receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)+' dagen',note:'Vastgelegd voor deze receptie'},{name:'RMA vervaldatum',value:reception.rma_expiry_date||'Nog niet ingesteld',note:'Vanaf de receptiedatum'}].map(row=><div key={row.name} className="rma-stat"><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div>
+      <section className="rma-section"><h2>Receptiegegevens</h2><p>Facturatie en RMA-afspraken van deze levering.</p><dl className="reception-key-values">
+        <div><dt>Receptie nr</dt><dd>{reception.reception_number}</dd></div><div><dt>Receptiedatum</dt><dd>{reception.reception_date}</dd></div><div><dt>Leverancier</dt><dd>{supplierName}{supplierVat&&<small className="block">{supplierVat}</small>}{supplierEmail&&<a className="block text-xs" href={'mailto:'+supplierEmail}>{supplierEmail}</a>}</dd></div><div><dt>BTW regeling</dt><dd>{vatLabel}</dd></div><div><dt>Factuurnummer leverancier</dt><dd>{reception.supplier_invoice_nr}</dd></div>
+      </dl><form action={updateReceptionMetadata} className="reception-meta-form"><input type="hidden" name="reception_id" value={reception.id}/><input type="hidden" name="updated_at" value={reception.updated_at}/>
+        <label>Intern factuurnr<input name="internal_invoice_nr" defaultValue={reception.internal_invoice_nr||''} maxLength={250} disabled={!permits(user,'refurb','write')} className="bb-input" placeholder="Intern factuurnummer"/></label>
+        <label>RMA Expire Date (dagen)<input name="rma_expiry_days" type="number" min={0} max={36500} step={1} required defaultValue={receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} disabled={!permits(user,'refurb','write')} className="bb-input"/></label>
+        <div><span className="block text-xs text-slate-500">Huidige vervaldatum</span><strong>{reception.rma_expiry_date||'Wordt berekend na opslaan'}</strong></div>
+        <div className="reception-meta-footer"><p>De termijn telt vanaf de receptiedatum. Wijzigingen aan de leverancier veranderen bestaande recepties niet.</p>{permits(user,'refurb','write')&&<button className="bb-btn bb-btn-primary">Receptiegegevens opslaan</button>}</div>
+      </form></section>
 
       {/* ✅ ENKEL 1 statusblok: uitklapbaar (standaard dicht) met donut + legenda + waardes + modellen */}
 <details className="border rounded-md bg-white text-xs group">
