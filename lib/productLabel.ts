@@ -56,7 +56,7 @@ export function titleGrade(title: string | null) {
 export function renderProductLabel(data: ProductLabel) {
   const sku=data.sku.trim(),serial=data.serial?.trim() ?? '';
   if(!sku)throw new Error('Een SKU is nodig om het label te printen.');
-  const grade=data.grade?.trim() || titleGrade(data.title) || '—';
+  const grade=(data.grade?.trim() || titleGrade(data.title) || '—').replace(/^GRADE\s+/i,'');
   const battery=data.battery?.trim() ?? '';
   if(battery && (!/^\d{1,3}$/.test(battery) || Number(battery)>100))throw new Error('Batterij moet een geheel percentage van 0 tot 100 zijn.');
   const vat=data.vatMargin===true?'Margin VAT':data.vatMargin===false?'Normal VAT':'BTW-regeling onbekend';

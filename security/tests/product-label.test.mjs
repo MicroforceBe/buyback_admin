@@ -20,7 +20,7 @@ test('real CODE128 encodings fit 99012 with at least two dots per module and ten
 test('one shared label preserves full source description and safely escapes product data',async()=>{
  const {namespace:m}=await helper();const title='Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB Grade A <script>alert(1)</script>';
  const html=m.renderProductLabel({sku:'211000040644',title,serial:'SERIAL-123',vatMargin:true,battery:'0'});
- assert.ok(html.includes('Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('0%'));assert.ok(html.includes('GRADE A'));assert.equal((html.match(/<svg /g)||[]).length,2);assert.ok(html.includes('Margin VAT'));
+ assert.ok(html.includes('Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('0%'));assert.ok(html.includes('label-side-value\">A</div>'));assert.equal((html.match(/<svg /g)||[]).length,2);assert.ok(html.includes('Margin VAT'));
  assert.throws(()=>m.renderProductLabel({sku:'123',title:'Test',battery:'101',vatMargin:null}),/Batterij/);
  assert.ok(m.renderProductLabel({sku:'123',title:'Test',vatMargin:null}).includes('BTW-regeling onbekend'));
 });
