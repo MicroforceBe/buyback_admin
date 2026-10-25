@@ -1,121 +1,28 @@
-import { requirePageAccess } from '@/lib/security/access';
-// app/admin/diagnostics/[id]/certificate.tsx
-
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-
-export default async function DiagnosticCertificatePage({
-  params: incomingParams,
-}: {
-  params: Promise<{
-    id: string;
-  }>;
-}) {
-  await requirePageAccess('refurb', false);
-  const params = await incomingParams;
-
-  const session = await prisma.diagnosticSession.findUnique({
-    where: {
-      id: params.id,
-    },
-    include: {
-      deviceUnit: true,
-      tests: {
-        orderBy: {
-          createdAt: "desc",
-        },
-      },
-    },
-  });
-
-  if (!session) {
-    notFound();
-  }
-
-  const latestByKey = new Map<string, string>();
-
-  for (const test of session.tests) {
-    if (!latestByKey.has(test.testKey)) {
-      latestByKey.set(test.testKey, test.status);
-    }
-  }
-
-  return (
-    <div className="p-6 max-w-3xl">
-      <Link
-        href={`/admin/diagnostics/${session.id}`}
-        className="text-sm underline"
-      >
-        Terug naar sessie
-      </Link>
-
-      <div className="mt-6 rounded border p-6 bg-white">
-        <h1 className="text-2xl font-bold">
-          Diagnostic Certificate
-        </h1>
-
-        <div className="mt-4 text-sm text-gray-500">
-          Certificaat-ID: {session.id}
-        </div>
-
-        <div className="mt-6 border-t pt-4">
-          <h2 className="font-semibold mb-2">Toestel</h2>
-
-          <p>
-            {session.deviceUnit.brand}{" "}
-            {session.deviceUnit.model || ""}
-          </p>
-          <p>IMEI: {session.deviceUnit.imei || "—"}</p>
-          <p>
-            Serienummer:{" "}
-            {session.deviceUnit.serialNumber || "—"}
-          </p>
-          <p>Opslag: {session.deviceUnit.storage || "—"}</p>
-          <p>Kleur: {session.deviceUnit.color || "—"}</p>
-          <p>
-            Batterij:{" "}
-            {session.deviceUnit.batteryHealth ?? "—"}%
-          </p>
-        </div>
-
-        <div className="mt-6 border-t pt-4">
-          <h2 className="font-semibold mb-2">Resultaat</h2>
-
-          <p>Score: {session.finalScore ?? "—"}</p>
-          <p>Grade: {session.finalGrade || "—"}</p>
-          <p>Status: {session.status}</p>
-        </div>
-
-        <div className="mt-6 border-t pt-4">
-          <h2 className="font-semibold mb-2">
-            Testresultaten
-          </h2>
-
-          <div className="space-y-2">
-            {Array.from(latestByKey.entries()).map(
-              ([key, status]) => (
-                <div
-                  key={key}
-                  className="flex justify-between border-b py-1 text-sm"
-                >
-                  <span>{key}</span>
-                  <span className="font-medium">
-                    {status.toUpperCase()}
-                  </span>
-                </div>
-              )
-            )}
-          </div>
-        </div>
-      </div>
-
-      <p className="mt-4 text-sm text-gray-500">
-        Gebruik voorlopig de browserfunctie om dit certificaat te
-        printen of op te slaan als PDF.
-      </p>
-    </div>
-  );
+import {requirePageAccess} from '@/lib/security/access';
+import Link from 'next/link';
+import {notFound} from 'next/navigation';
+import {prisma} from '@/lib/prisma';
+import {diagnosticReport,WEB_TESTS,RESULT_LABELS,type DiagnosticStatus} from '@/lib/diagnostics';
+export const dynamic='force-dynamic';
+export default async function DiagnosticCertificatePage({params:incomingParams}:{params:Promise<{id:string}>}){
+ await requirePageAccess('refurb',false);
+ const {id}=await incomingParams;
+ const session=await prisma.diagnosticSession.findUnique({where:{id},include:{deviceUnit:true,tests:{orderBy:[{createdAt:'desc'},{id:'desc'}]},appTests:{orderBy:[{createdAt:'desc'},{id:'desc'}]}}});
+ if(!session)notFound();
+ const report=diagnosticReport(session.tests,session.deviceUnit.batteryHealth,session.appTests);
+ const final=session.status==='completed'&&report.canFinalize&&session.finalScore===report.score&&session.finalGrade===report.grade&&session.deviceUnit.securityGrade!=='FAIL';
+ return <div className="p-6 max-w-5xl">
+  <Link href={'/admin/diagnostics/'+id} className="underline">Terug naar sessie</Link>
+  <div className="mt-6 rounded-xl border bg-white p-6">
+   <h1 className="text-2xl font-bold">{final?'Diagnoseverslag — afgeronde controle':'Voorlopig testverslag — onvolledig of nog niet afgerond'}</h1>
+   <p className="mt-3 text-sm">Sessie {id}. Protocol webcontrole v1. Dit verslag bevat begeleide beoordelingen door een medewerker en beperkte browsermetingen; geen onafhankelijke hardwarecertificering.</p>
+   {!final?<p className="mt-4 rounded border border-amber-300 bg-amber-50 p-3">Er wordt geen definitieve score of grade getoond zolang de vereiste controles, batterijconditie en finale beoordeling niet volledig en actueel zijn.</p>:<p className="mt-4 rounded border p-3">{report.hasFailure?'Afgekeurde controles aanwezig. Dit is geen geslaagdverklaring.':report.hasWarning?'Controle afgerond met aandachtspunten.':'Vereiste controles beoordeeld.'} Score: {report.score}. Grade: {report.grade}.</p>}
+   <h2 className="mt-6 font-semibold">Toestel</h2>
+   <p>{session.deviceUnit.brand} {session.deviceUnit.model}</p><p>IMEI: {session.deviceUnit.imei||'—'} · SN: {session.deviceUnit.serialNumber||'—'}</p><p>Opslag: {session.deviceUnit.storage||'—'} · Batterijconditie: {session.deviceUnit.batteryHealth==null?'onbekend':session.deviceUnit.batteryHealth+'%'}</p>
+   <h2 className="mt-6 font-semibold">Bewaarde webcontroles</h2>
+   <p className="text-sm">{WEB_TESTS.length-report.incomplete.length} van {WEB_TESTS.length} beoordeeld. N.v.t. wordt afzonderlijk vermeld en telt niet als geslaagde test.</p>
+   <div className="overflow-x-auto"><table className="mt-3 w-full text-left text-sm"><thead><tr><th className="p-2">Controle</th><th className="p-2">Uitslag</th><th className="p-2">Toelichting en waarneming</th></tr></thead><tbody>{WEB_TESTS.map(t=>{const r=report.results[t.key];return <tr className="border-t" key={t.key}><td className="p-2">{t.label}</td><td className="p-2">{RESULT_LABELS[r?.status||'pending']}</td><td className="p-2">{r?.notes||'—'}<div className="text-xs text-gray-500">{r?.observation}</div>{r?<div className="text-xs text-gray-500">Medewerkerbeoordeling · {new Date(r.createdAt!).toLocaleString('nl-BE',{timeZone:'Europe/Brussels'})}</div>:null}</td></tr>;})}</tbody></table></div>
+   {report.extras.length?<><h2 className="mt-6 font-semibold">Aanvullende handmatige / appresultaten</h2><p className="text-sm">Deze vervangen de verplichte webcontrole niet. Afkeuringen en aandachtspunten tellen mee in de eindbeoordeling.</p>{report.extras.map(r=><p className="border-t py-2 text-sm" key={r.testKey}>{r.testKey}: {RESULT_LABELS[r.status as DiagnosticStatus]||'Onbekende uitslag'} {r.notes||''}</p>)}</>:null}
+  </div>
+ </div>;
 }
-
-

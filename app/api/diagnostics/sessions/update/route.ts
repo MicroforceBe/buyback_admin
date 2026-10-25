@@ -12,6 +12,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    if (body.status && !["started", "in_progress"].includes(body.status)) return NextResponse.json({ok:false,error:"Afronden kan alleen na volledige beoordeling op de sessiepagina."},{status:400});
+
     const sessionId =
       body.sessionId;
 
@@ -116,4 +118,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
 

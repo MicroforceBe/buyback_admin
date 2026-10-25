@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const status = toStringOrNull(body.status);
     const notes = toStringOrNull(body.notes);
 
-    if (!sessionId || !testKey || !status) {
+    if (!sessionId || sessionId.length > 100 || !testKey || testKey.length > 100 || testKey.startsWith("web:") || !status || !["pending", "pass", "warning", "fail", "unsupported", "na"].includes(status) || (notes && notes.length > 2000)) {
       return NextResponse.json(
         {
           ok: false,
@@ -54,7 +54,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await prisma.diagnosticAppTestResult.create({
+    const result = await prisma.$transaction(async tx => {
+    const created = await tx.diagnosticAppTestResult.create({
       data: {
         sessionId,
         testKey,
@@ -63,6 +64,10 @@ export async function POST(request: Request) {
         value: body.value || null,
       },
     });
+
+    await tx.diagnosticSession.update({where:{id:sessionId},data:{status:"in_progress",finalScore:null,finalGrade:null}});
+    return created;
+    },{isolationLevel:"Serializable"});
 
     return NextResponse.json({
       ok: true,
@@ -82,4 +87,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
 

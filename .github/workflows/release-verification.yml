@@ -1,8 +1,12 @@
 name: Production release verification
 on:
   push:
-    branches: [release/security-20261024, main]
+    branches: [release/security-20261024, main, security-test]
     paths:
+      - lib/diagnostics.ts
+      - app/admin/diagnostics/**
+      - app/api/diagnostics/**
+      - security/tests/diagnostics.test.mjs
       - lib/verifyLeadPrice.ts
       - app/api/buyback/lead/route.ts
       - security/tests/lead-price.test.mjs
@@ -99,6 +103,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/reception-terms.test.mjs
       - name: Verify saved reception labels and access without printers
         run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/product-label.test.mjs
+      - name: Verify guided diagnostics storage, completion and UI without devices or live data
+        run: node --experimental-vm-modules --test security/tests/diagnostics.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
@@ -123,5 +129,6 @@ jobs:
             dependency-review.json
           retention-days: 7
           if-no-files-found: error
+
 
 
