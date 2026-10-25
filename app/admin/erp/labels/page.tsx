@@ -4,6 +4,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import PrintButton from "./PrintButton";
 import Barcode from "./Barcode";
+import { getRefurbLabelSource } from "./refurbSource";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -80,19 +81,23 @@ export default async function ErpLabelsPage({
   searchParams: incomingSearchParams,
 }: {
   searchParams?: Promise<{
+    item?: string;
     sku?: string;
     imei?: string;
     battery?: string;
     grade?: string;
   }>;
 }) {
-  await requirePageAccess('erp', false);
   const searchParams = await incomingSearchParams;
+  const fromRefurb = searchParams?.item !== undefined;
+  const source = fromRefurb ? await getRefurbLabelSource(String(searchParams?.item ?? '')) : null;
+  if (!fromRefurb) await requirePageAccess('erp', false);
+  const sourceError = source && 'error' in source ? source.error : null;
 
-  const sku = String(searchParams?.sku || "").trim();
-  const imei = String(searchParams?.imei || "").trim();
-  const battery = String(searchParams?.battery || "").trim();
-  const manualGrade = String(searchParams?.grade || "").trim();
+  const sku = fromRefurb ? (source?.sku ?? "") : String(searchParams?.sku || "").trim();
+  const imei = fromRefurb ? (source?.imei ?? "") : String(searchParams?.imei || "").trim();
+  const battery = fromRefurb ? "" : String(searchParams?.battery || "").trim();
+  const manualGrade = fromRefurb ? "" : String(searchParams?.grade || "").trim();
 
   const article = await getArticleBySku(sku);
   const parsed = parseArticleTitle(article?.title || null);
@@ -122,7 +127,7 @@ export default async function ErpLabelsPage({
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr] print:block">
         <div className="rounded-2xl border bg-white p-6 shadow-sm print:hidden">
-          <form className="space-y-4">
+          {fromRefurb ? <div className="space-y-3 text-sm"><h2 className="font-semibold">Label van receptieartikel</h2>{sourceError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-800">{sourceError}</p> : <><p>SKU en IMEI / serienummer zijn overgenomen uit het opgeslagen artikel. Graad komt uit de ERP-omschrijving indien beschikbaar.</p><p>Controleer de labelpreview vóór het printen.</p>{source?.item && <a className="text-sky-700 underline" href={`/admin/refurb/${source.item.reception_id}#reception-items`}>Terug naar receptie</a>}</>}</div> : <form className="space-y-4">
             <div>
               <label className="text-xs font-semibold uppercase text-slate-500">
                 SKU
@@ -190,7 +195,7 @@ export default async function ErpLabelsPage({
             >
               Label tonen
             </button>
-          </form>
+          </form>}
 
           {sku && !article && (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -520,5 +525,7 @@ export default async function ErpLabelsPage({
     </div>
   );
 }
+
+
 
 
