@@ -91,7 +91,7 @@ test('real web page retains saved verdict after reload and preserves draft after
  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{if(spec==='@/lib/diagnostics')return lib;const exports=modules[spec];if(!exports)throw Error(spec);return new vm.SyntheticModule(Object.keys(exports),function(){for(const [k,v]of Object.entries(exports))this.setExport(k,v);},{context});});await m.evaluate();
  const all=(node,predicate)=>{const found=[];const walk=n=>{if(Array.isArray(n)){n.forEach(walk);return;}if(!n||typeof n!=='object')return;if(predicate(n))found.push(n);walk(n.props?.children);};walk(node);return found;};
  const render=()=>{cursor=0;const tree=m.namespace.default();const work=effects.splice(0);for(const fn of work)fn();return tree;};
- const tick=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
+ const tick=async()=>{await new Promise(resolve=>setImmediate(resolve));};
  render();await tick();let tree=render();assert.equal(all(tree,n=>n.type==='tr').length,27);
  all(tree,n=>n.type==='select')[0].props.onChange({target:{value:'15'}});tree=render();
  for(const checkbox of all(tree,n=>n.type==='input'&&n.props.type==='checkbox'))checkbox.props.onChange({target:{checked:true}});
@@ -100,4 +100,21 @@ test('real web page retains saved verdict after reload and preserves draft after
  // Reload component state from the mocked server, as a fresh page does.
  states=[];render();await tick();tree=render();assert.ok(JSON.stringify(tree).includes('Geslaagd'));
  all(tree,n=>n.type==='select')[0].props.onChange({target:{value:'15'}});tree=render();all(tree,n=>n.type==='textarea')[0].props.onChange({target:{value:'Draft must survive'}});tree=render();fail=true;await save();await tick();tree=render();assert.equal(all(tree,n=>n.type==='textarea')[0].props.value,'Draft must survive');assert.ok(all(tree,n=>n.props?.role==='alert').length);
+});
+
+test('actual motion exercise never accepts gravity alone and releases listeners',{skip:!ts},async()=>{
+ let state=[],cursor=0,effects=[],timer,observations=[];const listeners=new Map(),cleanups=[];
+ const hooks={useState(initial){const i=cursor++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return[state[i],v=>{state[i]=typeof v==='function'?v(state[i]):v;}];},useRef(initial){const i=cursor++;if(!(i in state))state[i]={current:initial};return state[i];},useEffect(fn,deps){const i=cursor++;if(!state[i]||deps.some((d,j)=>d!==state[i].deps[j])){state[i]={deps};effects.push(fn);}}};
+ const window={addEventListener:(n,fn)=>listeners.set(n,fn),removeEventListener:n=>listeners.delete(n),setTimeout:fn=>{timer=fn;return 1;},clearTimeout(){}};
+ const context=vm.createContext({console,window,DeviceMotionEvent:class{},Array,Set,Number,Math,URL});
+ const modules={'react':hooks,'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'fragment'},'./diagnostics.module.css':{default:new Proxy({},{get:(_,key)=>key})}};
+ const code=ts.transpileModule(source('app/admin/diagnostics/[id]/web-tests/TestExercise.tsx'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{const e=modules[spec];if(!e)throw Error(spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();
+ const spec=helper.WEB_TESTS.find(t=>t.key==='motion'),onObservation=(text,evidence)=>observations.push({text,evidence});
+ const render=()=>{cursor=0;const tree=m.namespace.default({spec,onObservation});for(const fn of effects.splice(0)){const stop=fn();if(stop)cleanups.push(stop);}return tree;};
+ const findButton=node=>{if(Array.isArray(node)){for(const n of node){const f=findButton(n);if(f)return f;}}else if(node&&typeof node==='object'){if(node.type==='button')return node;return findButton(node.props?.children);}};
+ let tree=render();findButton(tree).props.onClick();await new Promise(resolve=>setImmediate(resolve));
+ listeners.get('devicemotion')({accelerationIncludingGravity:{x:0,y:0,z:9.81},acceleration:{x:0,y:0,z:0},rotationRate:{alpha:0,beta:0,gamma:0}});timer();assert.equal(observations.at(-1).evidence.acceleration,false);assert.equal(observations.at(-1).evidence.rotation,false);
+ tree=render();findButton(tree).props.onClick();await new Promise(resolve=>setImmediate(resolve));listeners.get('devicemotion')({acceleration:{x:2,y:0,z:0},rotationRate:{alpha:20,beta:0,gamma:0}});timer();assert.equal(observations.at(-1).evidence.acceleration,true);assert.equal(observations.at(-1).evidence.rotation,true);
+ for(const cleanup of cleanups)cleanup();assert.equal(listeners.size,0);
 });

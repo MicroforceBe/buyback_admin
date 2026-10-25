@@ -14,7 +14,9 @@ export async function GET(request: Request) {
   try {
     const session = await prisma.diagnosticSession.findUnique({where:{id:sessionId},include:{deviceUnit:true,tests:{where:{testKey:{startsWith:WEB_PREFIX}},orderBy:[{createdAt:'desc'},{id:'desc'}]}}});
     if (!session) return NextResponse.json({error:'Sessie niet gevonden.'},{status:404});
-    return NextResponse.json({ok:true,model:session.deviceUnit.model,results:webResults(session.tests)}, {headers:noStore});
+    const revisions:Record<string,string>={};
+    for(const row of session.tests) if(!revisions[row.testKey.slice(WEB_PREFIX.length)])revisions[row.testKey.slice(WEB_PREFIX.length)]=row.id;
+    return NextResponse.json({ok:true,model:session.deviceUnit.model,results:webResults(session.tests),revisions}, {headers:noStore});
   } catch {
     return NextResponse.json({error:'Resultaten konden niet worden geladen. Probeer opnieuw.'},{status:503,headers:noStore});
   }

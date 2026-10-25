@@ -8,6 +8,7 @@ import styles from './diagnostics.module.css';
 export default function WebDiagnosticsPage(){
  const {id}=useParams<{id:string}>();
  const [results,setResults]=useState<Record<string,WebResult>>({});
+ const [revisions,setRevisions]=useState<Record<string,string>>({});
  const [drafts,setDrafts]=useState<Record<string,WebResult>>({});
  const [index,setIndex]=useState(-1),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false);
  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[model,setModel]=useState('');
@@ -23,7 +24,7 @@ export default function WebDiagnosticsPage(){
     const response=await fetch('/api/diagnostics/web-results?sessionId='+encodeURIComponent(id),{cache:'no-store',signal:controller.signal});
     const data=await response.json();
     if(!response.ok||!data.ok)throw new Error(data.error||'Laden mislukt.');
-    setResults(data.results);setModel(data.model||'Toestel');
+    setResults(data.results);setRevisions(data.revisions||{});setModel(data.model||'Toestel');
    }catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:'Laden mislukt.');}
    finally{if(!controller.signal.aborted)setLoading(false);}
   }
@@ -49,11 +50,12 @@ export default function WebDiagnosticsPage(){
   const result=skip?{...current,status:'pending' as const,checks:spec.checks.map(()=>false)}:current;
   try{
    validateWebResult(spec,result);
-   const response=await fetch('/api/diagnostics/web-results',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:id,testKey:key,expectedId:results[key]?.id||null,result})});
+   const response=await fetch('/api/diagnostics/web-results',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:id,testKey:key,expectedId:revisions[key]||results[key]?.id||null,result})});
    const data=await response.json();
    if(!response.ok||!data.ok)throw new Error(data.error||'Bewaren mislukt.');
    if(operation!==requestId.current)return;
    setResults(p=>({...p,[key]:data.result}));
+   setRevisions(p=>({...p,[key]:data.result.id}));
    setDrafts(p=>{const copy={...p};delete copy[key];return copy;});
    setNotice(skip?'Overgeslagen en bewaard als niet getest.':'Beoordeling opgeslagen op de server.');
    if(next)setIndex(i=>i+1<WEB_TESTS.length?i+1:-1);
