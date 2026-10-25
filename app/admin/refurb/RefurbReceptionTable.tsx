@@ -1,9 +1,11 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
+import type { ReceptionRmaCase, ReceptionRmaLink } from './rma/receptionData';
+
 
 import { createReceptionSupplierRma, registerLateReceptionRma } from "./rma/actions";
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { isSupplierRmaItem, compensationOnRmaEntry, isRefundedRmaItem } from "@/lib/supplierRma";
+import { isSupplierRmaItem, compensationOnRmaEntry, isRefundedRmaItem, supplierRmaStages } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import { useRouter } from "next/navigation";
 import {
@@ -23,6 +25,9 @@ type StatusTransitionsMap = Record<string, string[]>;
 
 type Props = {
   receptionId: string;
+  rmaCaseLinks?: ReceptionRmaLink[];
+  rmaCases?: ReceptionRmaCase[];
+  rmaLinksUnavailable?: boolean;
   initialStatusFilter?: string;
   initialItems: RefurbItem[];
   statusOptions: RefurbStatusOption[];
@@ -472,6 +477,9 @@ function SkuAutocompleteCell({
 
 export default function RefurbReceptionTable({
   receptionId,
+  rmaCaseLinks = [],
+  rmaCases = [],
+  rmaLinksUnavailable = false,
   initialStatusFilter,
   initialItems,
   statusOptions,
@@ -560,7 +568,15 @@ export default function RefurbReceptionTable({
 
   const hasItems = items.length > 0;
 
-  const rmaItems = useMemo(() => items.filter(item => isSupplierRmaItem(item, statusOptions)), [items, statusOptions]);
+  const allRmaItems = useMemo(() => items.filter(item => isSupplierRmaItem(item, statusOptions)), [items, statusOptions]);
+  const linkedRmaIds=new Set(rmaCaseLinks.map(link=>link.reception_item_id));
+  const activeRmaIds=new Set(rmaCaseLinks.filter(link=>link.active).map(link=>link.reception_item_id));
+  const rmaItems=allRmaItems.filter(item=>!linkedRmaIds.has(item.id)&&!isRefundedRmaItem(item,statusOptions));
+  const linkedRmaGroups=Array.from(new Map(rmaCaseLinks.map(link=>[link.case_id,link.dossier])).values()).map(dossier=>({...dossier,items:items.filter(item=>rmaCaseLinks.some(link=>link.case_id===dossier.id&&link.reception_item_id===item.id))}));
+  const openRmaCases=rmaCases.filter(dossier=>!['handled','refunded','closed','rejected','cancelled'].includes(dossier.stage));
+  const unlinkedRefunded=allRmaItems.filter(item=>!linkedRmaIds.has(item.id)&&isRefundedRmaItem(item,statusOptions));
+  const assignmentFormId='rma-assign-'+receptionId;
+
 
 const totalRmaCompensationCents = useMemo(() => {
   return rmaItems.reduce((total, item) => {
@@ -1934,15 +1950,16 @@ async function copyCompleteRmaOverview() {
                 </div>
               </div>
 
-              {canWrite && canUseAdminStatuses && <form action={createReceptionSupplierRma}>
+              {canWrite && canUseAdminStatuses && !rmaLinksUnavailable && <form id={assignmentFormId} action={createReceptionSupplierRma} className="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="reception_id" value={receptionId}/>
-                <label className="mr-3 text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
-                <button disabled={!rmaItems.some(item=>!isRefundedRmaItem(item,statusOptions))} className="bb-btn bb-btn-primary text-xs">RMA Supplier aanmaken / openen</button>
+                <label className="flex flex-col gap-1">Geselecteerde nieuwe artikelen toevoegen aan<select name="target_case" defaultValue="new" className="bb-select bb-select-sm max-w-md"><option value="new">Nieuw dossier — aparte zending / RMA-nummer</option>{openRmaCases.map(dossier=><option key={dossier.id} value={dossier.id}>{dossier.code} · {supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage}{dossier.supplier_reference?' · '+dossier.supplier_reference:''}</option>)}</select></label>
+                <label className="text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
+                <button disabled={!rmaItems.length} className="bb-btn bb-btn-primary text-xs">Geselecteerde artikelen toevoegen</button>
               </form>}
               <button
                 type="button"
                 className="inline-flex h-8 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!rmaItems.length}
+                disabled={!rmaItems.length||rmaLinksUnavailable}
                 onClick={copyCompleteRmaOverview}
                 title="Kopieer volledig RMA-overzicht als HTML"
               >
@@ -1958,25 +1975,28 @@ async function copyCompleteRmaOverview() {
               </button>
             </div>
 
-            {canWrite && canUseAdminStatuses && <details className="rounded-md border bg-white p-3">
+            <p className="text-xs text-slate-600">{rmaItems.length} nieuwe RMA-artikelen nog toe te wijzen · {linkedRmaIds.size} artikelen reeds in leveranciersdossiers. Het kopieeroverzicht en totaal hieronder bevatten alleen nieuwe artikelen.</p>
+            {canWrite && canUseAdminStatuses && !rmaLinksUnavailable && <details className="rounded-md border bg-white p-3">
               <summary className="cursor-pointer font-medium">Nieuw RMA melden (ook na afwerking)</summary>
-              <p className="my-2 text-xs text-slate-500">Selecteer de betrokken artikelen. Ze worden gekoppeld aan het actieve dossier of aan een nieuw dossier als het vorige is afgesloten. Een boeking, toestelstatus of prijs wordt hierdoor niet gewijzigd.</p>
+              <p className="my-2 text-xs text-slate-500">Selecteer de betrokken artikelen en kies bewust een open dossier of een nieuw dossier voor een aparte zending. Een boeking, toestelstatus of prijs wordt hierdoor niet gewijzigd.</p>
               <form action={registerLateReceptionRma} className="space-y-3">
                 <input type="hidden" name="reception_id" value={receptionId}/>
-                <div className="max-h-64 space-y-2 overflow-auto">{items.filter(item=>!isRefundedRmaItem(item,statusOptions)).map(item=><label key={item.id} className="flex items-start gap-2"><input type="checkbox" name="item_ids" value={item.id}/><span>{item.imei_sn||item.manual_sn||'—'} · {item.description||'Artikel'} · {item.refurb_status}</span></label>)}</div>
+                <label className="block">Dossier<select name="target_case" defaultValue="new" className="bb-select bb-select-sm"><option value="new">Nieuw dossier — aparte zending / RMA-nummer</option>{openRmaCases.map(dossier=><option key={dossier.id} value={dossier.id}>{dossier.code} · {supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage}</option>)}</select></label>
+                <div className="max-h-64 space-y-2 overflow-auto">{items.filter(item=>!isRefundedRmaItem(item,statusOptions)&&!activeRmaIds.has(item.id)).map(item=><label key={item.id} className="flex items-start gap-2"><input type="checkbox" name="item_ids" value={item.id}/><span>{item.imei_sn||item.manual_sn||'—'} · {item.description||'Artikel'} · {item.refurb_status}</span></label>)}</div>
                 <label className="block text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
                 <button className="bb-btn bb-btn-primary text-xs">Geselecteerde artikelen als RMA melden</button>
               </form>
             </details>}
-            {rmaItems.length === 0 ? (
+            {rmaLinksUnavailable ? <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3">Dossierkoppelingen konden niet volledig geladen worden. Vernieuw de pagina voordat je artikelen toewijst.</p> : rmaItems.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
-                Er zijn nog geen geregistreerde RMA-artikelen in deze receptie.
+                Er zijn geen nieuwe RMA-artikelen om toe te wijzen. Reeds gekoppelde artikelen staan hieronder bij hun dossier.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-md border">
                 <table className="min-w-full border-collapse text-[11px]">
                   <thead className="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
                     <tr>
+                      <th className="border-b px-3 py-2">Selectie</th>
                       <th className="border-b px-3 py-2">
                         IMEI/SN
                       </th>
@@ -1996,7 +2016,7 @@ async function copyCompleteRmaOverview() {
                   </thead>
 
                   <tbody>
-                    {rmaItems.map((item) => {
+                    {rmaItems.map((item,index) => {
                       const imeiOrSn =
                         (item as any).imei_sn ||
                         (item as any).manual_sn ||
@@ -2007,6 +2027,7 @@ async function copyCompleteRmaOverview() {
                           key={item.id}
                           className="border-t hover:bg-red-50/30"
                         >
+                          <td className="px-3 py-2">{canWrite&&canUseAdminStatuses&&<input form={assignmentFormId} type="checkbox" name="item_ids" value={item.id} defaultChecked={index<200} aria-label={'Selecteer nieuw RMA-artikel '+(imeiOrSn||item.description||'artikel')}/>}</td>
                           <td className="whitespace-nowrap px-3 py-2 font-mono">
                             {imeiOrSn || "—"}
                           </td>
@@ -2035,7 +2056,7 @@ async function copyCompleteRmaOverview() {
                   <tfoot>
                     <tr className="border-t border-red-200 bg-red-50">
                       <td
-                        colSpan={3}
+                        colSpan={4}
                         className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-red-800"
                       >
                         Totale compensatie
@@ -2045,12 +2066,16 @@ async function copyCompleteRmaOverview() {
                         {money(
                           totalRmaCompensationCents
                         )}
+
+
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             )}
+            {!rmaLinksUnavailable&&linkedRmaGroups.length>0&&<section className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"><h3 className="font-semibold text-slate-800">Reeds toegevoegd aan RMA Supplier</h3>{linkedRmaGroups.map(dossier=><details key={dossier.id} className="rounded-md border bg-white p-3"><summary className="cursor-pointer"><a href={'/admin/refurb/rma/'+dossier.id} className="font-semibold text-sky-700 underline" onClick={event=>event.stopPropagation()}>{dossier.code}</a><span className="ml-2 text-slate-600">{supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage} · {dossier.items.length} artikelen{dossier.supplier_reference?' · RMA leverancier '+dossier.supplier_reference:''}</span></summary><ul className="mt-3 space-y-1">{dossier.items.map(item=><li key={item.id} className="flex flex-wrap gap-2 text-slate-600"><span className="font-mono">{item.imei_sn||item.manual_sn||'—'}</span><span>{item.description||'Artikel'}</span></li>)}</ul></details>)}</section>}
+            {unlinkedRefunded.length>0&&<p className="text-xs text-slate-500">{unlinkedRefunded.length} refunded artikelen zijn afgehandeld en worden niet aangeboden voor een nieuw dossier.</p>}
           </div>
         )}
       </div>

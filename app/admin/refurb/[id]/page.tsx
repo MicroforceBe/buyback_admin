@@ -1,3 +1,4 @@
+import { loadReceptionRmaLinks } from '../rma/receptionData';
 import { permits } from '@/lib/security/policy';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/refurb/[id]/page.tsx
@@ -314,6 +315,8 @@ export default async function RefurbReceptionDetailPage({
     ...it,
     refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || []),
   }));
+
+  const rmaDossiers=canUseAdminStatuses?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
 
   const locationList = locationOptions || [];
 
@@ -687,6 +690,9 @@ export default async function RefurbReceptionDetailPage({
 
 
       <RefurbReceptionTable
+        rmaCaseLinks={rmaDossiers.links}
+        rmaCases={rmaDossiers.cases}
+        rmaLinksUnavailable={rmaDossiers.failed}
         supplierInvoiceNr={reception.supplier_invoice_nr}
         receptionId={reception.id}
         initialStatusFilter={initialStatusFilter}
