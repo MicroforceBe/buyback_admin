@@ -9,10 +9,11 @@ import {
 } from "./actions";
 
 type Props = {
+  onSelect?: (supplier:RefurbSupplier|null)=>void;
   canCreate: boolean; // alleen admins true
 };
 
-export default function SupplierField({ canCreate }: Props) {
+export default function SupplierField({ canCreate, onSelect }: Props) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<RefurbSupplier | null>(null);
   const [results, setResults] = useState<RefurbSupplier[]>([]);
@@ -49,6 +50,7 @@ export default function SupplierField({ canCreate }: Props) {
 
   function handleSelectSupplier(s: RefurbSupplier) {
     setSelected(s);
+    onSelect?.(s);
     setQuery(s.name);
     setResults([]);
     setShowCreateForm(false);
@@ -57,6 +59,7 @@ export default function SupplierField({ canCreate }: Props) {
 
   function handleClearSelection() {
     setSelected(null);
+    onSelect?.(null);
     setQuery("");
     setResults([]);
     setError(null);
@@ -119,6 +122,7 @@ export default function SupplierField({ canCreate }: Props) {
             if (selected) {
               // als je in de naam begint te typen → selectie wissen
               setSelected(null);
+              onSelect?.(null);
             }
           }}
           className="bb-input h-9 text-sm px-2 pr-8 w-full"
@@ -187,8 +191,7 @@ export default function SupplierField({ canCreate }: Props) {
               Nieuwe leverancier…
             </button>
           ) : (
-            <form
-              onSubmit={handleCreateSupplier}
+            <div
               className="mt-1 p-2 border border-sky-200 rounded bg-sky-50 flex flex-col gap-1"
             >
               <div className="text-[11px] font-medium text-sky-900">
@@ -223,14 +226,15 @@ export default function SupplierField({ canCreate }: Props) {
                   Annuleren
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleCreateSupplier}
                   disabled={creating}
                   className="bb-btn bb-btn-primary h-7 px-3 text-[11px]"
                 >
                   {creating ? "Opslaan..." : "Opslaan"}
                 </button>
               </div>
-            </form>
+            </div>
           )}
         </div>
       )}
@@ -249,3 +253,4 @@ export default function SupplierField({ canCreate }: Props) {
     </div>
   );
 }
+

@@ -1,5 +1,6 @@
 // app/admin/refurb/actions.ts
 "use server";
+import { parseRmaDays, rmaExpiryDate } from '@/lib/receptionTerms';
 import { requireAccess } from '@/lib/security/access';
 
 
@@ -33,6 +34,7 @@ export type RefurbItem = {
 };
 
 export type RefurbSupplier = {
+  rma_expiry_days: number;
   id: string;
   name: string;
   vat_number: string | null;
@@ -192,7 +194,7 @@ async function resolveStatusValueAndId(input: string): Promise<{ value: string; 
   const byValue = await supabaseAdmin
     .from("refurb_status_options")
     .select("id, value")
-    .eq("value", raw)
+    .ilike("value", raw.replace(/[\\%_]/g, char => "\\" + char))
     .limit(1);
 
   if (byValue.error) {
@@ -862,7 +864,7 @@ export async function searchRefurbSuppliers(query: string): Promise<RefurbSuppli
 
   const { data, error } = await supabaseAdmin
     .from("refurb_suppliers")
-    .select("id, name, vat_number, contact_email")
+    .select("id, name, vat_number, contact_email, rma_expiry_days")
     .ilike("name", `%${q}%`)
     .order("name", { ascending: true })
     .limit(10);
@@ -880,6 +882,7 @@ export async function searchRefurbSuppliers(query: string): Promise<RefurbSuppli
  * Enkel voor admin users.
  */
 export async function createRefurbSupplier(input: {
+  rma_expiry_days?: number;
   name: string;
   vat_number?: string;
   contact_email?: string;
@@ -911,10 +914,11 @@ export async function createRefurbSupplier(input: {
       name,
       vat_number,
       contact_email,
+      rma_expiry_days: parseRmaDays(input.rma_expiry_days ?? 30),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .select("id, name, vat_number, contact_email")
+    .select("id, name, vat_number, contact_email, rma_expiry_days")
     .single();
 
   if (error) {
@@ -937,6 +941,7 @@ export async function createRefurbSupplierFromForm(formData: FormData) {
   const contact_email = (formData.get("contact_email") || "").toString().trim();
 
   await createRefurbSupplier({
+    rma_expiry_days: parseRmaDays(formData.get("rma_expiry_days") ?? 30),
     name,
     vat_number,
     contact_email,
@@ -969,7 +974,7 @@ export async function createRefurbReception(
   const vat_scheme_raw = (formData.get("vat_scheme") || "").toString().trim();
   const supplier_invoice_nr = (formData.get("supplier_invoice_nr") || "").toString().trim();
   const internal_invoice_nr = (formData.get("internal_invoice_nr") || "").toString().trim();
-  const rma_expiry_date = (formData.get("rma_expiry_date") || "").toString().trim();
+  const rma_days_input = (formData.get("rma_expiry_days") || "").toString().trim();
 
   const vat_scheme: VatScheme = vat_scheme_raw === "normal" ? "normal" : "margin";
 
@@ -1005,7 +1010,7 @@ export async function createRefurbReception(
   }
 
   let supplierName = "";
-  const supplierRes = await supabaseAdmin.from("refurb_suppliers").select("name").eq("id", supplier_id).limit(1).single();
+  const supplierRes = await supabaseAdmin.from("refurb_suppliers").select("name,rma_expiry_days").eq("id", supplier_id).limit(1).single();
 
   if (supplierRes.error) {
     console.warn("[REFURB] could not fetch supplier name", supplierRes.error);
@@ -1013,6 +1018,11 @@ export async function createRefurbReception(
     supplierName = supplierRes.data.name;
   }
 
+  if(supplierRes.error||!supplierRes.data)return {success:false,fieldErrors:{},formError:'Kies een bestaande leverancier.'};
+  let rma_expiry_days:number;let rma_expiry_date:string;
+  try {rma_expiry_days=parseRmaDays(rma_days_input!==''?rma_days_input:(supplierRes.data.rma_expiry_days??30));rma_expiry_date=rmaExpiryDate(reception_date,rma_expiry_days);}
+  catch(error){return {success:false,fieldErrors:{},formError:error instanceof Error?error.message:'Controleer de RMA-termijn en datum.'};}
+  if(internal_invoice_nr.length>250)return {success:false,fieldErrors:{},formError:'Intern factuurnummer mag maximaal 250 tekens bevatten.'};
   const { data, error } = await supabaseAdmin
     .from("refurb_receptions")
     .insert({
@@ -1023,7 +1033,8 @@ export async function createRefurbReception(
       vat_scheme,
       supplier_invoice_nr,
       internal_invoice_nr: internal_invoice_nr || null,
-      rma_expiry_date: rma_expiry_date || null,
+      rma_expiry_days,
+      rma_expiry_date,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -1092,3 +1103,16 @@ export async function deleteRefurbReception(receptionId: string): Promise<void> 
 }
 
 
+
+export async function tryUpdateRefurbItemCell(itemId: string, field: EditableField, value: string): Promise<{ error?: string }> {
+  await requireAccess('refurb', 'write', false);
+  try { await updateRefurbItemCell(itemId, field, value); return {}; }
+  catch (error) {
+    const message=error instanceof Error?error.message:'';
+    if (message.includes('RMA_COMPENSATION_REQUIRED')) return {error:'Vul eerst een compensatiebedrag in voordat dit artikel aan RMA Supplier wordt gekoppeld.'};
+    if (message.includes('RMA_REFUNDED')) return {error:'Een refunded artikel kan niet opnieuw als RMA worden gemeld.'};
+    if (message.includes('vergrendeld')) return {error:'Dit artikel is geboekt. Gebruik Nieuw RMA melden (ook na afwerking) in het RMA-overzicht.'};
+    if (message.startsWith('Status "') || message.includes('SKU is verplicht') || message.includes('rechten om deze status')) return {error:message};
+    return {error:'De wijziging is niet opgeslagen. Controleer de toegelaten statustransitie en probeer opnieuw.'};
+  }
+}

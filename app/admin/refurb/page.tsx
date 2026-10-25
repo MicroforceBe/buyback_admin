@@ -1,3 +1,7 @@
+import ui from './rma/rma.module.css';
+import styles from './reception.module.css';
+import { receptionRmaDays } from '@/lib/receptionTerms';
+import { updateReceptionMetadata } from './receptionMetadataActions';
 import { permits } from '@/lib/security/policy';
 import { deleteRefurbReception } from "./actions";
 import { requirePageAccess } from '@/lib/security/access';
@@ -21,6 +25,9 @@ type RefurbReception = {
   vat_scheme: "margin" | "normal";
   supplier_invoice_nr: string;
   internal_invoice_nr: string | null;
+  updated_at:string;
+  rma_expiry_days:number|null;
+  rma_expiry_date:string|null;
   total_items?: number;
   ready_to_book_count?: number;
   waiting_for_sku_count?: number;
@@ -211,7 +218,10 @@ async function getReceptions(): Promise<RefurbReception[]> {
       supplier,
       vat_scheme,
       supplier_invoice_nr,
-      internal_invoice_nr
+      internal_invoice_nr,
+      updated_at,
+      rma_expiry_days,
+      rma_expiry_date
       `
     )
     .order("reception_date", { ascending: false });
@@ -594,6 +604,7 @@ export default async function RefurbListPage({
     q?: string;
     msg?: string;
     show_completed?: string;
+    meta?:string;
   }>;
 }) {
   await requirePageAccess('refurb', false);
@@ -627,7 +638,8 @@ export default async function RefurbListPage({
   const toggleHref = "/admin/refurb" + (toggleParams.size ? "?" + toggleParams.toString() : "");
 
   return (
-    <div className="space-y-4">
+    <div className={`${ui.workspace} ${styles.reception}`}>
+      {searchParams?.meta&&<p role={searchParams.meta==='saved'?'status':'alert'}>{searchParams.meta==='saved'?'Intern factuurnummer opgeslagen.':searchParams.meta==='conflict'?'Deze receptie is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.':'Niet opgeslagen. Controleer het factuurnummer.'}</p>}
       {searchParams?.msg === "delete_reception_failed" && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           De receptie is niet verwijderd. Een receptie met geboekte toestellen mag
@@ -755,26 +767,8 @@ export default async function RefurbListPage({
         </div>
       </details>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">
-            Refurb
-          </h1>
-
-          <p className="text-sm text-slate-500">
-            Binnenkomende refurb toestellen
-            verwerken per receptie
-          </p>
-        </div>
-
-        {permits(user, "refurb", "write") && <Link
-          href="/admin/refurb/new"
-          className="bb-btn bb-btn-primary text-sm"
-        >
-          Nieuwe receptie
-        </Link>}
-      </div>
-
+      <header className="rma-hero"><div><div className="rma-kicker">Refurb / inkomende leveringen</div><h1>Recepties</h1><p>Verwerk toestellen, bewaak RMA-termijnen en volg leveranciers op.</p></div>{permits(user,'refurb','write')&&<Link href="/admin/refurb/new" className="bb-btn">+ Nieuwe receptie</Link>}</header>
+      <div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount,note:'Nog te verwerken leveringen'},{name:'Afgewerkte recepties',value:completedCount,note:showCompleted?'Zichtbaar in het overzicht':'Verborgen voor een rustig overzicht'},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0),note:'Binnen de getoonde recepties'},{name:'Leveranciers',value:new Set(visibleReceptions.map(row=>row.supplier)).size,note:'In de getoonde selectie'}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div>
       <div className="flex justify-end text-sm">
         <Link
           href={toggleHref}
@@ -788,7 +782,7 @@ export default async function RefurbListPage({
         </Link>
       </div>
 
-      <table className="w-full text-sm border-collapse">
+      <section className="rma-section"><h2>Leveringen</h2><div className="overflow-x-auto"><table className="w-full text-sm border-collapse">
         <thead>
           <tr className="bg-slate-50">
             <th className="px-2 py-1 text-left">
@@ -815,6 +809,7 @@ export default async function RefurbListPage({
               Intern factuur nr
             </th>
 
+            <th className="px-2 py-1 text-left">RMA-termijn</th>
             {isAdmin && (
               <th className="px-2 py-1 text-left">
                 Acties
@@ -861,6 +856,7 @@ export default async function RefurbListPage({
                     ))}
                   </div>
 
+                  <div className="reception-progress" aria-hidden="true"><span style={{width:(reception.finished_percent??0)+'%'}}/></div>
                   <div className="mt-1 text-[11px] text-slate-500">
                     <span className="font-medium text-slate-700">
                       {reception.finished_percent ?? 0}%
@@ -901,10 +897,10 @@ export default async function RefurbListPage({
                 </td>
 
                 <td className="px-2 py-1">
-                  {reception.internal_invoice_nr ||
-                    "—"}
+                  {permits(user,'refurb','write')?<form action={updateReceptionMetadata} className="reception-inline-meta"><input type="hidden" name="list" value="1"/><input type="hidden" name="show_completed" value={showCompleted?'1':'0'}/><input type="hidden" name="reception_id" value={reception.id}/><input type="hidden" name="updated_at" value={reception.updated_at}/><input name="internal_invoice_nr" aria-label={'Intern factuurnummer '+reception.reception_number} defaultValue={reception.internal_invoice_nr||''} maxLength={250}/><button className="bb-btn" aria-label={'Factuurnummer opslaan '+reception.reception_number}>Opslaan</button></form>:reception.internal_invoice_nr||'—'}
                 </td>
 
+                <td className="px-2 py-1"><strong>{receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} dagen</strong><span className="block text-xs text-slate-500">{reception.rma_expiry_date||'Nog geen vervaldatum'}</span></td>
                 {isAdmin && (
                   <td className="px-2 py-1">
                     <details className="inline-block">
@@ -960,7 +956,7 @@ export default async function RefurbListPage({
           {visibleReceptions.length === 0 && (
             <tr>
               <td
-                colSpan={isAdmin ? 7 : 6}
+                colSpan={isAdmin ? 8 : 7}
                 className="px-4 py-8 text-center text-sm text-slate-500"
               >
                 {!showCompleted && completedCount > 0
@@ -970,10 +966,11 @@ export default async function RefurbListPage({
             </tr>
           )}
         </tbody>
-      </table>
+      </table></div></section>
     </div>
   );
 }
+
 
 
 

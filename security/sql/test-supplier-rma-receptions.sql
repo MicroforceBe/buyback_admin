@@ -1,0 +1,38 @@
+BEGIN;
+SET LOCAL ROLE service_role;
+DO $$
+DECLARE r uuid; r2 uuid; a uuid; b uuid; d uuid; f uuid; c uuid; c2 uuid; c3 uuid; v integer; blocked boolean;
+BEGIN
+ INSERT INTO public.refurb_receptions(reception_number,reception_date,supplier,vat_scheme,supplier_invoice_nr) VALUES('TEST-ROUTING-'||gen_random_uuid(),current_date,'TEST ROUTING','margin','TEST ONLY') RETURNING id INTO r;
+ INSERT INTO public.refurb_receptions(reception_number,reception_date,supplier,vat_scheme,supplier_invoice_nr) VALUES('TEST-OTHER-'||gen_random_uuid(),current_date,'TEST ROUTING','margin','TEST ONLY') RETURNING id INTO r2;
+ INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,0,'RMA',10000) RETURNING id INTO a;
+ INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,1,'RMA',20000) RETURNING id INTO b;
+ c:=public.assign_reception_supplier_rma(r,array[a],NULL,false,false,'test@example.invalid');
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c,'version',v,'stage','sent','supplier_reference','FIRST SHIPMENT'),'test@example.invalid');
+ INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,2,'RMA',5000) RETURNING id INTO d;
+ IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE reception_item_id=d) THEN RAISE EXCEPTION 'New RMA silently attached to shipment'; END IF;
+ c2:=public.assign_reception_supplier_rma(r,array[b],NULL,false,false,'test@example.invalid');
+ IF c=c2 OR (SELECT count(*) FROM public.supplier_rma_cases WHERE reception_id=r AND stage NOT IN ('handled','closed','refunded','rejected','cancelled'))<>2 THEN RAISE EXCEPTION 'Separate open shipments not supported'; END IF;
+ PERFORM public.assign_reception_supplier_rma(r,array[d],c,false,false,'test@example.invalid');
+ IF NOT EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE case_id=c AND reception_item_id=d) THEN RAISE EXCEPTION 'Explicit existing target not honored'; END IF;
+ blocked:=false; BEGIN PERFORM public.assign_reception_supplier_rma(r,array[a],c2,false,false,'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_ALREADY_LINKED' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Active duplicate assignment accepted'; END IF;
+ blocked:=false; BEGIN PERFORM public.assign_reception_supplier_rma(r2,array[d],c,false,false,'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_RECEPTION_MISMATCH' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Cross reception target accepted'; END IF;
+ SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
+ PERFORM public.manage_supplier_rma('update_case',jsonb_build_object('case_id',c,'version',v,'stage','closed'),'test@example.invalid');
+ INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,3,'Booked',7000) RETURNING id INTO d;
+ blocked:=false; BEGIN PERFORM public.assign_reception_supplier_rma(r,array[d],c,true,true,'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_CASE_CLOSED' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Closed target accepted'; END IF;
+ c3:=public.assign_reception_supplier_rma(r,array[d],NULL,true,true,'test@example.invalid');
+ IF c3=c OR NOT EXISTS(SELECT 1 FROM public.refurb_reception_items WHERE id=d AND refurb_status='Booked' AND price_cents=7000 AND compensation_cents=7000) THEN RAISE EXCEPTION 'Late booked RMA altered accounting'; END IF;
+ blocked:=false; BEGIN UPDATE public.refurb_reception_items SET price_cents=1 WHERE id=d; EXCEPTION WHEN OTHERS THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Booked protection weakened'; END IF;
+ INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,4,'Refunded',9000) RETURNING id INTO f;
+ blocked:=false; BEGIN PERFORM public.assign_reception_supplier_rma(r,array[f],NULL,true,true,'test@example.invalid'); EXCEPTION WHEN OTHERS THEN IF SQLERRM='RMA_REFUNDED' THEN blocked:=true; ELSE RAISE; END IF; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'Refunded routed'; END IF;
+ IF (SELECT count(*) FROM public.supplier_rma_history WHERE case_id=c AND event='add_items')<>1 THEN RAISE EXCEPTION 'Explicit routing audit missing'; END IF;
+END $$;
+ROLLBACK;
+SELECT 'PASS: explicit new/existing targets, parallel open shipments, no silent routing, no duplicates, closed/foreign targets blocked, late booked RMA and audit; fixtures rolled back' as verification;

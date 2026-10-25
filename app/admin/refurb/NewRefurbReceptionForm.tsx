@@ -1,6 +1,10 @@
 // app/admin/refurb/NewRefurbReceptionForm.tsx
 "use client";
 
+import { useState } from "react";
+import ui from "./rma/rma.module.css";
+import styles from "./reception.module.css";
+import { rmaExpiryDate, parseRmaDays } from "@/lib/receptionTerms";
 import { useFormState, useFormStatus } from "react-dom";
 import { createRefurbReception, type CreateReceptionFormState } from "./actions";
 import SupplierField from "./SupplierField";
@@ -31,17 +35,20 @@ export default function NewRefurbReceptionForm({
 }) {
   const [state, formAction] = useFormState(createRefurbReception, initialState);
 
+  const [rmaDays,setRmaDays]=useState("30");
+  const [date,setDate]=useState('');
+  let expires='';try{expires=rmaExpiryDate(date,parseRmaDays(rmaDays));}catch{}
   const receptionNrError = state.fieldErrors.reception_number;
 
   return (
-    <div className="p-4 max-w-xl space-y-4">
-      <div>
+    <div className={`${ui.workspace} ${styles.reception}`}>
+      <header className="rma-hero"><div>
         <h1 className="text-lg font-semibold">Nieuwe Refurb reception</h1>
         <p className="text-xs text-slate-500 mt-1">
           Maak een nieuwe receptie aan voor een leverancier. Daarna kun je in
           de tabel toestellen plakken of importeren.
         </p>
-      </div>
+      </div></header>
 
       {state.formError && (
         <div className="p-2 border border-red-200 bg-red-50 text-[11px] text-red-700 rounded">
@@ -49,8 +56,8 @@ export default function NewRefurbReceptionForm({
         </div>
       )}
 
-      <form action={formAction} className="space-y-3 text-sm">
-        <div className="grid grid-cols-1 gap-3">
+      <form action={formAction} className="rma-section">
+        <div className="reception-new-grid">
           {/* Receptie nr */}
           <div className="flex flex-col gap-1">
             <label
@@ -94,6 +101,8 @@ export default function NewRefurbReceptionForm({
             <input
               id="reception_date"
               name="reception_date"
+              value={date}
+              onChange={event=>setDate(event.target.value)}
               type="date"
               required
               className="bb-input h-9 text-sm px-2"
@@ -101,7 +110,8 @@ export default function NewRefurbReceptionForm({
           </div>
 
           {/* Leverancier (via SupplierField) */}
-          <SupplierField canCreate={!!canCreateSupplier} />
+          <SupplierField canCreate={!!canCreateSupplier} onSelect={supplier=>setRmaDays(String(supplier?.rma_expiry_days??30))}/>
+          <label className="flex flex-col gap-1 text-xs">RMA Expire Date (dagen)<input name="rma_expiry_days" type="number" min={0} max={36500} step={1} required value={rmaDays} onChange={event=>setRmaDays(event.target.value)} className="bb-input"/><span className="text-xs text-slate-500">Overgenomen van leverancier; aanpasbaar voor deze receptie.{expires?' Vervaldatum: '+expires:''}</span></label>
 
           {/* BTW-regeling */}
           <div className="flex flex-col gap-1">
@@ -174,3 +184,4 @@ export default function NewRefurbReceptionForm({
     </div>
   );
 }
+

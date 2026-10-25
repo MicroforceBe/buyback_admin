@@ -1,7 +1,7 @@
 export const supplierRmaStages = {
   draft: 'Concept', submitted: 'Aangemeld', approved: 'Goedgekeurd', sent: 'Verzonden',
   received: 'Ontvangen door leverancier', awaiting_compensation: 'Wacht op compensatie',
-  refunded: 'Refunded', closed: 'Afgesloten', rejected: 'Geweigerd', cancelled: 'Geannuleerd',
+  handled: 'Definitief afgehandeld', refunded: 'Refunded', closed: 'Afgesloten', rejected: 'Geweigerd', cancelled: 'Geannuleerd',
 } as const;
 export type SupplierRmaStage = keyof typeof supplierRmaStages;
 export const mentionsRma = (value: string | null | undefined) => /(^|[^a-z0-9])rma([^a-z0-9]|$)/i.test(value ?? '');
@@ -30,4 +30,10 @@ export function rmaDate(raw: unknown): string | null {
 }
 export function supplierRmaTotals(items: { expected_cents: number | null; received_cents: number }[]) {
   return items.reduce((sum, item) => ({ expected: sum.expected + (item.expected_cents ?? 0), received: sum.received + item.received_cents, outstanding: sum.outstanding + (item.expected_cents == null ? 0 : Math.max(0, item.expected_cents - item.received_cents)), unknown: sum.unknown + (item.expected_cents == null ? 1 : 0) }), { expected: 0, received: 0, outstanding: 0, unknown: 0 });
+}
+
+export function isRefundedRmaItem(item: { refurb_status?: string | null }, options: { value: string; label?: string | null }[] = []) {
+  const value=(item.refurb_status??'').trim().toLowerCase();
+  const option=options.find(o=>o.value.trim().toLowerCase()===value||o.label?.trim().toLowerCase()===value);
+  return /refund|terugbetaald/i.test(value+' '+(option?.label??''));
 }
