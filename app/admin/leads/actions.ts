@@ -1,6 +1,8 @@
 // app/admin/leads/actions.ts
 
 "use server";
+import { parseSkuSearch, escapeSkuSearchPattern, matchesSkuExclusions } from '@/lib/skuSearch';
+import { getLeadStatusIssues } from '@/lib/leadDeviceValidation';
 import { requireAccess } from '@/lib/security/access';
 
 
@@ -837,54 +839,21 @@ export async function updateLeadInlineAction(formData: FormData) {
     }
   }
 
-  // Server-side validatie voor kritieke statussen
-  const need = (
-    key:
-      | "customer_number"
-      | "sku"
-      | "imei_sn"
-      | "battery_percentage"
-      | "used_parts_skus"
-  ) => {
-    const value = Object.prototype.hasOwnProperty.call(patch, key)
-      ? patch[key]
-      : (before as any)[key];
-
-    if (key === "used_parts_skus") {
-      return Array.isArray(value) ? value.length > 0 : Boolean(value);
-    }
-
-    if (key === "battery_percentage") {
-      return value !== null && value !== undefined && value !== "";
-    }
-
-    return (value ?? "").toString().trim();
-  };
-
-  if (patch.status === "check_passed") {
-    if (
-      !need("customer_number") ||
-      !need("sku") ||
-      !need("imei_sn") ||
-      !need("battery_percentage") ||
-      !need("used_parts_skus")
-    ) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent(
-          "check_passed_requires_customer_sku_imei_battery_used_parts"
-        )}`
-      );
-    }
+  // Validate saved/effective fields before events, updates or email side effects.
+  const effectiveFields = { ...before, ...patch };
+  const statusIssues = getLeadStatusIssues(String(patch.status ?? ''), effectiveFields);
+  if (statusIssues.length) {
+    redirect('/admin/leads?msg=lead_validation_failed&fields=' + encodeURIComponent(statusIssues.join(',')));
   }
-
-  if (
-    patch.status === "check_failed_technical" ||
-    patch.status === "check_failed_grading"
-  ) {
-    if (!need("imei_sn")) {
-      redirect(
-        `/admin/leads?msg=${encodeURIComponent("failed_check_requires_imei")}`
-      );
+  // Free text is allowed while processing a lead. Only the successful-check
+  // transition requires an existing ERP SKU, including a SKU submitted together.
+  const skuToCheck = patch.status === 'check_passed' ? effectiveFields.sku : null;
+  if (typeof skuToCheck === 'string' && skuToCheck.trim()) {
+    const { data: article, error: skuError } = await sb.from('erp_articles')
+      .select('sku').eq('sku', skuToCheck.trim())
+      .eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true).maybeSingle();
+    if (skuError || !article) {
+      redirect('/admin/leads?msg=lead_validation_failed&fields=' + (skuError ? 'sku_lookup_failed' : 'sku_invalid'));
     }
   }
 
@@ -1241,3 +1210,52 @@ export async function deleteLeadAction(formData: FormData) {
   redirect(`/admin/leads?msg=${encodeURIComponent("deleted")}`);
 }
 
+
+export async function searchLeadSkuAction(query: string) {
+  await requireAccess('leads', 'write', false);
+  const search = String(query ?? '').trim();
+  if (search.length < 2 || search.length > 120) return [];
+  const { included, excluded } = parseSkuSearch(search);
+  const positiveSearch = included.join(' ');
+  if (positiveSearch.length < 2) return [];
+  type SkuRow = {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null};
+  const base = (untitled = false) => {
+    let request = sbClient().from('erp_articles')
+      .select('sku,title,price_cents,vat_margin,inventory_qty')
+      .eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true);
+    if (untitled) return request.is('title', null);
+    for (const term of excluded) request = request.not('title', 'ilike', '%' + escapeSkuSearchPattern(term) + '%');
+    return request;
+  };
+  const titleSearch = () => {
+    let request = base();
+    // Each word must occur in the description, in any order.
+    for (const term of included) request = request.ilike('title', '%' + escapeSkuSearchPattern(term) + '%');
+    return request;
+  };
+  const fetchAll = async (makeRequest: () => any): Promise<SkuRow[]> => {
+    const rows: SkuRow[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const result = await makeRequest().order('sku', { ascending: true }).range(offset, offset + pageSize - 1);
+      if (result.error) throw new Error('Artikelen zoeken mislukt. Probeer opnieuw.');
+      const page: SkuRow[] = result.data ?? [];
+      rows.push(...page);
+      if (page.length < pageSize) return rows;
+    }
+  };
+  const requests = [fetchAll(titleSearch)];
+  // A single word can also be an article code. Multiple words all refer to
+  // the description; a code match must not bypass a missing description term.
+  if (included.length === 1) {
+    const codePattern = '%' + escapeSkuSearchPattern(included[0]) + '%';
+    requests.unshift(fetchAll(() => base().ilike('sku', codePattern)));
+    if (excluded.length) requests.push(fetchAll(() => base(true).ilike('sku', codePattern)));
+  }
+  const groups = await Promise.all(requests);
+  const unique = new Map<string, {sku: string; title: string | null; price_cents: number | null; vat_margin: boolean | null; inventory_qty: number | null}>();
+  for (const group of groups) for (const row of group) {
+    if (row.sku && !unique.has(row.sku) && matchesSkuExclusions(row, excluded)) unique.set(row.sku, row);
+  }
+  return Array.from(unique.values());
+}
