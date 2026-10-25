@@ -98,6 +98,17 @@ test('factory color is resolved by exact model and part number; front code never
   assert.equal(Object.keys(colorCatalogue['iPhone15,3']).length,64);
 });
 
+test('phone QR always uses the opened environment and the same session, without any env configuration',async()=>{
+  let states=[],cursor=0,effects=[],cleanups=[],calls=[];
+  const hooks={useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return[states[i],v=>states[i]=v];},useEffect(fn,deps){const i=cursor++;if(!states[i]||states[i][0]!==deps[0]){states[i]=deps;effects.push(fn);}}};
+  const jsx=(type,props)=>({type,props});
+  const api=await load('app/admin/diagnostics/[id]/WebDiagnosticsQr.tsx',{'react':hooks,'react/jsx-runtime':{jsx,jsxs:jsx},'qrcode':{default:{toDataURL:async url=>{calls.push(url);return 'data:image/png;base64,synthetic';}}}},{window:{location:{origin:'https://buyback-admin-test.vercel.app'}},URL});
+  const render=sessionId=>{cursor=0;const tree=api.default({sessionId});for(const effect of effects.splice(0))cleanups.push(effect());return tree;};
+  render('synthetic-session');await new Promise(resolve=>setImmediate(resolve));
+  const tree=render('synthetic-session');assert.equal(calls[0],'https://buyback-admin-test.vercel.app/admin/diagnostics/synthetic-session/web-tests');assert.ok(JSON.stringify(tree).includes(calls[0]));assert.ok(!JSON.stringify(tree).includes('undefined/'));
+  for(const cleanup of cleanups)cleanup?.();
+});
+
 test('actual new-session component autofills USB values, retains failed-save drafts, and requires a multi-phone selection',async()=>{
   let states=[],cursor=0,effects=[],multi=false,saved;
   const hooks={useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return[states[i],v=>states[i]=typeof v==='function'?v(states[i]):v];},useRef(initial){const i=cursor++;if(!(i in states))states[i]={current:initial};return states[i];},useEffect(fn,deps){const i=cursor++;if(!(i in states)){states[i]=deps;effects.push(fn);}}};

@@ -105,8 +105,6 @@ export default async function DiagnosticSessionPage({
   }
 
   const device = session.deviceUnit;
-  const webDiagnosticsUrl =
-    `${process.env.NEXT_PUBLIC_APP_URL}/admin/diagnostics/${session.id}/web-tests`;
 
   const securityWarnings =
     asStringArray(
@@ -509,7 +507,7 @@ export default async function DiagnosticSessionPage({
       </div>
 
       <WebDiagnosticsQr
-        url={webDiagnosticsUrl}
+        sessionId={session.id}
       />
 
       <div className="mt-6 rounded border p-4">
