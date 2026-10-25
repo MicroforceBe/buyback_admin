@@ -9,6 +9,7 @@ import {
 } from "./actions";
 import CustomerCell from "./CustomerCell";
 import DeviceCell from "./DeviceCell";
+import {getLeadLabelReadiness} from "./labelData";
 import LeadStatusForm from "./LeadStatusForm";
 import { leadValidationMessage } from "@/lib/leadDeviceValidation";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
@@ -727,6 +728,7 @@ export default async function LeadsPage({
     );
   }
 
+  const labelReadiness = await getLeadLabelReadiness(data ?? []);
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -1298,6 +1300,9 @@ export default async function LeadsPage({
                   <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
                     <DeviceCell
                       id={lead.id}
+                      labelReady={labelReadiness[lead.id]?.canPrint ?? false}
+                      labelIssues={labelReadiness[lead.id]?.issues ?? []}
+                      partsWarning={labelReadiness[lead.id]?.partsWarning ?? ''}
                       model={lead.model}
                       variant={lead.variant}
                       capacity_gb={lead.capacity_gb}

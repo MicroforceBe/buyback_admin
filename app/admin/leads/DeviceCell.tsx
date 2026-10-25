@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { updateLeadInlineAction, searchLeadSkuAction } from "./actions";
+import LeadLabelPrintButton from "./LeadLabelPrintButton";
+import {leadBatteryWarning} from "@/lib/leadLabelValidation";
 type ErpSkuSearchResult = Awaited<ReturnType<typeof searchLeadSkuAction>>[number];
 
 type Status =
@@ -34,6 +36,9 @@ type Props = {
   used_parts_skus: string[] | null;
   status?: string | null;
   canEdit?: boolean;
+  labelReady?: boolean;
+  labelIssues?: string[];
+  partsWarning?: string;
 };
 
 const input = "bb-input h-9 text-xs px-2 py-1";
@@ -62,7 +67,7 @@ function CopyBtn({ value, title }: { value: string; title?: string }) {
   );
 }
 
-function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: string; invalid: boolean}) {
+function SkuAutocompleteInput({ value, name, invalid, onValueChange }: {value: string; name: string; invalid: boolean; onValueChange?:(value:string)=>void}) {
   const [query, setQuery] = useState('');
   const [selectedSku, setSelectedSku] = useState(value);
   const [selectedTitle, setSelectedTitle] = useState('');
@@ -88,19 +93,19 @@ function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: st
   }}>
     <div className="flex items-center gap-1">
       <input name={name} className={`${input} font-mono font-semibold tracking-wide`} value={selectedSku}
-        onChange={event => { setSelectedSku(event.target.value); setSelectedTitle(''); setQuery(event.target.value); setOpen(true); }}
+        onChange={event => { onValueChange?.(event.target.value); setSelectedSku(event.target.value); setSelectedTitle(''); setQuery(event.target.value); setOpen(true); }}
         onFocus={() => { setQuery(selectedSku); setOpen(true); }} autoComplete="off"
-        aria-label="SKU of voorlopige omschrijving" aria-invalid={invalid} placeholder="SKU of omschrijving zoeken of invullen" />
+        title={selectedTitle || selectedSku} aria-label="SKU of voorlopige omschrijving" aria-invalid={invalid} placeholder="SKU of omschrijving zoeken of invullen" />
       <CopyBtn value={selectedSku} title="Kopieer SKU" />
       {selectedSku && <button type="button" className="bb-btn text-xs px-2 h-7" title="SKU wissen" aria-label="SKU wissen"
-        onClick={() => { setSelectedSku(''); setSelectedTitle(''); setQuery(''); setOpen(false); }}>×</button>}
+        onClick={() => { onValueChange?.(''); setSelectedSku(''); setSelectedTitle(''); setQuery(''); setOpen(false); }}>×</button>}
     </div>
     {selectedTitle && <p className="text-[11px] text-slate-600">{selectedTitle}</p>}
     {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
     {open && query.trim().length >= 2 && <div className="absolute z-50 mt-1 w-full min-w-[280px] max-h-72 overflow-auto rounded-xl border bg-white shadow-2xl">
       {loading ? <p className="px-3 py-2 text-xs text-slate-500">Zoeken...</p> : results.length ? results.map(row =>
         <button key={row.sku} type="button" className="flex w-full flex-col border-b px-3 py-2 text-left hover:bg-slate-50"
-          onMouseDown={event => event.preventDefault()} onClick={() => { setSelectedSku(row.sku); setSelectedTitle(row.title ?? ''); setOpen(false); setQuery(''); }}>
+          onMouseDown={event => event.preventDefault()} onClick={() => { onValueChange?.(row.sku); setSelectedSku(row.sku); setSelectedTitle(row.title ?? ''); setOpen(false); setQuery(''); }}>
           <span className="font-mono text-xs font-semibold text-slate-900">{row.sku}</span>
           <span className="mt-1 text-[11px] text-slate-600">{row.title || '—'}</span>
           <span className="mt-1 text-[10px] text-slate-500">Voorraad: {row.inventory_qty ?? 0} · {((row.price_cents ?? 0)/100).toFixed(2)} €</span>
@@ -112,6 +117,11 @@ function SkuAutocompleteInput({ value, name, invalid }: {value: string; name: st
 export default function DeviceCell(p: Props) {
   const [open, setOpen] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
+  const [draftSku,setDraftSku]=useState(p.sku??'');
+  const [draftSerial,setDraftSerial]=useState(p.imei_sn??'');
+  const [battery,setBattery]=useState(typeof p.battery_percentage==='number'?String(p.battery_percentage):'');
+  useEffect(()=>{setDraftSku(p.sku??'');setDraftSerial(p.imei_sn??'');setBattery(typeof p.battery_percentage==='number'?String(p.battery_percentage):'');},[p.id,p.sku,p.imei_sn,p.battery_percentage,JSON.stringify(p.used_parts_skus)]);
+  const batteryWarning=battery.trim()!==''&&leadBatteryWarning(Number(battery));
   useEffect(() => {
     const show = (event: Event) => {
       const detail = (event as CustomEvent<{id: string; fields: string[]}>).detail;
@@ -141,6 +151,12 @@ export default function DeviceCell(p: Props) {
     initialParts.length ? initialParts : [""]
   );
 
+  useEffect(()=>{setParts(initialParts.length?initialParts:[""]);},[p.id,JSON.stringify(p.used_parts_skus)]);
+  const normalizedParts=(values:string[])=>values.map(value=>value.trim()).filter(Boolean);
+  const dirty=draftSku.trim()!==(p.sku??'').trim()||draftSerial.trim()!==(p.imei_sn??'').trim()||
+    (battery.trim()===''?null:Number(battery))!==(p.battery_percentage??null)||
+    JSON.stringify(normalizedParts(parts))!==JSON.stringify(normalizedParts(initialParts));
+
   const modelLine =
     [
       p.model || undefined,
@@ -160,14 +176,14 @@ export default function DeviceCell(p: Props) {
     <div className="space-y-1">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-medium">{modelLine}</div>
+          <div className="truncate font-medium" title={modelLine}>{modelLine}</div>
 
           <div className="text-[11px] text-gray-500 truncate">
             {p.sku ? `SKU: ${p.sku}` : "SKU: —"}{" "}
             {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : "• IMEI/SN: —"}
             {typeof p.battery_percentage === "number"
               ? ` • Batterij: ${p.battery_percentage}%`
-              : ""}
+              : ""}{leadBatteryWarning(p.battery_percentage)&&<span role="img" aria-label="Batterij 80% of lager" title="Batterij 80% of lager: controleren of vervangen. Printen blijft mogelijk." className="ml-1 text-amber-600">⚠</span>}
           </div>
         </div>
 
@@ -210,6 +226,7 @@ export default function DeviceCell(p: Props) {
                   name="sku"
                   value={p.sku ?? ""}
                   invalid={missing.includes("sku")}
+                  onValueChange={setDraftSku}
                 />
               </div>
 
@@ -227,14 +244,16 @@ export default function DeviceCell(p: Props) {
                 <input
                   name="imei_sn"
                   className={input}
-                  defaultValue={p.imei_sn ?? ""}
+                  value={draftSerial}
+                  onChange={event=>setDraftSerial(event.target.value)}
                   placeholder="IMEI of SN"
+                  title="IMEI: 15 cijfers met controlecijfer. SN: 5–40 letters, cijfers of koppeltekens."
                 />
               </div>
 
               <div className="flex flex-col">
                 <label className={label}>
-                  Batterij (%){" "}
+                  Batterij (%){" "}{batteryWarning&&<span role="img" aria-label="Batterij 80% of lager" title="Batterij 80% of lager: controleren of vervangen. Printen blijft mogelijk." className="text-amber-600">⚠</span>}
                   <span
                     data-device-warning="battery_percentage"
                     className={`text-red-700 ml-1 ${missing.includes("battery_percentage") ? "" : "hidden"}`}
@@ -249,11 +268,9 @@ export default function DeviceCell(p: Props) {
                   className={input}
                   min={0}
                   max={100}
-                  defaultValue={
-                    typeof p.battery_percentage === "number"
-                      ? p.battery_percentage
-                      : ""
-                  }
+                  value={battery}
+                  onChange={event=>setBattery(event.target.value)}
+                  step={1}
                   placeholder="0–100"
                 />
               </div>
@@ -275,7 +292,7 @@ export default function DeviceCell(p: Props) {
                     <input
                       className={input}
                       value={value}
-                      placeholder={`Onderdeel SKU ${idx + 1}`}
+                      placeholder={`Onderdeel SKU ${idx + 1}, of - bij geen onderdelen`}
                       onChange={(e) => {
                         const next = [...parts];
                         next[idx] = e.target.value;
@@ -305,10 +322,13 @@ export default function DeviceCell(p: Props) {
                 />
               </div>
 
-              <div className="pt-1 flex items-center justify-between gap-2">
+              {p.partsWarning&&<p role="status" className="text-[11px] text-amber-700">{p.partsWarning}</p>}
+              <div className="pt-1 flex items-center gap-2">
                 <button className="bb-btn h-8 text-xs px-3" type="submit">
                   💾
                 </button>
+                {p.labelReady&&!dirty&&<LeadLabelPrintButton leadId={p.id}/>}
+                {!p.labelReady&&!!p.labelIssues?.length&&<span role="img" aria-label="Label nog niet beschikbaar" title={p.labelIssues.join(" ")} className="text-amber-600">⚠</span>}
               </div>
 
               {p.questions_answers_html ? (
@@ -350,6 +370,7 @@ export default function DeviceCell(p: Props) {
                 <span className="font-semibold">Gebruikte onderdelen:</span>{" "}
                 {partsDisplay}
               </div>
+              {p.labelReady&&<LeadLabelPrintButton leadId={p.id}/>}
 
               {p.questions_answers_html ? (
                 <details className="mt-2 text-[11px] text-gray-700">

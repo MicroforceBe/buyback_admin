@@ -8,6 +8,8 @@ on:
       - security/tests/lead-price.test.mjs
       - .github/workflows/release-verification.yml
       - app/admin/leads/**
+      - lib/leadLabelValidation.ts
+      - security/tests/lead-label.test.mjs
       - lib/leadDeviceValidation.ts
       - lib/skuSearch.ts
       - security/tests/lead-device-*.test.mjs
@@ -88,7 +90,7 @@ jobs:
       - name: Verify label authorization and ERP orchestration
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify lead status validation and SKU selection without live services
-        run: node --experimental-vm-modules --test security/tests/lead-device-validation.test.mjs security/tests/lead-device-ui.test.mjs
+        run: node --experimental-vm-modules --test security/tests/lead-device-validation.test.mjs security/tests/lead-device-ui.test.mjs security/tests/lead-label.test.mjs
       - name: Verify refurb analytics totals, filters and authorization without live services
         run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
       - name: Verify supplier RMA rules and authenticated actions without live services
