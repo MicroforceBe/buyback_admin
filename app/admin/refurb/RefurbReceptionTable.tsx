@@ -1,6 +1,7 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
 
+import { createReceptionSupplierRma, registerLateReceptionRma } from "./rma/actions";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { isSupplierRmaItem, compensationOnRmaEntry } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
@@ -1930,6 +1931,10 @@ async function copyCompleteRmaOverview() {
                 </div>
               </div>
 
+              {canWrite && canUseAdminStatuses && <form action={createReceptionSupplierRma}>
+                <input type="hidden" name="reception_id" value={receptionId}/>
+                <button disabled={!rmaItems.length} className="bb-btn bb-btn-primary text-xs">RMA Supplier aanmaken / openen</button>
+              </form>}
               <button
                 type="button"
                 className="inline-flex h-8 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1949,6 +1954,15 @@ async function copyCompleteRmaOverview() {
               </button>
             </div>
 
+            {canWrite && canUseAdminStatuses && <details className="rounded-md border bg-white p-3">
+              <summary className="cursor-pointer font-medium">Nieuw RMA melden (ook na afwerking)</summary>
+              <p className="my-2 text-xs text-slate-500">Selecteer de betrokken artikelen. Ze worden gekoppeld aan het actieve dossier of aan een nieuw dossier als het vorige is afgesloten. Een boeking, toestelstatus of prijs wordt hierdoor niet gewijzigd.</p>
+              <form action={registerLateReceptionRma} className="space-y-3">
+                <input type="hidden" name="reception_id" value={receptionId}/>
+                <div className="max-h-64 space-y-2 overflow-auto">{items.map(item=><label key={item.id} className="flex items-start gap-2"><input type="checkbox" name="item_ids" value={item.id}/><span>{item.imei_sn||item.manual_sn||'—'} · {item.description||'Artikel'} · {item.refurb_status}</span></label>)}</div>
+                <button className="bb-btn bb-btn-primary text-xs">Geselecteerde artikelen als RMA melden</button>
+              </form>
+            </details>}
             {rmaItems.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
                 Er zijn nog geen geregistreerde RMA-artikelen in deze receptie.
