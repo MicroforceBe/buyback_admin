@@ -2,6 +2,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { isSupplierRmaItem, compensationOnRmaEntry } from "@/lib/supplierRma";
+import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import { useRouter } from "next/navigation";
 import {
   RefurbItem,
@@ -20,6 +22,7 @@ type StatusTransitionsMap = Record<string, string[]>;
 
 type Props = {
   receptionId: string;
+  initialStatusFilter?: string;
   initialItems: RefurbItem[];
   statusOptions: RefurbStatusOption[];
   locationOptions: RefurbLocationOption[];
@@ -466,6 +469,7 @@ function SkuAutocompleteCell({
 
 export default function RefurbReceptionTable({
   receptionId,
+  initialStatusFilter,
   initialItems,
   statusOptions,
   locationOptions,
@@ -506,7 +510,7 @@ export default function RefurbReceptionTable({
   const [openDone, setOpenDone] = useState(false);
 
   // header filters
-  const [statusFilter, setStatusFilter] = useState<string>("__all__");
+  const [statusFilter, setStatusFilter] = useState<string>(() => resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
   const [locationFilter, setLocationFilter] = useState<string>("__all__");
   const [imeiQuery, setImeiQuery] = useState<string>("");
   const [descQuery, setDescQuery] = useState<string>("");
@@ -537,19 +541,23 @@ export default function RefurbReceptionTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedInitialItems]);
 
+  useEffect(() => {
+    const selected = resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems);
+    setStatusFilter(selected);
+    setLocationFilter("__all__");
+    setImeiQuery("");
+    setDescQuery("");
+    setSelectedIds(new Set());
+    setOpenNotDone(true);
+    const map = statusNextMap ?? statusTransitions;
+    setOpenDone(selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
+    // Reapply a deep link when navigating between statuses on the same reception.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receptionId, initialStatusFilter]);
+
   const hasItems = items.length > 0;
 
-  const rmaItems = useMemo(() => {
-  return items.filter((item) => {
-    const status = canonicalizeStatusValue(
-      item.refurb_status,
-      statusOptions || [],
-      defaultStatusValue
-    );
-
-    return norm(status) === "rma";
-  });
-}, [items, statusOptions, defaultStatusValue]);
+  const rmaItems = useMemo(() => items.filter(item => isSupplierRmaItem(item, statusOptions)), [items, statusOptions]);
 
 const totalRmaCompensationCents = useMemo(() => {
   return rmaItems.reduce((total, item) => {
@@ -914,7 +922,7 @@ async function copyCompleteRmaOverview() {
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
         const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-        const okStatus = statusFilter === "__all__" || st === statusFilter;
+        const okStatus = statusFilter === "__all__" || norm(st) === norm(statusFilter);
 
         const loc = ((it as any).location ?? "").trim();
         const okLoc = locationFilter === "__all__" || loc === locationFilter;
@@ -1052,7 +1060,7 @@ async function copyCompleteRmaOverview() {
         }
 
         if (field === "refurb_status") {
-          return { ...it, refurb_status: value || null } as RefurbItem;
+          return { ...it, refurb_status: value || null, compensation_cents: compensationOnRmaEntry(it, value), rma_registered: isSupplierRmaItem(it, statusOptions) || isSupplierRmaItem({ refurb_status: value }, statusOptions) } as RefurbItem;
         }
 
         return { ...it, [field]: value || null } as RefurbItem;
@@ -1725,6 +1733,7 @@ async function copyCompleteRmaOverview() {
                   <td className="px-1 py-0.5 border">
                     <input
                       className="bb-input h-7 text-[11px] px-1 w-full text-right"
+                      key={it.id + ":" + String(it.compensation_cents ?? "")}
                       defaultValue={typeof it.compensation_cents === "number" ? (it.compensation_cents / 100).toString() : ""}
                       disabled={!canWrite || rowBooked}
                       placeholder="0,00"
@@ -1942,7 +1951,7 @@ async function copyCompleteRmaOverview() {
 
             {rmaItems.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-center text-[11px] text-slate-500">
-                Er zijn momenteel geen items met status RMA.
+                Er zijn nog geen geregistreerde RMA-artikelen in deze receptie.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-md border">
@@ -2029,7 +2038,7 @@ async function copyCompleteRmaOverview() {
 
       {/* Table */}
       {/* Table */}
-      <div className="border rounded-md overflow-x-auto text-xs">
+      <div id="reception-items" className="border rounded-md overflow-x-auto text-xs scroll-mt-4">
         <div className="flex items-center justify-between px-2 py-1 border-b bg-slate-50">
           <span className="font-medium text-[11px] uppercase tracking-wide">Refurb Reception items</span>
 
@@ -2322,4 +2331,6 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
+
+
 

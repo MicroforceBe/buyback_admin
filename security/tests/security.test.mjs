@@ -159,7 +159,7 @@ test('all exported admin actions and inline actions have a first-statement permi
     for(const m of js.matchAll(/export\s+async\s+function\s+\w+\s*\(/g)) {
       let i=m.index+m[0].length,d=1;while(d){if(js[i]==='(')d++;if(js[i]===')')d--;i++;}
       while(/\s/.test(js[i]))i++;
-      assert.match(js.slice(i+1).trimStart(),/^await requireAccess\(/,p);checked++;
+      assert.match(js.slice(i+1).trimStart(),/^(?:await|const [A-Za-z_$][\w$]* = await) requireAccess\(/,p);checked++;
     }
   }
   for(const p of walk('app').filter(p=>p.endsWith('.tsx')&&!p.includes('/login/'))) {
@@ -182,3 +182,13 @@ test('page access redirects to a clear denial page while writes remain forbidden
   assert.equal(h.state.dbCalls,0);
 });
 
+
+
+
+test("assigned permission guards must still be the first awaited operation",()=>{
+ const guard=/^(?:await|const [A-Za-z_$][\w$]* = await) requireAccess\(/;
+ assert.match("const user = await requireAccess(",guard);
+ assert.match("await requireAccess(",guard);
+ assert.doesNotMatch("const user = await unsafe(); await requireAccess(",guard);
+ assert.doesNotMatch("const value = readDatabase(); await requireAccess(",guard);
+});

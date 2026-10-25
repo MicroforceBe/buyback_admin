@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {stripTypeScriptTypes} from 'node:module';
+const root=new URL('../../',import.meta.url);
+async function helper(){const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/refurbAnalytics.ts',root),'utf8'),{mode:'strip'}));await m.link(()=>{throw Error('Unexpected dependency');});await m.evaluate();return m.namespace;}
+const reception=(id,supplier_id,supplier,reception_date='2026-10-24')=>({id,supplier_id,supplier,reception_date});
+const item=(id,reception_id,refurb_status,description,price_cents=10000)=>({id,reception_id,refurb_status,description,price_cents});
+const empty=()=>({receptions:[],items:[],models:[],statuses:[],transitions:[],suppliers:[]});
+const filters={from:'',to:'',supplier:''};
+test('a registered RMA stays in lifetime totals even after its status and compensation are cleared',async()=>{const h=await helper();const d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a',null,'Vendor')],items:[{...item('1','a','Battery','iPad'),compensation_cents:null,rma_registered:true}]},filters);assert.equal(d.totals.rma,1);assert.equal(d.rmaPercent,100);assert.equal(d.repairedRows.length,0);});
+test('open supplier value and pending RMA finances exclude final statuses and historical repairs',async()=>{
+ const h=await helper(),input={...empty(),receptions:[reception('a','x','X'),reception('b','y','Y')],statuses:[{id:'rma',value:'RMA',label:'RMA'},{id:'refund',value:'Refunded',label:'RMA Refunded (Finished)'},{id:'booked',value:'Booked',label:'Booked'},{id:'new',value:'New',label:'New'}],transitions:[{from_status_id:'rma',to_status_id:'refund'},{from_status_id:'new',to_status_id:'booked'}],items:[{...item('1','a','RMA','iPad',10000),compensation_cents:500},{...item('2','a','RMA','iPad',20000),compensation_cents:null},{...item('3','b','Refunded','iPad',30000),compensation_cents:1000},{...item('4','b','Booked','iPad',40000),compensation_cents:1000},{...item('5','a','New','iPad',5000),compensation_cents:null},{...item('6','b','RMA','iPad',0),compensation_cents:0},{...item('7','b','RMA','iPad',null),compensation_cents:null}]};
+ const d=h.buildRefurbAnalytics(input,filters);assert.equal(d.openTotals.count,5);assert.equal(d.openTotals.purchaseCents,35000);assert.equal(d.openTotals.missingPrices,1);assert.equal(d.openSuppliers.length,2);assert.equal(d.pendingRmaTotals.count,4);assert.equal(d.pendingRmaTotals.purchaseCents,30000);assert.equal(d.pendingRmaTotals.compensationCents,500);assert.equal(d.pendingRmaTotals.withCompensation,2);assert.equal(d.pendingRmaTotals.withoutCompensation,2);assert.equal(d.pendingRmaTotals.missingPrices,1);assert.deepEqual(Array.from(d.pendingRmaRows,row=>row.id),['1','2','6','7']);assert.equal(d.pendingRmaRows[2].compensationCents,0);assert.equal(d.pendingRmaRows[3].compensationCents,null);assert.equal(d.pendingRmaRows[3].purchaseCents,null);
+ const selected=h.buildRefurbAnalytics(input,{...filters,supplier:'id:x'});assert.equal(selected.openTotals.count,3);assert.equal(selected.pendingRmaTotals.count,2);assert.equal(selected.pendingRmaTotals.compensationCents,500);assert.equal(d.totals.rma,6);assert.equal(d.totals.repairedRma,4);
+});
+test('all RMA statuses, RMA labels and compensation history count once, with separate repaired totals',async()=>{
+ const h=await helper();
+ const statuses=[{id:'refund',value:'Refunded',label:'RMA Refunded (Finished)'},{id:'normal',value:'Normal',label:'Normal'}];
+ const values=['RMA','RMA Submitted','RMA Supplier','RMA Refused','RMA to ffix','RMA To Send','Refunded','Booked','New','Normal',null,'RMA_supplier'];
+ const amounts=[null,500,null,null,null,null,null,0,1000,null,250,null];
+ const input={...empty(),statuses,receptions:[{...reception('a','x','Vendor'),reception_number:'TEST-001'}],items:values.map((status,i)=>({...item(String(i),'a',status,'iPad'),compensation_cents:amounts[i]}))};
+ const d=h.buildRefurbAnalytics(input,filters);assert.equal(d.totals.purchased,12);assert.equal(d.totals.rma,11);assert.equal(d.totals.repairedRma,4);assert.equal(d.totals.compensationCents,1750);assert.equal(d.repairedRows.length,4);assert.equal(new Set(d.repairedRows.map(row=>row.id)).size,4);assert.ok(d.repairedRows.some(row=>row.status==='Booked'&&row.compensationCents===0));assert.ok(d.repairedRows.every(row=>row.receptionNumber==='TEST-001'));
+ assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.total,0),11);assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.repaired,0),4);assert.equal(d.rmaByStatus.reduce((sum,row)=>sum+row.other,0),7);assert.ok(d.rmaByStatus.some(row=>row.name==='RMA Refunded (Finished)'));assert.ok(!d.rmaByStatus.some(row=>row.name==='Normal'));
+});
+test('supplier and period filters also constrain repaired RMA details and compensation amounts',async()=>{
+ const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a','x','X','2026-10-01'),reception('b','y','Y','2026-10-01'),reception('c','x','X','2026-09-30')],items:['a','b','c'].map(id=>({...item(id,id,'Booked','iPad'),compensation_cents:1000}))},{from:'2026-10-01',to:'2026-10-31',supplier:'id:x'});
+ assert.equal(d.totals.rma,1);assert.equal(d.totals.repairedRma,1);assert.equal(d.totals.compensationCents,1000);assert.deepEqual(Array.from(d.repairedRows,row=>row.receptionId),['a']);assert.equal(d.rmaPercent,100);
+});
+test('vendor purchases, cents and weighted RMA percentage count each device exactly once',async()=>{
+ const h=await helper(),input={...empty(),receptions:[reception('a','supplier-a','Old A'),reception('b','supplier-b','B')],suppliers:[{id:'supplier-a',name:'A'}],items:[item('1','a','rma','iPad'),item('2','a','booked','iPad',20000),item('3','a','new','iPhone',null),item('4','b','new','Laptop',0),item('orphan','deleted','rma','iPad')]};
+ const d=h.buildRefurbAnalytics(input,filters);assert.equal(d.totals.purchased,4);assert.equal(d.totals.purchaseCents,30000);assert.equal(d.totals.missingPrices,1);assert.equal(d.totals.rma,1);assert.equal(d.rmaPercent,25);assert.equal(d.totals.open,3);assert.equal(d.supplierRows[0].name,'A');assert.ok(Math.abs(d.supplierRows[0].rmaPercent-100/3)<1e-10);assert.equal(d.supplierRows[1].missingPrices,0);
+});
+test('configured final values and labels are identical to reception completion semantics',async()=>{
+ const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a',null,'Vendor')],statuses:[{id:'start',value:'booked',label:'Geboekt'},{id:'end',value:'ready',label:'Klaar'},{id:'rma',value:'rma',label:'Retour'}],transitions:[{from_status_id:'start',to_status_id:'end'},{from_status_id:'rma',to_status_id:'start'}],items:[item('1','a',' Klaar ','iPad'),item('2','a','Geboekt','iPad'),item('3','a','Retour','iPad'),item('4','a',null,null)]},filters);
+ assert.equal(d.totals.open,3);assert.equal(d.totals.rma,1);assert.equal(d.byStatus.reduce((sum,row)=>sum+row.count,0),3);assert.ok(d.byStatus.some(row=>row.name==='Geen status'));
+});
+test('model groups use configured keywords; every open device is included in each breakdown',async()=>{
+ const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a',null,'Vendor')],models:[{id:'ipad',name:'iPad',search_keywords:'ipad, tablet'},{id:'phone',name:'iPhone',search_keywords:'iphone'}],items:[item('1','a','rma','Apple iPad 2025'),item('2','a','new','IPHONE 14'),item('3','a','new',null)]},filters);
+ for(const rows of [d.byModel,d.bySupplier,d.byStatus,d.openRows])assert.equal(rows.reduce((sum,row)=>sum+row.count,0),3);
+ assert.deepEqual(Array.from(d.byModel,row=>row.name).sort(),['Niet herkend','iPad','iPhone'].sort());
+});
+test('inclusive reception dates and supplier identity filter purchases and open devices together',async()=>{
+ const h=await helper(),input={...empty(),receptions:[reception('before','x','X','2026-09-30'),reception('first','x','Old X','2026-10-01'),reception('last','x','X','2026-10-31'),reception('other','y','Y','2026-10-01')],items:['before','first','last','other'].map(id=>item(id,id,'rma','iPad'))};
+ const d=h.buildRefurbAnalytics(input,{from:'2026-10-01',to:'2026-10-31',supplier:'id:x'});assert.equal(d.totals.purchased,2);assert.equal(d.totals.open,2);assert.equal(d.rmaPercent,100);assert.equal(d.availableSuppliers.length,2);
+});
+test('invalid, reversed and impossible periods fail; empty and zero-price datasets are safe',async()=>{
+ const h=await helper();for(const params of [{from:'2026-02-30'},{from:'oops'},{from:'2026-10-02',to:'2026-10-01'}])assert.throws(()=>h.parseAnalyticsFilters(params));
+ assert.equal(h.parseAnalyticsFilters({from:'2024-02-29'}).from,'2024-02-29');const d=h.buildRefurbAnalytics({...empty(),receptions:[reception('empty',null,null)]},filters);assert.equal(d.rmaPercent,0);assert.equal(d.supplierRows[0].name,'Onbekende leverancier');assert.equal(d.supplierRows[0].purchased,0);
+});
+test('analytics loader retrieves all pages with minimal columns and rejects incomplete reads',async()=>{
+ async function run(fail=false){const calls=[];const context=vm.createContext({});const db={from(table){let offset=0,limit=1000;const q={select(columns){calls.push({table,columns});return q;},order(key){assert.equal(key,'id');return q;},range(from,to){offset=from;limit=to-from+1;return q;},then(resolve,reject){const rows=table==='refurb_reception_items'?Array.from({length:1002},(_,i)=>({id:String(i)})):[];return Promise.resolve({data:rows.slice(offset,offset+limit),error:fail&&table==='refurb_models'?{message:'PRIVATE'}:null}).then(resolve,reject);}};return q;}};
+ const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/refurb/analytics/data.ts',root),'utf8'),{mode:'strip'}),{context});await m.link(spec=>spec==='server-only'?new vm.SyntheticModule([],function(){},{context}):new vm.SyntheticModule(['supabaseAdmin'],function(){this.setExport('supabaseAdmin',db);},{context}));await m.evaluate();if(fail){await assert.rejects(m.namespace.loadAnalyticsInput(),e=>!e.message.includes('PRIVATE'));return;}const data=await m.namespace.loadAnalyticsInput();assert.equal(data.items.length,1002);for(const call of calls)assert.doesNotMatch(call.columns,/imei|manual_sn|contact|email|supplier_device_errors/);}
+ await run();await run(true);
+});
+

@@ -1,0 +1,113 @@
+name: Production release verification
+on:
+  push:
+    branches: [release/security-20261024, main]
+    paths:
+      - lib/verifyLeadPrice.ts
+      - app/api/buyback/lead/route.ts
+      - security/tests/lead-price.test.mjs
+      - .github/workflows/release-verification.yml
+      - app/admin/leads/**
+      - lib/leadDeviceValidation.ts
+      - lib/skuSearch.ts
+      - security/tests/lead-device-*.test.mjs
+      - package.json
+      - package-lock.json
+      - security/tests/zod-compat.test.mjs
+      - security/tests/ftp-compat.test.mjs
+      - lib/erpSync.ts
+      - lib/security/labelLinks.ts
+      - lib/security/mailProbe.ts
+      - lib/email/sendStatusUpdateMail.ts
+      - app/api/admin/sendcloud/label/route.ts
+      - app/admin/mail-test/page.tsx
+      - security/tests/mail-integration.test.mjs
+      - security/tests/label-links.test.mjs
+      - security/tests/erp-flow.test.mjs
+      - security/tests/prisma-compat.test.mjs
+      - security/tests/xlsx-compat.test.mjs
+      - security/tests/supabase-compat.test.mjs
+      - lib/supabaseAdmin.ts
+      - lib/supabaseServer.ts
+      - app/admin/refurb/**
+      - security/tests/reception-list.test.mjs
+      - lib/refurbStatusFilter.ts
+      - lib/supplierRma.ts
+      - security/tests/supplier-rma*.test.mjs
+      - security/tests/security.test.mjs
+      - security/sql/*supplier-rma*.sql
+      - security/tests/reception-status-*.test.mjs
+      - lib/refurbAnalytics.ts
+      - security/tests/refurb-analytics*.test.mjs
+      - prisma/schema.prisma
+      - lib/prisma.ts
+      - .github/workflows/test-dependency-lock.yml
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Check clean installation from generated lock
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify real application validation schemas without external services
+        run: node --test security/tests/zod-compat.test.mjs
+      - name: Verify ERP download using loopback FTP fixtures only
+        run: node --test security/tests/ftp-compat.test.mjs
+      - name: Validate schema and generate client without connecting to a database
+        env:
+          DATABASE_URL: postgresql://synthetic:synthetic@127.0.0.1:1/fixture
+          PRISMA_GENERATE_SKIP_AUTOINSTALL: '1'
+        run: |
+          npx --no-install prisma validate --schema=prisma/schema.prisma
+          npx --no-install prisma generate --schema=prisma/schema.prisma
+          node --test security/tests/prisma-compat.test.mjs
+      - name: Verify actual ERP Excel parsing using synthetic in-memory workbooks
+        run: node --test security/tests/xlsx-compat.test.mjs
+      - name: Verify Supabase SDK and cookie contracts with mocked transport only
+        run: node --test security/tests/supabase-compat.test.mjs
+      - name: Recheck access, sessions, reception and lead security
+        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
+      - name: Verify reception status links and filtered item lists without external services
+        run: node --experimental-vm-modules --test security/tests/reception-status-filter.test.mjs security/tests/reception-status-ui.test.mjs
+      - name: Verify label authorization and ERP orchestration
+        run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
+      - name: Verify lead status validation and SKU selection without live services
+        run: node --experimental-vm-modules --test security/tests/lead-device-validation.test.mjs security/tests/lead-device-ui.test.mjs
+      - name: Verify refurb analytics totals, filters and authorization without live services
+        run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
+      - name: Verify supplier RMA rules and authenticated actions without live services
+        run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs
+      - name: Check application types against the updated SDK
+        run: |
+          node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
+          npx --no-install tsc --noEmit
+      - name: Collect production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > dependency-audit.json && result=0 || result=$?
+          if [ "$result" -gt 1 ]; then exit "$result"; fi
+      - name: Record tested source and installed framework
+        run: |
+          node -e "const fs=require('fs'); fs.writeFileSync('dependency-review.json',JSON.stringify({commit:process.env.GITHUB_SHA,node:process.version,next:require('next/package.json').version,react:require('react/package.json').version,zod:require('zod/package.json').version},null,2))"
+      - name: Make dependency review readable to the connected reviewer
+        run: |
+          node -e "const fs=require('fs'),z=require('zlib'); const data=Object.fromEntries(['package-lock.json','dependency-audit.json','dependency-review.json'].map(p=>[p,fs.readFileSync(p,'utf8')])); const text=z.gzipSync(JSON.stringify(data)).toString('base64'); console.log('REVIEW_BUNDLE_START'); for(let i=0;i<text.length;i+=3000)console.log(text.slice(i,i+3000)); console.log('REVIEW_BUNDLE_END')"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dependency-review
+          path: |
+            package-lock.json
+            dependency-audit.json
+            dependency-review.json
+          retention-days: 7
+          if-no-files-found: error
+
+

@@ -1,0 +1,41 @@
+import Link from 'next/link';
+import { requirePageAccess } from '@/lib/security/access';
+import { supplierRmaStages, supplierRmaTotals } from '@/lib/supplierRma';
+import { loadSupplierRmaData } from './data';
+import { createSupplierRma } from './actions';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+const money = (cents: number) => new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+const closed = new Set(['closed', 'rejected', 'cancelled']);
+const cell = 'border-b px-3 py-2';
+const messages: Record<string, string> = { conflict: 'Dit dossier is intussen gewijzigd. Open het opnieuw en probeer nogmaals.', already_linked: 'Een artikel zit al in een actief RMA-dossier. Vernieuw het overzicht.', supplier: 'Selecteer uitsluitend artikelen van dezelfde leverancier.', closed: 'Dit dossier is afgesloten. Heropen het eerst als verdere verwerking nodig is.', invalid: 'Niet opgeslagen. Controleer de selectie, bedragen en datums en probeer opnieuw.' };
+export default async function SupplierRmaPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
+  await requirePageAccess('refurb', true);
+  const query = await searchParams ?? {};
+  const supplier = typeof query.supplier === 'string' ? query.supplier : '';
+  const includeClosed = query.history === '1';
+  let data;
+  try { data = await loadSupplierRmaData(); } catch { return <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-4">RMA-gegevens konden niet volledig geladen worden. Vernieuw de pagina.</p>; }
+  const cases = data.cases.filter(row => (includeClosed || !closed.has(row.stage)) && (!supplier || (row.supplier_id || 'name:' + row.supplier_name.trim().toLowerCase()) === supplier));
+  const selectedIds = new Set(cases.map(row => row.id));
+  const totals = supplierRmaTotals(data.caseItems.filter(row => selectedIds.has(row.case_id)));
+  const activeCases = new Set(cases.filter(row => !closed.has(row.stage)).map(row => row.id));
+  const activeTotals = supplierRmaTotals(data.caseItems.filter(row => activeCases.has(row.case_id)));
+  const candidates = supplier ? data.candidates.filter(row => (includeClosed || !row.finished) && (row.reception!.supplier_id || 'name:' + row.reception!.supplier.trim().toLowerCase()) === supplier) : [];
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Brussels' });
+  return <div className="space-y-5">
+    <div><h1 className="text-lg font-semibold">RMA Supplier</h1><p className="text-sm text-slate-500">Volg leveranciersdossiers, verzendingen, afspraken en compensaties op.</p></div>
+    {typeof query.msg === 'string' && messages[query.msg] && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">{messages[query.msg]}</p>}
+    <form action="/admin/refurb/rma" className="flex flex-wrap items-end gap-3 rounded-md border bg-white p-3">
+      <label className="flex flex-col gap-1 text-xs">Leverancier<select name="supplier" defaultValue={supplier} className="bb-input h-9 px-2"><option value="">Alle leveranciers</option>{data.suppliers.map(row => <option key={row.key} value={row.key}>{row.name}</option>)}</select></label>
+      <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" name="history" value="1" defaultChecked={includeClosed} />Ook afgesloten dossiers en afgewerkte artikelen</label>
+      <button className="bb-btn bb-btn-primary text-sm">Toepassen</button><Link href="/admin/refurb/rma" className="bb-btn text-sm">Filters wissen</Link>
+    </form>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[{label:'Dossiers in selectie',value:String(cases.length)},{label:'Verwachte compensatie',value:money(totals.expected)},{label:'Ontvangen compensatie',value:money(totals.received)},{label:'Nog te ontvangen · actieve dossiers',value:money(activeTotals.outstanding)}].map(card=><div key={card.label} className="rounded-md border bg-white p-4"><div className="text-xs text-slate-500">{card.label}</div><div className="mt-1 text-xl font-semibold tabular-nums">{card.value}</div></div>)}</div>
+    {totals.unknown>0&&<p role="status" className="text-sm text-amber-700">Bij {totals.unknown} dossierartikelen is het verwachte bedrag nog onbekend. Het openstaande totaal is dus onvolledig.</p>}
+    <section className="space-y-2"><h2 className="text-base font-semibold">Leveranciersdossiers</h2><div className="overflow-x-auto rounded-md border bg-white"><table className="w-full text-sm"><caption className="sr-only">RMA-dossiers en financiële opvolging</caption><thead className="bg-slate-50"><tr>{['Dossier','Leverancier','Status','Artikelen','Verwacht','Ontvangen','Openstaand','Opvolgen op'].map(label=><th key={label} scope="col" className={cell+' text-left'}>{label}</th>)}</tr></thead><tbody>{cases.map(row=>{const items=data.caseItems.filter(item=>item.case_id===row.id),sum=supplierRmaTotals(items);return <tr key={row.id}><th scope="row" className={cell+' text-left font-medium'}><Link href={'/admin/refurb/rma/'+row.id} prefetch={false} className="text-blue-600 underline">{row.code}</Link>{row.supplier_reference&&<span className="block text-xs text-slate-500">{row.supplier_reference}</span>}</th><td className={cell}>{row.supplier_name}</td><td className={cell}>{supplierRmaStages[row.stage as keyof typeof supplierRmaStages]||row.stage}</td><td className={cell}>{items.length}</td><td className={cell}>{money(sum.expected)}</td><td className={cell}>{money(sum.received)}</td><td className={cell}>{closed.has(row.stage)?'—':money(sum.outstanding)}{sum.unknown>0&&<span className="block text-xs text-amber-700">{sum.unknown} onbekend</span>}</td><td className={cell+(!closed.has(row.stage)&&row.followup_on&&row.followup_on<today?' font-semibold text-red-700':'')}>{row.followup_on||'—'}</td></tr>;})}{!cases.length&&<tr><td colSpan={8} className="p-5 text-center text-slate-500">Geen dossiers binnen deze selectie.</td></tr>}</tbody></table></div></section>
+    <section className="space-y-2"><h2 className="text-base font-semibold">Nieuw dossier</h2><p className="text-xs text-slate-500">Kies bovenaan één leverancier en selecteer de artikelen. Artikelen in een actief dossier worden niet dubbel aangeboden. Dossierstatussen wijzigen de toestelstatussen niet automatisch.</p>
+      {!supplier?<p className="rounded-md border p-4 text-sm text-slate-500">Selecteer eerst een leverancier.</p>:<form action={createSupplierRma} className="space-y-3"><div className="max-h-96 overflow-auto rounded-md border bg-white"><table className="w-full text-sm"><caption className="sr-only">Beschikbare RMA-artikelen van de gekozen leverancier</caption><thead className="bg-slate-50"><tr>{['Selectie','Receptie','IMEI / SN','Omschrijving / defect','Status','Verwacht'].map(label=><th key={label} scope="col" className={cell+' text-left'}>{label}</th>)}</tr></thead><tbody>{candidates.map(row=><tr key={row.id}><td className={cell}><input type="checkbox" name="item_ids" value={row.id} aria-label={'Selecteer '+(row.description||row.imei_sn||'artikel')} /></td><td className={cell}><Link href={'/admin/refurb/'+row.reception_id} prefetch={false} className="text-blue-600 underline">{row.reception!.reception_number}</Link><span className="block text-xs text-slate-500">{row.reception!.supplier_invoice_nr}</span></td><td className={cell+' font-mono text-xs'}>{row.imei_sn||row.manual_sn||'—'}</td><td className={cell}>{row.description||'—'}<span className="block text-xs text-slate-500">{row.rma_defect_description}</span></td><td className={cell}>{row.refurb_status||'—'}</td><td className={cell}>{row.compensation_cents!=null?money(row.compensation_cents):row.price_cents!=null?money(row.price_cents):'Onbekend'}</td></tr>)}{!candidates.length&&<tr><td colSpan={6} className="p-5 text-center text-slate-500">Geen beschikbare RMA-artikelen. Toon eventueel ook afgewerkte artikelen.</td></tr>}</tbody></table></div><button type="submit" disabled={!candidates.length} className="bb-btn bb-btn-primary text-sm">Maak dossier met geselecteerde artikelen</button></form>}
+    </section>
+  </div>;
+}
