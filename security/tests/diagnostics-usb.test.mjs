@@ -126,7 +126,7 @@ test('session action authorizes first, reuses identity transactionally and refus
   denied=true;await assert.rejects(api.createDiagnosticSession(input),/Unauthorized/);assert.equal(txCount,0);
   denied=false;const created=await api.createDiagnosticSession(input);assert.equal(created.sessionId,'session');assert.equal(writes,3);assert.equal(saved.batteryHealth,undefined);assert.equal(snapshot.value.battery.source,'unknown');
   input.set('batteryHealth','83');input.set('batterySource','calculated');input.set('batteryDesignCapacity','4297');input.set('batteryNominalChargeCapacity','3576');
-  assert.equal((await api.createDiagnosticSession(input)).sessionId,'session');assert.equal(snapshot.value.battery.source,'calculated');assert.equal(snapshot.value.battery.health,83);
+  assert.equal((await api.createDiagnosticSession(input)).sessionId,'session');assert.equal(snapshot.value.battery.source,'calculated');assert.equal(snapshot.value.battery.health,83);assert.equal(saved.batteryHealth,undefined);
   for(const key of ['batteryHealth','batterySource','batteryDesignCapacity','batteryNominalChargeCapacity'])input.delete(key);
   matches=[{id:'device',serialNumber:'SYNTHETIC',batteryHealth:93}];assert.equal((await api.createDiagnosticSession(input)).sessionId,'session');assert.equal(saved.batteryHealth,undefined);
   const before=writes;matches=[{id:'a'},{id:'b'}];assert.ok((await api.createDiagnosticSession(input)).error);assert.equal(writes,before);

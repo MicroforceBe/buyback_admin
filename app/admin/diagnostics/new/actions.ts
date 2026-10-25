@@ -27,7 +27,9 @@ export async function createDiagnosticSession(formData: FormData): Promise<{erro
         ...(input.iosVersion?{iosVersion:input.iosVersion}:{}),
         ...(input.modelNumber?{modelNumber:input.modelNumber}:{}),
         ...(input.batteryCycles!==''?{batteryCycles:Number(input.batteryCycles)}:{}),
-        ...(input.batteryHealth!==''?{batteryHealth:Number(input.batteryHealth)}:{}),
+        // Calculated health belongs to this session, not the shared device row:
+        // legacy sessions without provenance must not silently inherit an estimate.
+        ...(input.batteryHealth!==''&&input.batterySource!=='calculated'?{batteryHealth:Number(input.batteryHealth)}:{}),
       };
       const unit=existing?await tx.deviceUnit.update({where:{id:existing.id},data}):await tx.deviceUnit.create({data});
       const session=await tx.diagnosticSession.create({data:{deviceUnitId:unit.id,status:'draft'}});
