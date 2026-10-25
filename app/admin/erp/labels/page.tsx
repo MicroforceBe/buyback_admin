@@ -3,7 +3,7 @@ import { requirePageAccess } from '@/lib/security/access';
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import PrintButton from "./PrintButton";
-import Barcode from "./Barcode";
+import { labelStyles, renderProductLabel } from "@/lib/productLabel";
 import { getRefurbLabelSource } from "./refurbSource";
 
 export const dynamic = "force-dynamic";
@@ -15,49 +15,6 @@ type Article = {
   price_cents: number | null;
   vat_margin: boolean | null;
 };
-
-function parseArticleTitle(title: string | null) {
-  const raw = title || "";
-  const upper = raw.toUpperCase();
-
-  const capacity =
-    upper.match(/\b(64GB|128GB|256GB|512GB|1TB|2TB)\b/)?.[1] || "";
-
-const grade =
-  upper.match(/(^|[\s\-_/])(NIEUW|NEW|3\*|4\*|5\*|OEM|PREMIUM|GRADE A|GRADE B|GRADE C)(?=$|[\s\-_/])/)
-    ?.[2] || "";
-
-
-  const colors = [
-    "BLACK",
-    "WHITE",
-    "BLUE",
-    "RED",
-    "GREEN",
-    "YELLOW",
-    "PURPLE",
-    "PINK",
-    "SILVER",
-    "GOLD",
-    "GRAPHITE",
-    "MIDNIGHT",
-    "STARLIGHT",
-    "SPACE GRAY",
-    "SPACE BLACK",
-    "TITANIUM",
-    "NATURAL",
-  ];
-
-  const color = colors.find((c) => upper.includes(c)) || "";
-
-  const modelMatch = upper.match(
-    /(IPHONE\s+[0-9A-Z]+\s*(MINI|PRO MAX|PRO|PLUS|MAX)?|IPAD\s+[A-Z0-9\s]+|MACBOOK\s+[A-Z0-9\s]+)/
-  );
-
-  const model = modelMatch?.[1]?.trim() || raw;
-
-  return { model, capacity, color, grade };
-}
 
 async function getArticleBySku(sku: string): Promise<Article | null> {
   if (!sku.trim()) return null;
@@ -100,8 +57,12 @@ export default async function ErpLabelsPage({
   const manualGrade = fromRefurb ? "" : String(searchParams?.grade || "").trim();
 
   const article = await getArticleBySku(sku);
-  const parsed = parseArticleTitle(article?.title || null);
-  const finalGrade = manualGrade || parsed.grade;
+  let labelHtml: string | null = null;
+  let labelError = '';
+  if (article) {
+    try { labelHtml = renderProductLabel({sku:article.sku,title:article.title,serial:imei,battery,grade:manualGrade,vatMargin:article.vat_margin}); }
+    catch(error){ labelError = error instanceof Error ? error.message : 'Het label kon niet worden opgebouwd.'; }
+  }
 
   return (
     <div className="space-y-6">
@@ -121,7 +82,7 @@ export default async function ErpLabelsPage({
             </p>
           </div>
 
-          <PrintButton />
+          <PrintButton html={labelHtml} />
         </div>
       </div>
 
@@ -206,7 +167,7 @@ export default async function ErpLabelsPage({
           {article && (
             <div className="mt-6 rounded-2xl border bg-green-50 p-4 text-sm text-green-800">
               <div className="font-semibold">Artikel gevonden</div>
-              <div className="mt-2 text-green-900">{article.title}</div>
+              <div className="mt-2 text-green-900">{article?.title}</div>
               <div className="mt-1">
                 {article.vat_margin ? "Margin VAT" : "Normal VAT"}
               </div>
@@ -215,7 +176,7 @@ export default async function ErpLabelsPage({
         </div>
 
         <div className="rounded-2xl border bg-white p-6 shadow-sm print:border-0 print:p-0 print:shadow-none">
-          {article ? (
+          {labelHtml ? (
             <>
               <div className="mb-4 flex items-center justify-between print:hidden">
                 <div>
@@ -224,304 +185,28 @@ export default async function ErpLabelsPage({
                   </div>
 
                   <div className="text-xs text-slate-500">
-                    {article.title}
+                    {article?.title}
                   </div>
                 </div>
 
-                <PrintButton />
+                <PrintButton html={labelHtml} />
               </div>
 
-              <div className="label-sheet">
-                <div className="label-card">
-                  <div className="label-left">
-                    <div className="label-model">{parsed.model}</div>
-
-                    <div className="label-sub">
-                      {[parsed.capacity, parsed.color]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-
-                    <div className="label-lines">
-                      <div className="label-row">
-                        <div className="label-text">
-                          <div className="label-caption">SKU</div>
-                          <div className="label-value">{article.sku}</div>
-                        </div>
-
-                        <div className="label-barcode-wrap">
-                          <Barcode value={article.sku} />
-                        </div>
-                      </div>
-
-                      <div className="label-divider" />
-
-                      <div className="label-row">
-                        <div className="label-text">
-                          <div className="label-caption">IMEI / SN</div>
-                          <div className="label-value">{imei || "—"}</div>
-                        </div>
-
-                        <div className="label-barcode-wrap">
-                          <Barcode value={imei} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="label-footer">
-                      {article.vat_margin ? "Margin VAT" : "Normal VAT"}
-                    </div>
-                  </div>
-
-                  <div className="label-right">
-                    <div className="label-logo">MICROFORCE</div>
-
-                    <div className="label-side-content">
-                      <div className="label-side-block">
-                        <div className="label-side-title">Grade</div>
-                        <div className="label-side-value">
-                          {finalGrade || "—"}
-                        </div>
-                      </div>
-
-                      <div className="label-side-block">
-                        <div className="label-side-title">Battery</div>
-                        <div className="label-side-value">
-                          {battery ? `${battery}%` : "—"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="label-ce">CE</div>
-                  </div>
-                </div>
-              </div>
+              <div className="overflow-auto" dangerouslySetInnerHTML={{__html:labelHtml ?? ''}} />
 
               <div className="mt-4 text-xs text-slate-500 print:hidden">
-                Label formaat: 89mm × 36mm · DYMO 99012 Large Address Label
+                DYMO LabelWriter 450 · 99012 (89 × 36 mm). Kies dit papierformaat, schaal 100%, marges 0 en geen kop-/voetteksten. Controleer dat het afdrukvoorbeeld één label toont.
               </div>
             </>
           ) : (
             <div className="text-sm text-slate-500">
-              Geef een SKU in om een label te genereren.
+              {labelError || sourceError || (sku && !article ? "Geen ERP-artikel gevonden voor deze SKU." : "Geef een SKU in om een label te genereren.")}
             </div>
           )}
         </div>
       </div>
 
-      <style>{`
-        .label-sheet {
-          display: flex;
-          align-items: flex-start;
-          justify-content: flex-start;
-        }
-
-        .label-card {
-          width: 89mm;
-          height: 36mm;
-          box-sizing: border-box;
-          border: 1px solid #111827;
-          background: white;
-          color: #111827;
-          font-family: Arial, sans-serif;
-          display: grid;
-          grid-template-columns: 1fr 18mm;
-          overflow: hidden;
-        }
-
-        .label-left {
-          padding: 2.2mm 2.5mm;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          min-width: 0;
-        }
-
-        .label-model {
-          font-size: 12px;
-          font-weight: 800;
-          line-height: 1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .label-sub {
-          margin-top: 0.6mm;
-          font-size: 8px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .label-lines {
-          margin-top: 1.8mm;
-        }
-
-         .label-row {
-          display: grid;
-          grid-template-columns: 24mm 1fr;
-          column-gap: 2mm;
-          align-items: center;
-          width: 100%;
-        }
-
-
-        .label-text {
-          width: 24mm;
-          min-width: 24mm;
-          max-width: 24mm;
-          overflow: hidden;
-        }
-
-
-        .label-caption {
-          font-size: 5.5px;
-          text-transform: uppercase;
-          color: #64748b;
-          font-weight: 700;
-        }
-
-        .label-value {
-          margin-top: 0.3mm;
-          font-size: 8px;
-          font-weight: 700;
-          line-height: 1.1;
-          word-break: break-all;
-        }
-
-        .label-barcode-wrap {
-          width: 100%;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: flex-start;
-        }
-
-        .label-barcode {
-          width: 100%;
-          height: 7mm;
-          display: block;
-        }
-
-        .label-divider {
-          margin: 1.3mm 0;
-          border-top: 1px solid #d1d5db;
-        }
-
-        .label-footer {
-          margin-top: auto;
-          border-top: 1px solid #d1d5db;
-          padding-top: 0.8mm;
-          text-align: center;
-          font-size: 6px;
-          text-transform: uppercase;
-          color: #475569;
-          font-weight: 700;
-        }
-
-        .label-right {
-          border-left: 1px solid #d1d5db;
-          padding: 1.5mm;
-          display: flex;
-          flex-direction: column;
-          align-items: stretch;
-          justify-content: space-between;
-        }
-
-        .label-logo {
-          border: 1px solid #111827;
-          padding: 0.7mm 1mm;
-          font-size: 5px;
-          font-weight: 800;
-          letter-spacing: 0.4px;
-          text-align: center;
-          width: 100%;
-        }
-
-        .label-side-content {
-          display: flex;
-          flex-direction: column;
-          gap: 2.5mm;
-        }
-
-        .label-side-block {
-          width: 100%;
-          border-top: 1px solid #d1d5db;
-          padding-top: 1mm;
-        }
-
-        .label-side-title {
-          font-size: 5px;
-          text-transform: uppercase;
-          color: #64748b;
-          font-weight: 700;
-        }
-
-        .label-side-value {
-          margin-top: 0.4mm;
-          font-size: 11px;
-          font-weight: 900;
-          line-height: 1;
-        }
-
-        .label-ce {
-          align-self: flex-end;
-          font-size: 7px;
-          font-weight: 800;
-          letter-spacing: -0.4px;
-          line-height: 1;
-        }
-
-@media print {
-  html,
-  body {
-    width: 89mm;
-    height: 36mm;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-  }
-
-  body * {
-    visibility: hidden !important;
-  }
-
-  .label-sheet,
-  .label-sheet * {
-    visibility: visible !important;
-  }
-
-  .label-sheet {
-    position: fixed !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 89mm !important;
-    height: 36mm !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-  }
-
-  .label-card {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 89mm !important;
-    height: 36mm !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    border: none !important;
-  }
-
-  @page {
-    size: 89mm 36mm;
-    margin: 0;
-  }
-}
-
-      `}</style>
+      <style>{labelStyles}</style>
     </div>
   );
 }
