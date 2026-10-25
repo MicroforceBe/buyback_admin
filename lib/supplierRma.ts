@@ -31,3 +31,9 @@ export function rmaDate(raw: unknown): string | null {
 export function supplierRmaTotals(items: { expected_cents: number | null; received_cents: number }[]) {
   return items.reduce((sum, item) => ({ expected: sum.expected + (item.expected_cents ?? 0), received: sum.received + item.received_cents, outstanding: sum.outstanding + (item.expected_cents == null ? 0 : Math.max(0, item.expected_cents - item.received_cents)), unknown: sum.unknown + (item.expected_cents == null ? 1 : 0) }), { expected: 0, received: 0, outstanding: 0, unknown: 0 });
 }
+
+export function isRefundedRmaItem(item: { refurb_status?: string | null }, options: { value: string; label?: string | null }[] = []) {
+  const value=(item.refurb_status??'').trim().toLowerCase();
+  const option=options.find(o=>o.value.trim().toLowerCase()===value||o.label?.trim().toLowerCase()===value);
+  return /refund|terugbetaald/i.test(value+' '+(option?.label??''));
+}
