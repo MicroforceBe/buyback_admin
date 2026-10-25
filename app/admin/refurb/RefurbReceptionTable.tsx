@@ -7,6 +7,7 @@ import { createReceptionSupplierRma, registerLateReceptionRma } from "./rma/acti
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { isSupplierRmaItem, compensationOnRmaEntry, isRefundedRmaItem, supplierRmaStages } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
+import { canPrintRefurbLabel } from "@/lib/refurbLabel";
 import { useRouter } from "next/navigation";
 import {
   RefurbItem,
@@ -1570,6 +1571,11 @@ async function copyCompleteRmaOverview() {
                           );
                         })}
                   </select>
+                  {canPrintRefurbLabel(currentStatus, statusOptions) && (
+                    <a href={`/admin/erp/labels?item=${encodeURIComponent(it.id)}`} target="_blank" rel="noopener noreferrer" title="Verpakkingslabel bekijken en printen" aria-label="Verpakkingslabel bekijken en printen" className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500">
+                      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/><path d="M18 12h.01"/></svg>
+                    </a>
+                  )}
                 </div>
               </td>
 
