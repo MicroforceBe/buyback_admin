@@ -6,7 +6,7 @@ BEGIN
  INSERT INTO public.refurb_receptions(reception_number,reception_date,supplier,vat_scheme,supplier_invoice_nr) VALUES('TEST-SETTLE-'||gen_random_uuid(),current_date,'TEST SETTLEMENT','margin','TEST ONLY') RETURNING id INTO r;
  INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,0,'RMA',10000) RETURNING id INTO a;
  INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,1,'RMA',0) RETURNING id INTO b;
- c:=public.prepare_reception_supplier_rma(r,NULL,false,'test@example.invalid');
+ c:=public.assign_reception_supplier_rma(r,array[a,b],NULL,false,false,'test@example.invalid');
  SELECT id INTO line_a FROM public.supplier_rma_items WHERE case_id=c AND reception_item_id=a;
  SELECT id INTO line_b FROM public.supplier_rma_items WHERE case_id=c AND reception_item_id=b;
  SELECT version INTO v FROM public.supplier_rma_cases WHERE id=c;
@@ -51,7 +51,7 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'Final bulk action accepted'; END IF;
  INSERT INTO public.refurb_reception_items(reception_id,row_index,refurb_status,price_cents) VALUES(r,2,'RMA',5000) RETURNING id INTO a;
  IF EXISTS(SELECT 1 FROM public.supplier_rma_items WHERE reception_item_id=a) THEN RAISE EXCEPTION 'New article attached to handled dossier'; END IF;
- c2:=public.prepare_reception_supplier_rma(r,NULL,false,'test@example.invalid');
+ c2:=public.assign_reception_supplier_rma(r,array[a],NULL,false,false,'test@example.invalid');
  IF c2=c THEN RAISE EXCEPTION 'Handled dossier reused'; END IF;
  IF (SELECT count(*) FROM public.supplier_rma_history WHERE case_id=c AND event IN ('copy_item','copy_all','finalize'))<>4 THEN RAISE EXCEPTION 'Receipt/finalization audit missing'; END IF;
 END $$;

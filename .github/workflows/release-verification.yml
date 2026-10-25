@@ -84,7 +84,7 @@ jobs:
       - name: Verify refurb analytics totals, filters and authorization without live services
         run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
       - name: Verify supplier RMA rules and authenticated actions without live services
-        run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs
+        run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-reception-data.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
