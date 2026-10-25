@@ -32,6 +32,9 @@ on:
       - app/admin/refurb/**
       - security/tests/reception-list.test.mjs
       - app/admin/erp/labels/**
+      - lib/productLabel.ts
+      - lib/printProductLabel.ts
+      - security/tests/product-label.test.mjs
       - lib/refurbLabel.ts
       - security/tests/refurb-label*.test.mjs
       - lib/receptionTerms.ts
@@ -93,7 +96,7 @@ jobs:
       - name: Verify reception RMA terms and guarded metadata updates
         run: node --experimental-vm-modules --test security/tests/reception-terms.test.mjs
       - name: Verify saved reception labels and access without printers
-        run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs
+        run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/product-label.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
