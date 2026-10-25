@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 const uuid = (raw: unknown) => { const value = String(raw ?? ''); if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw Error('RMA_INPUT'); return value; };
 const short = (form: FormData, key: string, max = 250) => { const value = String(form.get(key) ?? '').trim(); if (value.length > max) throw Error('RMA_INPUT'); return value; };
 function version(form: FormData) { const value = Number(form.get('version')); if (!Number.isSafeInteger(value) || value < 1) throw Error('RMA_INPUT'); return value; }
-function errorCode(error: unknown) { const message = error instanceof Error ? error.message : ''; if (message.includes('RMA_CONFLICT')) return 'conflict'; if (message.includes('supplier_rma_one_active_case')) return 'already_linked'; if (message.includes('RMA_SUPPLIER_MISMATCH')) return 'supplier'; if (message.includes('RMA_CASE_CLOSED')) return 'closed'; return 'invalid'; }
+function errorCode(error: unknown) { const message = error instanceof Error ? error.message : ''; if (message.includes('RMA_CONFLICT')) return 'conflict'; if (message.includes('RMA_NO_NEW_ITEMS')) return 'no_new_items'; if (message.includes('RMA_ALREADY_LINKED') || message.includes('supplier_rma_one_active_case')) return 'already_linked'; if (message.includes('RMA_SUPPLIER_MISMATCH')) return 'supplier'; if (message.includes('RMA_CASE_CLOSED')) return 'closed'; return 'invalid'; }
 async function mutate(command: string, data: Record<string, unknown>, actor: string) {
   const { data: result, error } = await supabaseAdmin.rpc('manage_supplier_rma', { p_command: command, p_data: data, p_actor: actor });
   if (error) throw Error(error.message);
@@ -63,4 +63,32 @@ export async function addSupplierRmaItems(form: FormData) {
   } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
   revalidatePath('/admin/refurb/rma'); revalidatePath('/admin/refurb/rma/' + id);
   redirect('/admin/refurb/rma/' + id + '?saved=1');
+}
+
+export async function createReceptionSupplierRma(form: FormData) {
+  const user = await requireAccess('refurb', 'write', true);
+  let id: string;
+  try {
+    const receptionId = uuid(form.get('reception_id'));
+    const { data, error } = await supabaseAdmin.rpc('create_reception_supplier_rma', { p_reception_id: receptionId, p_actor: user.email });
+    if (error) throw Error(error.message);
+    id = uuid(data);
+  } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
+  revalidatePath('/admin/refurb'); revalidatePath('/admin/refurb/rma');
+  redirect('/admin/refurb/rma/' + id);
+}
+
+export async function registerLateReceptionRma(form: FormData) {
+  const user = await requireAccess('refurb', 'write', true);
+  let id: string;
+  try {
+    const receptionId = uuid(form.get('reception_id'));
+    const ids = [...new Set(form.getAll('item_ids').map(uuid))];
+    if (!ids.length || ids.length > 200) throw Error('RMA_INPUT');
+    const { data, error } = await supabaseAdmin.rpc('register_late_reception_rma', { p_reception_id: receptionId, p_item_ids: ids, p_actor: user.email });
+    if (error) throw Error(error.message);
+    id = uuid(data);
+  } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
+  revalidatePath('/admin/refurb'); revalidatePath('/admin/refurb/rma');
+  redirect('/admin/refurb/rma/' + id);
 }
