@@ -51,3 +51,5 @@
  .reception :global(.reception-panel-heading) small { display:none; }
  .reception :global(.reception-panel-body) { padding:12px; }
 }
+
+.reception details:global(.reception-panel) { padding:0; }

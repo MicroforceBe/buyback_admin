@@ -1787,7 +1787,7 @@ async function copyCompleteRmaOverview() {
           aria-controls={'bulk-panel-'+receptionId}
           onClick={() => setBulkOpen((v) => !v)}
         >
-          <div className="font-medium text-[11px] uppercase tracking-wide text-slate-700">Bulk Update</div>
+          <strong>Bulk update</strong>
           <div className="flex items-center gap-2 text-[11px] text-slate-600">
             {isBulkUpdating && (
               <>
