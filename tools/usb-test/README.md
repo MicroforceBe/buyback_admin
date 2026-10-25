@@ -14,7 +14,21 @@ Als Chrome om lokale netwerktoegang vraagt, geef uitsluitend deze testsite toega
 Bij een toestel worden de velden automatisch ingevuld; bij meerdere toestellen kies
 je het gewenste toestel. Controleer de waarden en klik Sessie starten om te bewaren.
 
-Batterijconditie, ontbrekende opslag/kleur en onbekende modellen worden niet geraden.
+Batterijconditie wordt berekend als nominale capaciteit / ontwerpcapaciteit, afgerond
+op een geheel percentage en maximaal 100%. Alleen plausibele capaciteiten worden
+gebruikt. Formulier, sessie en verslag vermelden altijd de berekende bron; dit kan
+afwijken van iOS. Na handmatige wijziging wordt de bron handmatig. De meting en
+bron worden per sessie bewaard en niet vervangen door een later gewijzigde toestelrij.
+Laadcycli worden overgenomen als ze beschikbaar zijn. Ontbrekende waarden blijven leeg.
+
+De fabriekskleur wordt via het exacte Apple-artikelnummer EN ProductType vertaald.
+De eerste gecontroleerde catalogus bevat 128 artikelnummers voor iPhone 14 Pro en
+14 Pro Max (alle vier kleuren, opslagvarianten en vier regionale nummerreeksen).
+Andere modellen worden alleen ingevuld als USB zelf een benoemde behuizingskleur
+geeft. Onbekende combinaties blijven leeg met een melding; de catalogus is uitbreidbaar
+in colors.mjs. Numerieke DeviceColor is vaak de voorkant en wordt nooit blind als
+behuizingskleur vertaald. Geen gok op basis van een SKU-prefix of kleurvolgorde.
+Een vervangen behuizing kan van de fabriekskleur afwijken; handmatig corrigeren kan.
 Een onbekend model wordt weergegeven met zijn Apple-toestelcode. Er worden geen
 Find My-, activatieslot- of MDM-goedkeuringen afgeleid. Handmatig invullen blijft mogelijk.
 

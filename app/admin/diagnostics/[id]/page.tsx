@@ -231,7 +231,8 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Kleur:
               </span>{" "}
-              {device.color || "—"}
+              {(report.intake?report.intake.colorName:device.color) || "—"}
+              {report.intake?.colorSource==='model-part'?<div className="text-xs text-slate-500">Fabriekskleur volgens model en Apple-artikelnummer {report.intake.modelNumber}. Controleer op een vervangen behuizing.</div>:null}
             </div>
 
             <div>
@@ -332,9 +333,10 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Batterijconditie:
               </span>{" "}
-              {device.batteryHealth ??
+              {report.batteryHealth ??
                 "—"}
               %
+              {report.intake?.batterySource==='calculated'?<div className="text-xs text-amber-800">Berekend via USB: {report.intake.nominalChargeCapacity} / {report.intake.designCapacity} mAh (maximaal 100%). Kan afwijken van de batterijconditie in iOS.</div>:report.intake?.batterySource==='manual'?<div className="text-xs text-slate-500">Handmatig ingevuld.</div>:null}
             </div>
 
             <div>

@@ -25,13 +25,25 @@ export async function createDiagnosticSession(formData: FormData): Promise<{erro
         model:input.model,...(input.storage?{storage:input.storage}:{}),...(input.color?{color:input.color}:{}),
         ...(input.udid?{udid:input.udid}:{}),...(input.productType?{productType:input.productType}:{}),
         ...(input.iosVersion?{iosVersion:input.iosVersion}:{}),
+        ...(input.modelNumber?{modelNumber:input.modelNumber}:{}),
+        ...(input.batteryCycles!==''?{batteryCycles:Number(input.batteryCycles)}:{}),
         ...(input.batteryHealth!==''?{batteryHealth:Number(input.batteryHealth)}:{}),
       };
       const unit=existing?await tx.deviceUnit.update({where:{id:existing.id},data}):await tx.deviceUnit.create({data});
-      return tx.diagnosticSession.create({data:{deviceUnitId:unit.id,status:'draft'}});
+      const session=await tx.diagnosticSession.create({data:{deviceUnitId:unit.id,status:'draft'}});
+      // Preserve provenance per session, including after another session updates the shared device.
+      await tx.diagnosticTestResult.create({data:{sessionId:session.id,testKey:'usb:intake',status:'info',value:{
+        protocol:1,
+        battery:{health:input.batteryHealth===''?null:Number(input.batteryHealth),source:input.batteryHealth===''?'unknown':input.batterySource||'manual',
+          ...(input.batterySource==='calculated'?{designCapacity:Number(input.batteryDesignCapacity),nominalChargeCapacity:Number(input.batteryNominalChargeCapacity)}:{}),
+          cycles:input.batteryCycles===''?null:Number(input.batteryCycles)},
+        color:{name:input.color||null,source:input.color?input.colorSource||'manual':'unknown',modelNumber:input.modelNumber||null},
+      }}});
+      return session;
     },{isolationLevel:'Serializable'});
     return {sessionId:session.id};
   } catch(e) {
     return {error:e instanceof Error && e.message==='IDENTITY_CONFLICT'?'Deze toestelgegevens komen overeen met verschillende bestaande toestellen. Controleer IMEI en serienummer.':'Opslaan lukt niet. Controleer de gegevens en probeer opnieuw. Er is geen gedeeltelijke sessie bewaard.'};
   }
 }
+

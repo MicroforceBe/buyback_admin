@@ -17,6 +17,12 @@ async function harness(entry='lib/diagnostics.ts',options={}){
  const m=await load(entry);await m.evaluate();return {api:m.namespace,state};
 }
 const helper=(await harness()).api;
+test('session intake retains calculated battery provenance and never borrows a later device value',()=>{
+ const snapshot={id:'intake',createdAt:new Date(),testKey:'usb:intake',status:'info',value:{protocol:1,battery:{health:83,source:'calculated',designCapacity:4297,nominalChargeCapacity:3576},color:{name:'Deep Purple',source:'model-part',modelNumber:'MQ9X3'}}};
+ const r=helper.diagnosticReport([snapshot],100);assert.equal(r.batteryHealth,83);assert.equal(r.intake.batterySource,'calculated');assert.equal(r.intake.colorName,'Deep Purple');assert.equal(r.extras.length,0);
+ const unknown={...snapshot,value:{protocol:1,battery:{health:null,source:'unknown'}}};assert.equal(helper.diagnosticReport([unknown],100).batteryKnown,false);
+ const corrupt={...snapshot,value:{...snapshot.value,battery:{...snapshot.value.battery,health:100}}};assert.equal(helper.diagnosticReport([corrupt],100).batteryKnown,false);
+});
 function good(spec,status='pass') {return {...helper.emptyResult(spec),status,checks:spec.checks.map(()=>true),notes:status==='pass'?'':'Synthetic review',evidence:{covered:spec.tool==='edges'?36:96,maxTouches:5,portrait:true,landscape:true,acceleration:true,rotation:true,transfer:true,barcode:true,location:true,front:true,rear:true,photo:true,played:true}};}
 function rows(){return helper.WEB_TESTS.map((spec,i)=>({id:'row-'+i,testKey:'web:'+spec.key,status:'pass',notes:null,value:good(spec),createdAt:new Date(2026,0,1)}));}
 const request=(body)=>new Request('https://test.invalid/api/diagnostics/web-results',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});

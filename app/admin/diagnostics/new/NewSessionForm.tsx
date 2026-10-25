@@ -47,7 +47,7 @@ export default function NewSessionForm({createSession}:{createSession:(form:Form
       if(sequence!==operation.current)return;
       if(dirty.current){setMessage('Niet overgenomen omdat je ondertussen velden hebt gewijzigd. Klik opnieuw op Uitlezen.');return;}
       setFields(data);
-      setMessage('iPhone uitgelezen. Controleer de gegevens en klik op Sessie starten. Batterijconditie en ontbrekende gegevens vul je zelf aan.');
+      setMessage('iPhone uitgelezen. Controleer de gegevens en klik op Sessie starten. Een berekende batterijconditie kan afwijken van iOS.');
     }catch(e){
       if(sequence!==operation.current)return;
       setError(e instanceof Error&&e.name!=='TypeError'&&e.name!=='AbortError'?e.message:'De lokale USB-koppeling is niet bereikbaar. Start USB TEST op deze computer en sta lokale netwerktoegang toe als de browser daarom vraagt. Klik daarna opnieuw op Uitlezen.');
@@ -76,8 +76,11 @@ export default function NewSessionForm({createSession}:{createSession:(form:Form
       <button type="button" disabled={reading||saving} onClick={()=>{if(dirty.current){if(!window.confirm('De ingevulde gegevens vervangen door de USB-uitlezing?'))return;dirty.current=false;}void usbRead(selected);}}>{reading?'Uitlezen...':'Opnieuw uitlezen'}</button>
     </section>
     {error&&<div role="alert" className={styles.error}>{error}</div>}
-    <fieldset disabled={saving||reading} className={styles.fields}>{Object.entries(labels).map(([key,label])=><label key={key} htmlFor={'device-'+key}>{label}<input id={'device-'+key} name={key} value={fields[key as keyof SessionInput]} type={key==='batteryHealth'?'number':'text'} min={key==='batteryHealth'?0:undefined} max={key==='batteryHealth'?100:undefined} maxLength={120} required={key==='model'} onChange={e=>{dirty.current=true;setFields(previous=>({...previous,[key]:e.target.value}));}}/></label>)}</fieldset>
-    <input type="hidden" name="udid" value={fields.udid}/>
+    <fieldset disabled={saving||reading} className={styles.fields}>{Object.entries(labels).map(([key,label])=><label key={key} htmlFor={'device-'+key}>{label}<input id={'device-'+key} name={key} value={fields[key as keyof SessionInput]} type={key==='batteryHealth'?'number':'text'} min={key==='batteryHealth'?0:undefined} max={key==='batteryHealth'?100:undefined} maxLength={120} required={key==='model'} aria-describedby={key==='batteryHealth'?'battery-source':key==='color'?'color-source':undefined} onChange={e=>{dirty.current=true;setFields(previous=>({...previous,[key]:e.target.value,...(key==='batteryHealth'?{batterySource:'',batteryDesignCapacity:'',batteryNominalChargeCapacity:''}:{}),...(key==='color'?{colorSource:''}:{} )}));}}/>
+      {key==='batteryHealth'&&<small id="battery-source" className={styles.source}>{fields.batterySource==='calculated'?`Berekend via USB: ${fields.batteryNominalChargeCapacity} / ${fields.batteryDesignCapacity} mAh. Kan afwijken van iOS; maximaal 100%.`:fields.batteryHealth?'Handmatig ingevuld.':'Niet beschikbaar. Controleer op de iPhone.'}{fields.batteryCycles!==''?` Laadcycli: ${fields.batteryCycles}.`:''}</small>}
+      {key==='color'&&<small id="color-source" className={styles.source}>{fields.colorSource==='model-part'?`Fabriekskleur volgens Apple-artikelnummer ${fields.modelNumber} en model; controleer op een vervangen behuizing.`:fields.colorSource==='usb-enclosure'?'Behuizingskleur uitgelezen via USB.':fields.color?'Handmatig ingevuld.':'Geen betrouwbare kleurvertaling beschikbaar; vul de kleur handmatig in.'}</small>}
+    </label>)}</fieldset>
+    {(['udid','batterySource','batteryDesignCapacity','batteryNominalChargeCapacity','batteryCycles','modelNumber','colorSource'] as const).map(key=><input key={key} type="hidden" name={key} value={fields[key]}/>)}
     <div className={styles.footer}><span>Er wordt pas een sessie bewaard wanneer je op Sessie starten klikt.</span><button type="submit" disabled={saving||reading}>{saving?'Opslaan...':'Sessie starten'}</button></div>
   </form>;
 }

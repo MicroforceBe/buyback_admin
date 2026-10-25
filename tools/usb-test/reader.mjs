@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { resolveColor } from './colors.mjs';
 
 const exec = promisify(execFile);
 const idsPattern = /^[a-f0-9-]{16,80}$/i;
@@ -70,14 +71,22 @@ export function createReader(invoke = run) {
       storage = storageLabel(scalar(disk,'TotalDiskCapacity'));
     } catch { /* Optional measurement; unknown stays empty. */ }
     const imei = scalar(xml,'InternationalMobileEquipmentIdentity');
-    const color = scalar(xml,'DeviceColor');
+    const modelNumber = scalar(xml,'ModelNumber');
+    const color = resolveColor(productType,modelNumber,scalar(xml,'DeviceEnclosureColor'));
+    let batteryDesignCapacity=null,batteryNominalChargeCapacity=null,batteryCycles=null;
+    try {
+      const battery=await invoke('idevicediagnostics.exe',['-u',udid,'ioregentry','AppleSmartBattery']);
+      const number=key=>{const raw=scalar(battery,key);return raw && /^\d+$/.test(raw)?Number(raw):null;};
+      batteryDesignCapacity=number('DesignCapacity');
+      batteryNominalChargeCapacity=number('NominalChargeCapacity');
+      batteryCycles=number('CycleCount');
+    } catch { /* Optional data. No fabricated battery health. */ }
     return {
       protocol:1, source:'usb', readAt:new Date().toISOString(),
       brand:'Apple', model:models[productType] || productType, productType,
       serialNumber, udid, imei:imei && /^\d{15}$/.test(imei) ? imei : null,
       iosVersion:scalar(xml,'ProductVersion'), storage,
-      // Numeric color codes are model-specific and are deliberately not guessed.
-      color:color && /^[a-zA-Z][a-zA-Z -]{1,40}$/.test(color) ? color : null,
+      modelNumber,...color,batteryDesignCapacity,batteryNominalChargeCapacity,batteryCycles,
       batteryHealth:null,
     };
   }

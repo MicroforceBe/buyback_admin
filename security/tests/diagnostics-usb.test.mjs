@@ -6,6 +6,7 @@ import http from 'node:http';
 import {createRequire} from 'node:module';
 import {createReader,scalar,storageLabel} from '../../tools/usb-test/reader.mjs';
 import {createServer,origin} from '../../tools/usb-test/server.mjs';
+import {resolveColor,colorCatalogue} from '../../tools/usb-test/colors.mjs';
 const require=createRequire(import.meta.url);
 let ts;try{ts=require('typescript');}catch{ts=require('C:/Microforce/microforce-hub/node_modules/typescript/lib/typescript.js');}
 const root=new URL('../../',import.meta.url);
@@ -75,6 +76,28 @@ test('form validation keeps unknown battery empty and strips unexpected USB clai
   for(const data of [{},{serialNumber:'TEST',model:'iPhone',batteryHealth:'101'},{serialNumber:'TEST',model:'iPhone',batteryHealth:'NaN'},{model:'iPhone',imei:'123'}])assert.throws(()=>lib.parseSessionInput(data));
 });
 
+test('battery calculation validates capacities, labels estimates and rejects forged or impossible results',async()=>{
+  const lib=await load('lib/diagnosticsUsb.ts');
+  assert.equal(lib.calculatedBattery(4297,3576),83);
+  assert.equal(lib.calculatedBattery(4000,4200),100);
+  for(const [d,n]of [[null,3000],[0,3000],[4000,null],[4000,0],[4000,-5],[4000,20000],['4000x',3000],[4000,3000.5]])assert.equal(lib.calculatedBattery(d,n),null);
+  const read=lib.usbInput({protocol:1,source:'usb',udid,serialNumber:'TEST',model:'iPhone',batteryDesignCapacity:4297,batteryNominalChargeCapacity:3576,batteryCycles:626});
+  assert.equal(read.batteryHealth,'83');assert.equal(read.batterySource,'calculated');assert.equal(read.batteryCycles,'626');
+  assert.throws(()=>lib.parseSessionInput({...read,batteryHealth:'100'}));
+  assert.throws(()=>lib.parseSessionInput({...read,batteryDesignCapacity:'0'}));
+});
+
+test('factory color is resolved by exact model and part number; front code never determines housing',()=>{
+  assert.equal(resolveColor('iPhone15,3','MQ9X3',null).color,'Deep Purple');
+  assert.equal(resolveColor('iPhone15,3','MQ9U3',null).color,'Space Black');
+  assert.equal(resolveColor('iPhone15,2','MQ9X3',null).color,null);
+  assert.equal(resolveColor('iPhone99,1','MQ9X3',null).color,null);
+  assert.equal(resolveColor('iPhone15,3','FQ9X3',null).color,null);
+  assert.equal(resolveColor('iPhone15,3','unknown','1').color,null);
+  assert.equal(resolveColor('iPhone15,3','unknown','Deep Purple').color,'Deep Purple');
+  assert.equal(Object.keys(colorCatalogue['iPhone15,3']).length,64);
+});
+
 test('actual new-session component autofills USB values, retains failed-save drafts, and requires a multi-phone selection',async()=>{
   let states=[],cursor=0,effects=[],multi=false,saved;
   const hooks={useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return[states[i],v=>states[i]=typeof v==='function'?v(states[i]):v];},useRef(initial){const i=cursor++;if(!(i in states))states[i]={current:initial};return states[i];},useEffect(fn,deps){const i=cursor++;if(!(i in states)){states[i]=deps;effects.push(fn);}}};
@@ -82,7 +105,7 @@ test('actual new-session component autofills USB values, retains failed-save dra
   const requests=[];
   const fetch=async(url,options)=>{
     requests.push(url);assert.equal(options.credentials,'omit');assert.equal(options.headers['X-Microforce-USB'],'1');
-    const value=url.endsWith('/health')?{protocol:1,environment:'test',upload:false}:url.endsWith('/devices')?{devices:multi?[udid,other]:[udid]}:{device:{...fixture,serialNumber:'SYNTHETIC-SN',imei:'123456789012345',model:'iPhone 14 Pro',udid,protocol:1,source:'usb'}};
+    const value=url.endsWith('/health')?{protocol:1,environment:'test',upload:false}:url.endsWith('/devices')?{devices:multi?[udid,other]:[udid]}:{device:{...fixture,serialNumber:'SYNTHETIC-SN',imei:'123456789012345',model:'iPhone 14 Pro',udid,protocol:1,source:'usb',batteryDesignCapacity:4297,batteryNominalChargeCapacity:3576,color:'Deep Purple',modelNumber:'MQ9X3',colorSource:'model-part'}};
     return{ok:true,json:async()=>value};
   };
   const api=await load('app/admin/diagnostics/new/NewSessionForm.tsx',{'react':hooks,'react/jsx-runtime':{jsx,jsxs:jsx},'next/navigation':{useRouter:()=>router},'./new.module.css':{default:new Proxy({},{get:(_,key)=>key})}},{fetch,window:{location:{origin},setTimeout(){return 1;},clearTimeout(){},confirm:()=>true},AbortController,FormData:class{constructor(){}}});
@@ -90,17 +113,21 @@ test('actual new-session component autofills USB values, retains failed-save dra
   const render=()=>{cursor=0;const tree=api.default({createSession:async form=>{saved=form;return{error:'Synthetic save failure'};}});for(const effect of effects.splice(0))effect();return tree;};
   const tick=()=>new Promise(resolve=>setImmediate(resolve));render();await tick();let tree=render();
   const field=name=>all(tree,n=>n.type==='input'&&n.props.name===name)[0];
-  assert.equal(field('serialNumber').props.value,'SYNTHETIC-SN');assert.equal(field('batteryHealth').props.value,'');
+  assert.equal(field('serialNumber').props.value,'SYNTHETIC-SN');assert.equal(field('batteryHealth').props.value,'83');assert.ok(JSON.stringify(tree).includes('Berekend via USB'));
+  field('batteryHealth').props.onChange({target:{value:'85'}});tree=render();assert.equal(field('batterySource').props.value,'');assert.ok(JSON.stringify(tree).includes('Handmatig ingevuld.'));
   field('color').props.onChange({target:{value:'Draft color'}});tree=render();await tree.props.onSubmit({preventDefault(){},currentTarget:{}});tree=render();assert.equal(field('color').props.value,'Draft color');assert.ok(saved);assert.equal(all(tree,n=>n.props?.role==='alert').length,1);
   states=[];multi=true;requests.length=0;render();await tick();tree=render();assert.equal(field('serialNumber').props.value,'');assert.equal(all(tree,n=>n.type==='select').length,1);assert.ok(!requests.some(url=>url.includes('/device/read')));
 });
 test('session action authorizes first, reuses identity transactionally and refuses conflicting matches',async()=>{
-  let denied=false,writes=0,matches=[],saved,txCount=0;
-  const db={deviceUnit:{findMany:async()=>matches,create:async({data})=>{writes++;saved=data;return{id:'device'};},update:async({data})=>{writes++;saved=data;return{id:'device'};}},diagnosticSession:{create:async()=>{writes++;return{id:'session'};}},$transaction:async(fn,opts)=>{assert.equal(opts.isolationLevel,'Serializable');txCount++;return fn(db);}};
+  let denied=false,writes=0,matches=[],saved,snapshot,txCount=0;
+  const db={diagnosticTestResult:{create:async({data})=>{writes++;snapshot=data;return data;}},deviceUnit:{findMany:async()=>matches,create:async({data})=>{writes++;saved=data;return{id:'device'};},update:async({data})=>{writes++;saved=data;return{id:'device'};}},diagnosticSession:{create:async()=>{writes++;return{id:'session'};}},$transaction:async(fn,opts)=>{assert.equal(opts.isolationLevel,'Serializable');txCount++;return fn(db);}};
   const api=await load('app/admin/diagnostics/new/actions.ts',{'@/lib/prisma':{prisma:db},'@/lib/security/access':{requireAccess:async()=>{if(denied)throw Error('Unauthorized');}}});
   const form=()=>new FormData();let input=form();input.set('serialNumber','SYNTHETIC');input.set('model','iPhone');
   denied=true;await assert.rejects(api.createDiagnosticSession(input),/Unauthorized/);assert.equal(txCount,0);
-  denied=false;const created=await api.createDiagnosticSession(input);assert.equal(created.sessionId,'session');assert.equal(writes,2);assert.equal(saved.batteryHealth,undefined);
+  denied=false;const created=await api.createDiagnosticSession(input);assert.equal(created.sessionId,'session');assert.equal(writes,3);assert.equal(saved.batteryHealth,undefined);assert.equal(snapshot.value.battery.source,'unknown');
+  input.set('batteryHealth','83');input.set('batterySource','calculated');input.set('batteryDesignCapacity','4297');input.set('batteryNominalChargeCapacity','3576');
+  assert.equal((await api.createDiagnosticSession(input)).sessionId,'session');assert.equal(snapshot.value.battery.source,'calculated');assert.equal(snapshot.value.battery.health,83);
+  for(const key of ['batteryHealth','batterySource','batteryDesignCapacity','batteryNominalChargeCapacity'])input.delete(key);
   matches=[{id:'device',serialNumber:'SYNTHETIC',batteryHealth:93}];assert.equal((await api.createDiagnosticSession(input)).sessionId,'session');assert.equal(saved.batteryHealth,undefined);
   const before=writes;matches=[{id:'a'},{id:'b'}];assert.ok((await api.createDiagnosticSession(input)).error);assert.equal(writes,before);
   matches=[{id:'a',serialNumber:'OTHER'}];assert.ok((await api.createDiagnosticSession(input)).error);assert.equal(writes,before);

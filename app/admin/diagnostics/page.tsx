@@ -2,6 +2,7 @@ import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/page.tsx
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { diagnosticReport } from '@/lib/diagnostics';
 
 export default async function DiagnosticsPage() {
   await requirePageAccess('refurb', false);
@@ -12,6 +13,7 @@ export default async function DiagnosticsPage() {
     },
     include: {
       deviceUnit: true,
+      tests: {where:{testKey:'usb:intake'},orderBy:[{createdAt:'desc'},{id:'desc'}],take:1},
     },
   });
 
@@ -60,14 +62,14 @@ export default async function DiagnosticsPage() {
       </div>
 
       <div className="space-y-4">
-        {sessions.map((session) => (
+        {sessions.map((session) => {const report=diagnosticReport(session.tests,session.deviceUnit.batteryHealth);return (
           <div
             key={session.id}
             className="rounded-lg border bg-white p-4"
           >
             <div className="font-semibold">
-              {session.deviceUnit.brand}{" "}
-              {session.deviceUnit.model}
+              <Link className="underline" href={'/admin/diagnostics/'+session.id}>{session.deviceUnit.brand}{" "}
+              {session.deviceUnit.model}</Link>
             </div>
 
             <div className="text-sm text-gray-500">
@@ -80,10 +82,11 @@ export default async function DiagnosticsPage() {
 
             <div className="text-sm">
               Battery:{" "}
-              {session.deviceUnit.batteryHealth || "—"}%
+              {report.batteryHealth==null?'—':report.batteryHealth+'%'}
+              {report.intake?.batterySource==='calculated'?<span className="ml-2 text-xs text-amber-800">Berekend via USB · kan afwijken van iOS</span>:null}
             </div>
           </div>
-        ))}
+        );})}
 
         {sessions.length === 0 && (
           <div className="rounded-lg border bg-white p-8 text-center text-sm text-gray-500">
@@ -94,5 +97,6 @@ export default async function DiagnosticsPage() {
     </div>
   );
 }
+
 
 

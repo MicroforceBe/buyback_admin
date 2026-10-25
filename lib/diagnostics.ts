@@ -82,10 +82,20 @@ export function webResults(rows: StoredTest[]): Record<string,WebResult> {
   return result;
 }
 export function diagnosticReport(rows: StoredTest[], battery: number | null | undefined, appRows: StoredTest[] = []) {
+  const intakeRow=[...rows].filter(r=>r.testKey==='usb:intake').sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime()||b.id.localeCompare(a.id))[0];
+  let intake: {batterySource:string;designCapacity:number|null;nominalChargeCapacity:number|null;colorName:string|null;colorSource:string;modelNumber:string|null}|null=null;
+  if(intakeRow){
+    const value=intakeRow.value as {protocol?:unknown;battery?:{health?:unknown;source?:unknown;designCapacity?:unknown;nominalChargeCapacity?:unknown};color?:{name?:unknown;source?:unknown;modelNumber?:unknown}}|null;
+    const b=value?.battery,c=value?.color;
+    const d=typeof b?.designCapacity==='number'?b.designCapacity:null,n=typeof b?.nominalChargeCapacity==='number'?b.nominalChargeCapacity:null;
+    const calculated=b?.source==='calculated'&&d!==null&&n!==null&&Number.isInteger(d)&&Number.isInteger(n)&&d>=100&&d<=20000&&n>0&&n<=30000&&n/d>=.1&&n/d<=1.5&&Math.min(100,Math.round(n/d*100))===b.health;
+    battery=value?.protocol===1&&typeof b?.health==='number'&&Number.isInteger(b.health)&&b.health>=0&&b.health<=100&&(b.source==='manual'||calculated)?b.health:null;
+    intake={batterySource:battery===null?'unknown':calculated?'calculated':'manual',designCapacity:calculated?d:null,nominalChargeCapacity:calculated?n:null,colorName:typeof c?.name==='string'?c.name:null,colorSource:typeof c?.source==='string'?c.source:'unknown',modelNumber:typeof c?.modelNumber==='string'?c.modelNumber:null};
+  }
   const results = webResults(rows);
   const incomplete = WEB_TESTS.filter(t=>!results[t.key] || ['pending','unsupported'].includes(results[t.key].status));
   const extras = new Map<string,StoredTest>();
-  for (const row of [...rows.filter(r=>!r.testKey.startsWith(WEB_PREFIX)).map(r=>({...r,testKey:'manual:'+r.testKey})), ...appRows.map(r=>({...r,testKey:'app:'+r.testKey}))].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime() || b.id.localeCompare(a.id))) if (!extras.has(row.testKey)) extras.set(row.testKey,row);
+  for (const row of [...rows.filter(r=>!r.testKey.startsWith(WEB_PREFIX)&&r.testKey!=='usb:intake').map(r=>({...r,testKey:'manual:'+r.testKey})), ...appRows.map(r=>({...r,testKey:'app:'+r.testKey}))].sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime() || b.id.localeCompare(a.id))) if (!extras.has(row.testKey)) extras.set(row.testKey,row);
   const statuses = [...Object.values(results).map(r=>r.status), ...Array.from(extras.values()).map(r=>r.status)];
   const hasFailure = statuses.includes('fail');
   const hasWarning = statuses.includes('warning');
@@ -97,5 +107,5 @@ export function diagnosticReport(rows: StoredTest[], battery: number | null | un
     score = Math.max(0, 100 - statuses.filter(s=>s==='fail').length*15 - statuses.filter(s=>s==='warning').length*5 - (battery!<85?10:0) - (battery!<80?20:0));
     grade = !hasFailure && !hasWarning && score>=90 && battery!>=90 ? 'A' : !hasFailure && score>=75 && battery!>=85 ? 'B' : 'C';
   }
-  return {results, incomplete, complete, batteryKnown, canFinalize:complete && batteryKnown, hasFailure, hasWarning, score, grade, extras:Array.from(extras.values())};
+  return {results, incomplete, complete, batteryKnown, batteryHealth:battery??null, intake, canFinalize:complete && batteryKnown, hasFailure, hasWarning, score, grade, extras:Array.from(extras.values())};
 }
