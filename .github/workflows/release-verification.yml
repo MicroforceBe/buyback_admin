@@ -3,6 +3,15 @@ on:
   push:
     branches: [release/security-20261024, main, security-test]
     paths:
+      - app/admin/Nav.tsx
+      - app/admin/AdminIcon.tsx
+      - app/admin/page.tsx
+      - app/admin/layout.tsx
+      - app/admin/AdminShell.module.css
+      - app/admin/UserBadge.tsx
+      - app/admin/dashboard.module.css
+      - app/admin/release-notes/**
+      - security/tests/admin-dashboard.test.mjs
       - lib/diagnosticsUsb.ts
       - tools/usb-test/**
       - security/tests/diagnostics-usb.test.mjs
