@@ -9,16 +9,16 @@ async function load(path,extra={}){
  const imports={'next/link':{default:'Link'},'./AdminIcon':{default:'AdminIcon'},'./AdminShell.module.css':{default:css},'./dashboard.module.css':{default:css},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},...extra};
  const source=fs.readFileSync(new URL('../../'+path,import.meta.url),'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const context=vm.createContext({});const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{const entry=imports[spec];assert.ok(entry,'Unexpected dependency '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();return mod.namespace.default;
+ const context=vm.createContext({});const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{const entry=imports[spec];assert.ok(entry,'Unexpected dependency '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();return mod.namespace.default??mod.namespace;
 }
 test('navigation retains role/permission filters and marks exactly the actual section active',async()=>{
  let pathname='/admin/refurb/rma/fixture';
  const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>pathname}});
- const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,9);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb']);
+ const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,10);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb']);
  assert.ok(links.every(n=>n.props.prefetch===false&&nodes(n,x=>x.type==='span').length===1));
  assert.equal(nodes(Nav({role:'user'}),n=>n.type==='Link'&&n.props.href==='/admin/diagnostics').length,0);
  assert.equal(nodes(Nav({role:'admin',permissions:{leads:false}}),n=>n.type==='Link'&&n.props.href==='/admin/leads').length,0);
- assert.deepEqual(nodes(Nav({role:'technician'}),n=>n.type==='Link').map(n=>n.props.href),['/admin','/admin/leads','/admin/refurb']);
+ assert.deepEqual(nodes(Nav({role:'technician'}),n=>n.type==='Link').map(n=>n.props.href),['/admin','/admin/leads','/admin/refurb','/admin/release-notes']);
  pathname='/admin';assert.deepEqual(nodes(Nav({role:'admin'}),n=>n.props?.['aria-current']==='page').map(n=>n.props.href),['/admin']);
 });
 test('dashboard checks access before reading user and offers only permitted modules',async()=>{
@@ -35,3 +35,21 @@ test('shell leaves login alone and preserves logout and idle timer for signed-in
  let tree=await Layout({children:'LOGIN'});assert.equal(nodes(tree,n=>n.type==='Nav').length,0);assert.equal(tree.props.children,'LOGIN');
  user={role:'admin'};tree=await Layout({children:'PAGE'});assert.equal(nodes(tree,n=>n.type==='Nav').length,1);assert.equal(nodes(tree,n=>n.type==='LogoutButton').length,1);assert.equal(nodes(tree,n=>n.type==='IdleLogout')[0].props.timeoutMs,900000);assert.equal(nodes(tree,n=>n.type==='main').length,1);
 });
+
+test('release history requires a session but remains readable without module permissions',async()=>{
+ const data=await load('app/admin/release-notes/releases.ts');let user=null;
+ const Page=await load('app/admin/release-notes/page.tsx',{'../AdminIcon':{default:'AdminIcon'},'./releases':{releases:data.releases},'./releases.module.css':{default:css},'@/lib/getCurrentAdminUser':{getCurrentAdminUser:async()=>user},'next/navigation':{redirect:path=>{throw Error(path);}}});
+ await assert.rejects(Page(),/\/admin\/login/);
+ for(const role of ['user','admin','technician']){
+  user={role,permissions:{}};const tree=await Page();
+  const sections=nodes(tree,n=>n.type==='section');
+  const live=nodes(sections.find(n=>n.props.id==='live-updates'),n=>n.props?.entry);
+  const preview=nodes(sections.find(n=>n.props.id==='test-updates'),n=>n.props?.entry);
+  assert.ok(live.length>0&&live.every(n=>n.props.entry.status==='live'));
+  assert.ok(preview.length>0&&preview.every(n=>n.props.entry.status==='test'));
+  assert.ok(preview.some(n=>n.props.entry.area==='Diagnostics'));
+ }
+ const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>'/admin/release-notes'}});
+ for(const role of ['user','admin','technician'])assert.equal(nodes(Nav({role,permissions:{dashboard:false,refurb:false}}),n=>n.type==='Link'&&n.props.href==='/admin/release-notes'&&n.props['aria-current']==='page').length,1);
+});
+
