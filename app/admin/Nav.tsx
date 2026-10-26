@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
+import AdminIcon,{type AdminIconName} from "./AdminIcon";
+import styles from "./AdminShell.module.css";
 
 type NavPermissions = {
   dashboard?: boolean;
@@ -19,7 +21,7 @@ type NavPermissions = {
 type Item = {
   href: string;
   label: string;
-  emoji?: string;
+  icon: AdminIconName;
   permKey?: keyof NavPermissions;
   adminOnly?: boolean;
 };
@@ -28,28 +30,28 @@ const items: Item[] = [
   {
     href: "/admin",
     label: "Dashboard",
-    emoji: "🏠",
+    icon: "dashboard",
     permKey: "dashboard",
   },
 
   {
     href: "/admin/leads",
     label: "Leads",
-    emoji: "📋",
+    icon: "leads",
     permKey: "leads",
   },
 
   {
     href: "/admin/refurb",
     label: "Refurb",
-    emoji: "🔧",
+    icon: "refurb",
     permKey: "refurb",
   },
 
   {
     href: "/admin/diagnostics",
     label: "Diagnostics",
-    emoji: "🧪",
+    icon: "diagnostics",
     permKey: "diagnostics",
     adminOnly: true,
   },
@@ -57,35 +59,35 @@ const items: Item[] = [
   {
     href: "/admin/erp",
     label: "ERP",
-    emoji: "🏷️",
+    icon: "erp",
     permKey: "erp",
   },
 
   {
     href: "/admin/catalog",
     label: "Catalogus",
-    emoji: "📦",
+    icon: "catalog",
     permKey: "catalog",
   },
 
   {
     href: "/admin/multipliers",
     label: "Multipliers",
-    emoji: "⚙️",
+    icon: "multipliers",
     permKey: "multipliers",
   },
 
   {
     href: "/admin/uploads",
     label: "Uploads",
-    emoji: "⤴️",
+    icon: "uploads",
     permKey: "uploads",
   },
 
   {
     href: "/admin/settings",
-    label: "Settings",
-    emoji: "🛠️",
+    label: "Instellingen",
+    icon: "settings",
     permKey: "settings",
   },
 ];
@@ -130,17 +132,7 @@ export default function Nav({
       .map((it) => {
         const active =
           pathname === it.href ||
-          (pathname?.startsWith(it.href + "/") ??
-            false);
-
-        const base =
-          "group relative flex min-w-max items-center justify-center gap-1 px-2 py-1.5 rounded border text-[12px] leading-tight transition-colors whitespace-nowrap md:min-w-0 md:h-9 md:w-9 md:px-0";
-
-        const activeCls =
-          "bg-white border-gray-300 text-gray-900 font-medium shadow-sm";
-
-        const inactiveCls =
-          "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100";
+          (it.href !== "/admin" && (pathname?.startsWith(it.href + "/") ?? false));
 
         return (
           <Link
@@ -151,31 +143,21 @@ export default function Nav({
             aria-current={
               active ? "page" : undefined
             }
-            className={`${base} ${
-              active
-                ? activeCls
-                : inactiveCls
-            }`}
+            className={styles.navLink}
+            prefetch={false}
           >
-            <span className="text-[14px] flex-shrink-0">
-              {it.emoji}
-            </span>
-
-            <span className="truncate md:hidden">
-              {it.label}
-            </span>
-
-            <span className="pointer-events-none absolute left-11 hidden rounded bg-gray-900 px-2 py-1 text-xs text-white shadow group-hover:md:block">
-              {it.label}
-            </span>
+            <AdminIcon name={it.icon} size={19}/>
+            <span>{it.label}</span>
           </Link>
         );
       });
   }, [pathname, permissions, role]);
 
   return (
-    <nav className="flex gap-1.5 overflow-x-auto p-3 md:flex-col md:items-center md:overflow-visible">
-      {links}
+    <nav className={styles.nav} aria-label="Modules">
+      <div className={styles.navHeading}>Werkruimte</div>
+      <div className={styles.navLinks}>{links}</div>
     </nav>
   );
 }
+
