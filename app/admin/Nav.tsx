@@ -90,6 +90,7 @@ const items: Item[] = [
     icon: "settings",
     permKey: "settings",
   },
+  { href: "/admin/release-notes", label: "Release notes", icon: "notes" },
 ];
 
 export default function Nav({
@@ -121,6 +122,7 @@ export default function Nav({
             "/admin",
             "/admin/leads",
             "/admin/refurb",
+            "/admin/release-notes",
           ];
 
           return allowed.includes(it.href);
@@ -160,4 +162,5 @@ export default function Nav({
     </nav>
   );
 }
+
 
