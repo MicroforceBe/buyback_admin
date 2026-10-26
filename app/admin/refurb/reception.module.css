@@ -53,3 +53,10 @@
 }
 
 .reception details:global(.reception-panel) { padding:0; }
+.reception :global(.reception-deliveries-header){display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.reception :global(.reception-deliveries-header) h2{margin:0}
+.reception :global(.reception-deliveries-actions){display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;margin-left:auto;min-width:0;max-width:100%}
+.reception :global(.reception-expiry-warning){display:flex;align-items:flex-start;gap:11px;padding:13px 16px;border:1px solid #e8cc80;border-radius:11px;background:#fff7e4;color:#785211}
+.reception :global(.reception-expiry-warning) p{color:inherit;font-size:13px;line-height:1.5}
+.reception :global(.reception-expiry-warning)>span{font-size:18px;line-height:1.1}
+@media(max-width:640px){.reception :global(.reception-deliveries-actions){width:100%;justify-content:flex-start}.reception :global(.reception-deliveries-actions)>:first-child{flex-basis:100%}}
