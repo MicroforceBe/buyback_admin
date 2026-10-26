@@ -2,10 +2,12 @@ import JsBarcode from 'jsbarcode';
 
 export type ProductLabel = { sku: string; title: string | null; serial?: string; battery?: string; grade?: string; vatMargin: boolean | null };
 export const labelSize = { width: 89, height: 36, dpi: 300, barcodeWidth: 64, quietModules: 10 } as const;
+// Keep a 1 mm page reserve against driver/pixel rounding and 2.5 mm inside
+// the artwork. Flow content at the exact roll size can paginate a blank label.
 export const labelStyles = `
 .label-sheet,.label-sheet *{box-sizing:border-box}
-.label-sheet{width:89mm;height:36mm;margin:0;padding:0;background:#fff;color:#000;overflow:hidden}
-.label-card{width:89mm;height:36mm;padding:1.8mm;display:grid;grid-template-columns:minmax(0,1fr) 17mm;gap:2mm;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#000}
+.label-sheet{width:88mm;height:35mm;margin:0;padding:0;background:#fff;color:#000;overflow:hidden}
+.label-card{width:88mm;height:35mm;padding:2.5mm;display:grid;grid-template-columns:minmax(0,1fr) 17mm;gap:2mm;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#000}
 .label-main{min-width:0;display:grid;grid-template-rows:6.3mm 9mm 9mm 2mm;row-gap:1mm}
 .label-model{font-size:7.2pt;font-weight:700;line-height:1.12;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .label-line{min-width:0;overflow:hidden}
@@ -13,13 +15,13 @@ export const labelStyles = `
 .label-caption strong{font-weight:700}
 .label-barcode{display:block;max-width:none;flex:none}
 .label-footer{font-size:5.3pt;line-height:2mm;border-top:.15mm solid #000;padding-top:.2mm}
-.label-side{border-left:.15mm solid #000;padding-left:1.5mm;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.label-side{min-height:0;border-left:.15mm solid #000;padding-left:1.5mm;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
 .label-brand{font-size:5.2pt;font-weight:800;letter-spacing:.1mm;line-height:3mm}
 .label-side-caption{font-size:5.5pt;line-height:2.5mm}
 .label-side-value{font-size:10pt;font-weight:700;line-height:4mm;overflow-wrap:anywhere}
-.label-ce{font-size:6pt;line-height:2mm;text-align:right}
+.label-ce{font-size:6pt;line-height:2mm;text-align:right;flex-shrink:0}
 @page{size:89mm 36mm;margin:0}
-@media print{html,body{width:89mm;height:36mm;margin:0!important;padding:0!important}.label-sheet,.label-card{break-inside:avoid;page-break-inside:avoid;break-after:avoid;page-break-after:avoid}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{html,body{width:89mm;height:35mm;margin:0!important;padding:0!important;overflow:hidden}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.label-sheet{position:absolute;top:0;left:0;margin:0!important;break-before:auto;break-after:auto}.label-card{overflow:hidden}}
 `;
 export function escapeLabelText(value: unknown) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
@@ -62,3 +64,4 @@ export function renderProductLabel(data: ProductLabel) {
   const vat=data.vatMargin===true?'Margin VAT':data.vatMargin===false?'Normal VAT':'BTW-regeling onbekend';
   return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div><div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div><div class="label-ce">CE</div></div></article></div>`;
 }
+
