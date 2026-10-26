@@ -3,6 +3,7 @@ on:
   push:
     branches: [release/security-20261024, main]
     paths:
+      - app/admin/release-notes/**
       - app/admin/AdminIcon.tsx
       - app/admin/AdminShell.module.css
       - app/admin/dashboard.module.css

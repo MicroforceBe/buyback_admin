@@ -28,3 +28,6 @@
 @media(max-width:1200px){.management{grid-template-columns:repeat(2,minmax(0,1fr))}.heroMeta{width:150px;padding:15px 20px}.hero{padding:30px}}
 @media(max-width:900px){.heroMeta{display:none}.hero h1{font-size:28px}.grid{grid-template-columns:1fr}.management{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:540px){.hero{padding:26px 23px;border-radius:13px}.hero h1{font-size:26px}.hero p{font-size:13px}.heroActions{flex-direction:column;align-items:stretch}.management{grid-template-columns:1fr}.card{padding:20px;gap:14px}.sectionHeading>span{display:none}.shortcuts{gap:16px}.shortcuts h2{width:100%}.dashboard{gap:25px}}
+
+.updates{display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap;padding:23px 25px;background:#edf6fa;border:1px solid #d4e7f0;border-radius:13px}.updates>div{display:flex;align-items:center;gap:15px}.updateIcon{color:#2783a2;display:grid;place-items:center;flex-shrink:0}.updates h2{font-size:14px;font-weight:700;margin:0 0 6px;color:#21495f}.updates p{font-size:12px;line-height:1.6;margin:0;color:#6c8799}.updates a{display:inline-flex;align-items:center;gap:10px;font-size:12px;font-weight:600;color:#235d79;text-decoration:none}.updates a:hover{text-decoration:underline}
+
