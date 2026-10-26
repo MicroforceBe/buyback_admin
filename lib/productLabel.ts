@@ -15,11 +15,11 @@ export const labelStyles = `
 .label-caption strong{font-weight:700}
 .label-barcode{display:block;max-width:none;flex:none}
 .label-footer{font-size:5.3pt;line-height:2mm;border-top:.15mm solid #000;padding-top:.2mm}
-.label-side{min-height:0;border-left:.15mm solid #000;padding-left:1.5mm;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
-.label-brand{font-size:5.2pt;font-weight:800;letter-spacing:.1mm;line-height:3mm}
+.label-side{min-height:0;border-left:.15mm solid #000;padding-left:1.5mm;padding-right:1.5mm;padding-bottom:1mm;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.label-brand{font-size:4.7pt;font-weight:800;letter-spacing:.04mm;line-height:3mm;white-space:nowrap}
 .label-side-caption{font-size:5.5pt;line-height:2.5mm}
 .label-side-value{font-size:10pt;font-weight:700;line-height:4mm;overflow-wrap:anywhere}
-.label-ce{font-size:6pt;line-height:2mm;text-align:right;flex-shrink:0}
+.label-ce{font-size:6pt;line-height:2mm;text-align:left;flex-shrink:0}
 @page{size:89mm 36mm;margin:0}
 @media print{html,body{width:89mm;height:35mm;margin:0!important;padding:0!important;overflow:hidden}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.label-sheet{position:absolute;top:0;left:0;margin:0!important;break-before:auto;break-after:auto}.label-card{overflow:hidden}}
 `;
