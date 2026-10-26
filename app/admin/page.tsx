@@ -1,139 +1,39 @@
 import { requirePageAccess } from '@/lib/security/access';
-// app/admin/page.tsx
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
-import { hasPermission } from "@/lib/adminPermissions";
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
+import { hasPermission } from '@/lib/adminPermissions';
+import AdminIcon,{type AdminIconName} from './AdminIcon';
+import styles from './dashboard.module.css';
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const dynamic='force-dynamic';
+export const runtime='nodejs';
+type Module={href:string;name:string;description:string;icon:AdminIconName;available:boolean};
 
-export default async function AdminDashboardPage() {
-  await requirePageAccess('dashboard', false);
-
-  // 🔐 1) Ingelogde admin ophalen
-  const adminUser = await getCurrentAdminUser();
-
-  if (!adminUser) {
-    // Niet ingelogd → altijd naar login
-    redirect("/admin/login?reason=not_logged_in");
-  }
-
-  // Kleine helper om links alleen te tonen als je rechten hebt
-  const can = (feature: Parameters<typeof hasPermission>[1]) =>
-    hasPermission(adminUser, feature, "read");
-
-  return (
-    <div className="w-full p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-gray-500">
-            Overzicht van de Buyback admin modules.
-          </p>
-        </div>
-        <div className="text-xs text-gray-500 flex flex-col items-end">
-          <span>Ingelogd als:</span>
-          <span className="font-medium">{adminUser.email}</span>
-          <span className="text-[11px] text-gray-400">rol: {adminUser.role}</span>
-        </div>
-      </div>
-
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        {/* ✅ NIEUW: Refurb tegel */}
-        <Link
-          href="/admin/refurb"
-          className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-        >
-          <h2 className="font-semibold flex items-center gap-2">🔧 Refurb</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Refurb recepties, items en statusopvolging beheren.
-          </p>
-        </Link>
-
-        {can("leads") && (
-          <Link
-            href="/admin/leads"
-            className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-          >
-            <h2 className="font-semibold flex items-center gap-2">📋 Leads</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Overzicht van alle buyback-aanvragen, status en details.
-            </p>
-          </Link>
-        )}
-
-        {can("catalog") && (
-          <Link
-            href="/admin/catalog"
-            className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-          >
-            <h2 className="font-semibold flex items-center gap-2">
-              📦 Catalogus
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Modellen en basisprijzen beheren.
-            </p>
-          </Link>
-        )}
-
-        {can("multipliers") && (
-          <Link
-            href="/admin/multipliers"
-            className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-          >
-            <h2 className="font-semibold flex items-center gap-2">
-              ⚙️ Multipliers
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Vraagsets en prijs-multipliers per categorie beheren.
-            </p>
-          </Link>
-        )}
-
-        {can("uploads") && (
-          <Link
-            href="/admin/uploads"
-            className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-          >
-            <h2 className="font-semibold flex items-center gap-2">⤴️ Uploads</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Bestanden en logo&apos;s beheren voor de widget en e-mails.
-            </p>
-          </Link>
-        )}
-
-        {can("settings") && (
-          <Link
-            href="/admin/settings"
-            className="block p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-          >
-            <h2 className="font-semibold flex items-center gap-2">🛠️ Settings</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Branding, e-mailtemplates en userrechten beheren.
-            </p>
-          </Link>
-        )}
-      </div>
-
-      {!(
-        can("leads") ||
-        can("catalog") ||
-        can("multipliers") ||
-        can("uploads") ||
-        can("settings")
-      ) && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded">
-          <div className="text-red-700 font-medium">
-            Je account heeft momenteel geen toegang tot een van de modules.
-          </div>
-          <p className="text-xs text-red-600 mt-1">
-            Vraag een beheerder om je rechten aan te passen onder Settings &gt;
-            Users.
-          </p>
-        </div>
-      )}
-    </div>
-  );
+export default async function AdminDashboardPage(){
+  await requirePageAccess('dashboard',false);
+  const adminUser=await getCurrentAdminUser();
+  if(!adminUser)redirect('/admin/login?reason=not_logged_in');
+  const can=(feature:Parameters<typeof hasPermission>[1])=>hasPermission(adminUser,feature,'read');
+  const operations:Module[]=[
+    {href:'/admin/refurb',name:'Refurb & recepties',description:'Verwerk binnenkomende toestellen en volg artikelen, garanties en leveranciers op.',icon:'refurb',available:can('refurb')},
+    {href:'/admin/leads',name:'Buyback leads',description:'Beheer aanvragen, controleer toestellen en volg elke inruil verder op.',icon:'leads',available:can('leads')},
+    {href:'/admin/diagnostics',name:'Diagnostics',description:'Start een diagnosesessie en bekijk de testresultaten van een toestel.',icon:'diagnostics',available:adminUser.role==='admin'},
+    {href:'/admin/erp',name:'ERP & artikelen',description:'Raadpleeg ERP-artikelen en werk met de bestaande artikeltools.',icon:'erp',available:can('erp')},
+  ].filter(m=>m.available) as Module[];
+  const management:Module[]=[
+    {href:'/admin/catalog',name:'Catalogus',description:'Modellen en basisprijzen.',icon:'catalog',available:can('catalog')},
+    {href:'/admin/multipliers',name:'Multipliers',description:'Vraagsets en prijsregels.',icon:'multipliers',available:can('multipliers')},
+    {href:'/admin/uploads',name:'Uploads',description:'Afbeeldingen en bestanden.',icon:'uploads',available:can('uploads')},
+    {href:'/admin/settings',name:'Instellingen',description:'Branding, e-mails en rechten.',icon:'settings',available:can('settings')},
+  ].filter(m=>m.available) as Module[];
+  const moduleCount=operations.length+management.length;
+  return <div className={styles.dashboard}>
+    <header className={styles.hero}><div><div className={styles.eyebrow}>Microforce / werkruimte</div><h1>Dashboard</h1><p>Alles voor buyback en refurb op één plek.<br/>Ga direct verder met aanvragen, recepties en toestelverwerking.</p><div className={styles.heroActions}>{can('refurb')&&<Link href="/admin/refurb" prefetch={false} className={styles.primary}>Open recepties<AdminIcon name="next" size={16}/></Link>}{can('leads')&&<Link href="/admin/leads" prefetch={false} className={styles.secondary}>Bekijk leads<AdminIcon name="next" size={16}/></Link>}</div></div><div className={styles.heroMeta}><span>Jouw werkruimte</span><strong>{moduleCount}</strong><span>beschikbare modules</span></div></header>
+    {operations.length>0&&<section aria-labelledby="daily-heading"><div className={styles.sectionHeading}><div><h2 id="daily-heading">Dagelijkse verwerking</h2><p>Van binnenkomst tot een afgewerkt toestel.</p></div><span>Operations</span></div><div className={styles.grid}>{operations.map(m=><ModuleCard key={m.href} module={m}/>)}</div></section>}
+    {can('refurb')&&<section className={styles.shortcuts} aria-labelledby="quick-heading"><h2 id="quick-heading">Snelle toegang</h2><Link href="/admin/refurb/rma" prefetch={false}><AdminIcon name="rma" size={17}/>RMA Supplier<AdminIcon name="arrow" size={14}/></Link><Link href="/admin/refurb/analytics" prefetch={false}><AdminIcon name="analytics" size={17}/>Refurb analytics<AdminIcon name="arrow" size={14}/></Link></section>}
+    {management.length>0&&<section aria-labelledby="management-heading"><div className={styles.sectionHeading}><div><h2 id="management-heading">Catalogus &amp; beheer</h2><p>De instellingen achter je dagelijkse werk.</p></div></div><div className={`${styles.grid} ${styles.management}`}>{management.map(m=><ModuleCard key={m.href} module={m}/>)}</div></section>}
+    {moduleCount===0&&<div className={styles.empty}>Je account heeft momenteel geen toegang tot de modules. Vraag een beheerder om je rechten te controleren.</div>}
+  </div>;
 }
-
+function ModuleCard({module:m}:{module:Module}){return <Link href={m.href} prefetch={false} className={styles.card}><span className={styles.icon}><AdminIcon name={m.icon} size={23}/></span><div className={styles.cardCopy}><h3>{m.name}</h3><p>{m.description}</p><span className={styles.cardLink}>Open module<AdminIcon name="next" size={13}/></span></div><span className={styles.cardArrow}><AdminIcon name="arrow" size={18}/></span></Link>;}

@@ -3,6 +3,14 @@ on:
   push:
     branches: [release/security-20261024, main]
     paths:
+      - app/admin/AdminIcon.tsx
+      - app/admin/AdminShell.module.css
+      - app/admin/dashboard.module.css
+      - app/admin/layout.tsx
+      - app/admin/page.tsx
+      - app/admin/Nav.tsx
+      - app/admin/UserBadge.tsx
+      - security/tests/admin-dashboard.test.mjs
       - lib/verifyLeadPrice.ts
       - app/api/buyback/lead/route.ts
       - security/tests/lead-price.test.mjs
@@ -99,6 +107,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/reception-terms.test.mjs
       - name: Verify saved reception labels and access without printers
         run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/product-label.test.mjs
+      - name: Verify dashboard access and stationary navigation
+        run: node --experimental-vm-modules --test security/tests/admin-dashboard.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
