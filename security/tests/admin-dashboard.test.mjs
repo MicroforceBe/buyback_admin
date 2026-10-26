@@ -46,8 +46,19 @@ test('release history requires a session but remains readable without module per
   const live=nodes(sections.find(n=>n.props.id==='live-updates'),n=>n.props?.entry);
   const preview=nodes(sections.find(n=>n.props.id==='test-updates'),n=>n.props?.entry);
   assert.ok(live.length>0&&live.every(n=>n.props.entry.status==='live'));
-  assert.ok(preview.length>0&&preview.every(n=>n.props.entry.status==='test'));
-  assert.ok(preview.some(n=>n.props.entry.area==='Diagnostics'));
+  if(role==='admin'){
+   assert.ok(preview.length>0&&preview.every(n=>n.props.entry.status==='test'));
+   assert.ok(preview.some(n=>n.props.entry.area==='Diagnostics'));
+   assert.equal(nodes(tree,n=>n.type==='a'&&n.props.href==='#test-updates').length,1);
+  }else{
+   assert.equal(preview.length,0);
+   assert.equal(sections.some(n=>n.props.id==='test-updates'),false);
+   assert.equal(nodes(tree,n=>n.type==='a'&&n.props.href==='#test-updates').length,0);
+   const output=JSON.stringify(tree);
+   for(const entry of data.releases.filter(r=>r.status==='test')){assert.ok(!output.includes(entry.id));assert.ok(!output.includes(entry.title));}
+   assert.ok(!output.includes('Alleen in test'));
+   assert.ok(!output.includes('ontwikkelingen in test'));
+  }
  }
  const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>'/admin/release-notes'}});
  for(const role of ['user','admin','technician'])assert.equal(nodes(Nav({role,permissions:{dashboard:false,refurb:false}}),n=>n.type==='Link'&&n.props.href==='/admin/release-notes'&&n.props['aria-current']==='page').length,1);
