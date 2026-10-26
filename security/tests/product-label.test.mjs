@@ -74,3 +74,16 @@ test('synthetic label render is available for visual review without customer dat
  console.log('LABEL_PREVIEW_GZIP_BASE64='+gzipSync(html).toString('base64'));
 });
 
+
+test('right-column branding and CE stay away from the physical right and bottom edges',async()=>{
+ const {namespace:m}=await helper();
+ const css=m.labelStyles;
+ const side=css.match(/\.label-side\{([^}]+)\}/)[1];
+ assert.match(side,/padding-right:1\.5mm/);
+ assert.match(side,/padding-bottom:1mm/);
+ assert.match(css,/\.label-brand\{[^}]*font-size:4\.7pt;[^}]*white-space:nowrap/);
+ assert.match(css,/\.label-ce\{[^}]*text-align:left/);
+ const html=m.renderProductLabel({sku:'TEST-123',title:'Test',serial:'SERIAL-123',vatMargin:true});
+ assert.ok(html.includes('>MICROFORCE</div>'));
+ assert.ok(html.includes('class="label-ce">CE</div>'));
+});
