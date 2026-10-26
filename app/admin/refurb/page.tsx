@@ -1,6 +1,6 @@
 import ui from './rma/rma.module.css';
 import styles from './reception.module.css';
-import { receptionRmaDays } from '@/lib/receptionTerms';
+import { receptionRmaDays, receptionOverviewCounts } from '@/lib/receptionTerms';
 import { updateReceptionMetadata } from './receptionMetadataActions';
 import { permits } from '@/lib/security/policy';
 import { deleteRefurbReception } from "./actions";
@@ -632,6 +632,7 @@ export default async function RefurbListPage({
   const visibleReceptions = showCompleted ? receptions : receptions.filter((reception) =>
     !(reception.total_items && reception.finished_items_count === reception.total_items)
   );
+  const {openItems,expiringItems}=receptionOverviewCounts(receptions);
   const toggleParams = new URLSearchParams();
   if (q) toggleParams.set("q", q);
   if (!showCompleted) toggleParams.set("show_completed", "1");
@@ -768,7 +769,7 @@ export default async function RefurbListPage({
       </details>
 
       <header className="rma-hero"><div><div className="rma-kicker">Refurb / inkomende leveringen</div><h1>Recepties</h1><p>Verwerk toestellen, bewaak RMA-termijnen en volg leveranciers op.</p></div>{permits(user,'refurb','write')&&<Link href="/admin/refurb/new" className="bb-btn">+ Nieuwe receptie</Link>}</header>
-      <div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount,note:'Nog te verwerken leveringen'},{name:'Afgewerkte recepties',value:completedCount,note:showCompleted?'Zichtbaar in het overzicht':'Verborgen voor een rustig overzicht'},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0),note:'Binnen de getoonde recepties'},{name:'Leveranciers',value:new Set(visibleReceptions.map(row=>row.supplier)).size,note:'In de getoonde selectie'}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div><small>{row.note}</small></div>)}</div>
+      <div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount},{name:'Te verwerken artikelen',value:openItems},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0)},{name:'Garantie vervalt binnen 7 dagen',value:expiringItems}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div></div>)}</div>
       <div className="flex justify-end text-sm">
         <Link
           href={toggleHref}
@@ -958,8 +959,3 @@ export default async function RefurbListPage({
     </div>
   );
 }
-
-
-
-
-

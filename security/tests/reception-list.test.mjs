@@ -12,7 +12,8 @@ function text(node){if(Array.isArray(node))return node.map(text).join(' ');if(no
 async function render({params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
  const reads=[],ranges=[];let userReads=0;
  const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?[]:table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:itemsError&&table==='refurb_reception_items'?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
- const context=vm.createContext({URLSearchParams,console:{error(){}}});
+ class FixtureDate extends Date {constructor(value){super(arguments.length?value:'2026-10-26T10:00:00Z');}}
+ const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
  const imports={
   './rma/rma.module.css':{default:{workspace:'workspace'}},'./reception.module.css':{default:{reception:'reception'}},'./receptionMetadataActions':{updateReceptionMetadata:()=>{throw Error('No writes')}},
@@ -32,6 +33,17 @@ async function render({params={},allowed=true,itemsError=false,receptions=[recep
  return {tree,reads,ranges,userReads};
 }
 const receptionLinks=tree=>nodes(tree,n=>n.type==='Link'&&/^\/admin\/refurb\/[^?]+$/.test(n.props.href));
+
+test('overview tiles omit helper texts and count unfinished articles by the reception deadline, independent of completed toggle',async()=>{
+ const receptions=[{...reception('done'),rma_expiry_date:'2026-10-27'},{...reception('open'),rma_expiry_date:'2026-11-02'},{...reception('later'),rma_expiry_date:'2026-11-03'}];
+ const items=[item('1','done','booked'),item('2','open','new'),item('3','open','rma'),item('4','open','booked'),item('5','later','new')];
+ for(const params of [{},{show_completed:'1'}]){
+  const {tree}=await render({params,receptions,items});const cards=nodes(tree,n=>n.props?.className==='rma-stat');
+  assert.equal(cards.length,4);const byName=Object.fromEntries(cards.map(card=>[text(nodes(card,n=>n.props?.className==='rma-stat-title')[0]),text(nodes(card,n=>n.props?.className==='rma-stat-value')[0])]));
+  assert.equal(byName['Te verwerken artikelen'],'3');assert.equal(byName['Garantie vervalt binnen 7 dagen'],'2');
+  assert.equal(byName['Afgewerkte recepties'],undefined);assert.equal(byName.Leveranciers,undefined);assert.equal(nodes(cards,n=>n.type==='small').length,0);
+ }
+});
 
 test('completed receptions are absent from the server output by default; open and empty remain visible',async()=>{
  const {tree,userReads}=await render();assert.deepEqual(receptionLinks(tree).map(n=>n.props.href),['/admin/refurb/open','/admin/refurb/empty']);
@@ -70,5 +82,3 @@ test('all nonfinal statuses receive counted links, canonical labels and configur
  for(const badge of badges){const url=new URL(badge.props.href,'https://synthetic.invalid');assert.equal(url.pathname,'/admin/refurb/open');assert.equal(url.hash,'#reception-items');assert.ok(url.searchParams.get('status'));assert.notEqual(url.searchParams.get('status'),'Booked');assert.equal(badge.props.prefetch,false);}
  assert.equal(new URL(badges[3].props.href,'https://synthetic.invalid').searchParams.get('status'),'custom / status');
 });
-
-

@@ -16,3 +16,32 @@ export function receptionRmaDays(days:number|null|undefined,date:string,expiry:s
   if(expiry){const difference=Math.round((Date.parse(expiry+'T00:00:00Z')-Date.parse(date+'T00:00:00Z'))/86400000);if(Number.isInteger(difference)&&difference>=0&&difference<=36500)return difference;}
   return 30;
 }
+
+type OverviewReception = {
+  total_items?:number;
+  finished_items_count?:number;
+  reception_date:string;
+  rma_expiry_days?:number|null;
+  rma_expiry_date?:string|null;
+};
+
+export function receptionOverviewCounts(receptions:OverviewReception[], now=new Date()) {
+  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Brussels',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const part=(type:string)=>parts.find(p=>p.type===type)?.value;
+  const today=`${part('year')}-${part('month')}-${part('day')}`;
+  const lastDay=rmaExpiryDate(today,7);
+  let openItems=0,expiringItems=0;
+  for(const reception of receptions){
+    const open=Math.max(0,(reception.total_items??0)-(reception.finished_items_count??0));
+    openItems+=open;
+    if(!open)continue;
+    try{
+      const expiry=reception.rma_expiry_date
+        ? rmaExpiryDate(reception.rma_expiry_date,0)
+        : rmaExpiryDate(reception.reception_date,receptionRmaDays(reception.rma_expiry_days,reception.reception_date,null));
+      // Calendar dates in Brussels: due today and day seven count; past deadlines do not.
+      if(expiry>=today&&expiry<=lastDay)expiringItems+=open;
+    }catch{ /* Missing or invalid dates cannot be claimed as upcoming deadlines. */ }
+  }
+  return {openItems,expiringItems};
+}
