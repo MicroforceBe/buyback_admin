@@ -7,7 +7,7 @@ export const releases:ReleaseEntry[]=[
   'Nieuwe dashboardindeling met aparte groepen voor dagelijkse verwerking en catalogus & beheer.',
   'Vaste zijbalk met menunamen en consistente iconen. Het menu schuift niet meer open bij hover; op kleinere schermen staat de navigatie bovenaan.',
   'Snelle toegang tot recepties, leads, RMA Supplier en Refurb analytics, volgens de bestaande toegangsrechten.',
-  'Nieuwe sectie Release notes, beschikbaar voor alle aangemelde gebruikers, met onderscheid tussen live wijzigingen en ontwikkelingen in test.',
+  'Nieuwe sectie Release notes, beschikbaar voor alle aangemelde gebruikers, met een overzicht van de gepubliceerde verbeteringen.',
  ]},
  {id:'recepties-20261026',date:'2026-10-26',title:'Sneller naar de juiste receptie',area:'Recepties',status:'live',summary:'Meer werkruimte voor leveringen, minder informatie die in de weg staat.',changes:[
   'Het tegeloverzicht is standaard ingeklapt. Het toont openstaande recepties, te verwerken artikelen, artikelen in overzicht en artikelen met een naderende garantietermijn.',
