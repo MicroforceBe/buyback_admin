@@ -3,6 +3,8 @@ import { requirePageAccess } from '@/lib/security/access';
 import { buildRefurbAnalytics, parseAnalyticsFilters } from '@/lib/refurbAnalytics';
 import { loadAnalyticsInput } from './data';
 import SupplierBars from './SupplierBars';
+import {buildSupplierRmaOutcomes} from '@/lib/supplierRmaResolution';
+import RmaOutcomes from './RmaOutcomes';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -35,6 +37,7 @@ export default async function RefurbAnalyticsPage({ searchParams }: { searchPara
     return <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-4">Analytics kon niet volledig worden geladen. <Link href="/admin/refurb/analytics" className="underline">Probeer opnieuw</Link></div>;
   }
   const data = buildRefurbAnalytics(input, filters);
+  const outcomes=buildSupplierRmaOutcomes(input.rmaCaseItems??[],input.rmaFollowups??[],input.items,input.receptions,data.selectedItemIds);
   const cards = [
     { label: 'Aangekocht', value: data.totals.purchased.toLocaleString('nl-BE') + ' artikelen' },
     { label: 'Aankoopbedrag', value: money(data.totals.purchaseCents) },
@@ -62,6 +65,7 @@ export default async function RefurbAnalyticsPage({ searchParams }: { searchPara
       {data.openTotals.missingPrices > 0 && <p role="status" className="text-sm text-amber-700">De openstaande aankoopwaarde is onvolledig: {data.openTotals.missingPrices} artikelen hebben geen aankoopprijs.</p>}
       <div className="grid gap-3 xl:grid-cols-2"><SupplierBars rows={data.openSuppliers} measure="count" /><SupplierBars rows={data.openSuppliers} measure="value" /></div>
     </section>
+    <RmaOutcomes overview={outcomes} rmaTotal={data.totals.rma}/>
     <section aria-labelledby="pending-rma-title" className="space-y-3">
       <div><h2 id="pending-rma-title" className="text-base font-semibold">Nog niet verwerkte RMA-bedragen en compensaties</h2><p className="text-xs text-slate-500">RMA-artikelen met een huidige RMA-status zonder eindstatus. Aankoopwaarde en ingevulde compensatie staan apart; ze worden niet bij elkaar opgeteld. Een ontbrekend compensatiebedrag is nog onbekend, geen nulbedrag.</p></div>
       <div className="overflow-x-auto rounded-md border bg-white"><table className="w-full text-sm">
@@ -122,4 +126,5 @@ export default async function RefurbAnalyticsPage({ searchParams }: { searchPara
     </section>
   </div>;
 }
+
 
