@@ -5,6 +5,25 @@ import vm from 'node:vm';
 import {stripTypeScriptTypes} from 'node:module';
 import JsBarcode from 'jsbarcode';
 import {gzipSync} from 'node:zlib';
+test('99012 artwork keeps printable-edge clearance and avoids a second flow page',async()=>{
+ const {namespace:m}=await helper();
+ const css=m.labelStyles;
+ const sheet=css.match(/\.label-sheet\{width:([\d.]+)mm;height:([\d.]+)mm;/);
+ const card=css.match(/\.label-card\{width:([\d.]+)mm;height:([\d.]+)mm;padding:([\d.]+)mm;/);
+ assert.ok(sheet&&card,'explicit physical artwork size');
+ const [width,height,padding]=card.slice(1).map(Number);
+ assert.ok(width<m.labelSize.width&&height<m.labelSize.height,'reserve for printer rounding');
+ assert.ok(padding>=2.5,'CE and text stay inside printable edges');
+ const column=Number(css.match(/grid-template-columns:minmax\(0,1fr\) ([\d.]+)mm/)[1]);
+ const gap=Number(css.match(/gap:([\d.]+)mm/)[1]);
+ assert.ok(width-2*padding-column-gap>=m.labelSize.barcodeWidth,'barcode quiet zones retain full width');
+ const rowHeights=css.match(/grid-template-rows:([^;]+)/)[1].match(/[\d.]+/g).map(Number);
+ const rowGap=Number(css.match(/row-gap:([\d.]+)mm/)[1]);
+ assert.ok(rowHeights.reduce((sum,n)=>sum+n,0)+rowGap*(rowHeights.length-1)<=height-2*padding,'content fits vertically');
+ assert.match(css,/@page\{size:89mm 36mm;margin:0\}/);
+ assert.match(css,/@media print[\s\S]*\.label-sheet\{position:absolute;top:0;left:0/);
+ assert.doesNotMatch(css,/break-(?:inside|after):avoid/);
+});
 const root=new URL('../../',import.meta.url);
 async function helper(context=vm.createContext({})){
  const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/productLabel.ts',root),'utf8'),{mode:'strip'}),{context});
@@ -54,3 +73,4 @@ test('synthetic label render is available for visual review without customer dat
  const html='<!doctype html><html><head><meta charset="utf-8"><style>'+m.labelStyles+'body{padding:20px;background:#eee}.label-sheet{margin-bottom:20px;box-shadow:0 0 0 1px #aaa}</style></head><body>'+labels.map(m.renderProductLabel).join('')+'</body></html>';
  console.log('LABEL_PREVIEW_GZIP_BASE64='+gzipSync(html).toString('base64'));
 });
+
