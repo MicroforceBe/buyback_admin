@@ -4,6 +4,7 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
  {id:'dashboard-20261026',date:'2026-10-26',title:'Een vernieuwde Microforce-werkruimte',area:'Dashboard',status:'live',summary:'Een zakelijke startpagina en een vaste, leesbare navigatie.',changes:[
+  'Na uitloggen verschijnt alleen het aanmeldscherm, zonder oude navigatie of accountinformatie. Dit geldt ook bij een verlopen sessie tijdens het navigeren.',
   'Nieuwe dashboardindeling met aparte groepen voor dagelijkse verwerking en catalogus & beheer.',
   'Vaste zijbalk met menunamen en consistente iconen. Het menu schuift niet meer open bij hover; op kleinere schermen staat de navigatie bovenaan.',
   'Snelle toegang tot recepties, leads, RMA Supplier en Refurb analytics, volgens de bestaande toegangsrechten.',
@@ -73,3 +74,4 @@ export const releases:ReleaseEntry[]=[
   'De bestaande ERP-importinstellingen zijn behouden. Een nieuwe FTPS-verbinding is niet als werkend bevestigd; de werkelijke Sendcloud-labeltest is overgeslagen.',
  ]},
 ];
+

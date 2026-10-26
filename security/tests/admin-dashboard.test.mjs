@@ -31,7 +31,7 @@ test('dashboard checks access before reading user and offers only permitted modu
 });
 test('shell leaves login alone and preserves logout and idle timer for signed-in users',async()=>{
  let user=null;
- const Layout=await load('app/admin/layout.tsx',{'./Nav':{default:'Nav'},'./UserBadge':{default:'UserBadge'},'./IdleLogout':{default:'IdleLogout'},'./LogoutButton':{default:'LogoutButton'},'@/lib/getCurrentAdminUser':{getCurrentAdminUser:async()=>user}});
+ const Layout=await load('app/admin/layout.tsx',{'./AdminChrome':{default:'AdminChrome'},'./Nav':{default:'Nav'},'./UserBadge':{default:'UserBadge'},'./IdleLogout':{default:'IdleLogout'},'./LogoutButton':{default:'LogoutButton'},'@/lib/getCurrentAdminUser':{getCurrentAdminUser:async()=>user}});
  let tree=await Layout({children:'LOGIN'});assert.equal(nodes(tree,n=>n.type==='Nav').length,0);assert.equal(tree.props.children,'LOGIN');
  user={role:'admin'};tree=await Layout({children:'PAGE'});assert.equal(nodes(tree,n=>n.type==='Nav').length,1);assert.equal(nodes(tree,n=>n.type==='LogoutButton').length,1);assert.equal(nodes(tree,n=>n.type==='IdleLogout')[0].props.timeoutMs,900000);assert.equal(nodes(tree,n=>n.type==='main').length,1);
 });
@@ -62,5 +62,34 @@ test('release history requires a session but remains readable without module per
  }
  const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>'/admin/release-notes'}});
  for(const role of ['user','admin','technician'])assert.equal(nodes(Nav({role,permissions:{dashboard:false,refurb:false}}),n=>n.type==='Link'&&n.props.href==='/admin/release-notes'&&n.props['aria-current']==='page').length,1);
+});
+
+
+test('a retained authenticated layout shows only login content after a route redirect',async()=>{
+ let pathname='/admin/refurb/fixture';
+ const Chrome=await load('app/admin/AdminChrome.tsx',{'next/navigation':{usePathname:()=>pathname}});
+ const protectedLayout={type:'aside',props:{children:'OLD ACCOUNT AND NAVIGATION'}};
+ const login={type:'form',props:{children:'LOGIN FORM'}};
+ const props={children:protectedLayout,loginContent:login};
+ let tree=Chrome(props);assert.equal(tree.props.children,protectedLayout);
+ pathname='/admin/login';tree=Chrome(props);
+ assert.equal(tree.props.children,login);assert.equal(nodes(tree,n=>n.type==='aside').length,0);
+ assert.ok(!JSON.stringify(tree).includes('OLD ACCOUNT'));
+ pathname='/admin/leads';assert.equal(Chrome(props).props.children,protectedLayout);
+});
+
+test('manual and idle logout replace the current document after successful session cleanup',async()=>{
+ const navigations=[];let calls=0;const pending=[];
+ const location={replace:path=>navigations.push(path)};let timer,cleanup;const listeners=new Map();
+ const extras={'./logout/actions':{logoutAction:async()=>{calls++;return {success:true};}},'react':{useTransition:()=>[false,fn=>pending.push(fn())],useRef:()=>({current:null}),useEffect:fn=>{cleanup=fn();}}};
+ // Extend the component harness with browser globals without using a browser or real session.
+ async function client(file){
+  const code=ts.transpileModule(fs.readFileSync(new URL('../../'+file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  const context=vm.createContext({window:{location,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)},document:{visibilityState:'visible'},setTimeout:(fn,ms)=>{assert.equal(ms,900000);timer=fn;return 1;},clearTimeout:()=>{}});
+  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{const e=spec==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:extras[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return m.namespace.default;
+ }
+ const Button=await client('app/admin/LogoutButton.tsx');Button().props.onClick();await Promise.all(pending);assert.deepEqual(navigations,['/admin/login']);
+ const Idle=await client('app/admin/IdleLogout.tsx');Idle({timeoutMs:900000});await timer();
+ assert.equal(calls,2);assert.deepEqual(navigations,['/admin/login','/admin/login']);cleanup();assert.equal(listeners.size,0);
 });
 

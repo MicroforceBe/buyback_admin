@@ -3,6 +3,9 @@ on:
   push:
     branches: [release/security-20261024, main, security-test]
     paths:
+      - app/admin/AdminChrome.tsx
+      - app/admin/IdleLogout.tsx
+      - app/admin/LogoutButton.tsx
       - app/admin/Nav.tsx
       - app/admin/AdminIcon.tsx
       - app/admin/page.tsx

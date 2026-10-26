@@ -12,7 +12,7 @@ export default function LogoutButton() {
       const result = await logoutAction();
       if (result?.success) {
         // Na succesvolle logout naar loginpagina
-        window.location.href = '/admin/login';
+        window.location.replace('/admin/login');
       }
     });
   }
@@ -28,3 +28,4 @@ export default function LogoutButton() {
     </button>
   );
 }
+
