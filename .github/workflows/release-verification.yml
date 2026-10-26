@@ -110,6 +110,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/diagnostics.test.mjs
       - name: Verify USB identity and test-only local bridge without devices
         run: node --experimental-vm-modules --test security/tests/diagnostics-usb.test.mjs
+      - name: Verify dashboard access and stationary navigation
+        run: node --experimental-vm-modules --test security/tests/admin-dashboard.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
