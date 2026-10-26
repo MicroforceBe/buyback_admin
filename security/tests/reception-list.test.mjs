@@ -16,6 +16,7 @@ async function render({params={},allowed=true,itemsError=false,receptions=[recep
  const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
  const imports={
+  './ReceptionQuickSearch':{default:'ReceptionQuickSearch'},
   './rma/rma.module.css':{default:{workspace:'workspace'}},'./reception.module.css':{default:{reception:'reception'}},'./receptionMetadataActions':{updateReceptionMetadata:()=>{throw Error('No writes')}},
   '@/lib/security/policy':{permits:()=>false},
   './actions':{deleteRefurbReception:async()=>{throw Error('No mutations permitted');}},
@@ -33,6 +34,37 @@ async function render({params={},allowed=true,itemsError=false,receptions=[recep
  return {tree,reads,ranges,userReads};
 }
 const receptionLinks=tree=>nodes(tree,n=>n.type==='Link'&&/^\/admin\/refurb\/[^?]+$/.test(n.props.href));
+
+test('overview starts collapsed, warning stays outside, and delivery header contains toggle and full safe lookup index',async()=>{
+ const receptions=[{...reception('done'),rma_expiry_date:'2026-10-27'},{...reception('open'),rma_expiry_date:'2026-10-27'}];
+ const {tree}=await render({receptions,items:[item('1','done','booked'),item('2','open','rma')]});
+ const panel=nodes(tree,n=>n.type==='details'&&n.props.id==='reception-overview')[0];assert.ok(panel);assert.ok(!panel.props.open);assert.equal(nodes(panel,n=>n.props?.role==='alert').length,0);
+ const warning=nodes(tree,n=>n.props?.className==='reception-expiry-warning')[0];assert.equal(warning.props.role,'alert');assert.match(text(warning),/1.*openstaand artikel.*binnen 7 dagen/);
+ const header=nodes(tree,n=>n.props?.className==='reception-deliveries-header')[0];assert.ok(text(header).includes('Leveringen'));assert.equal(nodes(header,n=>n.props?.role==='switch').length,1);
+ const lookup=nodes(header,n=>n.type==='ReceptionQuickSearch')[0];assert.equal(lookup.props.receptions.length,2);assert.ok(lookup.props.receptions.find(r=>r.id==='done').completed);assert.deepEqual(Object.keys(lookup.props.receptions[0]).sort(),['completed','date','id','number','supplier']);
+ const quiet=await render({receptions:[reception('done')],items:[item('1','done','booked')]});assert.equal(nodes(quiet.tree,n=>n.props?.className==='reception-expiry-warning').length,0);
+});
+
+test('real quick search opens at three characters, includes finished matches, supports keyboard and preserves literal input',async()=>{
+ const state=[],effects=[],scrolls=[],navigation=[];let cursor=0;
+ const hooks={useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return[state[i],value=>state[i]=typeof value==='function'?value(state[i]):value];},useEffect(fn){cursor++;effects.push(fn);}};
+ const context=vm.createContext({document:{getElementById:id=>({scrollIntoView:()=>scrolls.push(id)})}});
+ const imports={'react':hooks,'next/link':{default:'Link'},'next/navigation':{useRouter:()=>({push:url=>navigation.push(url)})},'./ReceptionQuickSearch.module.css':{default:new Proxy({},{get:(_,key)=>key})},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}};
+ const file=fs.readFileSync(new URL('../../app/admin/refurb/ReceptionQuickSearch.tsx',import.meta.url),'utf8');
+ const code=ts.transpileModule(file,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{const e=imports[spec];if(!e)throw Error('Unexpected '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await mod.evaluate();
+ const receptions=[{id:'open',number:'2600584',supplier:'Synthetic',date:'2026-10-26',completed:false},{id:'finished',number:'2600585',supplier:'Synthetic',date:'2026-10-25',completed:true}];
+ const render=()=>{cursor=0;const tree=mod.namespace.default({receptions});for(const fn of effects.splice(0))fn();return tree;};
+ let tree=render();const input=()=>nodes(tree,n=>n.props?.role==='combobox')[0];const type=value=>{input().props.onChange({target:{value}});tree=render();};
+ type('26');assert.equal(nodes(tree,n=>n.props?.role==='listbox').length,0);
+ type('260');assert.equal(nodes(tree,n=>n.props?.role==='option').length,2);assert.ok(text(tree).includes('Afgewerkt'));assert.equal(input().props['aria-expanded'],true);
+ let prevented=0;input().props.onKeyDown({key:'ArrowDown',preventDefault(){prevented++;}});tree=render();assert.ok(input().props['aria-activedescendant'].endsWith('-0'));assert.ok(scrolls.length);
+ input().props.onKeyDown({key:'ArrowDown',preventDefault(){}});tree=render();input().props.onKeyDown({key:'Enter',preventDefault(){}});tree=render();assert.equal(navigation[0],'/admin/refurb/finished');assert.equal(input().props['aria-expanded'],false);
+ type('260');const option=nodes(tree,n=>n.props?.role==='option')[0];assert.equal(option.props.href,'/admin/refurb/open');assert.equal(option.props.prefetch,false);option.props.onMouseDown({preventDefault(){prevented++;}});option.props.onClick();tree=render();assert.equal(input().props['aria-expanded'],false);assert.equal(prevented,2);
+ type('SYN');assert.equal(nodes(tree,n=>n.props?.role==='option').length,2);
+ type('260%');assert.equal(nodes(tree,n=>n.props?.role==='option').length,0);assert.ok(text(tree).includes('Geen recepties gevonden.'));
+ type('260');input().props.onKeyDown({key:'Escape'});tree=render();assert.equal(input().props['aria-expanded'],false);
+});
 
 test('overview tiles omit helper texts and count unfinished articles by the reception deadline, independent of completed toggle',async()=>{
  const receptions=[{...reception('done'),rma_expiry_date:'2026-10-27'},{...reception('open'),rma_expiry_date:'2026-11-02'},{...reception('later'),rma_expiry_date:'2026-11-03'}];
