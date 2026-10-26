@@ -18,7 +18,7 @@ export default function IdleLogout({ timeoutMs }: Props) {
     timerRef.current = setTimeout(async () => {
       const result = await logoutAction();
       if (result?.success) {
-        window.location.href = '/admin/login';
+        window.location.replace('/admin/login');
       }
     }, timeoutMs);
   }
@@ -44,3 +44,4 @@ export default function IdleLogout({ timeoutMs }: Props) {
 
   return null;
 }
+
