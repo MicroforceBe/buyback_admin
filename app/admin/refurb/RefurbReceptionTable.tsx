@@ -269,7 +269,7 @@ function ReceptionBatteryCell({item,disabled,onSaved,onDirty,onPaste}:{item:Refu
     }catch(e){setError(e instanceof Error?e.message:'Batterij kon niet worden opgeslagen.');onDirty(true);}
     finally{setPending(false);}
   }
-  return <div className="min-w-[76px] max-w-[150px]"><input aria-label="Batterijcapaciteit (%)" title="Batterijcapaciteit 0–100 of -; smartphones minimaal 85% voor labelprint" className="bb-input h-7 text-[11px] px-1 w-full" value={value} disabled={disabled||pending} onChange={e=>{setValue(e.target.value);setError('');onDirty(true);}} onBlur={save} onPaste={onPaste}/>{pending&&<span className="text-[10px] text-slate-500">Opslaan…</span>}{error&&<span role="alert" className="block text-[10px] text-red-700">{error}</span>}</div>;
+  return <div className="w-14 shrink-0"><input aria-label="Batterijcapaciteit (%)" inputMode="numeric" maxLength={3} title="Batterijcapaciteit 0–100 of -; smartphones minimaal 85% voor labelprint" className="bb-input h-7 text-[11px] px-1 w-full" value={value} disabled={disabled||pending} onChange={e=>{setValue(e.target.value);setError('');onDirty(true);}} onBlur={save} onPaste={onPaste}/>{pending&&<span className="text-[10px] text-slate-500">Opslaan…</span>}{error&&<span role="alert" className="block text-[10px] text-red-700">{error}</span>}</div>;
 }
 
 type UsedPartsCellProps = {
@@ -1409,7 +1409,7 @@ async function copyCompleteRmaOverview() {
 
           <th className="px-2 py-1 border">
             <div className="flex items-center gap-2">
-              <span>Location</span>
+              <span className="inline-flex shrink-0 items-center" role="img" aria-label="Locatie" title="Locatie"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
               <select
                 value={locationFilter}
                 onChange={(e) => setLocationFilter(e.target.value)}
@@ -1439,7 +1439,7 @@ async function copyCompleteRmaOverview() {
 
           {showExtraSn && <th className="px-2 py-1 border">SN</th>}
 
-          <th className="px-2 py-1 border">Batterij (%)</th>
+          <th className="px-2 py-1 border w-16"><span className="inline-flex items-center" role="img" aria-label="Batterijcapaciteit (%)" title="Batterijcapaciteit (%)"><svg aria-hidden="true" width="20" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="6" width="17" height="12" rx="2"/><path d="M22 10v4M6 9v6M10 9v6M14 9v6"/></svg></span></th>
           <th className="px-2 py-1 border">SKU</th>
           <th className="px-2 py-1 border">Used parts</th>
 
@@ -1459,7 +1459,7 @@ async function copyCompleteRmaOverview() {
 
           {showSupplierRemarks && <th className="px-2 py-1 border">Supplier remarks</th>}
 
-          <th className="px-2 py-1 border">Supplier Grading</th>
+          <th className="px-2 py-1 border">Supp. Grade</th>
 
           {showAdvanced && (
             <>
