@@ -1,5 +1,6 @@
 // app/admin/refurb/actions.ts
 "use server";
+import { parseReceptionBattery } from "@/lib/receptionBattery";
 import { parseRmaDays, rmaExpiryDate } from '@/lib/receptionTerms';
 import { requireAccess } from '@/lib/security/access';
 
@@ -12,6 +13,7 @@ import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 export type VatScheme = "margin" | "normal";
 
 export type RefurbItem = {
+  battery_percentage?: number | null;
   rma_registered?: boolean;
   id: string;
   reception_id: string;
@@ -54,6 +56,7 @@ type EditableField =
   | "rma"
   | "compensation_cents"
   | "imei_sn"
+  | "battery_percentage"
   | "manual_sn"
   | "location";
 
@@ -77,6 +80,7 @@ const ALWAYS_EDITABLE_FIELDS: PasteField[] = [
   "rma",
   "compensation_cents",
   "imei_sn",
+  "battery_percentage",
   "manual_sn",
   "location",
 ];
@@ -341,6 +345,7 @@ async function fetchItemsForReception(receptionId: string): Promise<RefurbItem[]
       description,
       supplier_device_errors,
       supplier_grading,
+      battery_percentage,
       refurb_diagnostics,
       rma_defect_description,
       rma,
@@ -436,6 +441,8 @@ export async function updateRefurbItemCell(
 
   if (field === "price_cents" || field === "compensation_cents") {
     (patch as any)[field] = parseMoneyToCents(value);
+  } else if (field === "battery_percentage") {
+    patch.battery_percentage = parseReceptionBattery(value);
   } else {
     (patch as any)[field] = value || null;
   }
@@ -644,6 +651,8 @@ export async function pasteIntoRefurbColumn(
     if (field === "price_cents" || field === "compensation_cents") {
       value = parseMoneyToCents(trimmed);
     }
+
+    if (field === "battery_percentage") value = parseReceptionBattery(trimmed);
 
     // ✅ If pasting status, normalize to canonical value
     let pastedFlags: { admin_only: boolean; need_sku: boolean } | null = null;
@@ -1112,6 +1121,7 @@ export async function tryUpdateRefurbItemCell(itemId: string, field: EditableFie
     if (message.includes('RMA_COMPENSATION_REQUIRED')) return {error:'Vul eerst een compensatiebedrag in voordat dit artikel aan RMA Supplier wordt gekoppeld.'};
     if (message.includes('RMA_REFUNDED')) return {error:'Een refunded artikel kan niet opnieuw als RMA worden gemeld.'};
     if (message.includes('vergrendeld')) return {error:'Dit artikel is geboekt. Gebruik Nieuw RMA melden (ook na afwerking) in het RMA-overzicht.'};
+    if (message.startsWith('Batterijcapaciteit moet')) return {error:message};
     if (message.startsWith('Status "') || message.includes('SKU is verplicht') || message.includes('rechten om deze status')) return {error:message};
     return {error:'De wijziging is niet opgeslagen. Controleer de toegelaten statustransitie en probeer opnieuw.'};
   }

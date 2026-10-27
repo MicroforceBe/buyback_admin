@@ -46,8 +46,9 @@ test('one shared label preserves full source description and safely escapes prod
 async function actionHarness({denied=false,sourceError=false,article=true}={}){
  const reads=[],context=vm.createContext({}),model=await helper(context);let allowed=false;
  const source={item:{reception_id:'receipt'},sku:'SAVED-SKU',imei:'SAVED-SERIAL'};
+ const batteryHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/receptionBattery.ts',root),'utf8'),{mode:'strip'}),{context});await batteryHelper.link(()=>{});await batteryHelper.evaluate();
  const modules={'@/lib/security/access':{requireAccess:async(...args)=>{assert.deepEqual(args,['refurb','read',false]);if(denied)throw Error('DENIED');allowed=true;}},'../erp/labels/refurbSource':{getRefurbLabelSource:async id=>{assert.ok(allowed);assert.equal(id,'item');return sourceError?{error:'Status niet toegestaan'}:source;}},'@/lib/supabaseAdmin':{supabaseAdmin:{from(table){assert.ok(allowed);assert.equal(table,'erp_articles');return{select(){return this;},eq(key,value){reads.push([key,value]);return this;},maybeSingle:async()=>({data:article?{sku:'SAVED-SKU',title:'TEST DEVICE',vat_margin:true}:null,error:null})};}}}};
- const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/refurb/labelActions.ts',root),'utf8'),{mode:'strip'}),{context});await m.link(spec=>{if(spec==='@/lib/productLabel')return model;const e=modules[spec];if(!e)throw Error(spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return{api:m.namespace,reads};
+ const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/refurb/labelActions.ts',root),'utf8'),{mode:'strip'}),{context});await m.link(spec=>{if(spec==='@/lib/productLabel')return model;if(spec==='@/lib/receptionBattery')return batteryHelper;const e=modules[spec];if(!e)throw Error(spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return{api:m.namespace,reads};
 }
 test('direct print preparation authorizes before loading and binds ERP lookup to the stored SKU',async()=>{
  const denied=await actionHarness({denied:true});await assert.rejects(denied.api.prepareReceptionLabel('item'),/DENIED/);assert.equal(denied.reads.length,0);
@@ -97,4 +98,11 @@ test('grade recognizes compact margin suffixes and prints a single star',async()
   assert.ok(m.renderProductLabel({sku:'TEST-123',title,vatMargin:true}).includes('label-side-value">'+stars+'*</div>'));
  }
  for(const [title,expected] of [['Grade A','GRADE A'],['NEW','NEW'],['OEM','OEM'],['Premium','PREMIUM'],['iPad 4*Max',''],['iPad 14*M',''],['MacBook M4','']]) assert.equal(m.titleGrade(title),expected);
+});
+
+
+test('optional reception battery is omitted entirely; zero remains a known printable percentage',async()=>{
+ const {namespace:m}=await helper();
+ for(const battery of [undefined,''])assert.ok(!m.renderProductLabel({sku:'TEST-123',title:'Laptop',battery,omitEmptyBattery:true,vatMargin:true}).includes('>Battery<'));
+ for(const battery of ['0','85','100']){const html=m.renderProductLabel({sku:'TEST-123',title:'Device',battery,omitEmptyBattery:true,vatMargin:true});assert.ok(html.includes('>Battery<'));assert.ok(html.includes(battery+'%'));}
 });

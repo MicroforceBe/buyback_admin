@@ -1,5 +1,6 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
+import { parseReceptionBattery } from "@/lib/receptionBattery";
 import type {ReceptionRmaWork} from '@/lib/receptionRmaWork';
 import type { ReceptionRmaCase, ReceptionRmaLink } from './rma/receptionData';
 
@@ -248,6 +249,27 @@ function CopyBtn({ value, title }: { value: string; title?: string }) {
       ⧉
     </button>
   );
+}
+
+function ReceptionBatteryCell({item,disabled,onSaved,onDirty,onPaste}:{item:RefurbItem;disabled:boolean;onSaved:(value:number|null)=>void;onDirty:(dirty:boolean)=>void;onPaste?:React.ClipboardEventHandler<HTMLInputElement>}) {
+  const saved = item.battery_percentage == null ? '-' : String(item.battery_percentage);
+  const [value,setValue]=useState(saved),[pending,setPending]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{setValue(saved);setError('');onDirty(false);},[saved]);
+  async function save() {
+    if(disabled||pending)return;
+    let parsed:number|null;
+    try { parsed=parseReceptionBattery(value); } catch(e) {setError((e as Error).message);onDirty(true);return;}
+    const normalized=parsed==null?'-':String(parsed);
+    if(normalized===saved){setValue(normalized);setError('');onDirty(false);return;}
+    setPending(true);setError('');
+    try{
+      const result=await updateRefurbItemCell(item.id,'battery_percentage',normalized);
+      if(result?.error)throw new Error(result.error);
+      onSaved(parsed);setValue(normalized);onDirty(false);
+    }catch(e){setError(e instanceof Error?e.message:'Batterij kon niet worden opgeslagen.');onDirty(true);}
+    finally{setPending(false);}
+  }
+  return <div className="min-w-[76px] max-w-[150px]"><input aria-label="Batterijcapaciteit (%)" title="Batterijcapaciteit 0–100 of -; smartphones minimaal 85% voor labelprint" className="bb-input h-7 text-[11px] px-1 w-full" value={value} disabled={disabled||pending} onChange={e=>{setValue(e.target.value);setError('');onDirty(true);}} onBlur={save} onPaste={onPaste}/>{pending&&<span className="text-[10px] text-slate-500">Opslaan…</span>}{error&&<span role="alert" className="block text-[10px] text-red-700">{error}</span>}</div>;
 }
 
 type UsedPartsCellProps = {
@@ -511,6 +533,7 @@ export default function RefurbReceptionTable({
     }));
   }, [initialItems, statusOptions, defaultStatusValue]);
 
+  const [batteryDirtyIds,setBatteryDirtyIds]=useState<Set<string>>(()=>new Set());
   const [items, setItems] = useState<RefurbItem[]>(normalizedInitialItems);
 
   // UI toggles
@@ -1038,6 +1061,7 @@ async function copyCompleteRmaOverview() {
       | "rma"
       | "compensation_cents"
       | "imei_sn"
+      | "battery_percentage"
       | "manual_sn"
       | "location",
     value: string
@@ -1133,6 +1157,7 @@ async function copyCompleteRmaOverview() {
       | "rma"
       | "compensation_cents"
       | "imei_sn"
+      | "battery_percentage"
       | "manual_sn"
       | "location"
   ) {
@@ -1150,6 +1175,10 @@ async function copyCompleteRmaOverview() {
     lines: string[]
   ) {
     if (!canWrite || columnSavePending.current || !lines.some((line) => line.trim())) return;
+    if (field === 'battery_percentage') {
+      try { lines.filter(line=>line.trim()).forEach(parseReceptionBattery); }
+      catch(error) { window.alert((error as Error).message); return; }
+    }
     columnSavePending.current = true;
     try {
       setIsPasting(true);
@@ -1327,6 +1356,7 @@ async function copyCompleteRmaOverview() {
     1 + // status
     1 + // location
     1 + // IMEI/SN
+    1 + // battery
     1 + // SKU
     1 + // used parts
     1 + // description
@@ -1409,6 +1439,7 @@ async function copyCompleteRmaOverview() {
 
           {showExtraSn && <th className="px-2 py-1 border">SN</th>}
 
+          <th className="px-2 py-1 border">Batterij (%)</th>
           <th className="px-2 py-1 border">SKU</th>
           <th className="px-2 py-1 border">Used parts</th>
 
@@ -1579,7 +1610,7 @@ async function copyCompleteRmaOverview() {
                   </select>
                   {rowWork&&<a className="text-xs text-sky-700 underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id:undefined} title={rowWork.note}>RMA-dossier</a>}
                   {canPrintRefurbLabel(currentStatus, statusOptions) && (
-                    <RefurbLabelPrintButton itemId={it.id} />
+                    <RefurbLabelPrintButton itemId={it.id} disabled={batteryDirtyIds.has(it.id)} />
                   )}
                 </div>
               </td>
@@ -1636,6 +1667,12 @@ async function copyCompleteRmaOverview() {
                   />
                 </td>
               )}
+
+              <td className="px-1 py-0.5 border">
+                <ReceptionBatteryCell item={it} disabled={!canWrite || rowBooked} onPaste={e=>handlePasteToColumn(e,pasteStartRowIndex,"battery_percentage")}
+                  onSaved={value=>setItems(prev=>prev.map(row=>row.id===it.id?{...row,battery_percentage:value}:row))}
+                  onDirty={dirty=>setBatteryDirtyIds(prev=>{if(prev.has(it.id)===dirty)return prev;const next=new Set(prev);if(dirty)next.add(it.id);else next.delete(it.id);return next;})}/>
+              </td>
 
              {/* SKU + autocomplete */}
               <td className="px-1 py-0.5 border">
@@ -2225,6 +2262,7 @@ async function copyCompleteRmaOverview() {
                         </td>
                       )}
 
+                      <td className="px-1 py-0.5 border"><input className="bb-input h-7 text-[11px] px-1 w-full" aria-label="Batterijcapaciteit plakken" placeholder="-" disabled={!canWrite || isPasting} onBlur={e=>saveColumnValues(0,"battery_percentage",[e.target.value])} onPaste={e=>handlePasteToColumn(e,0,"battery_percentage")}/></td>
                       <td className="px-1 py-0.5 border">
                         <input
                           className="bb-input h-7 text-[11px] px-1 w-full"

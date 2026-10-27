@@ -3,6 +3,13 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'reception-battery-20261027',date:'2026-10-27',title:'Batterijcapaciteit op recepties en labels',area:'Recepties',status:'live',summary:'Bewaar de batterijcapaciteit bij het receptieartikel en print ze mee op het verpakkingslabel.',changes:[
+ 'Nieuw veld Batterij (%) met een geheel getal van 0 tot 100. Een streepje betekent niet ingevuld; batterij-informatie blijft dan volledig weg op het receptielabel.',
+ 'Voor smartphones is een opgeslagen batterijcapaciteit van minstens 85% verplicht voordat het label kan worden geprint. Je kunt lagere waarden wel bewaren tijdens de verwerking.',
+ 'De printcontrole gebruikt de opgeslagen artikelgegevens. Een onopgeslagen batterijwijziging moet eerst worden bewaard.',
+ 'De bestaande batterijregels voor buyback leads blijven behouden.',
+ ]},
+
  {id:'trustpilot-20261027',date:'2026-10-27',title:'Automatische Trustpilot-uitnodigingen na afronding',area:'Leads',status:'live',summary:'Nieuwe afgeronde buybacks worden automatisch bij Trustpilot aangemeld voor een uitnodiging na 7 dagen.',changes:[
  'De eerste overgang naar Afgewerkt meldt de buyback één keer aan. Bestaande afgewerkte buybacks worden niet achteraf uitgenodigd.',
  'Afgewerkt betekent verkoopsklaar en in voorraad; de betaling gebeurt afzonderlijk. Trustpilot gebruikt het ingestelde Microforce BuyBack-sjabloon en de termijn van 7 dagen.',

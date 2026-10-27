@@ -33,9 +33,11 @@ async function loadActions({allowed=true,admin=false,current='new',lookupError=f
   };
   const code=stripTypeScriptTypes(fs.readFileSync(path.join(root,'app/admin/refurb/actions.ts'),'utf8'),{mode:'strip'});
   const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(path.join(root,'lib/receptionTerms.ts'),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected helper dependency')});await terms.evaluate();
+  const battery=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(path.join(root,'lib/receptionBattery.ts'),'utf8'),{mode:'strip'}),{context});await battery.link(()=>{});await battery.evaluate();
   const m=new vm.SourceTextModule(code,{context});
   await m.link(spec=>{
     if(spec==='@/lib/receptionTerms')return terms;
+    if(spec==='@/lib/receptionBattery')return battery;
     const e=exports[spec];if(!e)throw Error('Unmocked dependency '+spec);
     return new vm.SyntheticModule(Object.keys(e),function(){for(const [k,v]of Object.entries(e))this.setExport(k,v);},{context});
   });await m.evaluate();return {api:m.namespace,state};
