@@ -3,6 +3,14 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'user-access-test-20261027',date:'2026-10-27',title:'Preview: gebruikers en afzonderlijke RMA-rechten',area:'Gebruikersbeheer',status:'test',summary:'Uitgebreid gebruikersbeheer in de testomgeving; bestaande accounts en rechten blijven behouden.',changes:[
+ 'Professionele accountlijst en rechtenmatrix, met invulprofielen voor receptie, techniek, boekhouding en operationele verantwoordelijkheid.',
+ 'RMA Supplier apart toekennen: bekijken, verwerken, financiële wijzigingen en definitief afsluiten. Refurb analytics krijgt afzonderlijke leestoegang.',
+ 'Profielen worden alleen expliciet toegepast en opgeslagen. Er is geen automatische herverdeling van bestaande gebruikersrechten.',
+ 'Wijzigingen hebben een historiek en versiecontrole. Bestaande wachtwoorden blijven behouden als de wachtwoordvelden leeg blijven.',
+ 'Accounts deactiveren en sessies intrekken, met bescherming tegen eigen buitensluiting en verlies van de laatste actieve beheerder.',
+ ]},
+
  {id:'trustpilot-preview-20261027',date:'2026-10-27',title:'Trustpilot na afronding van een buyback',area:'Leads',status:'test',summary:'Proefregistratie voor een review-uitnodiging 7 dagen na Afgewerkt; er worden geen echte uitnodigingen verstuurd.',changes:[
   'Alleen de eerste nieuwe overgang naar Afgewerkt registreert een uitnodiging. Opnieuw opslaan of de status opnieuw doorlopen maakt geen dubbele registratie.',
   'Afgewerkt betekent verkoopsklaar en op voorraad; betaling gebeurt afzonderlijk binnen maximaal 5 dagen. De wachttijd van 7 dagen wordt door Trustpilot toegepast.',

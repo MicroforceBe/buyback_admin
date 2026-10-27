@@ -1,438 +1,66 @@
-//app/admin/settings/users/UserPermissionsTable.tsx
 'use client';
-
-import { useState, useTransition } from 'react';
-import type {
-  AdminRole,
-  PermissionsMap,
-  FeatureKey,
-} from '@/lib/adminPermissions';
-import { ALL_FEATURES } from '@/lib/adminPermissions';
-import {
-  saveAdminUserAction,
-  deleteAdminUserAction,
-} from './actions';
-
-type UserRow = {
-  email: string;
-  role: AdminRole;
-  permissions: PermissionsMap;
-};
-
-type Props = {
-  initialUsers: UserRow[];
-  currentUserEmail: string | null;
-  rootAdminEmail: string | null;
-  canEdit: boolean;
-};
-
-const emptyPermissionsForAll: PermissionsMap = ALL_FEATURES.reduce(
-  (acc, feature) => {
-    acc[feature] = { read: false, write: false };
-    return acc;
-  },
-  {} as PermissionsMap
-);
-
-export default function UserPermissionsTable({
-  initialUsers,
-  currentUserEmail,
-  rootAdminEmail,
-  canEdit,
-}: Props) {
-  const [users, setUsers] = useState<UserRow[]>(() =>
-    initialUsers.map((u) => ({
-      email: u.email,
-      role: u.role,
-      // 🔧 Deep copy per user, zodat feature-permissions niet gedeeld worden tussen users
-      permissions: ALL_FEATURES.reduce((acc, feature) => {
-        const src =
-          (u.permissions && u.permissions[feature]) ||
-          emptyPermissionsForAll[feature];
-        acc[feature] = { read: !!src?.read, write: !!src?.write };
-        return acc;
-      }, {} as PermissionsMap),
-    }))
-  );
-
-  const [isPending, startTransition] = useTransition();
-  const [newEmail, setNewEmail] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // per-user tijdelijke wachtwoordvelden
-  const [passwords, setPasswords] = useState<
-    Record<string, { password: string; confirm: string }>
-  >({});
-
-  function updateUser(email: string, updater: (row: UserRow) => UserRow) {
-    setUsers((prev) =>
-      prev.map((u) => (u.email === email ? updater(u) : u))
-    );
-  }
-
-  function isRootAdmin(email: string) {
-    return (
-      rootAdminEmail &&
-      email.toLowerCase() === rootAdminEmail.toLowerCase()
-    );
-  }
-
-  function isMe(email: string) {
-    return (
-      currentUserEmail &&
-      email.toLowerCase() === currentUserEmail.toLowerCase()
-    );
-  }
-
-  function handleTogglePerm(
-    email: string,
-    feature: FeatureKey,
-    mode: 'read' | 'write'
-  ) {
-    if (!canEdit) return;
-
-    updateUser(email, (row) => {
-      const currentPerms = row.permissions || {};
-      const currentFeaturePerm =
-        currentPerms[feature] || { read: false, write: false };
-
-      const nextValue = !currentFeaturePerm[mode];
-
-      // Maak altijd een nieuwe feature-perm zodat er geen gedeelde referenties zijn
-      const nextFeaturePerm = {
-        ...currentFeaturePerm,
-        [mode]: nextValue,
-      };
-
-      // Basisregel: write ⇒ read automatisch aan
-      if (mode === 'write' && nextValue) {
-        nextFeaturePerm.read = true;
-      }
-
-      return {
-        ...row,
-        permissions: {
-          ...currentPerms,
-          [feature]: nextFeaturePerm,
-        },
-      };
-    });
-  }
-
-  function handleRoleChange(email: string, role: AdminRole) {
-    if (!canEdit) return;
-    updateUser(email, (row) => ({ ...row, role }));
-  }
-
-  function handlePasswordFieldChange(
-    email: string,
-    field: 'password' | 'confirm',
-    value: string
-  ) {
-    if (!canEdit) return;
-
-    setPasswords((prev) => {
-      const existing = prev[email] || { password: '', confirm: '' };
-      return {
-        ...prev,
-        [email]: {
-          password: field === 'password' ? value : existing.password,
-          confirm: field === 'confirm' ? value : existing.confirm,
-        },
-      };
-    });
-  }
-
-  function handleSave(user: UserRow) {
-    if (!canEdit) return;
-
-    const pwState = passwords[user.email] || { password: '', confirm: '' };
-
-    setErrorMessage(null);
-
-    startTransition(async () => {
-      const result = await saveAdminUserAction({
-        email: user.email,
-        role: user.role,
-        permissions: user.permissions,
-        password: pwState.password,
-        password_confirm: pwState.confirm,
-      });
-
-      if (result && 'error' in result && result.error) {
-        // Toon nette foutmelding (bv. zwak wachtwoord, mismatch, geen rechten, ...)
-        setErrorMessage(result.error);
-        return;
-      }
-
-      // Na succesvolle save velden leegmaken
-      setPasswords((prev) => ({
-        ...prev,
-        [user.email]: { password: '', confirm: '' },
-      }));
-    });
-  }
-
-  function handleDelete(user: UserRow) {
-    if (!canEdit) return;
-
-    if (
-      !window.confirm(
-        `User ${user.email} verwijderen uit admin rechten?`
-      )
-    ) {
-      return;
-    }
-
-    setErrorMessage(null);
-
-    startTransition(async () => {
-      const result = await deleteAdminUserAction(user.email);
-
-      if (result && 'error' in result && result.error) {
-        // Bv. root admin kan niet verwijderd worden
-        setErrorMessage(result.error);
-        return;
-      }
-
-      // Alleen bij succes uit de lijst halen
-      setUsers((prev) => prev.filter((u) => u.email !== user.email));
-    });
-  }
-
-  function handleAddUser() {
-    if (!canEdit) return;
-
-    const email = newEmail.trim().toLowerCase();
-    if (!email) return;
-    if (users.some((u) => u.email.toLowerCase() === email)) {
-      alert('User bestaat al in de rechtenlijst.');
-      return;
-    }
-
-    const newUser: UserRow = {
-      email,
-      role: 'user',
-      permissions: { ...emptyPermissionsForAll },
-    };
-
-    setUsers((prev) => [...prev, newUser]);
-    setNewEmail('');
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <label className="block text-xs font-medium text-gray-600">
-            Nieuwe user (e-mail)
-          </label>
-          <input
-            type="email"
-            className="border rounded px-2 py-1 text-sm"
-            placeholder="user@domein.be"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-            disabled={!canEdit}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={handleAddUser}
-          className="px-3 py-1 text-sm border rounded"
-          disabled={!canEdit}
-        >
-          Toevoegen
-        </button>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm border">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="px-2 py-1 text-left border-b">E-mail</th>
-              <th className="px-2 py-1 text-left border-b">Rol</th>
-              {ALL_FEATURES.map((f) => (
-                <th
-                  key={f}
-                  className="px-2 py-1 text-center border-b"
-                >
-                  {f}
-                  <div className="text-[10px] text-gray-500">
-                    R / W
-                  </div>
-                </th>
-              ))}
-              <th className="px-2 py-1 text-right border-b">Acties</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => {
-              const root = isRootAdmin(u.email);
-              const me = isMe(u.email);
-              const pwState =
-                passwords[u.email] || { password: '', confirm: '' };
-
-              return (
-                <tr key={u.email} className="border-t">
-                  <td className="px-2 py-1 align-top">
-                    {u.email}
-                    {root && (
-                      <span className="ml-1 text-[10px] text-orange-600">
-                        (root)
-                      </span>
-                    )}
-                    {me && (
-                      <span className="ml-1 text-[10px] text-blue-600">
-                        (jij)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1 align-top">
-                    <select
-                      className="border rounded px-1 py-0.5 text-xs"
-                      value={u.role}
-                      onChange={(e) =>
-                        handleRoleChange(
-                          u.email,
-                          e.target.value as AdminRole
-                        )
-                      }
-                      disabled={!!root || !canEdit}
-                    >
-                      <option value="admin">admin</option>
-                      <option value="user">user</option>
-                    </select>
-                  </td>
-                  {ALL_FEATURES.map((feature) => {
-                    const perm =
-                      u.permissions[feature] ||
-                      emptyPermissionsForAll[feature]!;
-                    const disabled = root || !canEdit; // root admin is in praktijk altijd full access, en canEdit moet true zijn
-                    return (
-                      <td
-                        key={feature}
-                        className="px-2 py-1 align-top text-center"
-                      >
-                        <label className="inline-flex items-center gap-1">
-                          <input
-                            type="checkbox"
-                            checked={!!perm.read}
-                            disabled={disabled}
-                            onChange={() =>
-                              handleTogglePerm(
-                                u.email,
-                                feature,
-                                'read'
-                              )
-                            }
-                          />
-                          <input
-                            type="checkbox"
-                            checked={!!perm.write}
-                            disabled={disabled}
-                            onChange={() =>
-                              handleTogglePerm(
-                                u.email,
-                                feature,
-                                'write'
-                              )
-                            }
-                          />
-                        </label>
-                      </td>
-                    );
-                  })}
-                  <td className="px-2 py-1 align-top text-right space-x-1">
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex flex-col items-end gap-1 text-[10px]">
-                        <label className="flex flex-col gap-0.5">
-                          <span className="text-gray-600">
-                            Nieuw wachtwoord
-                          </span>
-                          <input
-                            type="password"
-                            className="border rounded px-2 py-0.5 text-xs"
-                            placeholder="Laat leeg om niet te wijzigen"
-                            value={pwState.password}
-                            onChange={(e) =>
-                              handlePasswordFieldChange(
-                                u.email,
-                                'password',
-                                e.target.value
-                              )
-                            }
-                            autoComplete="new-password"
-                            disabled={!canEdit}
-                          />
-                        </label>
-                        <label className="flex flex-col gap-0.5">
-                          <span className="text-gray-600">
-                            Herhaal wachtwoord
-                          </span>
-                          <input
-                            type="password"
-                            className="border rounded px-2 py-0.5 text-xs"
-                            placeholder="Herhaal nieuw wachtwoord"
-                            value={pwState.confirm}
-                            onChange={(e) =>
-                              handlePasswordFieldChange(
-                                u.email,
-                                'confirm',
-                                e.target.value
-                              )
-                            }
-                            autoComplete="new-password"
-                            disabled={!canEdit}
-                          />
-                        </label>
-                      </div>
-                      <div className="space-x-1">
-                        <button
-                          type="button"
-                          onClick={() => handleSave(u)}
-                          className="px-2 py-0.5 border rounded text-xs"
-                          disabled={isPending || !canEdit}
-                        >
-                          Opslaan
-                        </button>
-                        {!isRootAdmin(u.email) && (
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(u)}
-                            className="px-2 py-0.5 border rounded text-xs text-red-600"
-                            disabled={isPending || !!me || !canEdit}
-                            title={
-                              me
-                                ? 'Je kunt jezelf hier niet verwijderen.'
-                                : 'User uit adminrechten verwijderen'
-                            }
-                          >
-                            Verwijderen
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {errorMessage && (
-        <div className="text-xs text-red-600">
-          {errorMessage}
-        </div>
-      )}
-
-      {isPending && canEdit && (
-        <div className="text-xs text-gray-500">
-          Bezig met opslaan...
-        </div>
-      )}
-    </div>
-  );
+import {useState,useTransition} from 'react';
+import {useRouter} from 'next/navigation';
+import {ALL_FEATURES,FEATURE_LABELS,PROFILE_LABELS,normalizeAccessPermissions,profilePermissions,type AdminRole,type AdminPermissions,type AdminFeature,type PermissionMode,type RoleProfile} from '@/lib/adminPermissions';
+import {saveAdminUserAction,revokeAdminUserSessions} from './actions';
+import styles from './users.module.css';
+type UserRow={email:string;role:AdminRole;permissions:AdminPermissions;is_active:boolean;role_profile:RoleProfile|null;version:number;isRoot?:boolean};
+type Audit={id:string;actor:string;subject_email:string;event:string;created_at:string;changes?:{password_changed?:boolean}};
+type Props={initialUsers:UserRow[];currentUserEmail:string|null;canEdit:boolean;audit:Audit[]};
+const groups=[{label:'Dagelijkse verwerking',features:['dashboard','leads','leads_finalize','refurb','rma_supplier','refurb_analytics','erp'] as AdminFeature[]},{label:'Catalogus & beheer',features:['catalog','multipliers','uploads','settings'] as AdminFeature[]}];
+const notes:Partial<Record<AdminFeature,string>>={rma_supplier:'Bekijken omvat dossiergegevens en bedragen. Verwerken omvat aanmaken, koppelen, logistiek en opvolging. Bedragen en leveranciersbeslissingen vereisen Financieel; definitief afsluiten vereist Afsluiten.',refurb:'Bestaande receptie- en artikelrechten. Beheer van statussen, locaties en modellen blijft voor beheerders.',settings:'Bestaande instellingenrechten. Gebruikersbeheer blijft uitsluitend voor beheerders.',refurb_analytics:'Afzonderlijke toegang tot grafieken en financiële analyses.'};
+export default function UserPermissionsTable({initialUsers,currentUserEmail,canEdit,audit}:Props){
+ const [users,setUsers]=useState(()=>initialUsers.map(u=>({...u,permissions:normalizeAccessPermissions(u.permissions)})));
+ const [selected,setSelected]=useState(initialUsers[0]?.email??''),[query,setQuery]=useState(''),[newEmail,setNewEmail]=useState('');
+ const [dirty,setDirty]=useState<Record<string,boolean>>({}),[passwords,setPasswords]=useState<Record<string,{password:string;confirm:string}>>({});
+ const [feedback,setFeedback]=useState<{error:boolean;text:string}|null>(null),[pending,startTransition]=useTransition();
+ const router=useRouter(),user=users.find(u=>u.email===selected),me=user?.email===currentUserEmail,protectedUser=!!user?.isRoot||me;
+ function update(fn:(u:UserRow)=>UserRow){if(!user||!canEdit||pending)return;setUsers(prev=>prev.map(u=>u.email===selected?fn(u):u));setDirty(prev=>({...prev,[selected]:true}));setFeedback(null);}
+ function toggle(feature:AdminFeature,mode:PermissionMode){update(u=>{
+  const all=normalizeAccessPermissions(u.permissions),p={...all[feature]},value=p[mode]!==true;p[mode]=value;
+  if(mode==='read'&&!value){p.write=false;p.finance=false;p.finalize=false;}
+  if(mode==='write'){if(value)p.read=true;else{p.finance=false;p.finalize=false;}}
+  if((mode==='finance'||mode==='finalize')&&value){p.read=true;p.write=true;}
+  return {...u,permissions:{...all,[feature]:p},role_profile:'custom'};
+ });}
+ function add(){const email=newEmail.trim().toLowerCase();if(!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)){setFeedback({error:true,text:'Vul een geldig e-mailadres in.'});return;}
+  if(users.some(u=>u.email===email)){setSelected(email);setNewEmail('');return;}
+  setUsers(prev=>[...prev,{email,role:'user',permissions:normalizeAccessPermissions({}),is_active:true,role_profile:'custom',version:0}]);setSelected(email);setNewEmail('');setDirty(prev=>({...prev,[email]:true}));
+ }
+ function save(){if(!user||!canEdit||pending)return;const pw=passwords[user.email]??{password:'',confirm:''};setFeedback(null);
+  startTransition(async()=>{try{const result=await saveAdminUserAction({...user,password:pw.password,password_confirm:pw.confirm});
+   if('error'in result){setFeedback({error:true,text:result.error});return;}
+   setUsers(prev=>prev.map(u=>u.email===user.email?{...u,version:result.version}:u));setPasswords(prev=>({...prev,[user.email]:{password:'',confirm:''}}));setDirty(prev=>({...prev,[user.email]:false}));setFeedback({error:false,text:'Gebruiker en rechten opgeslagen. De nieuwe rechten gelden bij de volgende aanvraag.'});router.refresh();
+  }catch{setFeedback({error:true,text:'Niet opgeslagen. Controleer je sessie en probeer opnieuw.'});}});
+ }
+ function revoke(){if(!user||user.version===0||!canEdit||pending)return;if(!window.confirm('Alle actieve sessies van deze gebruiker beëindigen?'))return;
+  startTransition(async()=>{try{const result=await revokeAdminUserSessions(user.email,user.version);setFeedback('error'in result?{error:true,text:result.error}:{error:false,text:'Sessies ingetrokken. De gebruiker moet opnieuw aanmelden.'});router.refresh();}catch{setFeedback({error:true,text:'Sessies konden niet worden ingetrokken.'});}});
+ }
+ const visible=users.filter(u=>(u.email+' '+PROFILE_LABELS[u.role_profile??'custom']).toLowerCase().includes(query.toLowerCase()));
+ const history=audit.filter(a=>a.subject_email===selected),pw=passwords[selected]??{password:'',confirm:''};
+ return <>
+  <div className={styles.metrics}><div><span>Gebruikers</span><strong>{users.filter(u=>u.version>0).length}</strong></div><div><span>Actieve accounts</span><strong>{users.filter(u=>u.is_active&&u.version>0).length}</strong></div><div><span>Beheerders</span><strong>{users.filter(u=>u.role==='admin'&&u.is_active).length}</strong></div></div>
+  <div className={styles.layout}>
+   <aside className={styles.directory}><div className={styles.directoryHead}><h2>Accounts</h2><input aria-label="Gebruiker zoeken" placeholder="Zoek naam of e-mailadres…" value={query} onChange={e=>setQuery(e.target.value)}/></div>
+    <div className={styles.accountList}>{visible.map(u=><button key={u.email} className={styles.account} aria-pressed={u.email===selected} onClick={()=>{setSelected(u.email);setFeedback(null);}}><span className={styles.avatar}>{u.email.slice(0,2).toUpperCase()}</span><span><strong>{u.email}</strong><small>{u.role==='admin'?'Beheerder':PROFILE_LABELS[u.role_profile??'custom']}{u.email===currentUserEmail?' · jij':''}</small></span><span className={u.is_active?styles.activeDot:styles.inactiveDot} title={u.is_active?'Actief':'Inactief'}/>{dirty[u.email]&&<span title="Niet opgeslagen">•</span>}</button>)}</div>
+    {canEdit&&<form className={styles.addAccount} onSubmit={e=>{e.preventDefault();add();}}><label>Nieuwe gebruiker<input type="email" value={newEmail} onChange={e=>setNewEmail(e.target.value)} placeholder="naam@microforce.be" disabled={pending}/></label><button disabled={pending}>Account voorbereiden</button><small>Er wordt pas een account aangemaakt na Opslaan.</small></form>}
+   </aside>
+   {user?<div className={styles.editor}>
+    <header className={styles.editorHead}><div><span>Toegang configureren</span><h2>{user.email}</h2></div><span className={styles.badge}>{user.version===0?'Nieuw account':user.is_active?'Actief':'Gedeactiveerd'}</span></header>
+    <section className={styles.section}><h3>Rol & account</h3><div className={styles.roleGrid}>
+     <label>Rolprofiel<select value={user.role_profile??'custom'} disabled={!canEdit||pending||user.role==='admin'} onChange={e=>update(u=>({...u,role_profile:e.target.value as RoleProfile}))}>{Object.entries(PROFILE_LABELS).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+     <button className={styles.secondary} disabled={!canEdit||pending||user.role==='admin'||!user.role_profile||user.role_profile==='custom'} onClick={()=>{if(user.version>0&&!window.confirm('De zichtbare rechten vervangen door dit rolprofiel? Controleer ze vóór Opslaan.'))return;update(u=>({...u,permissions:profilePermissions(u.role_profile!)}));}}>Profiel toepassen</button>
+    </div><p className={styles.help}>Een rolprofiel is een invulhulp. Selecteren alleen verandert geen rechten; je past het expliciet toe en slaat daarna op.</p>
+    <div className={styles.switches}><label><input type="checkbox" checked={user.role==='admin'} disabled={!canEdit||pending||protectedUser} onChange={e=>update(u=>({...u,role:e.target.checked?'admin':'user'}))}/>Volledige beheerderstoegang</label><label><input type="checkbox" checked={user.is_active} disabled={!canEdit||pending||protectedUser} onChange={e=>update(u=>({...u,is_active:e.target.checked}))}/>Account actief</label></div>
+    {protectedUser&&<p className={styles.help}>Je eigen beheerderstoegang en beschermde beheerders kunnen hier niet worden uitgeschakeld.</p>}
+    {user.role==='admin'&&<p className={styles.notice}>Beheerders hebben volledige toegang. Gebruik een gewone gebruiker met gerichte rechten om toegang te beperken.</p>}</section>
+    <section className={styles.section}><h3>Rechten per module</h3><p className={styles.help}>Wijzigen vereist bekijken. De extra RMA-rechten staan los van de gewone receptierechten.</p>
+    {groups.map(group=><div key={group.label} className={styles.permissionGroup}><h4>{group.label}</h4><div className={styles.tableScroll}><table className={styles.matrix}><thead><tr><th>Module / rubriek</th><th>Bekijken</th><th>Wijzigen / verwerken</th><th>Financieel</th><th>Afsluiten</th></tr></thead><tbody>{group.features.map(feature=><tr key={feature} data-highlight={feature==='rma_supplier'}><th scope="row">{FEATURE_LABELS[feature]}{notes[feature]&&<small>{notes[feature]}</small>}</th>{(['read','write','finance','finalize'] as const).map(mode=><td key={mode}>{(mode==='finance'||mode==='finalize')&&feature!=='rma_supplier'||feature==='refurb_analytics'&&mode!=='read'?<span className={styles.na}>—</span>:<input type="checkbox" aria-label={FEATURE_LABELS[feature]+' · '+({read:'Bekijken',write:'Wijzigen',finance:'Financieel',finalize:'Afsluiten'})[mode]} checked={user.role==='admin'||user.permissions[feature]?.[mode]===true} disabled={!canEdit||pending||user.role==='admin'} onChange={()=>toggle(feature,mode)}/>}</td>)}</tr>)}</tbody></table></div></div>)}</section>
+    <details className={styles.security}><summary>Wachtwoord & sessies</summary><div className={styles.securityBody}><p>Laat beide velden leeg om het bestaande wachtwoord te behouden. Een gewijzigd wachtwoord beëindigt bestaande sessies.</p><div className={styles.roleGrid}><label>Nieuw wachtwoord<input type="password" autoComplete="new-password" value={pw.password} disabled={!canEdit||pending} onChange={e=>{setPasswords(prev=>({...prev,[selected]:{...pw,password:e.target.value}}));setDirty(prev=>({...prev,[selected]:true}));}}/></label><label>Herhaal wachtwoord<input type="password" autoComplete="new-password" value={pw.confirm} disabled={!canEdit||pending} onChange={e=>{setPasswords(prev=>({...prev,[selected]:{...pw,confirm:e.target.value}}));setDirty(prev=>({...prev,[selected]:true}));}}/></label></div><small>12–72 tekens, met hoofdletter, kleine letter en cijfer. Nieuwe accounts vereisen een wachtwoord.</small><button className={styles.secondary} disabled={!canEdit||pending||user.version===0} onClick={revoke}>Alle sessies intrekken</button></div></details>
+    <footer className={styles.saveBar}><span>{dirty[selected]?'Er zijn niet-opgeslagen wijzigingen.':'Geen niet-opgeslagen wijzigingen.'}</span><button className={styles.primary} disabled={!canEdit||pending||!dirty[selected]} onClick={save}>{pending?'Bezig…':'Gebruiker opslaan'}</button></footer>
+    {feedback&&<p className={feedback.error?styles.error:styles.success} role={feedback.error?'alert':'status'}>{feedback.text}</p>}
+    <section className={styles.section}><h3>Recente toegangswijzigingen</h3>{history.length?<ol className={styles.history}>{history.map(a=><li key={a.id}><strong>{a.event==='created'?'Account aangemaakt':a.event==='sessions_revoked'?'Sessies ingetrokken':'Rechten / account bijgewerkt'}{a.changes?.password_changed?' · wachtwoord gewijzigd':''}</strong><span>{new Date(a.created_at).toLocaleString('nl-BE',{timeZone:'Europe/Brussels'})} · {a.actor}</span></li>)}</ol>:<p className={styles.help}>Nog geen wijzigingen geregistreerd sinds de invoering van dit overzicht.</p>}</section>
+   </div>:<div className={styles.empty}>Selecteer een gebruiker of bereid een nieuw account voor.</div>}
+  </div>
+ </>;
 }
-

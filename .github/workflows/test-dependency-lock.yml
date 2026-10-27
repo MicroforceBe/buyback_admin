@@ -3,6 +3,16 @@ on:
   push:
     branches: [security-test]
     paths:
+      - lib/adminPermissions.ts
+      - lib/getCurrentAdminUser.ts
+      - lib/security/**
+      - app/admin/settings/users/**
+      - app/admin/refurb/**
+      - app/admin/layout.tsx
+      - app/admin/Nav.tsx
+      - app/admin/page.tsx
+      - security/tests/user-access.test.mjs
+      - security/sql/*user-access*.sql
       - package.json
       - package-lock.json
       - security/tests/zod-compat.test.mjs
@@ -61,6 +71,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
       - name: Verify label authorization, email error handling and ERP orchestration without external services
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/mail-integration.test.mjs security/tests/erp-flow.test.mjs
+      - name: Verify user preservation, separate module capabilities and real permission guards
+        run: node --experimental-vm-modules --test security/tests/user-access.test.mjs security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-resolution.test.mjs security/tests/supplier-rma-reception-data.test.mjs security/tests/reception-rma-work.test.mjs security/tests/reception-status-ui.test.mjs security/tests/refurb-analytics-page.test.mjs security/tests/admin-dashboard.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
