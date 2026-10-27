@@ -3,6 +3,8 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'development-backlog-20261027',date:'2026-10-27',title:'Ontwikkelbacklog voor beheerders',area:'Beheer',status:'live',summary:'Een centrale lijst om ideeën en toekomstige verbeteringen te bewaren en op te volgen.',changes:['Beheerders openen de ontwikkelbacklog onderaan de navigatie. Gewone gebruikers krijgen geen toegang.','Voeg ideeën toe met omschrijving, module, prioriteit en status. Zoek en filter in de lijst; bewerk of archiveer items zonder de historiek van de ideeënlijst kwijt te raken.','Het voorstel voor persoonlijke werkpc- en werkplekbeveiliging staat als uitgesteld idee genoteerd. Een backlogitem geeft geen automatische opdracht tot uitvoering.']},
+
  {id:'user-access-test-20261027',date:'2026-10-27',title:'Preview: gebruikers en afzonderlijke RMA-rechten',area:'Gebruikersbeheer',status:'test',summary:'Uitgebreid gebruikersbeheer in de testomgeving; bestaande accounts en rechten blijven behouden.',changes:[
  'Professionele accountlijst en rechtenmatrix, met invulprofielen voor receptie, techniek, boekhouding en operationele verantwoordelijkheid.',
  'RMA Supplier apart toekennen: bekijken, verwerken, financiële wijzigingen en definitief afsluiten. Refurb analytics krijgt afzonderlijke leestoegang.',
