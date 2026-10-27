@@ -329,7 +329,7 @@ export default async function RefurbReceptionDetailPage({
 
   const rmaWork=await loadReceptionRmaWork(sourceItems.map(item=>item.id));
   const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
-  const items=sourceItems.map(item=>({...item,refurb_status:workById.get(item.id)?.status||item.refurb_status}));
+  const items=sourceItems;
 
   const rmaDossiers=canUseAdminStatuses?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
 

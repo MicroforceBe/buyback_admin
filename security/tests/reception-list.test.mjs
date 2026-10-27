@@ -37,8 +37,8 @@ async function render({work=[],params={},allowed=true,itemsError=false,reception
 }
 const receptionLinks=tree=>nodes(tree,n=>n.type==='Link'&&/^\/admin\/refurb\/[^?]+$/.test(n.props.href));
 
-test('a refused booked device reopens its reception and supplies a direct RMA-to-fix filter badge',async()=>{
- const {tree}=await render({receptions:[reception('done')],items:[item('1','done','booked')],options:[{id:'fix',value:'RMA to ffix',label:'RMA to fix',color:'#a0e60a'}],work:[{reception_item_id:'1',status:'RMA to ffix',case_id:'case',case_item_id:'line',code:'TEST'}]});
+test('a refused device with its actual RMA to fix status reopens its reception and supplies a direct RMA-to-fix filter badge',async()=>{
+ const {tree}=await render({receptions:[reception('done')],items:[item('1','done','RMA to ffix')],options:[{id:'fix',value:'RMA to ffix',label:'RMA to fix',color:'#a0e60a'}],work:[{reception_item_id:'1',status:'RMA to ffix',case_id:'case',case_item_id:'line',code:'TEST'}]});
  assert.equal(receptionLinks(tree).length,1);const badges=nodes(tree,n=>n.type==='Link'&&n.props.href?.includes('status=RMA%20to%20ffix'));assert.equal(badges.length,1);assert.match(text(tree),/0\s*%\s*afgewerkt/);
 });
 

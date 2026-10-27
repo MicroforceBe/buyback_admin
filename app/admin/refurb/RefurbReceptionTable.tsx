@@ -889,7 +889,7 @@ async function copyCompleteRmaOverview() {
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
-      const v = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+      const v = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (v) s.add(v);
     }
     return Array.from(s).sort((a, b) => a.localeCompare(b));
@@ -904,7 +904,7 @@ async function copyCompleteRmaOverview() {
 
     // apply all filters except location
     const base = (items || []).filter((it: any) => {
-      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       if (statusFilter !== "__all__" && norm(st) !== norm(statusFilter)) return false;
 
       if (iq) {
@@ -946,7 +946,7 @@ async function copyCompleteRmaOverview() {
     return items
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
-        const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+        const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
         const okStatus = statusFilter === "__all__" || norm(st) === norm(statusFilter);
 
         const loc = ((it as any).location ?? "").trim();
@@ -978,14 +978,14 @@ async function copyCompleteRmaOverview() {
   // split done vs not done blocks
   const filteredNotDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
-      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       return workById.has(it.id)||!isFinalStatusValue(st);
     });
   }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
 
   const filteredDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
-      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
       return !workById.has(it.id)&&isFinalStatusValue(st);
     });
   }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
@@ -1150,7 +1150,6 @@ async function copyCompleteRmaOverview() {
     lines: string[]
   ) {
     if (!canWrite || columnSavePending.current || !lines.some((line) => line.trim())) return;
-    if(field==='refurb_status'&&items.some(it=>workById.has(it.id)&&it.row_index>=startRowIndex&&it.row_index<startRowIndex+lines.length)){window.alert('Deze selectie bevat RMA-herstelwerk. Wijzig de herstelstatus via het gekoppelde leveranciersdossier.');return;}
     columnSavePending.current = true;
     try {
       setIsPasting(true);
@@ -1218,8 +1217,6 @@ async function copyCompleteRmaOverview() {
       );
       return;
     }
-
-    if(wantStatus&&itemIds.some(id=>workById.has(id))){window.alert('Deze selectie bevat RMA-herstelwerk. Wijzig de herstelstatus via het gekoppelde leveranciersdossier.');return;}
 
     // ✅ Bulk UI checks for status (NeedSKU/AdminOnly)
     if (wantStatus) {
@@ -1451,7 +1448,7 @@ async function copyCompleteRmaOverview() {
     return (
       <>
         {rows.map(({ it }) => {
-          const currentStatus = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+          const currentStatus = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
 
           const rowWork=workById.get(it.id);
           const rowBooked = isBooked(it.refurb_status);
@@ -1526,7 +1523,7 @@ async function copyCompleteRmaOverview() {
                     style={{ background: statusColor ?? "transparent" }}
                     aria-hidden="true"
                   />
-                  {rowWork?<a className="text-amber-800 font-semibold underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id+'?item='+rowWork.case_item_id+'#followup-'+rowWork.case_item_id:undefined} title={'Geweigerd artikel · '+rowWork.code+'. Oorspronkelijke status: '+it.refurb_status+'. Herstelopvolging verloopt via het leveranciersdossier.'}>{rowWork.label||statusOptionByValue.get(rowWork.status)?.label||rowWork.status}<small className="block font-normal">{rowWork.code} · {rowWork.note}</small></a>:<select
+                  <select
                     value={currentStatus}
                     disabled={!canWrite || rowBooked || isRefundedRmaItem(it, statusOptions) || (mapModeForRow && !rowHasChoices)}
                     onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
@@ -1580,8 +1577,8 @@ async function copyCompleteRmaOverview() {
                           );
                         })}
                   </select>
-                  }
-                  {!rowWork && canPrintRefurbLabel(currentStatus, statusOptions) && (
+                  {rowWork&&<a className="text-xs text-sky-700 underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id:undefined} title={rowWork.note}>RMA-dossier</a>}
+                  {canPrintRefurbLabel(currentStatus, statusOptions) && (
                     <RefurbLabelPrintButton itemId={it.id} />
                   )}
                 </div>

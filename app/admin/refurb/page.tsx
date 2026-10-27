@@ -294,7 +294,6 @@ while (true) {
 
   const rmaWork=await loadReceptionRmaWork();
   const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
-  for(const item of items){const work=workById.get(item.id);if(work)item.refurb_status=work.status;}
 
   const stats = new Map<
     string,

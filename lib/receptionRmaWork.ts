@@ -24,9 +24,8 @@ export function buildReceptionRmaWork(lines:Line[],followups:Followup[],cases:Ca
   if(['repaired','unrepairable','parts'].includes(state))continue;
   if(line.decision!=='rejected'&&!(['queued','working','quality'].includes(state)))continue;
   const present=['on_site','returned'].includes(custody);
-  const fix=present?receptionRmaFixStatus(options):undefined;
-  const status=fix?.value||sourceById.get(line.reception_item_id)?.refurb_status||'';
-  const label=fix?.label||options.find(s=>norm(s.value)===norm(status))?.label||status;
+  const status=sourceById.get(line.reception_item_id)?.refurb_status||'';
+  const label=options.find(s=>norm(s.value)===norm(status))?.label||status;
   const note=!present?(custody==='unknown'?'Aanwezigheid nog te bevestigen':'Wacht op retour'):state==='working'?'Intern herstel bezig':state==='quality'?'Eindcontrole':'Te herstellen';
   work.push({reception_item_id:line.reception_item_id,case_id:line.case_id,case_item_id:line.id,code:byCase.get(line.case_id)!.code,status,label,note,repair_state:state,custody});
  }

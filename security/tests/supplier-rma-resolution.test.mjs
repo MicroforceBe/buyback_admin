@@ -36,6 +36,11 @@ test('article UI permits repair before shipping, waits for return after shipping
 });
 
 const ids={case:'22222222-2222-4222-8222-222222222222',line:'33333333-3333-4333-8333-333333333333'};
+
+test('handed-off refused articles direct processing to the ordinary reception rather than a second parts form',async()=>{
+ const ui=await panel();const tree=ui.default({dossier:{id:'case',version:4,stage:'sent'},items:[{id:'line',case_id:'case',reception_item_id:'source',decision:'rejected'}],sourceById:new Map([['source',{id:'source',reception_id:'receipt',description:'TEST returned device',refurb_status:'RMA to ffix'}]]),followups:[{case_item_id:'line',reception_handoff_at:'2026-10-27T10:00:00Z',repair_state:'queued',custody:'on_site',version:2}]});
+ assert.equal(nodes(tree,n=>n.type==='Link'&&n.props.href==='/admin/refurb/receipt#reception-items').length,1);assert.equal(nodes(tree,n=>n.type==='textarea'&&n.props.name==='repair_parts').length,0);assert.equal(nodes(tree,n=>n.type==='input'&&n.props.name==='repair_assignee').length,0);
+});
 async function actions({denied=false,error=''}={}){const calls=[];const context=vm.createContext({});const helper=await pure('lib/supplierRma.ts',context),resolution=await pure('lib/supplierRmaResolution.ts',context);
  const imports={'@/lib/security/access':{requireAccess:async(...args)=>{assert.deepEqual(args,['refurb','write',true]);if(denied)throw Error('DENIED');return {email:'trusted-actor@example.invalid'};}},'@/lib/supabaseAdmin':{supabaseAdmin:{from(){throw Error('Unexpected direct read');},rpc:async(name,payload)=>{calls.push({name,payload});return{data:ids.case,error:error?{message:error}:null};}}},'next/cache':{revalidatePath(){}},'next/navigation':{redirect:url=>{throw Object.assign(Error('REDIRECT'),{url});}}};
  const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/refurb/rma/actions.ts',root),'utf8'),{mode:'strip'}),{context});await m.link(spec=>{if(spec==='@/lib/supplierRma')return helper;if(spec==='@/lib/supplierRmaResolution')return resolution;const e=imports[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return{api:m.namespace,calls};

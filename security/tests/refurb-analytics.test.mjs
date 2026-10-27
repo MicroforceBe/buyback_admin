@@ -11,7 +11,7 @@ const empty=()=>({receptions:[],items:[],models:[],statuses:[],transitions:[],su
 const filters={from:'',to:'',supplier:''};
 
 test('refused booked work is open stock without becoming an unpaid supplier claim or another purchase',async()=>{
- const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('r',null,'Vendor')],items:[{...item('one','r','booked','Device'),rma_registered:true,compensation_cents:10000,work_status:'RMA to ffix',work_label:'RMA to fix'}]},filters);
+ const h=await helper(),d=h.buildRefurbAnalytics({...empty(),receptions:[reception('r',null,'Vendor')],items:[{...item('one','r','RMA to ffix','Device'),rma_registered:true,compensation_cents:10000,work_status:'RMA to ffix',work_label:'RMA to fix'}]},filters);
  assert.equal(d.totals.purchased,1);assert.equal(d.totals.rma,1);assert.equal(d.openTotals.count,1);assert.equal(d.pendingRmaRows.length,0);assert.equal(d.openRows[0].status,'RMA to fix');
 });
 test('a registered RMA stays in lifetime totals even after its status and compensation are cleared',async()=>{const h=await helper();const d=h.buildRefurbAnalytics({...empty(),receptions:[reception('a',null,'Vendor')],items:[{...item('1','a','Battery','iPad'),compensation_cents:null,rma_registered:true}]},filters);assert.equal(d.totals.rma,1);assert.equal(d.rmaPercent,100);assert.equal(d.repairedRows.length,0);});

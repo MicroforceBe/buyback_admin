@@ -28,7 +28,7 @@ export async function loadSupplierRmaData() {
     all<{ from_status_id: string }>('refurb_status_transitions', 'id,from_status_id'),
     all<History>('supplier_rma_history', 'id,case_id,actor,event,details,created_at'),
     all<StatusHistory>('supplier_rma_status_history', 'id,reception_item_id,old_status,new_status,old_compensation_cents,new_compensation_cents,created_at'),
-    all<RmaFollowup>('supplier_rma_followups','id,case_item_id,reception_item_id,custody,outbound_on,returned_on,return_reference,repair_state,repair_notes,repair_parts,repair_assignee,started_at,completed_at,version,updated_at'),
+    all<RmaFollowup>('supplier_rma_followups','id,reception_handoff_at,case_item_id,reception_item_id,custody,outbound_on,returned_on,return_reference,repair_state,repair_notes,repair_parts,repair_assignee,started_at,completed_at,version,updated_at'),
   ]);
   const receptionById = new Map(receptions.map(row => [row.id, row]));
   const caseById=new Map(cases.map(row=>[row.id,row]));
