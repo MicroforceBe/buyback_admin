@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import { hasPermission, type AdminPermissions } from "@/lib/adminPermissions";
 import { usePathname } from "next/navigation";
 
 type TabKey = "receptions" | "suppliers" | "statuses" | "locations" | "models" | "analytics" | "rma";
@@ -24,9 +25,10 @@ type Props = {
    * Mag bv. AdminRole | null zijn in je layout, hier behandelen we het als string | null.
    */
   role?: string | null;
+  permissions?:AdminPermissions;
 };
 
-export default function RefurbTabs({ active, isAdmin, role }: Props) {
+export default function RefurbTabs({ active, isAdmin, role, permissions }: Props) {
   const pathname = usePathname();
 
   // Bepalen of het om een admin gaat:
@@ -49,7 +51,7 @@ export default function RefurbTabs({ active, isAdmin, role }: Props) {
     <div className="border-b border-slate-200 mb-4">
       <nav aria-label="Refurb" className="flex flex-wrap gap-2 text-xs">
         {tabs
-          .filter((t) => (t.adminOnly ? admin : true)) // admin-only tabs verbergen voor niet-admins
+          .filter(t=>admin || (t.key==='rma'?hasPermission({role:role||'',permissions},'rma_supplier','read'):t.key==='analytics'?hasPermission({role:role||'',permissions},'refurb_analytics','read'):t.key==='receptions'?hasPermission({role:role||'',permissions},'refurb','read'):!t.adminOnly)) // admin-only tabs verbergen voor niet-admins
           .map((tab) => {
             const isActive = activeKey === tab.key;
 

@@ -1,8 +1,14 @@
 name: Production release verification
 on:
   push:
-    branches: [release/security-20261024, main]
+    branches: [release/security-20261024, release/users-20261027, main]
     paths:
+      - lib/adminPermissions.ts
+      - lib/getCurrentAdminUser.ts
+      - lib/security/policy.ts
+      - app/admin/settings/users/**
+      - security/tests/user-access.test.mjs
+      - security/sql/*user-access*.sql
       - lib/receptionBattery.ts
       - security/sql/reception-battery.sql
       - security/tests/reception-battery*.test.mjs
@@ -125,6 +131,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/admin-dashboard.test.mjs
       - name: Verify Trustpilot registration, delivery and access without external services
         run: node --experimental-vm-modules --test security/tests/trustpilot.test.mjs
+      - name: Verify preserved users and separate RMA Supplier capabilities
+        run: node --experimental-vm-modules --test security/tests/user-access.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"

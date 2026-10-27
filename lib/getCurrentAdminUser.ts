@@ -2,7 +2,7 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { ALL_FEATURES } from "@/lib/adminPermissions";
+import { ALL_FEATURES, normalizeAccessPermissions } from "@/lib/adminPermissions";
 import { validSessionTime } from "@/lib/security/policy";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AdminRole, AdminPermissions, AdminFeature } from "@/lib/adminPermissions";
@@ -21,32 +21,9 @@ type RawAdminUserRow = {
 };
 
 
-function normalizePermissions(
-  raw: any,
-  role: AdminRole
-): AdminPermissions {
-  const base: AdminPermissions = {};
-
-  // Admins: altijd full access
-  if (role === "admin") {
-    for (const f of ALL_FEATURES) {
-      base[f] = { read: true, write: true };
-    }
-  }
-
-  if (!raw || typeof raw !== "object") return base;
-
-  for (const f of ALL_FEATURES) {
-    const src = raw[f];
-    if (!src || typeof src !== "object") continue;
-    const current = base[f] ?? {};
-    base[f] = {
-      read: src.read ?? current.read ?? false,
-      write: src.write ?? current.write ?? false,
-    };
-  }
-
-  return base;
+function normalizePermissions(raw:unknown,role:AdminRole):AdminPermissions {
+ if(role==='admin')return Object.fromEntries(ALL_FEATURES.map(feature=>[feature,{read:true,write:true,finance:true,finalize:true}]));
+ return normalizeAccessPermissions(raw);
 }
 
 /**
@@ -101,6 +78,5 @@ export async function getCurrentAdminUser(): Promise<AdminUser | null> {
     permissions,
   };
 }
-
 
 

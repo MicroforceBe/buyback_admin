@@ -333,7 +333,7 @@ export default async function RefurbReceptionDetailPage({
   const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
   const items=sourceItems;
 
-  const rmaDossiers=canUseAdminStatuses?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
+  const rmaDossiers=permits(user,'rma_supplier','read')?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
 
   const locationList = locationOptions || [];
 
@@ -668,6 +668,9 @@ export default async function RefurbReceptionDetailPage({
         canWrite={permits(user, "refurb", "write")}
         canDelete={canDelete}
         canUseAdminStatuses={canUseAdminStatuses}
+        canReadRma={permits(user,'rma_supplier','read')}
+        canManageRma={permits(user,'rma_supplier','write')}
+        canFinanceRma={permits(user,'rma_supplier','finance')}
         vatScheme={reception.vat_scheme === "normal" ? "normal" : "margin"}
       />
     </div>

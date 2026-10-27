@@ -51,6 +51,9 @@ type Props = {
   canWrite?: boolean;
   canDelete?: boolean;
   canUseAdminStatuses?: boolean;
+  canReadRma?:boolean;
+  canManageRma?:boolean;
+  canFinanceRma?:boolean;
 };
 
 // SKU en used_parts blijven editable (dus NIET locken op fill)
@@ -519,6 +522,9 @@ export default function RefurbReceptionTable({
   canWrite = false,
   canDelete = false,
   canUseAdminStatuses = true,
+  canReadRma = canUseAdminStatuses,
+  canManageRma = canWrite && canUseAdminStatuses,
+  canFinanceRma = canManageRma && canUseAdminStatuses,
   vatScheme,
   supplierInvoiceNr = null,
 }: Props) {
@@ -1608,7 +1614,7 @@ async function copyCompleteRmaOverview() {
                           );
                         })}
                   </select>
-                  {rowWork&&<a className="text-xs text-sky-700 underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id:undefined} title={rowWork.note}>RMA-dossier</a>}
+                  {rowWork&&<a className="text-xs text-sky-700 underline" href={canReadRma?'/admin/refurb/rma/'+rowWork.case_id:undefined} title={rowWork.note}>RMA-dossier</a>}
                   {canPrintRefurbLabel(currentStatus, statusOptions) && (
                     <RefurbLabelPrintButton itemId={it.id} disabled={batteryDirtyIds.has(it.id)} />
                   )}
@@ -2002,10 +2008,10 @@ async function copyCompleteRmaOverview() {
                 </div>
               </div>
 
-              {canWrite && canUseAdminStatuses && !rmaLinksUnavailable && <form id={assignmentFormId} action={createReceptionSupplierRma} className="flex flex-wrap items-end gap-3">
+              {canManageRma && !rmaLinksUnavailable && <form id={assignmentFormId} action={createReceptionSupplierRma} className="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="reception_id" value={receptionId}/>
                 <label className="flex flex-col gap-1">Geselecteerde nieuwe artikelen toevoegen aan<select name="target_case" defaultValue="new" className="bb-select bb-select-sm max-w-md"><option value="new">Nieuw dossier — aparte zending / RMA-nummer</option>{openRmaCases.map(dossier=><option key={dossier.id} value={dossier.id}>{dossier.code} · {supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage}{dossier.supplier_reference?' · '+dossier.supplier_reference:''}</option>)}</select></label>
-                <label className="text-xs"><input type="checkbox" name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
+                <label className="text-xs"><input type="checkbox" disabled={!canFinanceRma} name="use_purchase_price" value="1"/> Ontbrekende compensatie invullen met aankoopprijs</label>
                 <button disabled={!rmaItems.length} className="bb-btn bb-btn-primary text-xs">Geselecteerde artikelen toevoegen</button>
               </form>}
               <button
@@ -2028,7 +2034,7 @@ async function copyCompleteRmaOverview() {
             </div>
 
             <p className="text-xs text-slate-600">{rmaItems.length} nieuwe RMA-artikelen nog toe te wijzen · {linkedRmaIds.size} artikelen reeds in leveranciersdossiers. Het kopieeroverzicht en totaal hieronder bevatten alleen nieuwe artikelen.</p>
-            {canWrite && canUseAdminStatuses && !rmaLinksUnavailable && <details className="rounded-md border bg-white p-3">
+            {canManageRma && canWrite && !rmaLinksUnavailable && <details className="rounded-md border bg-white p-3">
               <summary className="cursor-pointer font-medium">Nieuw RMA melden (ook na afwerking)</summary>
               <p className="my-2 text-xs text-slate-500">Selecteer de betrokken artikelen en kies bewust een open dossier of een nieuw dossier voor een aparte zending. Een boeking, toestelstatus of prijs wordt hierdoor niet gewijzigd.</p>
               <form action={registerLateReceptionRma} className="space-y-3">
@@ -2079,7 +2085,7 @@ async function copyCompleteRmaOverview() {
                           key={item.id}
                           className="border-t hover:bg-red-50/30"
                         >
-                          <td className="px-3 py-2">{canWrite&&canUseAdminStatuses&&<input form={assignmentFormId} type="checkbox" name="item_ids" value={item.id} defaultChecked={index<200} aria-label={'Selecteer nieuw RMA-artikel '+(imeiOrSn||item.description||'artikel')}/>}</td>
+                          <td className="px-3 py-2">{canManageRma&&<input form={assignmentFormId} type="checkbox" name="item_ids" value={item.id} defaultChecked={index<200} aria-label={'Selecteer nieuw RMA-artikel '+(imeiOrSn||item.description||'artikel')}/>}</td>
                           <td className="whitespace-nowrap px-3 py-2 font-mono">
                             {imeiOrSn || "—"}
                           </td>

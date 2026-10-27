@@ -3,6 +3,15 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'user-access-20261027',date:'2026-10-27',title:'Gebruikersbeheer en afzonderlijke RMA-rechten',area:'Gebruikersbeheer',status:'live',summary:'Uitgebreid gebruikersbeheer met afzonderlijke toegang tot RMA Supplier. Bestaande accounts en rechten blijven behouden.',changes:[
+ 'Professionele accountlijst en rechtenmatrix, met invulprofielen voor receptie, techniek, boekhouding en operationele verantwoordelijkheid.',
+ 'RMA Supplier apart toekennen: bekijken, verwerken, financiële wijzigingen en definitief afsluiten. Refurb analytics krijgt afzonderlijke leestoegang.',
+ 'Profielen worden alleen expliciet toegepast en opgeslagen. Er is geen automatische herverdeling van bestaande gebruikersrechten.',
+ 'Wijzigingen hebben een historiek en versiecontrole. Bestaande wachtwoorden blijven behouden als de wachtwoordvelden leeg blijven.',
+ 'Accounts deactiveren en sessies intrekken, met bescherming tegen eigen buitensluiting en verlies van de laatste actieve beheerder.',
+ ]},
+
+
  {id:'reception-battery-20261027',date:'2026-10-27',title:'Batterijcapaciteit op recepties en labels',area:'Recepties',status:'live',summary:'Bewaar de batterijcapaciteit bij het receptieartikel en print ze mee op het verpakkingslabel.',changes:[
  'Nieuw veld Batterij (%) met een geheel getal van 0 tot 100. Een streepje betekent niet ingevuld; batterij-informatie blijft dan volledig weg op het receptielabel.',
  'Voor smartphones is een opgeslagen batterijcapaciteit van minstens 85% verplicht voordat het label kan worden geprint. Je kunt lagere waarden wel bewaren tijdens de verwerking.',

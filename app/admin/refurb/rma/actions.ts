@@ -1,4 +1,5 @@
 'use server';
+import { hasPermission } from '@/lib/adminPermissions';
 import { requireAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { supplierRmaStages, rmaMoney, rmaDate } from '@/lib/supplierRma';
@@ -15,7 +16,7 @@ async function mutate(command: string, data: Record<string, unknown>, actor: str
   return uuid(result);
 }
 export async function createSupplierRma(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'write', false);
   let caseId: string;
   try {
     const ids = [...new Set(form.getAll('item_ids').map(uuid))];
@@ -30,7 +31,7 @@ export async function createSupplierRma(form: FormData) {
   redirect('/admin/refurb/rma/' + caseId);
 }
 export async function updateSupplierRmaCase(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'write', false);
   let id: string;
   try {
     id = uuid(form.get('case_id'));
@@ -38,13 +39,18 @@ export async function updateSupplierRmaCase(form: FormData) {
     if (stage==='handled' || !Object.prototype.hasOwnProperty.call(supplierRmaStages, stage)) throw Error('RMA_INPUT');
     const sent_on = rmaDate(form.get('sent_on')), received_on = rmaDate(form.get('received_on'));
     if (sent_on && received_on && sent_on > received_on) throw Error('RMA_INPUT');
+    if (!hasPermission(user,'rma_supplier','finance')) {
+      const {data:existing,error:readError}=await supabaseAdmin.from('supplier_rma_cases').select('stage,supplier_credit_note').eq('id',id).single();
+      if(readError||!existing)throw Error('RMA_INPUT');
+      if(short(form,'supplier_credit_note')!==(existing.supplier_credit_note||'') || (['refunded','closed'].includes(stage)&&stage!==existing.stage))throw Error('RMA_INPUT');
+    }
     await mutate('update_case', { case_id: id, version: version(form), stage, supplier_reference: short(form, 'supplier_reference'), supplier_credit_note: short(form, 'supplier_credit_note'), tracking_reference: short(form, 'tracking_reference'), sent_on, received_on, followup_on: rmaDate(form.get('followup_on')), notes: short(form, 'notes', 10000) }, user.email);
   } catch (error) { redirect('/admin/refurb/rma?msg=' + errorCode(error)); }
   revalidatePath('/admin/refurb/rma'); revalidatePath('/admin/refurb/rma/' + id);
   redirect('/admin/refurb/rma/' + id + '?saved=1');
 }
 export async function updateSupplierRmaItem(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier','finance',false);
   let id: string;
   try {
     id = uuid(form.get('case_id'));
@@ -54,7 +60,7 @@ export async function updateSupplierRmaItem(form: FormData) {
   redirect('/admin/refurb/rma/' + id + '?saved=1');
 }
 export async function addSupplierRmaItems(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'write', false);
   let id: string;
   try {
     id = uuid(form.get('case_id'));
@@ -67,7 +73,8 @@ export async function addSupplierRmaItems(form: FormData) {
 }
 
 export async function createReceptionSupplierRma(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'write', false);
+  if(form.get('use_purchase_price')==='1')await requireAccess('rma_supplier','finance',false);
   let id: string;
   try {
     const receptionId = uuid(form.get('reception_id'));
@@ -83,7 +90,9 @@ export async function createReceptionSupplierRma(form: FormData) {
 }
 
 export async function registerLateReceptionRma(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'write', false);
+  if(form.get('use_purchase_price')==='1')await requireAccess('rma_supplier','finance',false);
+  await requireAccess('refurb','write',false);
   let id: string;
   try {
     const receptionId = uuid(form.get('reception_id'));
@@ -99,7 +108,7 @@ export async function registerLateReceptionRma(form: FormData) {
 }
 
 export async function copySupplierRmaExpected(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier','finance',false);
   let id: string;
   try {
     id=uuid(form.get('case_id'));
@@ -112,7 +121,7 @@ export async function copySupplierRmaExpected(form: FormData) {
   redirect('/admin/refurb/rma/'+id+'?saved=1');
 }
 export async function finalizeSupplierRma(form: FormData) {
-  const user = await requireAccess('refurb', 'write', true);
+  const user = await requireAccess('rma_supplier', 'finalize', false);
   let id: string;
   try {
     id=uuid(form.get('case_id'));
@@ -151,15 +160,15 @@ async function resolveItem(form:FormData,command:'decision'|'custody'|'repair',a
  redirect('/admin/refurb/rma/'+id+'?saved=1');
 }
 export async function updateSupplierRmaDecision(form:FormData){
- const user = await requireAccess('refurb','write',true);
+ const user = await requireAccess('rma_supplier','finance',false);
  return resolveItem(form,'decision',user.email);
 }
 export async function updateSupplierRmaCustody(form:FormData){
- const user = await requireAccess('refurb','write',true);
+ const user = await requireAccess('rma_supplier','write',false);
  return resolveItem(form,'custody',user.email);
 }
 export async function updateSupplierRmaRepair(form:FormData){
- const user = await requireAccess('refurb','write',true);
+ const user = await requireAccess('rma_supplier','write',false);
  return resolveItem(form,'repair',user.email);
 }
 

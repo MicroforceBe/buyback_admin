@@ -17,7 +17,7 @@ export default async function RefurbLayout({
 
   return (
     <div className="p-4 space-y-4">
-      <RefurbTabs role={role} />
+      <RefurbTabs role={role} permissions={user?.permissions} />
 
       {children}
     </div>
