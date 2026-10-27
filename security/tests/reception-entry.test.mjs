@@ -10,7 +10,7 @@ const code=stripTypeScriptTypes(source.slice(start,end),{mode:'strip'});
 function harness({existing=[],fail=false}={}) {
   const calls={saves:[],alerts:[],refreshes:0,items:existing,busy:[]};
   const context=vm.createContext({
-    canWrite:true,items:existing,columnSavePending:{current:false},receptionId:'test-reception',
+    canWrite:true,workById:new Map(),items:existing,columnSavePending:{current:false},receptionId:'test-reception',
     defaultStatusValue:'new',defaultLocationValue:'test-location',statusOptions:[],
     pasteIntoRefurbColumn:async(...args)=>{calls.saves.push(args);if(fail)throw Error('Save failed');return [{id:'test-item',imei_sn:args[3][0],refurb_status:'new'}];},
     setItems:value=>{calls.items=value;},setIsPasting:value=>calls.busy.push(value),
@@ -65,3 +65,4 @@ test('inline editing stops before any optimistic or server update for readers',a
   await context.edit('test-item','description','Not permitted');
   assert.equal(updates,0);
 });
+

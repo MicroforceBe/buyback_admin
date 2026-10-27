@@ -1,3 +1,4 @@
+import {loadReceptionRmaWork} from './rma/receptionWorkData';
 import ui from './rma/rma.module.css';
 import styles from './reception.module.css';
 import ReceptionQuickSearch from './ReceptionQuickSearch';
@@ -291,6 +292,9 @@ while (true) {
   from += pageSize;
 }
 
+  const rmaWork=await loadReceptionRmaWork();
+  const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
+
   const stats = new Map<
     string,
     {
@@ -356,15 +360,15 @@ while (true) {
       currentStats.rma += 1;
     }
 
-    const isFinished = statusConfig.hasConfiguredTransitions
+    const isFinished = !workById.has(item.id) && (statusConfig.hasConfiguredTransitions
       ? statusConfig.finalStatusValues.has(canonicalStatus)
-      : isFallbackFinishedStatus(canonicalStatus);
+      : isFallbackFinishedStatus(canonicalStatus));
 
     if (isFinished) {
       currentStats.finished += 1;
     } else if (canonicalStatus) {
       const counts = openStatusCounts.get(receptionId) || new Map();
-      const detail = statusConfig.statusDetails.get(canonicalStatus) || { value: canonicalStatus, label: item.refurb_status?.trim() || canonicalStatus, color: "#64748b", order: Number.MAX_SAFE_INTEGER };
+      const detail = statusConfig.statusDetails.get(canonicalStatus) || { value: item.refurb_status?.trim() || canonicalStatus, label: item.refurb_status?.trim() || canonicalStatus, color: "#64748b", order: Number.MAX_SAFE_INTEGER };
       const badge = counts.get(canonicalStatus) || { ...detail, count: 0 };
       badge.count++;
       counts.set(canonicalStatus, badge);
@@ -963,3 +967,4 @@ export default async function RefurbListPage({
     </div>
   );
 }
+

@@ -1,5 +1,6 @@
+import type {ResolutionItem,RmaFollowup} from './supplierRmaResolution';
 export type AnalyticsReception = { id: string; reception_number?: string | null; supplier: string | null; supplier_id: string | null; reception_date: string | null };
-export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; description: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered?: boolean };
+export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; work_status?:string; work_label?:string; description: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered?: boolean };
 export type AnalyticsModel = { id: string; name: string; search_keywords: string | null };
 export type AnalyticsStatus = { id: string; value: string; label: string | null };
 export type AnalyticsTransition = { from_status_id: string; to_status_id: string };
@@ -7,6 +8,7 @@ export type AnalyticsFilters = { from: string; to: string; supplier: string };
 export type AnalyticsInput = {
   receptions: AnalyticsReception[]; items: AnalyticsItem[]; models: AnalyticsModel[];
   statuses: AnalyticsStatus[]; transitions: AnalyticsTransition[]; suppliers: { id: string; name: string }[];
+  rmaCaseItems?:(ResolutionItem&{id:string;case_id:string;reception_item_id:string})[];rmaFollowups?:Pick<RmaFollowup,'case_item_id'|'repair_state'>[];
 };
 const norm = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
 export function parseAnalyticsFilters(params: Record<string, string | string[] | undefined>): AnalyticsFilters {
@@ -65,26 +67,27 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     const reception = receptionById.get(item.reception_id);
     if (!reception) continue;
     const supplier = vendor(reception), row = vendors.get(supplier.key)!;
-    const status = aliases.get(norm(item.refurb_status)) ?? norm(item.refurb_status);
+    const status = item.work_status?norm(item.work_status):(aliases.get(norm(item.refurb_status)) ?? norm(item.refurb_status));
+    if(item.work_status)labels.set(status,item.work_label||labels.get(status)||item.work_status);
     const priced = typeof item.price_cents === 'number' && Number.isFinite(item.price_cents);
     const cents = priced ? item.price_cents! : 0;
     row.purchased++; row.purchaseCents += cents; row.missingPrices += priced ? 0 : 1;
-    const repaired = typeof item.compensation_cents === 'number' && Number.isFinite(item.compensation_cents);
+    const hasCompensation = typeof item.compensation_cents === 'number' && Number.isFinite(item.compensation_cents);
     const currentRmaStatus = rmaStatuses.has(status) || mentionsRma(status);
-    const isRma = !!item.rma_registered || repaired || currentRmaStatus;
-    const finished = isFinished(status);
-    if (currentRmaStatus && !finished) {
+    const isRma = !!item.rma_registered || hasCompensation || currentRmaStatus;
+    const finished = !item.work_status && isFinished(status);
+    if (currentRmaStatus && !finished && !item.work_status) {
       const pending = pendingRmaGroups.get(supplier.key) ?? { ...supplier, count: 0, purchaseCents: 0, missingPrices: 0, compensationCents: 0, withCompensation: 0, withoutCompensation: 0 };
       pending.count++; pending.purchaseCents += cents; pending.missingPrices += priced ? 0 : 1;
-      if (repaired) { pending.withCompensation++; pending.compensationCents += item.compensation_cents!; } else pending.withoutCompensation++;
+      if (hasCompensation) { pending.withCompensation++; pending.compensationCents += item.compensation_cents!; } else pending.withoutCompensation++;
       pendingRmaGroups.set(supplier.key, pending);
-      pendingRmaRows.push({ id: item.id, receptionId: reception.id, receptionNumber: reception.reception_number || reception.id, supplier: supplier.name, description: item.description ?? '', status: labels.get(status) || item.refurb_status?.trim() || 'Geen status', purchaseCents: priced ? cents : null, compensationCents: repaired ? item.compensation_cents! : null });
+      pendingRmaRows.push({ id: item.id, receptionId: reception.id, receptionNumber: reception.reception_number || reception.id, supplier: supplier.name, description: item.description ?? '', status: labels.get(status) || item.refurb_status?.trim() || 'Geen status', purchaseCents: priced ? cents : null, compensationCents: hasCompensation ? item.compensation_cents! : null });
     }
     if (isRma) {
       row.rma++;
       const group = rmaStatusGroups.get(status) ?? { key: status, name: labels.get(status) || item.refurb_status?.trim() || 'Geen status', total: 0, repaired: 0, other: 0 };
       group.total++;
-      if (repaired) {
+      if (hasCompensation) {
         row.repairedRma++; row.compensationCents += item.compensation_cents!; group.repaired++;
         repairedRows.push({ id: item.id, receptionId: reception.id, receptionNumber: reception.reception_number || reception.id, supplier: supplier.name, model: modelFor(item.description), description: item.description ?? '', status: group.name, compensationCents: item.compensation_cents! });
       } else group.other++;
@@ -111,6 +114,7 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     for (const row of openRows) counts.set(row[field], (counts.get(row[field]) ?? 0) + row.count);
     return Array.from(counts, ([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'nl'));
   };
-  return { availableSuppliers, supplierRows, totals, rmaPercent: totals.purchased ? totals.rma / totals.purchased * 100 : 0, repairedRows, rmaByStatus: Array.from(rmaStatusGroups.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'nl')), openRows, openSuppliers, openTotals, pendingRmaSuppliers, pendingRmaTotals, pendingRmaRows, byModel: summarize('model'), bySupplier: summarize('supplier'), byStatus: summarize('status') };
+  return { selectedItemIds:input.items.filter(row=>receptionById.has(row.reception_id)).map(row=>row.id), availableSuppliers, supplierRows, totals, rmaPercent: totals.purchased ? totals.rma / totals.purchased * 100 : 0, repairedRows, rmaByStatus: Array.from(rmaStatusGroups.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'nl')), openRows, openSuppliers, openTotals, pendingRmaSuppliers, pendingRmaTotals, pendingRmaRows, byModel: summarize('model'), bySupplier: summarize('supplier'), byStatus: summarize('status') };
 }
+
 

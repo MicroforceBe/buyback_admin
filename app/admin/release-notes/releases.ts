@@ -3,6 +3,16 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'rma-resolution-20261027',date:'2026-10-27',title:'RMA Supplier: weigering en verwerking in receptie',area:'RMA Supplier',status:'live',summary:'Beslissingen per artikel, retourregistratie en verdere verwerking via de gewone receptiewerklijst.',changes:[
+  'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Eén dossier kan verschillende uitkomsten bevatten.',
+  'Geweigerde artikelen die bij Microforce aanwezig zijn worden teruggezet naar de bestaande status RMA to fix. Status, SKU en gebruikte onderdelen bewerk je daarna gewoon in de receptie.',
+  'Na verzending kan de verdere verwerking pas starten zodra de retour bij Microforce is geregistreerd. Voor artikelen die niet verzonden zijn volstaat bevestiging dat ze nog aanwezig zijn.',
+  'De leveranciersweigering en de artikelgegevens vóór terugzetting blijven in de historiek bewaard, ook bij een eerder geboekt toestel. Er wordt geen tweede artikel aangemaakt.',
+  'Oorspronkelijke claim, toegekend, ontvangen, geweigerd en eventueel afgeschreven blijven apart. De overneempijlen gebruiken het toegekende bedrag.',
+  'Een volledig geweigerd dossier zonder vergoeding kan zonder CN worden afgesloten; een leveranciersreferentie blijft nodig. Bij toegekende of ontvangen vergoeding blijft CN verplicht.',
+  'Analytics onderscheidt leveranciersbeslissingen, ontvangen vergoedingen en hersteluitkomsten. Een compensatiebedrag geldt niet als bewijs van herstel; elk toestel telt één keer in het RMA-totaal.',
+ ]},
+
  {id:'dashboard-20261026',date:'2026-10-26',title:'Een vernieuwde Microforce-werkruimte',area:'Dashboard',status:'live',summary:'Een zakelijke startpagina en een vaste, leesbare navigatie.',changes:[
   'Na uitloggen verschijnt alleen het aanmeldscherm, zonder oude navigatie of accountinformatie. Dit geldt ook bij een verlopen sessie tijdens het navigeren.',
   'Nieuwe dashboardindeling met aparte groepen voor dagelijkse verwerking en catalogus & beheer.',
