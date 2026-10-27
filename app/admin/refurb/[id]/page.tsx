@@ -41,6 +41,7 @@ type RefurbReception = {
 };
 
 type RefurbItemRow = {
+  battery_percentage?: number | null;
   id: string;
   reception_id: string;
   row_index: number;
@@ -150,6 +151,7 @@ async function getReceptionItems(id: string): Promise<RefurbItemRow[]> {
       description,
       supplier_device_errors,
       supplier_grading,
+      battery_percentage,
       refurb_diagnostics,
       rma_defect_description,
       rma,

@@ -106,3 +106,4 @@ test('a password containing a command separator cannot inject a second FTP comma
   assert.equal(f.commands.includes('DELE'), false); assert.equal(f.clients[0].closed, true);
 });
 
+

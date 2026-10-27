@@ -11,22 +11,27 @@ export const releases:ReleaseEntry[]=[
  'Accounts deactiveren en sessies intrekken, met bescherming tegen eigen buitensluiting en verlies van de laatste actieve beheerder.',
  ]},
 
- {id:'trustpilot-preview-20261027',date:'2026-10-27',title:'Trustpilot na afronding van een buyback',area:'Leads',status:'test',summary:'Proefregistratie voor een review-uitnodiging 7 dagen na Afgewerkt; er worden geen echte uitnodigingen verstuurd.',changes:[
-  'Alleen de eerste nieuwe overgang naar Afgewerkt registreert een uitnodiging. Opnieuw opslaan of de status opnieuw doorlopen maakt geen dubbele registratie.',
-  'Afgewerkt betekent verkoopsklaar en op voorraad; betaling gebeurt afzonderlijk binnen maximaal 5 dagen. De wachttijd van 7 dagen wordt door Trustpilot toegepast.',
-  'Beheerders zien via Leads → Trustpilot de klantgegevens, proefmelding en verwachte uitnodigingsdatum. Ontbrekende gegevens blokkeren de melding en kunnen opnieuw gecontroleerd worden.',
-  'De melding aan Trustpilot bevat alleen klantnaam, e-mailadres en buybackreferentie. Oude afgeronde buybacks worden niet automatisch meegenomen.',
+ {id:'reception-battery-20261027',date:'2026-10-27',title:'Batterijcapaciteit op recepties en labels',area:'Recepties',status:'live',summary:'Bewaar de batterijcapaciteit bij het receptieartikel en print ze mee op het verpakkingslabel.',changes:[
+ 'Nieuw veld Batterij (%) met een geheel getal van 0 tot 100. Een streepje betekent niet ingevuld; batterij-informatie blijft dan volledig weg op het receptielabel.',
+ 'Voor smartphones is een opgeslagen batterijcapaciteit van minstens 85% verplicht voordat het label kan worden geprint. Je kunt lagere waarden wel bewaren tijdens de verwerking.',
+ 'De printcontrole gebruikt de opgeslagen artikelgegevens. Een onopgeslagen batterijwijziging moet eerst worden bewaard.',
+ 'De bestaande batterijregels voor buyback leads blijven behouden.',
  ]},
- {id:'rma-resolution-test-20261026',date:'2026-10-26',title:'RMA Supplier: weigering, retour en intern herstel',area:'RMA Supplier',status:'test',summary:'Preview van artikelbeslissingen, fysieke opvolging en interne herstelwerking. Live is nog ongewijzigd.',changes:[
-  'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Reden en historiek blijven bewaard.',
-  'Geweigerde en aanwezige artikelen worden echt teruggezet naar de bestaande RMA to fix-status. Statusovergangen, SKU en gebruikte onderdelen verlopen daarna via de gewone receptiewerklijst. Ook bij een eerder geboekt artikel wordt de toestand vóór terugzetting als afgeschermde historiek bewaard.',
-  'Geweigerde artikelen verschijnen automatisch als RMA to fix bij de niet-afgewerkte artikelen in hun receptie zodra aanwezigheid bij Microforce is bevestigd. De bestaande artikelstatus wordt gebruikt; retour en herstel zijn aparte opvolginformatie. Volledig afgewerkte recepties worden hierdoor opnieuw zichtbaar. De weigering en oorspronkelijke boeking blijven bewaard.',
-  'Bij weigering vóór verzending kan intern herstel starten zodra bevestigd is dat het toestel bij Microforce is. Na verzending moet eerst de werkelijke retour worden ontvangen. Er worden geen extra receptiestatussen aangemaakt.',
-  'Herstel volgt Te herstellen → In herstel → Eindcontrole → Intern hersteld, of eindigt als Niet herstelbaar / Onderdelen. Een geslaagde eindcontrole en onderdelenregistratie (- bij geen onderdelen) zijn verplicht voor Intern hersteld.',
-  'Oorspronkelijke claim, toegekend, ontvangen, geweigerd en eventueel afgeschreven blijven apart. De pijlen kopiëren alleen het toegekende bedrag naar ontvangen.',
-  'Een volledig geweigerd dossier zonder vergoeding kan zonder CN worden afgesloten; een echte leveranciersreferentie blijft nodig. Bij toegekende/ontvangen vergoeding blijft CN verplicht.',
-  'Retour en intern herstel blijven beschikbaar na financiële afsluiting. De toestand vóór terugzetting blijft als historiek bewaard; verdere artikelverwerking gebeurt volledig via de bestaande receptieflow.',
-  'Analytics toont de werkelijke leveranciers- en hersteluitkomsten. Een ingevulde compensatie bewijst geen herstel, en elk toestel blijft eenmaal in het RMA-totaal meetellen.',
+
+ {id:'trustpilot-20261027',date:'2026-10-27',title:'Automatische Trustpilot-uitnodigingen na afronding',area:'Leads',status:'live',summary:'Nieuwe afgeronde buybacks worden automatisch bij Trustpilot aangemeld voor een uitnodiging na 7 dagen.',changes:[
+ 'De eerste overgang naar Afgewerkt meldt de buyback één keer aan. Bestaande afgewerkte buybacks worden niet achteraf uitgenodigd.',
+ 'Afgewerkt betekent verkoopsklaar en in voorraad; de betaling gebeurt afzonderlijk. Trustpilot gebruikt het ingestelde Microforce BuyBack-sjabloon en de termijn van 7 dagen.',
+ 'Beheerders kunnen registraties en eventuele ontbrekende klantgegevens opvolgen via Trustpilot bij Leads.',
+ ]},
+
+ {id:'rma-resolution-20261027',date:'2026-10-27',title:'RMA Supplier: weigering en verwerking in receptie',area:'RMA Supplier',status:'live',summary:'Beslissingen per artikel, retourregistratie en verdere verwerking via de gewone receptiewerklijst.',changes:[
+  'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Eén dossier kan verschillende uitkomsten bevatten.',
+  'Geweigerde artikelen die bij Microforce aanwezig zijn worden teruggezet naar de bestaande status RMA to fix. Status, SKU en gebruikte onderdelen bewerk je daarna gewoon in de receptie.',
+  'Na verzending kan de verdere verwerking pas starten zodra de retour bij Microforce is geregistreerd. Voor artikelen die niet verzonden zijn volstaat bevestiging dat ze nog aanwezig zijn.',
+  'De leveranciersweigering en de artikelgegevens vóór terugzetting blijven in de historiek bewaard, ook bij een eerder geboekt toestel. Er wordt geen tweede artikel aangemaakt.',
+  'Oorspronkelijke claim, toegekend, ontvangen, geweigerd en eventueel afgeschreven blijven apart. De overneempijlen gebruiken het toegekende bedrag.',
+  'Een volledig geweigerd dossier zonder vergoeding kan zonder CN worden afgesloten; een leveranciersreferentie blijft nodig. Bij toegekende of ontvangen vergoeding blijft CN verplicht.',
+  'Analytics onderscheidt leveranciersbeslissingen, ontvangen vergoedingen en hersteluitkomsten. Een compensatiebedrag geldt niet als bewijs van herstel; elk toestel telt één keer in het RMA-totaal.',
  ]},
 
  {id:'dashboard-20261026',date:'2026-10-26',title:'Een vernieuwde Microforce-werkruimte',area:'Dashboard',status:'live',summary:'Een zakelijke startpagina en een vaste, leesbare navigatie.',changes:[
@@ -100,6 +105,4 @@ export const releases:ReleaseEntry[]=[
   'De bestaande ERP-importinstellingen zijn behouden. Een nieuwe FTPS-verbinding is niet als werkend bevestigd; de werkelijke Sendcloud-labeltest is overgeslagen.',
  ]},
 ];
-
-
 

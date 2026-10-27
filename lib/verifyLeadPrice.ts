@@ -12,6 +12,15 @@ const invalid = () => new LeadPriceError('INVALID_QUOTE');
 const configError = () => new LeadPriceError('QUOTE_UNAVAILABLE', 503);
 const preferredOrder = ['Functionaliteit','Scherm','Behuizing','Batterij','functional','screen','housing','battery','eu_model','icloud','status'];
 const MAX_CENTS = 2147483647;
+function renderAnswerSummary(rows: Array<{ question: string; answer: string }>): string {
+  const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return '<h3 style="margin:18px 0 6px;font-size:14px;">Vragen en antwoorden</h3>' +
+    '<table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;">' +
+    '<tbody>' + rows.map(row => '<tr><td style="padding:6px 8px;border:1px solid #e5e7eb;width:45%;color:#6b7280;">' +
+      escape(row.question) + '</td><td style="padding:6px 8px;border:1px solid #e5e7eb;">' +
+      escape(row.answer) + '</td></tr>').join('') + '</tbody></table>';
+}
 function money(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_CENTS;
 }
@@ -73,6 +82,7 @@ export function calculateLeadQuote(baseCents: number, rules: {questions: Record<
     entries.sort((a,b) => rank(a[0]) - rank(b[0]));
   }
   let price = baseCents;
+  const answerRows: Array<{ question: string; answer: string }> = [];
   for (const [key, block] of entries) {
     if (!object(block) || !Array.isArray(block.options) || !block.options.length) throw configError();
     const answer = answers[key];
@@ -80,6 +90,10 @@ export function calculateLeadQuote(baseCents: number, rules: {questions: Record<
     const matches = block.options.filter((option: any) => object(option) && option.active !== false && option.key === answer);
     if (matches.length !== 1) throw invalid();
     const option = matches[0];
+    answerRows.push({
+      question: typeof block.title === 'string' && block.title.trim() ? block.title : key,
+      answer: typeof option.label === 'string' && option.label.trim() ? option.label : answer,
+    });
     const kind = String(option.type ?? option.kind ?? 'fixed').toLowerCase();
     if (kind === 'percent' || kind === 'percentage') price = Math.round(price * percentFactor(option));
     else if (['fixed','amount','delta'].includes(kind)) price = Math.max(0, price + fixedDelta(option));
@@ -90,7 +104,8 @@ export function calculateLeadQuote(baseCents: number, rules: {questions: Record<
   const total = voucher ? Math.round(Math.round(price * 1.05) / 500) * 500 : price;
   if (!money(price) || !money(total)) throw configError();
   return { base_price_cents: baseCents, final_price_cents: price,
-    final_price_with_voucher_cents: total, voucher_bonus_cents: total - price };
+    final_price_with_voucher_cents: total, voucher_bonus_cents: total - price,
+    questions_answers_html: renderAnswerSummary(answerRows) };
 }
 
 export async function verifyLeadPrice(db: any, input: any) {

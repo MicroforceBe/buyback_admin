@@ -71,3 +71,4 @@ test('patched SheetJS version comes from the documented vendor URL with locked i
   assert.match(pkg.integrity, /^sha512-/);
 });
 
+

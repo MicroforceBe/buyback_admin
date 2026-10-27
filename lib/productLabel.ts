@@ -1,6 +1,6 @@
 import JsBarcode from 'jsbarcode';
 
-export type ProductLabel = { sku: string; title: string | null; serial?: string; battery?: string; grade?: string; vatMargin: boolean | null };
+export type ProductLabel = { sku: string; title: string | null; serial?: string; battery?: string; grade?: string; omitEmptyBattery?: boolean; vatMargin: boolean | null };
 export const labelSize = { width: 89, height: 36, dpi: 300, barcodeWidth: 64, quietModules: 10 } as const;
 // Keep a 1 mm page reserve against driver/pixel rounding and 2.5 mm inside
 // the artwork. Flow content at the exact roll size can paginate a blank label.
@@ -53,7 +53,8 @@ function barcodeMarkup(value: string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" class="label-barcode" width="${geometry.widthMm.toFixed(4)}mm" height="${geometry.heightMm.toFixed(4)}mm" viewBox="0 0 ${geometry.widthDots} ${geometry.heightDots}" shape-rendering="crispEdges" role="img" aria-label="${escapeLabelText(value)}"><rect width="${geometry.widthDots}" height="${geometry.heightDots}" fill="#fff"/>${geometry.runs.map(run=>`<rect x="${run.x}" y="0" width="${run.width}" height="${geometry.heightDots}" fill="#000"/>`).join('')}</svg>`;
 }
 export function titleGrade(title: string | null) {
-  return title?.match(/(?:^|[\s\-_/])(NIEUW|NEW|[345]\*|OEM|PREMIUM|GRADE\s+[ABC])(?=$|[\s\-_/])/i)?.[1]?.toUpperCase() ?? '';
+  const grade = title?.match(/(?:^|[\s\-_/])([345]\*+)(?:M)?(?=$|[\s\-_/])|(?:^|[\s\-_/])(NIEUW|NEW|OEM|PREMIUM|GRADE\s+[ABC])(?=$|[\s\-_/])/i);
+  return grade?.[1] ? grade[1].slice(0, 2) : grade?.[2]?.toUpperCase() ?? '';
 }
 export function renderProductLabel(data: ProductLabel) {
   const sku=data.sku.trim(),serial=data.serial?.trim() ?? '';
@@ -62,6 +63,6 @@ export function renderProductLabel(data: ProductLabel) {
   const battery=data.battery?.trim() ?? '';
   if(battery && (!/^\d{1,3}$/.test(battery) || Number(battery)>100))throw new Error('Batterij moet een geheel percentage van 0 tot 100 zijn.');
   const vat=data.vatMargin===true?'Margin VAT':data.vatMargin===false?'Normal VAT':'BTW-regeling onbekend';
-  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div><div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div><div class="label-ce">CE</div></div></article></div>`;
+  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div>${battery || !data.omitEmptyBattery ? `<div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div>` : ''}<div class="label-ce">CE</div></div></article></div>`;
 }
 

@@ -3,6 +3,7 @@ import { requirePageAccess } from '@/lib/security/access';
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import PrintButton from "./PrintButton";
+import { receptionBatteryLabelIssue } from '@/lib/receptionBattery';
 import { labelStyles, renderProductLabel } from "@/lib/productLabel";
 import { getRefurbLabelSource } from "./refurbSource";
 
@@ -53,14 +54,16 @@ export default async function ErpLabelsPage({
 
   const sku = fromRefurb ? (source?.sku ?? "") : String(searchParams?.sku || "").trim();
   const imei = fromRefurb ? (source?.imei ?? "") : String(searchParams?.imei || "").trim();
-  const battery = fromRefurb ? "" : String(searchParams?.battery || "").trim();
+  const battery = fromRefurb ? (source?.battery ?? "") : String(searchParams?.battery || "").trim();
   const manualGrade = fromRefurb ? "" : String(searchParams?.grade || "").trim();
 
   const article = await getArticleBySku(sku);
   let labelHtml: string | null = null;
   let labelError = '';
   if (article) {
-    try { labelHtml = renderProductLabel({sku:article.sku,title:article.title,serial:imei,battery,grade:manualGrade,vatMargin:article.vat_margin}); }
+    try {
+      if (fromRefurb) { const issue = receptionBatteryLabelIssue(battery, article.title, source?.description); if (issue) throw new Error(issue); }
+      labelHtml = renderProductLabel({sku:article.sku,title:article.title,serial:imei,battery,grade:manualGrade,omitEmptyBattery:fromRefurb,vatMargin:article.vat_margin}); }
     catch(error){ labelError = error instanceof Error ? error.message : 'Het label kon niet worden opgebouwd.'; }
   }
 

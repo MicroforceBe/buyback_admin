@@ -14,6 +14,23 @@ const origin = 'https://synthetic.example.invalid';
 const key = 'synthetic-service-key';
 const id = 'a8fdf29e-d428-4d9d-80f3-674574056e35';
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+
+test('SKU description filters remain separate AND conditions with database pagination', async () => {
+  let requested;
+  const client = createClient(origin, key, { global: { fetch: async (input, init) => {
+    requested = new URL(new Request(input, init).url);
+    assert.equal(requested.origin, origin);
+    return json([]);
+  } } });
+  await client.from('erp_articles').select('sku,title').eq('missing_from_erp', false).eq('vat_margin', true).eq('refurbished_product', true)
+    .not('title', 'ilike', '%air%').ilike('title', '%iPad%').ilike('title', '%2025%')
+    .order('sku', { ascending: true }).range(500, 999);
+  assert.deepEqual(requested.searchParams.getAll('title'), ['not.ilike.%air%', 'ilike.%iPad%', 'ilike.%2025%']);
+  assert.equal(requested.searchParams.get('offset'), '500');
+  assert.equal(requested.searchParams.get('limit'), '500');
+  assert.equal(requested.searchParams.get('vat_margin'), 'eq.true');
+  assert.equal(requested.searchParams.get('refurbished_product'), 'eq.true');
+});
 function harness({ server = false, env = {}, handler = () => json([]) } = {}) {
   const calls = [], clients = [], state = { cookieReads: 0, cookieWrites: 0 };
   const module = { exports: {} };
@@ -119,4 +136,5 @@ test('installed production dependencies contain only the pinned patched Supabase
     }
   }
 });
+
 
