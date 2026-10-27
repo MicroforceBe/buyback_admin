@@ -1,5 +1,4 @@
 import {loadReceptionRmaWork} from '../rma/receptionWorkData';
-import {isReceptionRmaWorkStatus} from '@/lib/receptionRmaWork';
 import ui from '../rma/rma.module.css';
 import styles from '../reception.module.css';
 import { receptionRmaDays } from '@/lib/receptionTerms';
@@ -432,7 +431,7 @@ export default async function RefurbReceptionDetailPage({
   // -------- Final vs Not Done totals --------
   const isFinalStatus = (statusValue: string) => {
     const v = (statusValue || "").trim();
-    if (!v || isReceptionRmaWorkStatus(v)) return false;
+    if (!v) return false;
     if (v === "onbekend") return false;
     const next = (statusTransitions || {})[v] || [];
     return !next || next.length === 0;
@@ -445,7 +444,7 @@ export default async function RefurbReceptionDetailPage({
 
   const totalValueDoneCents = items.reduce((acc, it) => {
     const st = (it.refurb_status || "onbekend").trim() || "onbekend";
-    if (!isFinalStatus(st)) return acc;
+    if (workById.has(it.id)||!isFinalStatus(st)) return acc;
     const pc = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
     return acc + (Number.isFinite(pc) ? pc : 0);
   }, 0);

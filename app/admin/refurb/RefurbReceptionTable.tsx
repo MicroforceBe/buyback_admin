@@ -1,6 +1,5 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
-import {isReceptionRmaWorkStatus} from '@/lib/receptionRmaWork';
 import type {ReceptionRmaWork} from '@/lib/receptionRmaWork';
 import type { ReceptionRmaCase, ReceptionRmaLink } from './rma/receptionData';
 
@@ -528,7 +527,7 @@ export default function RefurbReceptionTable({
   const [openDone, setOpenDone] = useState(false);
 
   // header filters
-  const [statusFilter, setStatusFilter] = useState<string>(() => (initialStatusFilter&&isReceptionRmaWorkStatus(initialStatusFilter)?initialStatusFilter:resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems)));
+  const [statusFilter, setStatusFilter] = useState<string>(() => resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
   const [locationFilter, setLocationFilter] = useState<string>("__all__");
   const [imeiQuery, setImeiQuery] = useState<string>("");
   const [descQuery, setDescQuery] = useState<string>("");
@@ -560,7 +559,7 @@ export default function RefurbReceptionTable({
   }, [normalizedInitialItems]);
 
   useEffect(() => {
-    const selected = (initialStatusFilter&&isReceptionRmaWorkStatus(initialStatusFilter)?initialStatusFilter:resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
+    const selected = resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems);
     setStatusFilter(selected);
     setLocationFilter("__all__");
     setImeiQuery("");
@@ -568,7 +567,7 @@ export default function RefurbReceptionTable({
     setSelectedIds(new Set());
     setOpenNotDone(true);
     const map = statusNextMap ?? statusTransitions;
-    setOpenDone(!isReceptionRmaWorkStatus(selected) && selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
+    setOpenDone(selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
     // Reapply a deep link when navigating between statuses on the same reception.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receptionId, initialStatusFilter]);
@@ -970,7 +969,6 @@ async function copyCompleteRmaOverview() {
     const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
 
     return (statusValue: string) => {
-      if (isReceptionRmaWorkStatus(statusValue)) return false;
       if (!hasAnyTransitions || norm(statusValue) === norm(defaultStatusValue) || !statusOptions.some(o=>norm(o.value)===norm(statusValue))) return false;
       const next = t?.[statusValue] ?? [];
       return !next || next.length === 0;
@@ -981,14 +979,14 @@ async function copyCompleteRmaOverview() {
   const filteredNotDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
       const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
-      return !isFinalStatusValue(st);
+      return workById.has(it.id)||!isFinalStatusValue(st);
     });
   }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
 
   const filteredDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
       const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
-      return isFinalStatusValue(st);
+      return !workById.has(it.id)&&isFinalStatusValue(st);
     });
   }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
 
@@ -1528,7 +1526,7 @@ async function copyCompleteRmaOverview() {
                     style={{ background: statusColor ?? "transparent" }}
                     aria-hidden="true"
                   />
-                  {rowWork?<a className="text-amber-800 font-semibold underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id+'?item='+rowWork.case_item_id+'#followup-'+rowWork.case_item_id:undefined} title={'Geweigerd artikel · '+rowWork.code+'. Oorspronkelijke status: '+it.refurb_status+'. Herstelopvolging verloopt via het leveranciersdossier.'}>{rowWork.status}<small className="block font-normal">{rowWork.code}</small></a>:<select
+                  {rowWork?<a className="text-amber-800 font-semibold underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id+'?item='+rowWork.case_item_id+'#followup-'+rowWork.case_item_id:undefined} title={'Geweigerd artikel · '+rowWork.code+'. Oorspronkelijke status: '+it.refurb_status+'. Herstelopvolging verloopt via het leveranciersdossier.'}>{rowWork.label||statusOptionByValue.get(rowWork.status)?.label||rowWork.status}<small className="block font-normal">{rowWork.code} · {rowWork.note}</small></a>:<select
                     value={currentStatus}
                     disabled={!canWrite || rowBooked || isRefundedRmaItem(it, statusOptions) || (mapModeForRow && !rowHasChoices)}
                     onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}

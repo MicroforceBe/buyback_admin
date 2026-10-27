@@ -28,9 +28,9 @@ export async function loadAnalyticsInput(): Promise<AnalyticsInput> {
   ]);
   const stages=new Map((rmaCases as {id:string;stage:string}[]).map(row=>[row.id,row.stage]));
   const rmaCaseItems=(rmaLines as {case_id:string}[]).map(row=>({...row,case_stage:stages.get(row.case_id)}));
-  const work=buildReceptionRmaWork(rmaLines as Parameters<typeof buildReceptionRmaWork>[0],rmaFollowups as Parameters<typeof buildReceptionRmaWork>[1],rmaCases as Parameters<typeof buildReceptionRmaWork>[2],items as {id:string;refurb_status:string|null}[]);
-  const workById=new Map(work.map(row=>[row.reception_item_id,row.status]));
-  const operationalItems=(items as AnalyticsInput['items']).map(item=>({...item,work_status:workById.get(item.id)}));
+  const work=buildReceptionRmaWork(rmaLines as Parameters<typeof buildReceptionRmaWork>[0],rmaFollowups as Parameters<typeof buildReceptionRmaWork>[1],rmaCases as Parameters<typeof buildReceptionRmaWork>[2],items as {id:string;refurb_status:string|null}[],statuses as Parameters<typeof buildReceptionRmaWork>[4]);
+  const workById=new Map(work.map(row=>[row.reception_item_id,row]));
+  const operationalItems=(items as AnalyticsInput['items']).map(item=>({...item,work_status:workById.get(item.id)?.status,work_label:workById.get(item.id)?.label}));
   return { receptions, items:operationalItems, models, statuses, transitions, suppliers,rmaCaseItems,rmaFollowups } as AnalyticsInput;
 }
 

@@ -9,10 +9,11 @@ export async function loadReceptionRmaWork(itemIds?:string[]){
  }
  const lines=await all<{id:string;case_id:string;reception_item_id:string;decision:string}>('supplier_rma_items','id,case_id,reception_item_id,decision',itemIds,'reception_item_id');
  if(!lines.length)return [];
- const [followups,cases,sources]=await Promise.all([
+ const [followups,cases,sources,options]=await Promise.all([
   all<{case_item_id:string;custody:string;repair_state:string}>('supplier_rma_followups','id,case_item_id,custody,repair_state',lines.map(l=>l.id),'case_item_id'),
   all<{id:string;code:string;created_at:string}>('supplier_rma_cases','id,code,created_at',[...new Set(lines.map(l=>l.case_id))]),
   all<{id:string;refurb_status:string|null}>('refurb_reception_items','id,refurb_status',[...new Set(lines.map(l=>l.reception_item_id))]),
+  all<{value:string;label:string|null}>('refurb_status_options','id,value,label'),
  ]);
- return buildReceptionRmaWork(lines,followups,cases,sources);
+ return buildReceptionRmaWork(lines,followups,cases,sources,options);
 }
