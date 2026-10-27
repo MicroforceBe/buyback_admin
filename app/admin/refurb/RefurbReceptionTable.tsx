@@ -501,8 +501,8 @@ export default function RefurbReceptionTable({
   canDelete = false,
   canUseAdminStatuses = true,
   canReadRma = canUseAdminStatuses,
-  canManageRma = canUseAdminStatuses,
-  canFinanceRma = canUseAdminStatuses,
+  canManageRma = canWrite && canUseAdminStatuses,
+  canFinanceRma = canManageRma && canUseAdminStatuses,
   vatScheme,
   supplierInvoiceNr = null,
 }: Props) {
