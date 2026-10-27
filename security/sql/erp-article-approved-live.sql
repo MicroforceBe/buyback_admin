@@ -97,5 +97,5 @@ grant select on public.erp_article_overview to service_role;
 notify pgrst,'reload schema';
 
 do $$ begin
- if exists(select 1 from microforce_erp_rollout_guard g where (g.rows,g.signature) is distinct from (select count(*),md5(string_agg(md5(to_jsonb(a)::text),'' order by a.id)) from public.erp_articles a)) then raise exception 'ERP source preservation failed'; end if;
+ if exists(select 1 from microforce_erp_rollout_guard g where (g.rows,g.signature) is distinct from (select row(count(*),md5(string_agg(md5(to_jsonb(a)::text),'' order by a.id))) from public.erp_articles a)) then raise exception 'ERP source preservation failed'; end if;
 end $$;
