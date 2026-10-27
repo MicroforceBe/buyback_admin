@@ -1,3 +1,4 @@
+import {loadReceptionRmaWork} from '../rma/receptionWorkData';
 import ui from '../rma/rma.module.css';
 import styles from '../reception.module.css';
 import { receptionRmaDays } from '@/lib/receptionTerms';
@@ -321,10 +322,14 @@ export default async function RefurbReceptionDetailPage({
   ]);
 
   // ✅ Canonicalize status values in the loaded items (fix label-vs-value historical data)
-  const items = (itemsRaw || []).map((it) => ({
+  const sourceItems = (itemsRaw || []).map((it) => ({
     ...it,
     refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || []),
   }));
+
+  const rmaWork=await loadReceptionRmaWork(sourceItems.map(item=>item.id));
+  const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
+  const items=sourceItems;
 
   const rmaDossiers=canUseAdminStatuses?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
 
@@ -439,7 +444,7 @@ export default async function RefurbReceptionDetailPage({
 
   const totalValueDoneCents = items.reduce((acc, it) => {
     const st = (it.refurb_status || "onbekend").trim() || "onbekend";
-    if (!isFinalStatus(st)) return acc;
+    if (workById.has(it.id)||!isFinalStatus(st)) return acc;
     const pc = typeof (it as any).price_cents === "number" ? Number((it as any).price_cents) : 0;
     return acc + (Number.isFinite(pc) ? pc : 0);
   }, 0);
@@ -644,13 +649,14 @@ export default async function RefurbReceptionDetailPage({
 
 
       <RefurbReceptionTable
+        rmaWork={rmaWork}
         rmaCaseLinks={rmaDossiers.links}
         rmaCases={rmaDossiers.cases}
         rmaLinksUnavailable={rmaDossiers.failed}
         supplierInvoiceNr={reception.supplier_invoice_nr}
         receptionId={reception.id}
         initialStatusFilter={initialStatusFilter}
-        initialItems={items as any}
+        initialItems={sourceItems as any}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
         defaultStatusValue={defaultStatusValue}
@@ -665,6 +671,7 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+
 
 
 
