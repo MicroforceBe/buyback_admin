@@ -872,6 +872,7 @@ export default async function LeadsPage({
         </div><p>{total} leads{hasActiveFilters ? " in deze selectie" : ""} · Pagina {page} van {totalPages}</p></div>
 
         <div className="leads-header-actions">
+          {adminUser.role === 'admin' && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
            {(adminUser as any).role === "admin" && (
             <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
               Analyse
@@ -1573,6 +1574,7 @@ export default async function LeadsPage({
     </div>
   );
 }
+
 
 
 

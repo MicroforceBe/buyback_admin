@@ -3,6 +3,12 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'trustpilot-preview-20261027',date:'2026-10-27',title:'Trustpilot na afronding van een buyback',area:'Leads',status:'test',summary:'Proefregistratie voor een review-uitnodiging 7 dagen na Afgewerkt; er worden geen echte uitnodigingen verstuurd.',changes:[
+  'Alleen de eerste nieuwe overgang naar Afgewerkt registreert een uitnodiging. Opnieuw opslaan of de status opnieuw doorlopen maakt geen dubbele registratie.',
+  'Afgewerkt betekent verkoopsklaar en op voorraad; betaling gebeurt afzonderlijk binnen maximaal 5 dagen. De wachttijd van 7 dagen wordt door Trustpilot toegepast.',
+  'Beheerders zien via Leads → Trustpilot de klantgegevens, proefmelding en verwachte uitnodigingsdatum. Ontbrekende gegevens blokkeren de melding en kunnen opnieuw gecontroleerd worden.',
+  'De melding aan Trustpilot bevat alleen klantnaam, e-mailadres en buybackreferentie. Oude afgeronde buybacks worden niet automatisch meegenomen.',
+ ]},
  {id:'rma-resolution-test-20261026',date:'2026-10-26',title:'RMA Supplier: weigering, retour en intern herstel',area:'RMA Supplier',status:'test',summary:'Preview van artikelbeslissingen, fysieke opvolging en interne herstelwerking. Live is nog ongewijzigd.',changes:[
   'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Reden en historiek blijven bewaard.',
   'Geweigerde en aanwezige artikelen worden echt teruggezet naar de bestaande RMA to fix-status. Statusovergangen, SKU en gebruikte onderdelen verlopen daarna via de gewone receptiewerklijst. Ook bij een eerder geboekt artikel wordt de toestand vóór terugzetting als afgeschermde historiek bewaard.',
@@ -86,5 +92,6 @@ export const releases:ReleaseEntry[]=[
   'De bestaande ERP-importinstellingen zijn behouden. Een nieuwe FTPS-verbinding is niet als werkend bevestigd; de werkelijke Sendcloud-labeltest is overgeslagen.',
  ]},
 ];
+
 
 
