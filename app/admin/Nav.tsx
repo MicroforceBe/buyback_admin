@@ -93,6 +93,7 @@ const items: Item[] = [
     permKey: "settings",
   },
   { href: "/admin/release-notes", label: "Release notes", icon: "notes" },
+  { href: "/admin/backlog", label: "Ontwikkelbacklog", icon: "backlog", adminOnly: true },
 ];
 
 export default function Nav({
@@ -149,7 +150,7 @@ export default function Nav({
             aria-current={
               active ? "page" : undefined
             }
-            className={styles.navLink}
+            className={it.href==="/admin/backlog"?`${styles.navLink} ${styles.navBacklog}`:styles.navLink}
             prefetch={false}
           >
             <AdminIcon name={it.icon} size={19}/>

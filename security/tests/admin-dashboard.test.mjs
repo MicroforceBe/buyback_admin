@@ -14,7 +14,7 @@ async function load(path,extra={}){
 test('navigation retains role/permission filters and marks exactly the actual section active',async()=>{
  let pathname='/admin/refurb/rma/fixture';
  const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>pathname}});
- const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,11);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb/rma']);
+ const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,12);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb/rma']);
  assert.ok(links.every(n=>n.props.prefetch===false&&nodes(n,x=>x.type==='span').length===1));
  assert.equal(nodes(Nav({role:'user'}),n=>n.type==='Link'&&n.props.href==='/admin/diagnostics').length,0);
  assert.equal(nodes(Nav({role:'admin',permissions:{leads:false}}),n=>n.type==='Link'&&n.props.href==='/admin/leads').length,0);
@@ -93,3 +93,9 @@ test('manual and idle logout replace the current document after successful sessi
  assert.equal(calls,2);assert.deepEqual(navigations,['/admin/login','/admin/login']);cleanup();assert.equal(listeners.size,0);
 });
 
+
+test('development backlog is the final navigation item and restricted to administrators',async()=>{
+ const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>'/admin/backlog'}});
+ const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.at(-1).props.href,'/admin/backlog');assert.equal(links.at(-1).props['aria-current'],'page');
+ for(const role of ['user','technician',undefined])assert.equal(nodes(Nav({role,permissions:{settings:true}}),n=>n.type==='Link'&&n.props.href==='/admin/backlog').length,0);
+});
