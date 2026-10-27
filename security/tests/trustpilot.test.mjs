@@ -9,14 +9,15 @@ const root=new URL('../../',import.meta.url), read=p=>fs.readFileSync(new URL(p,
 const row=()=>({lead_id:'00000000-0000-4000-8000-000000000001',reference_id:'TEST-TP-1',recipient_name:'TEST Person',recipient_email:'test@example.invalid',mode:'preview',status:'preview',afs_email:'microforce.be+10c2ba8b1d@invite.trustpilot.com',delay_days:7,completed_at:'2026-10-27T12:00:00.000Z',expected_invite_at:'2026-11-03T12:00:00.000Z',error_code:null});
 const liveEnv={TRUSTPILOT_SEND_ENABLED:'true',NEXT_PUBLIC_SUPABASE_URL:'https://poqyuyqguumfmldwffdv.supabase.co',VERCEL_ENV:'production',RESEND_API_KEY:'synthetic-key',MAIL_FROM:'TEST <sender@example.invalid>'};
 async function load(entry,{env={},q=row(),deny=false,provider='success',dbFail=false,finishFail=false,sourceStatus='done'}={}) {
- const state={q:q?structuredClone(q):null,requests:[],writes:0,dbCalls:0,guards:[],order:[],sourceStatus};
- const db={from(table){state.dbCalls++;let patch=null,filters=[];const query=new Proxy({}, {get(_,k){
+ const state={q:q?structuredClone(q):null,requests:[],writes:0,dbCalls:0,guards:[],order:[],ranges:[],sourceStatus};
+ const db={from(table){state.dbCalls++;let patch=null,filters=[],list=false;const query=new Proxy({}, {get(_,k){
    if(k==='update')return v=>{patch=v;return query;};
    if(k==='eq'||k==='is')return (key,val)=>{filters.push([key,val]);return query;};
+   if(k==='range')return (a,b)=>{list=true;state.ranges.push([a,b]);return query;};
    if(k==='then')return (yes,no)=>run().then(yes,no);
    if(k==='single'||k==='maybeSingle')return run;
    return ()=>query;
- }});async function run(){if(dbFail)return {error:{message:'PRIVATE DATABASE DETAIL'}};if(table==='buyback_trustpilot_config')return {data:{mode:'live'},error:null};if(table==='buyback_leads')return {data:{status:state.sourceStatus},error:null};if(patch){if(!state.q||!filters.every(([k,v])=>(state.q[k]??null)===v))return {data:null,error:null};if(finishFail&&patch.provider_id)return {error:{message:'PRIVATE FINISH'}};state.writes++;Object.assign(state.q,patch);return {data:{lead_id:state.q.lead_id},error:null};}return {data:state.q ? structuredClone(state.q) : null,error:null};}return query;},rpc:async()=>({error:null})};
+ }});async function run(){if(dbFail)return {error:{message:'PRIVATE DATABASE DETAIL'}};if(table==='buyback_trustpilot_config')return {data:{mode:'live',afs_email:row().afs_email,delay_days:7},error:null};if(table==='buyback_leads')return {data:{status:state.sourceStatus},error:null};if(patch){if(!state.q||!filters.every(([k,v])=>(state.q[k]??null)===v))return {data:null,error:null};if(finishFail&&patch.provider_id)return {error:{message:'PRIVATE FINISH'}};state.writes++;Object.assign(state.q,patch);return {data:{lead_id:state.q.lead_id},error:null};}return {data:list ? (state.q ? [structuredClone(state.q)] : []) : (state.q ? structuredClone(state.q) : null),count:list?60:undefined,error:null};}return query;},rpc:async()=>({error:null})};
  const context=vm.createContext({console:{info(){},warn(){},error(){}},process:{env},Date,Error,URL,AbortSignal,
    fetch:async(url,opts)=>{state.requests.push({url,opts});if(provider==='timeout')throw Error('PRIVATE NETWORK');return {ok:provider==='success',json:async()=>provider==='success'?{id:'synthetic-accepted'}:{message:'PRIVATE PROVIDER DETAIL'}};}});
  const cache=new Map();async function synthetic(id,e){if(cache.has(id))return cache.get(id);const m=new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});cache.set(id,m);return m;}
@@ -96,3 +97,9 @@ test('real lead action never calls Trustpilot on failed writes, denial, unchange
 
 
 
+
+function pageText(node){if(Array.isArray(node))return node.map(pageText).join(' ');if(node&&typeof node==='object')return pageText(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
+test('Next page awaits promised searchParams and renders pagination and feedback',async()=>{
+ const h=await load('app/admin/leads/trustpilot/page.tsx');const tree=await h.api.default({searchParams:Promise.resolve({page:'2',msg:'refreshed'})});
+ assert.deepEqual(h.state.ranges,[[25,49]]);const text=pageText(tree);assert.match(text,/Pagina\s+2/);assert.ok(text.includes('opnieuw gecontroleerd'));assert.ok(text.includes('TEST-TP-1'));assert.match(text,/3\/11\/2026/);assert.equal(h.state.requests.length,0);
+});

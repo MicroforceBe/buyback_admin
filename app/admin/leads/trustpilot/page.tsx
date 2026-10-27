@@ -13,9 +13,10 @@ const messages:Record<string,string>={fixture_finished:'De fictieve buyback is a
   refresh_failed:'Deze registratie kan niet worden vernieuwd. Alleen nooit verzonden meldingen van afgewerkte buybacks zijn wijzigbaar.',
   delivery_check:'De registratie blijft bewaard. Controleer de verzendstatus voordat je opnieuw probeert.',processed:'De verwerking is gecontroleerd. Bekijk de status bij de buyback.'};
 
-export default async function TrustpilotPage({searchParams}:{searchParams?:{page?:string;msg?:string}}) {
+export default async function TrustpilotPage({searchParams}:{searchParams?:Promise<{page?:string;msg?:string}>}) {
   await requirePageAccess('leads',true);
-  const page=Math.min(10000,Math.max(1,Number.parseInt(searchParams?.page??'1',10)||1));
+  const params=await searchParams;
+  const page=Math.min(10000,Math.max(1,Number.parseInt(params?.page??'1',10)||1));
   const [registrations,configResult]=await Promise.all([
     supabaseAdmin.from('buyback_trustpilot_invitations').select('*',{count:'exact'}).order('completed_at',{ascending:false}).order('lead_id').range((page-1)*25,page*25-1),
     supabaseAdmin.from('buyback_trustpilot_config').select('mode,afs_email,delay_days').eq('id',true).single(),
@@ -25,7 +26,7 @@ export default async function TrustpilotPage({searchParams}:{searchParams?:{page
   return <main className={styles.workspace}>
     <header className={styles.header}><div><Link href="/admin/leads">← Buyback leads</Link><h1>Trustpilot-uitnodigingen</h1><p>Opvolging vanaf de eerste overgang naar Afgewerkt.</p></div><span className={styles.badge}>{cfg.mode==='preview'?'Proefmodus — geen verzending':cfg.mode==='disabled'?'Uitgeschakeld':'Live meldingen'}</span></header>
     <section className={styles.notice}><strong>{cfg.mode==='preview'?'Er worden geen e-mails verstuurd.':'Trustpilot verstuurt de review-uitnodiging.'}</strong><p>Afgewerkt betekent verkoopsklaar en in voorraad. De betaling gebeurt afzonderlijk binnen maximaal 5 dagen. De uitnodigingstermijn in Trustpilot is {cfg.delay_days} dagen.</p><p>Template: Microforce BuyBack · Alleen nieuwe afrondingen · Eén registratie per buyback</p><p>AFS-bestemming: <span className={styles.mono}>{cfg.afs_email}</span></p></section>
-    {searchParams?.msg&&messages[searchParams.msg]&&<p role="status" className={styles.notice}>{messages[searchParams.msg]}</p>}
+    {params?.msg&&messages[params.msg]&&<p role="status" className={styles.notice}>{messages[params.msg]}</p>}
     {cfg.mode==='preview'&&process.env.NEXT_PUBLIC_SUPABASE_URL==='https://ekqmhexbabrwudetkfcm.supabase.co'&&<section className={styles.card}><h2>Veilig uitproberen</h2><p>Rond de fictieve buyback TEST-TRUSTPILOT-AFRONDEN af en bekijk de registratie hieronder. Deze knop wijzigt uitsluitend deze testbuyback; er worden ook geen gewone klant- of boekhoudmails verstuurd.</p><form action={finishTrustpilotFixtureAction}><button type="submit">Testbuyback afronden</button></form></section>}
     <section className={styles.card}><div className={styles.sectionHead}><h2>Registraties</h2><span>{registrations.count??0} totaal</span></div>
       {rows.length===0?<p>Nog geen registraties. Zet een testbuyback van Controle succesvol naar Afgewerkt. Bestaande afgewerkte buybacks worden niet achteraf uitgenodigd.</p>:<div className={styles.scroll}><table><thead><tr><th>Buyback / klant</th><th>Afgewerkt op</th><th>Verwachte uitnodiging</th><th>Registratie</th><th>Controle</th></tr></thead><tbody>{rows.map(row=><tr key={row.lead_id}>
