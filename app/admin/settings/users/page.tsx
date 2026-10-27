@@ -1,94 +1,20 @@
-import { requirePageAccess } from '@/lib/security/access';
-// app/admin/settings/users/page.tsx
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
-import {
-  hasPermission,
-  type AdminRole,
-  type PermissionsMap,
-} from '@/lib/adminPermissions';
+import {requirePageAccess} from '@/lib/security/access';
+import {supabaseAdmin} from '@/lib/supabaseAdmin';
+import {hasPermission,isRootAdminEmail} from '@/lib/adminPermissions';
 import UserPermissionsTable from './UserPermissionsTable';
-
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-
-type DbAdminUserRow = {
-  email: string;
-  role: AdminRole;
-  permissions: PermissionsMap | null;
-};
-
-type InitialUser = {
-  email: string;
-  role: AdminRole;
-  permissions: PermissionsMap;
-};
-
-export default async function Page() {
-  await requirePageAccess('settings', true);
-
-  const current = await getCurrentAdminUser();
-
-  // Niet ingelogd of geen user gevonden → blokkeren
-  if (!current) {
-    return (
-      <div className="p-4">
-        <h1 className="text-xl font-semibold mb-2">Users</h1>
-        <p className="text-sm text-red-600">
-          Je hebt geen rechten om deze pagina te bekijken (niet ingelogd).
-        </p>
-      </div>
-    );
-  }
-
-  const canWrite = hasPermission(current, 'settings', 'write');
-  const canRead = hasPermission(current, 'settings', 'read') || canWrite;
-
-  if (!canRead) {
-    return (
-      <div className="p-4">
-        <h1 className="text-xl font-semibold mb-2">Users</h1>
-        <p className="text-sm text-red-600">
-          Je hebt geen rechten om deze pagina te bekijken.
-        </p>
-      </div>
-    );
-  }
-
-  const { data, error } = await supabaseAdmin
-    .from('buyback_admin_users')
-    .select('email, role, permissions')
-    .order('email', { ascending: true });
-
-  if (error) {
-    console.error('[admin/users] load error', error);
-  }
-
-  const rows: DbAdminUserRow[] = (data || []) as any[];
-
-  const initialUsers: InitialUser[] = rows.map((r) => ({
-    email: r.email,
-    role: r.role,
-    permissions: (r.permissions ?? {}) as PermissionsMap,
-  }));
-
-  // Root admin e-mail puur voor UI (tag "(root)" + delete blokkeren in client)
-  const rootAdminEmail = process.env.BUYBACK_ROOT_ADMIN_EMAIL ?? null;
-
-  return (
-    <div className="p-4 space-y-4">
-      <h1 className="text-xl font-semibold">Users</h1>
-      <p className="text-sm text-gray-600">
-        Beheer welke e-mailadressen toegang hebben tot de Buyback Admin en welke rechten ze hebben.
-      </p>
-
-      <UserPermissionsTable
-        initialUsers={initialUsers}
-        currentUserEmail={current.email}
-        rootAdminEmail={rootAdminEmail}
-        canEdit={canWrite}
-      />
-    </div>
-  );
+import styles from './users.module.css';
+export const dynamic='force-dynamic';
+export const runtime='nodejs';
+export default async function UsersPage(){
+ const current=await requirePageAccess('settings',true);
+ const [users,audit]=await Promise.all([
+  supabaseAdmin.from('buyback_admin_users').select('email,role,permissions,is_active,role_profile,access_version').order('email'),
+  supabaseAdmin.from('buyback_user_access_audit').select('id,actor,subject_email,event,created_at,changes').order('created_at',{ascending:false}).limit(50)
+ ]);
+ if(users.error||audit.error)return <div className={styles.workspace}><h1>Gebruikers & rechten</h1><p role="alert">Gebruikersbeheer kon niet volledig worden geladen. Er zijn geen gegevens gewijzigd.</p></div>;
+ const rows=(users.data??[]).map(u=>({...u,version:u.access_version,isRoot:isRootAdminEmail(u.email)}));
+ return <div className={styles.workspace}>
+  <header className={styles.hero}><div><span>Beheer / toegang & bevoegdheden</span><h1>Gebruikers & rechten</h1><p>Geef iedereen de juiste werkruimte, met afzonderlijke toegang tot RMA Supplier.</p></div><div className={styles.heroBadge}>Persoonlijke accounts</div></header>
+  <UserPermissionsTable initialUsers={rows} currentUserEmail={current.email} canEdit={hasPermission(current,'settings','write')} audit={audit.data??[]}/>
+ </div>;
 }
-

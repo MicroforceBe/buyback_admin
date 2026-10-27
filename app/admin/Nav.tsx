@@ -10,6 +10,7 @@ type NavPermissions = {
   dashboard?: boolean;
   leads?: boolean;
   refurb?: boolean;
+  rma_supplier?:boolean;
   diagnostics?: boolean;
   erp?: boolean;
   catalog?: boolean;
@@ -48,6 +49,7 @@ const items: Item[] = [
     permKey: "refurb",
   },
 
+  {href:"/admin/refurb/rma",label:"RMA Supplier",icon:"rma",permKey:"rma_supplier"},
   {
     href: "/admin/diagnostics",
     label: "Diagnostics",
@@ -117,6 +119,8 @@ export default function Nav({
           return false;
         }
 
+
+
         if (role === "technician") {
           const allowed = [
             "/admin",
@@ -134,7 +138,7 @@ export default function Nav({
       .map((it) => {
         const active =
           pathname === it.href ||
-          (it.href !== "/admin" && (pathname?.startsWith(it.href + "/") ?? false));
+          (it.href !== "/admin" && !(it.href==="/admin/refurb"&&pathname?.startsWith("/admin/refurb/rma")) && (pathname?.startsWith(it.href + "/") ?? false));
 
         return (
           <Link

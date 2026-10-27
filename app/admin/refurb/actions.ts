@@ -383,6 +383,13 @@ export async function fetchReceptionItems(receptionId: string): Promise<RefurbIt
  *
  * 🔧 FIX: admin-check via buyback_admin_users
  */
+async function requireLinkedRmaCompensationAccess(ids:string[]) {
+ if(!ids.length)return;
+ const {data,error}=await supabaseAdmin.from('supplier_rma_items').select('reception_item_id').in('reception_item_id',ids).limit(1).maybeSingle();
+ if(error)throw Error('RMA_FINANCE_CHECK_FAILED');
+ if(data){try{await requireAccess('rma_supplier','finance',false);}catch{throw Error('RMA_FINANCE_REQUIRED');}}
+}
+
 export async function updateRefurbItemCell(
   itemId: string,
   field: EditableField,
@@ -437,6 +444,7 @@ export async function updateRefurbItemCell(
     }
   }
 
+  if(field==="compensation_cents")await requireLinkedRmaCompensationAccess([itemId]);
   const patch: Partial<RefurbItem> = {};
 
   if (field === "price_cents" || field === "compensation_cents") {
@@ -724,6 +732,7 @@ export async function pasteIntoRefurbColumn(
     }
   }
 
+  if(field==="compensation_cents")await requireLinkedRmaCompensationAccess(updates.map(u=>u.id));
   for (const u of updates) {
     const { error } = await supabaseAdmin
       .from("refurb_reception_items")
@@ -1118,6 +1127,8 @@ export async function tryUpdateRefurbItemCell(itemId: string, field: EditableFie
   try { await updateRefurbItemCell(itemId, field, value); return {}; }
   catch (error) {
     const message=error instanceof Error?error.message:'';
+    if (message.includes('RMA_FINANCE_REQUIRED')) return {error:'Voor compensaties van gekoppelde RMA-artikelen is RMA Supplier · Financieel nodig.'};
+    if (message.includes('RMA_FINANCE_CHECK_FAILED')) return {error:'De financiële bevoegdheid kon niet worden gecontroleerd. Er is niets gewijzigd.'};
     if (message.includes('RMA_COMPENSATION_REQUIRED')) return {error:'Vul eerst een compensatiebedrag in voordat dit artikel aan RMA Supplier wordt gekoppeld.'};
     if (message.includes('RMA_REFUNDED')) return {error:'Een refunded artikel kan niet opnieuw als RMA worden gemeld.'};
     if (message.includes('vergrendeld')) return {error:'Dit artikel is geboekt. Gebruik Nieuw RMA melden (ook na afwerking) in het RMA-overzicht.'};

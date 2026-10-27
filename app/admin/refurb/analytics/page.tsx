@@ -24,7 +24,7 @@ function OpenSummary({ title, rows }: { title: string; rows: { name: string; cou
 }
 
 export default async function RefurbAnalyticsPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
-  await requirePageAccess('refurb', true);
+  await requirePageAccess('refurb_analytics', false);
   const params = await searchParams ?? {};
   let filters;
   try { filters = parseAnalyticsFilters(params); }
