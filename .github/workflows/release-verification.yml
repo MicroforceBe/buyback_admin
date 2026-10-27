@@ -67,6 +67,7 @@ on:
       - security/tests/security.test.mjs
       - security/sql/*supplier-rma*.sql
       - security/tests/reception-status-*.test.mjs
+      - lib/receptionRmaWork.ts
       - lib/refurbAnalytics.ts
       - security/tests/refurb-analytics*.test.mjs
       - prisma/schema.prisma
@@ -114,7 +115,7 @@ jobs:
       - name: Verify refurb analytics totals, filters and authorization without live services
         run: node --experimental-vm-modules --test security/tests/refurb-analytics.test.mjs security/tests/refurb-analytics-page.test.mjs
       - name: Verify supplier RMA rules and authenticated actions without live services
-        run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-reception-data.test.mjs security/tests/supplier-rma-resolution.test.mjs
+        run: node --experimental-vm-modules --test security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-reception-data.test.mjs security/tests/supplier-rma-resolution.test.mjs security/tests/reception-rma-work.test.mjs
       - name: Verify reception RMA terms and guarded metadata updates
         run: node --experimental-vm-modules --test security/tests/reception-terms.test.mjs
       - name: Verify saved reception labels and access without printers
@@ -149,6 +150,7 @@ jobs:
             dependency-review.json
           retention-days: 7
           if-no-files-found: error
+
 
 
 

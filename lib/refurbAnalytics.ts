@@ -1,6 +1,6 @@
 import type {ResolutionItem,RmaFollowup} from './supplierRmaResolution';
 export type AnalyticsReception = { id: string; reception_number?: string | null; supplier: string | null; supplier_id: string | null; reception_date: string | null };
-export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; description: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered?: boolean };
+export type AnalyticsItem = { id: string; reception_id: string; refurb_status: string | null; work_status?:string; description: string | null; price_cents: number | null; compensation_cents: number | null; rma_registered?: boolean };
 export type AnalyticsModel = { id: string; name: string; search_keywords: string | null };
 export type AnalyticsStatus = { id: string; value: string; label: string | null };
 export type AnalyticsTransition = { from_status_id: string; to_status_id: string };
@@ -67,15 +67,16 @@ export function buildRefurbAnalytics(input: AnalyticsInput, filters: AnalyticsFi
     const reception = receptionById.get(item.reception_id);
     if (!reception) continue;
     const supplier = vendor(reception), row = vendors.get(supplier.key)!;
-    const status = aliases.get(norm(item.refurb_status)) ?? norm(item.refurb_status);
+    const status = item.work_status?norm(item.work_status):(aliases.get(norm(item.refurb_status)) ?? norm(item.refurb_status));
+    if(item.work_status)labels.set(status,item.work_status);
     const priced = typeof item.price_cents === 'number' && Number.isFinite(item.price_cents);
     const cents = priced ? item.price_cents! : 0;
     row.purchased++; row.purchaseCents += cents; row.missingPrices += priced ? 0 : 1;
     const hasCompensation = typeof item.compensation_cents === 'number' && Number.isFinite(item.compensation_cents);
     const currentRmaStatus = rmaStatuses.has(status) || mentionsRma(status);
     const isRma = !!item.rma_registered || hasCompensation || currentRmaStatus;
-    const finished = isFinished(status);
-    if (currentRmaStatus && !finished) {
+    const finished = !item.work_status && isFinished(status);
+    if (currentRmaStatus && !finished && !item.work_status) {
       const pending = pendingRmaGroups.get(supplier.key) ?? { ...supplier, count: 0, purchaseCents: 0, missingPrices: 0, compensationCents: 0, withCompensation: 0, withoutCompensation: 0 };
       pending.count++; pending.purchaseCents += cents; pending.missingPrices += priced ? 0 : 1;
       if (hasCompensation) { pending.withCompensation++; pending.compensationCents += item.compensation_cents!; } else pending.withoutCompensation++;

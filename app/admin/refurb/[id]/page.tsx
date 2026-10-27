@@ -1,3 +1,5 @@
+import {loadReceptionRmaWork} from '../rma/receptionWorkData';
+import {isReceptionRmaWorkStatus} from '@/lib/receptionRmaWork';
 import ui from '../rma/rma.module.css';
 import styles from '../reception.module.css';
 import { receptionRmaDays } from '@/lib/receptionTerms';
@@ -321,10 +323,14 @@ export default async function RefurbReceptionDetailPage({
   ]);
 
   // ✅ Canonicalize status values in the loaded items (fix label-vs-value historical data)
-  const items = (itemsRaw || []).map((it) => ({
+  const sourceItems = (itemsRaw || []).map((it) => ({
     ...it,
     refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || []),
   }));
+
+  const rmaWork=await loadReceptionRmaWork(sourceItems.map(item=>item.id));
+  const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
+  const items=sourceItems.map(item=>({...item,refurb_status:workById.get(item.id)?.status||item.refurb_status}));
 
   const rmaDossiers=canUseAdminStatuses?await loadReceptionRmaLinks(reception.id,items.map(item=>item.id)).then(data=>({...data,failed:false})).catch(()=>({cases:[],links:[],failed:true})):{cases:[],links:[],failed:false};
 
@@ -426,7 +432,7 @@ export default async function RefurbReceptionDetailPage({
   // -------- Final vs Not Done totals --------
   const isFinalStatus = (statusValue: string) => {
     const v = (statusValue || "").trim();
-    if (!v) return false;
+    if (!v || isReceptionRmaWorkStatus(v)) return false;
     if (v === "onbekend") return false;
     const next = (statusTransitions || {})[v] || [];
     return !next || next.length === 0;
@@ -644,13 +650,14 @@ export default async function RefurbReceptionDetailPage({
 
 
       <RefurbReceptionTable
+        rmaWork={rmaWork}
         rmaCaseLinks={rmaDossiers.links}
         rmaCases={rmaDossiers.cases}
         rmaLinksUnavailable={rmaDossiers.failed}
         supplierInvoiceNr={reception.supplier_invoice_nr}
         receptionId={reception.id}
         initialStatusFilter={initialStatusFilter}
-        initialItems={items as any}
+        initialItems={sourceItems as any}
         statusOptions={statusOptions}
         locationOptions={locationOptions}
         defaultStatusValue={defaultStatusValue}
@@ -665,6 +672,7 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
+
 
 
 

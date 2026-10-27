@@ -9,13 +9,15 @@ const reception=id=>({id,reception_number:'Reception '+id,reception_date:'2026-1
 const item=(id,reception_id,refurb_status)=>({id,reception_id,refurb_status});
 function nodes(tree,predicate){const all=[];function walk(node){if(Array.isArray(node)){node.forEach(walk);return;}if(!node||typeof node!=='object')return;if(predicate(node))all.push(node);walk(node.props?.children);}walk(tree);return all;}
 function text(node){if(Array.isArray(node))return node.map(text).join(' ');if(node&&typeof node==='object')return text(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
-async function render({params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
+async function render({work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
  const reads=[],ranges=[];let userReads=0;
  const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?[]:table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:itemsError&&table==='refurb_reception_items'?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
  class FixtureDate extends Date {constructor(value){super(arguments.length?value:'2026-10-26T10:00:00Z');}}
  const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
+ const workHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionRmaWork.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await workHelper.link(()=>{throw Error('Unexpected import')});await workHelper.evaluate();
  const imports={
+ './rma/receptionWorkData':{loadReceptionRmaWork:async()=>work},
   './ReceptionQuickSearch':{default:'ReceptionQuickSearch'},
   './rma/rma.module.css':{default:{workspace:'workspace'}},'./reception.module.css':{default:{reception:'reception'}},'./receptionMetadataActions':{updateReceptionMetadata:()=>{throw Error('No writes')}},
   '@/lib/security/policy':{permits:()=>false},
@@ -29,11 +31,16 @@ async function render({params={},allowed=true,itemsError=false,receptions=[recep
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},
  };
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionTerms')return terms;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
  const tree=await mod.namespace.default({searchParams:Promise.resolve(params)});
  return {tree,reads,ranges,userReads};
 }
 const receptionLinks=tree=>nodes(tree,n=>n.type==='Link'&&/^\/admin\/refurb\/[^?]+$/.test(n.props.href));
+
+test('a refused booked device reopens its reception and supplies a direct RMA-to-fix filter badge',async()=>{
+ const {tree}=await render({receptions:[reception('done')],items:[item('1','done','booked')],work:[{reception_item_id:'1',status:'RMA to fix',case_id:'case',case_item_id:'line',code:'TEST'}]});
+ assert.equal(receptionLinks(tree).length,1);const badges=nodes(tree,n=>n.type==='Link'&&n.props.href?.includes('status=RMA%20to%20fix'));assert.equal(badges.length,1);assert.match(text(tree),/0\s*%\s*afgewerkt/);
+});
 
 test('overview starts collapsed, warning stays outside, and delivery header contains toggle and full safe lookup index',async()=>{
  const receptions=[{...reception('done'),rma_expiry_date:'2026-10-27'},{...reception('open'),rma_expiry_date:'2026-10-27'}];
@@ -114,3 +121,4 @@ test('all nonfinal statuses receive counted links, canonical labels and configur
  for(const badge of badges){const url=new URL(badge.props.href,'https://synthetic.invalid');assert.equal(url.pathname,'/admin/refurb/open');assert.equal(url.hash,'#reception-items');assert.ok(url.searchParams.get('status'));assert.notEqual(url.searchParams.get('status'),'Booked');assert.equal(badge.props.prefetch,false);}
  assert.equal(new URL(badges[3].props.href,'https://synthetic.invalid').searchParams.get('status'),'custom / status');
 });
+

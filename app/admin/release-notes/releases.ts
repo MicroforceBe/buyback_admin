@@ -5,6 +5,7 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 export const releases:ReleaseEntry[]=[
  {id:'rma-resolution-test-20261026',date:'2026-10-26',title:'RMA Supplier: weigering, retour en intern herstel',area:'RMA Supplier',status:'test',summary:'Preview van artikelbeslissingen, fysieke opvolging en interne herstelwerking. Live is nog ongewijzigd.',changes:[
   'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Reden en historiek blijven bewaard.',
+  'Geweigerde artikelen verschijnen automatisch als RMA to fix bij de niet-afgewerkte artikelen in hun receptie zodra aanwezigheid bij Microforce is bevestigd. Na verzending staan ze eerst op Wacht op retour. Volledig afgewerkte recepties worden hierdoor opnieuw zichtbaar. De weigering en oorspronkelijke boeking blijven bewaard.',
   'Bij weigering vóór verzending kan intern herstel starten zodra bevestigd is dat het toestel bij Microforce is. Na verzending moet eerst de werkelijke retour worden ontvangen.',
   'Herstel volgt Te herstellen → In herstel → Eindcontrole → Intern hersteld, of eindigt als Niet herstelbaar / Onderdelen. Een geslaagde eindcontrole en onderdelenregistratie (- bij geen onderdelen) zijn verplicht voor Intern hersteld.',
   'Oorspronkelijke claim, toegekend, ontvangen, geweigerd en eventueel afgeschreven blijven apart. De pijlen kopiëren alleen het toegekende bedrag naar ontvangen.',

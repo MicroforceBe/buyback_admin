@@ -1,5 +1,7 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
+import {isReceptionRmaWorkStatus} from '@/lib/receptionRmaWork';
+import type {ReceptionRmaWork} from '@/lib/receptionRmaWork';
 import type { ReceptionRmaCase, ReceptionRmaLink } from './rma/receptionData';
 
 
@@ -27,6 +29,7 @@ type StatusTransitionsMap = Record<string, string[]>;
 
 type Props = {
   receptionId: string;
+  rmaWork?:ReceptionRmaWork[];
   rmaCaseLinks?: ReceptionRmaLink[];
   rmaCases?: ReceptionRmaCase[];
   rmaLinksUnavailable?: boolean;
@@ -479,6 +482,7 @@ function SkuAutocompleteCell({
 
 export default function RefurbReceptionTable({
   receptionId,
+  rmaWork = [],
   rmaCaseLinks = [],
   rmaCases = [],
   rmaLinksUnavailable = false,
@@ -498,6 +502,7 @@ export default function RefurbReceptionTable({
   supplierInvoiceNr = null,
 }: Props) {
   const router = useRouter();
+  const workById=useMemo(()=>new Map(rmaWork.map(work=>[work.reception_item_id,work])),[rmaWork]);
 
   // ✅ normalize initialItems (label -> value) zodat UI overeenstemt met Supabase options
   const normalizedInitialItems = useMemo(() => {
@@ -523,7 +528,7 @@ export default function RefurbReceptionTable({
   const [openDone, setOpenDone] = useState(false);
 
   // header filters
-  const [statusFilter, setStatusFilter] = useState<string>(() => resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
+  const [statusFilter, setStatusFilter] = useState<string>(() => (initialStatusFilter&&isReceptionRmaWorkStatus(initialStatusFilter)?initialStatusFilter:resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems)));
   const [locationFilter, setLocationFilter] = useState<string>("__all__");
   const [imeiQuery, setImeiQuery] = useState<string>("");
   const [descQuery, setDescQuery] = useState<string>("");
@@ -555,7 +560,7 @@ export default function RefurbReceptionTable({
   }, [normalizedInitialItems]);
 
   useEffect(() => {
-    const selected = resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems);
+    const selected = (initialStatusFilter&&isReceptionRmaWorkStatus(initialStatusFilter)?initialStatusFilter:resolveReceptionStatusFilter(initialStatusFilter, statusOptions, initialItems));
     setStatusFilter(selected);
     setLocationFilter("__all__");
     setImeiQuery("");
@@ -563,7 +568,7 @@ export default function RefurbReceptionTable({
     setSelectedIds(new Set());
     setOpenNotDone(true);
     const map = statusNextMap ?? statusTransitions;
-    setOpenDone(selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
+    setOpenDone(!isReceptionRmaWorkStatus(selected) && selected !== "__all__" && !!map && Object.keys(map).length > 0 && !(map[selected]?.length));
     // Reapply a deep link when navigating between statuses on the same reception.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receptionId, initialStatusFilter]);
@@ -885,11 +890,11 @@ async function copyCompleteRmaOverview() {
   const presentStatuses = useMemo(() => {
     const s = new Set<string>();
     for (const it of items) {
-      const v = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      const v = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
       if (v) s.add(v);
     }
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [items, statusOptions, defaultStatusValue]);
+  }, [items, statusOptions, defaultStatusValue, workById]);
 
   // ✅ Location filter options MUST come from rows, and must NOT be reduced by locationFilter itself.
   const locationFilterOptions = useMemo(() => {
@@ -900,8 +905,8 @@ async function copyCompleteRmaOverview() {
 
     // apply all filters except location
     const base = (items || []).filter((it: any) => {
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
-      if (statusFilter !== "__all__" && st !== statusFilter) return false;
+      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
+      if (statusFilter !== "__all__" && norm(st) !== norm(statusFilter)) return false;
 
       if (iq) {
         const imei = norm((it as any).imei_sn ?? "");
@@ -933,7 +938,7 @@ async function copyCompleteRmaOverview() {
         value: v,
         label: labelByValue.get(v) || v,
       }));
-  }, [items, locationOptions, statusOptions, statusFilter, imeiQuery, descQuery, defaultStatusValue]);
+  }, [items, locationOptions, statusOptions, statusFilter, imeiQuery, descQuery, defaultStatusValue, workById]);
 
   const filteredRows = useMemo(() => {
     const iq = norm(imeiQuery);
@@ -942,7 +947,7 @@ async function copyCompleteRmaOverview() {
     return items
       .map((it, originalIndex) => ({ it, originalIndex }))
       .filter(({ it }) => {
-        const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+        const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
         const okStatus = statusFilter === "__all__" || norm(st) === norm(statusFilter);
 
         const loc = ((it as any).location ?? "").trim();
@@ -957,7 +962,7 @@ async function copyCompleteRmaOverview() {
 
         return okStatus && okLoc && okImei && okDesc;
       });
-  }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue]);
+  }, [items, statusOptions, statusFilter, locationFilter, imeiQuery, descQuery, defaultStatusValue, workById]);
 
   // final-status rules: final = geen vervolgstatus (missing OR empty)
   const isFinalStatusValue = useMemo(() => {
@@ -965,6 +970,7 @@ async function copyCompleteRmaOverview() {
     const hasAnyTransitions = t ? Object.keys(t).length > 0 : false;
 
     return (statusValue: string) => {
+      if (isReceptionRmaWorkStatus(statusValue)) return false;
       if (!hasAnyTransitions || norm(statusValue) === norm(defaultStatusValue) || !statusOptions.some(o=>norm(o.value)===norm(statusValue))) return false;
       const next = t?.[statusValue] ?? [];
       return !next || next.length === 0;
@@ -974,17 +980,17 @@ async function copyCompleteRmaOverview() {
   // split done vs not done blocks
   const filteredNotDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
       return !isFinalStatusValue(st);
     });
-  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue]);
+  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
 
   const filteredDoneRows = useMemo(() => {
     return filteredRows.filter(({ it }) => {
-      const st = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+      const st = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
       return isFinalStatusValue(st);
     });
-  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue]);
+  }, [filteredRows, statusOptions, defaultStatusValue, isFinalStatusValue, workById]);
 
   const filteredIds = useMemo(() => filteredRows.map((r) => r.it.id), [filteredRows]);
 
@@ -1146,6 +1152,7 @@ async function copyCompleteRmaOverview() {
     lines: string[]
   ) {
     if (!canWrite || columnSavePending.current || !lines.some((line) => line.trim())) return;
+    if(field==='refurb_status'&&items.some(it=>workById.has(it.id)&&it.row_index>=startRowIndex&&it.row_index<startRowIndex+lines.length)){window.alert('Deze selectie bevat RMA-herstelwerk. Wijzig de herstelstatus via het gekoppelde leveranciersdossier.');return;}
     columnSavePending.current = true;
     try {
       setIsPasting(true);
@@ -1213,6 +1220,8 @@ async function copyCompleteRmaOverview() {
       );
       return;
     }
+
+    if(wantStatus&&itemIds.some(id=>workById.has(id))){window.alert('Deze selectie bevat RMA-herstelwerk. Wijzig de herstelstatus via het gekoppelde leveranciersdossier.');return;}
 
     // ✅ Bulk UI checks for status (NeedSKU/AdminOnly)
     if (wantStatus) {
@@ -1444,9 +1453,10 @@ async function copyCompleteRmaOverview() {
     return (
       <>
         {rows.map(({ it }) => {
-          const currentStatus = canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue).trim();
+          const currentStatus = (workById.get(it.id)?.status||canonicalizeStatusValue(it.refurb_status, statusOptions || [], defaultStatusValue)).trim();
 
-          const rowBooked = isBooked(currentStatus);
+          const rowWork=workById.get(it.id);
+          const rowBooked = isBooked(it.refurb_status);
 
           const lockedPrice = isLockedAfterFill(it, "price_cents");
           const lockedDesc = isLockedAfterFill(it, "description");
@@ -1518,7 +1528,7 @@ async function copyCompleteRmaOverview() {
                     style={{ background: statusColor ?? "transparent" }}
                     aria-hidden="true"
                   />
-                  <select
+                  {rowWork?<a className="text-amber-800 font-semibold underline" href={canUseAdminStatuses?'/admin/refurb/rma/'+rowWork.case_id+'?item='+rowWork.case_item_id+'#followup-'+rowWork.case_item_id:undefined} title={'Geweigerd artikel · '+rowWork.code+'. Oorspronkelijke status: '+it.refurb_status+'. Herstelopvolging verloopt via het leveranciersdossier.'}>{rowWork.status}<small className="block font-normal">{rowWork.code}</small></a>:<select
                     value={currentStatus}
                     disabled={!canWrite || rowBooked || isRefundedRmaItem(it, statusOptions) || (mapModeForRow && !rowHasChoices)}
                     onChange={(e) => handleCellChange(it.id, "refurb_status", e.target.value)}
@@ -1572,7 +1582,8 @@ async function copyCompleteRmaOverview() {
                           );
                         })}
                   </select>
-                  {canPrintRefurbLabel(currentStatus, statusOptions) && (
+                  }
+                  {!rowWork && canPrintRefurbLabel(currentStatus, statusOptions) && (
                     <RefurbLabelPrintButton itemId={it.id} />
                   )}
                 </div>
@@ -2083,7 +2094,7 @@ async function copyCompleteRmaOverview() {
                 </table>
               </div>
             )}
-            {!rmaLinksUnavailable&&linkedRmaGroups.length>0&&<section className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"><h3 className="font-semibold text-slate-800">Reeds toegevoegd aan RMA Supplier</h3>{linkedRmaGroups.map(dossier=><details key={dossier.id} className="rounded-md border bg-white p-3"><summary className="cursor-pointer"><a href={'/admin/refurb/rma/'+dossier.id} className="font-semibold text-sky-700 underline" onClick={event=>event.stopPropagation()}>{dossier.code}</a><span className="ml-2 text-slate-600">{supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage} · {dossier.items.length} artikelen{dossier.supplier_reference?' · RMA leverancier '+dossier.supplier_reference:''}</span></summary><ul className="mt-3 space-y-1">{dossier.items.map(item=><li key={item.id} className="flex flex-wrap gap-2 text-slate-600"><span className="font-mono">{item.imei_sn||item.manual_sn||'—'}</span><span>{item.description||'Artikel'}</span></li>)}</ul></details>)}</section>}
+            {!rmaLinksUnavailable&&linkedRmaGroups.length>0&&<section className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"><h3 className="font-semibold text-slate-800">Reeds toegevoegd aan RMA Supplier</h3>{linkedRmaGroups.map(dossier=><details key={dossier.id} className="rounded-md border bg-white p-3"><summary className="cursor-pointer"><a href={'/admin/refurb/rma/'+dossier.id} className="font-semibold text-sky-700 underline" onClick={event=>event.stopPropagation()}>{dossier.code}</a><span className="ml-2 text-slate-600">{supplierRmaStages[dossier.stage as keyof typeof supplierRmaStages]||dossier.stage} · {dossier.items.length} artikelen{dossier.supplier_reference?' · RMA leverancier '+dossier.supplier_reference:''}</span></summary><ul className="mt-3 space-y-1">{dossier.items.map(item=><li key={item.id} className="flex flex-wrap gap-2 text-slate-600"><span className="font-mono">{item.imei_sn||item.manual_sn||'—'}</span><span>{item.description||'Artikel'}</span>{rmaCaseLinks.find(link=>link.case_id===dossier.id&&link.reception_item_id===item.id)?.decision==='rejected'&&<strong className="text-amber-800">Geweigerd · terug naar interne verwerking</strong>}</li>)}</ul></details>)}</section>}
             {unlinkedRefunded.length>0&&<p className="text-xs text-slate-500">{unlinkedRefunded.length} refunded artikelen zijn afgehandeld en worden niet aangeboden voor een nieuw dossier.</p>}
           </div>
         )}
@@ -2384,6 +2395,7 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
+
 
 
 

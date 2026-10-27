@@ -147,7 +147,7 @@ async function resolveItem(form:FormData,command:'decision'|'custody'|'repair',a
   }
   const {data,error}=await supabaseAdmin.rpc('resolve_supplier_rma',{p_command:command,p_data:payload,p_actor:actor});if(error)throw Error(error.message);uuid(data);
  }catch(error){redirect((id?'/admin/refurb/rma/'+id:'/admin/refurb/rma')+'?msg='+resolutionError(error));}
- revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);revalidatePath('/admin/refurb/analytics');
+ revalidatePath('/admin/refurb','layout');revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);revalidatePath('/admin/refurb/analytics');
  redirect('/admin/refurb/rma/'+id+'?saved=1');
 }
 export async function updateSupplierRmaDecision(form:FormData){
