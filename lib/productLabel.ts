@@ -53,7 +53,8 @@ function barcodeMarkup(value: string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" class="label-barcode" width="${geometry.widthMm.toFixed(4)}mm" height="${geometry.heightMm.toFixed(4)}mm" viewBox="0 0 ${geometry.widthDots} ${geometry.heightDots}" shape-rendering="crispEdges" role="img" aria-label="${escapeLabelText(value)}"><rect width="${geometry.widthDots}" height="${geometry.heightDots}" fill="#fff"/>${geometry.runs.map(run=>`<rect x="${run.x}" y="0" width="${run.width}" height="${geometry.heightDots}" fill="#000"/>`).join('')}</svg>`;
 }
 export function titleGrade(title: string | null) {
-  return title?.match(/(?:^|[\s\-_/])(NIEUW|NEW|[345]\*|OEM|PREMIUM|GRADE\s+[ABC])(?=$|[\s\-_/])/i)?.[1]?.toUpperCase() ?? '';
+  const grade = title?.match(/(?:^|[\s\-_/])([345]\*+)(?:M)?(?=$|[\s\-_/])|(?:^|[\s\-_/])(NIEUW|NEW|OEM|PREMIUM|GRADE\s+[ABC])(?=$|[\s\-_/])/i);
+  return grade?.[1] ? grade[1].slice(0, 2) : grade?.[2]?.toUpperCase() ?? '';
 }
 export function renderProductLabel(data: ProductLabel) {
   const sku=data.sku.trim(),serial=data.serial?.trim() ?? '';

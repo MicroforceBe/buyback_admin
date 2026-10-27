@@ -87,3 +87,14 @@ test('right-column branding and CE stay away from the physical right and bottom 
  assert.ok(html.includes('>MICROFORCE</div>'));
  assert.ok(html.includes('class="label-ce">CE</div>'));
 });
+
+
+test('grade recognizes compact margin suffixes and prints a single star',async()=>{
+ const {namespace:m}=await helper();
+ for(const stars of [3,4,5]) for(const suffix of ['*M','**M','* M','*','*m']) {
+  const title='iPad 2025 Refurbished '+stars+suffix;
+  assert.equal(m.titleGrade(title),stars+'*');
+  assert.ok(m.renderProductLabel({sku:'TEST-123',title,vatMargin:true}).includes('label-side-value">'+stars+'*</div>'));
+ }
+ for(const [title,expected] of [['Grade A','GRADE A'],['NEW','NEW'],['OEM','OEM'],['Premium','PREMIUM'],['iPad 4*Max',''],['iPad 14*M',''],['MacBook M4','']]) assert.equal(m.titleGrade(title),expected);
+});
