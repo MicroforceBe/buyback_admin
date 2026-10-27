@@ -3,6 +3,12 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'trustpilot-20261027',date:'2026-10-27',title:'Automatische Trustpilot-uitnodigingen na afronding',area:'Leads',status:'live',summary:'Nieuwe afgeronde buybacks worden automatisch bij Trustpilot aangemeld voor een uitnodiging na 7 dagen.',changes:[
+ 'De eerste overgang naar Afgewerkt meldt de buyback één keer aan. Bestaande afgewerkte buybacks worden niet achteraf uitgenodigd.',
+ 'Afgewerkt betekent verkoopsklaar en in voorraad; de betaling gebeurt afzonderlijk. Trustpilot gebruikt het ingestelde Microforce BuyBack-sjabloon en de termijn van 7 dagen.',
+ 'Beheerders kunnen registraties en eventuele ontbrekende klantgegevens opvolgen via Trustpilot bij Leads.',
+ ]},
+
  {id:'rma-resolution-20261027',date:'2026-10-27',title:'RMA Supplier: weigering en verwerking in receptie',area:'RMA Supplier',status:'live',summary:'Beslissingen per artikel, retourregistratie en verdere verwerking via de gewone receptiewerklijst.',changes:[
   'Leg per artikel vast of de leverancier de volledige claim, een deel, geen vergoeding of herstel door de leverancier aanvaardt. Eén dossier kan verschillende uitkomsten bevatten.',
   'Geweigerde artikelen die bij Microforce aanwezig zijn worden teruggezet naar de bestaande status RMA to fix. Status, SKU en gebruikte onderdelen bewerk je daarna gewoon in de receptie.',

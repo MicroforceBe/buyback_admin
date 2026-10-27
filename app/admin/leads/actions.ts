@@ -860,7 +860,7 @@ export async function updateLeadInlineAction(formData: FormData) {
   if (patch.status === "done") {
     const effectiveStatus = (patch.status ?? (before as any).status) as Status | null;
     const previousOrCurrentStatus = (before as any).status as Status | null;
-    if (effectiveStatus === "done" && previousOrCurrentStatus !== "check_passed") {
+    if (effectiveStatus === "done" && previousOrCurrentStatus !== "check_passed" && previousOrCurrentStatus !== "done") {
       redirect(
         `/admin/leads?msg=${encodeURIComponent("done_requires_check_passed_first")}`
       );
@@ -1016,6 +1016,15 @@ export async function updateLeadInlineAction(formData: FormData) {
   const prevStatus = (before as any)?.status as Status | undefined;
   const newStatus = ((patch.status as Status | undefined) ??
     (after as any)?.status) as Status | undefined;
+
+  if (newStatus === 'done' && prevStatus !== 'done') {
+    try {
+      const { processTrustpilotRegistration } = await import('@/lib/trustpilotDelivery');
+      await processTrustpilotRegistration(id);
+    } catch {
+      console.error('[TRUSTPILOT] Registration retained; delivery needs checking.');
+    }
+  }
 
   // Alle mailbare statussen
   const NOTIFY_STATUSES: BuybackStatus[] = [

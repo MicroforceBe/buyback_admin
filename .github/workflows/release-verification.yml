@@ -3,6 +3,9 @@ on:
   push:
     branches: [release/security-20261024, main]
     paths:
+      - lib/trustpilot*.ts
+      - security/sql/*trustpilot*.sql
+      - security/tests/trustpilot*.test.mjs
       - lib/supplierRmaResolution.ts
       - lib/receptionRmaWork.ts
       - app/admin/AdminChrome.tsx
@@ -115,6 +118,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/refurb-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/product-label.test.mjs
       - name: Verify dashboard access and stationary navigation
         run: node --experimental-vm-modules --test security/tests/admin-dashboard.test.mjs
+      - name: Verify Trustpilot registration, delivery and access without external services
+        run: node --experimental-vm-modules --test security/tests/trustpilot.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
