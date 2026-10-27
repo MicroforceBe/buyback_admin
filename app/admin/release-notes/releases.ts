@@ -3,6 +3,7 @@ export type ReleaseEntry={id:string;date:string;title:string;area:string;status:
 // User-facing history only: no credentials, customer records or internal deployment details.
 // Add new entries at the top and move a test entry to live only after approved publication.
 export const releases:ReleaseEntry[]=[
+ {id:'erp-article-profile-preview-20261027',date:'2026-10-27',title:'Artikelbeheer met interne artikelfiches',area:'ERP',status:'test',summary:'Een vernieuwd artikeloverzicht met eigen artikelfiches, naast de bestaande ERP-import.',changes:['Zoeken op SKU, EAN, naam, merk en model. Bestaande voorraad-, locatie-, grade-, marge- en core-filters blijven beschikbaar.','Open de artikelfiche voor eigen artikelnaam, type, merk, model, EAN, specificaties, afbeelding en interne notities. Versiecontrole en wijzigingshistoriek beschermen tegen overschrijven.','Prijs, voorraad, SKU, ERP-status en BTW-regeling blijven uit het externe ERP komen en zijn op de fiche alleen-lezen.','CSV-import, synchronisatie, core-assortiment en de bestaande labeltool blijven geïntegreerd. Interne aanvullingen wijzigen geen bestaande labels of toestelvalidatie.']},
  {id:'development-backlog-20261027',date:'2026-10-27',title:'Ontwikkelbacklog voor beheerders',area:'Beheer',status:'live',summary:'Een centrale lijst om ideeën en toekomstige verbeteringen te bewaren en op te volgen.',changes:['Beheerders openen de ontwikkelbacklog onderaan de navigatie. Gewone gebruikers krijgen geen toegang.','Voeg ideeën toe met omschrijving, module, prioriteit en status. Zoek en filter in de lijst; bewerk of archiveer items zonder de historiek van de ideeënlijst kwijt te raken.','Het voorstel voor persoonlijke werkpc- en werkplekbeveiliging staat als uitgesteld idee genoteerd. Een backlogitem geeft geen automatische opdracht tot uitvoering.']},
 
  {id:'user-access-test-20261027',date:'2026-10-27',title:'Preview: gebruikers en afzonderlijke RMA-rechten',area:'Gebruikersbeheer',status:'test',summary:'Uitgebreid gebruikersbeheer in de testomgeving; bestaande accounts en rechten blijven behouden.',changes:[
@@ -107,4 +108,5 @@ export const releases:ReleaseEntry[]=[
   'De bestaande ERP-importinstellingen zijn behouden. Een nieuwe FTPS-verbinding is niet als werkend bevestigd; de werkelijke Sendcloud-labeltest is overgeslagen.',
  ]},
 ];
+
 
