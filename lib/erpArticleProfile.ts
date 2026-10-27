@@ -1,4 +1,7 @@
-export const articleTypes = {device:'Toestel',part:'Onderdeel',accessory:'Accessoire',other:'Overig'} as const;
+export const articleTypes = {device:'Toestel',part:'Onderdeel',service:'Hersteldienst',accessory:'Accessoire',other:'Overig'} as const;
+export const articleAreas={all:'Alle artikelen',refurb:'Refurb',accessories:'Accessoires',repairs:'Repairs',core:'Core-assortiment',unclassified:'Nog in te delen'} as const;
+export type ArticleArea=keyof typeof articleAreas;
+export function articleArea(value:string):ArticleArea{return Object.hasOwn(articleAreas,value)?value as ArticleArea:'all';}
 export const profileFields = {display_name:'Artikelnaam',ean:'EAN / GTIN',brand:'Merk',model:'Model',category:'Categorie',product_type:'Artikeltype',capacity_gb:'Opslag (GB)',color:'Kleur',condition_grade:'Grade',description:'Omschrijving',specifications:'Specificaties',image_url:'Afbeeldingslink',notes:'Interne notities'} as const;
 export type ProfileField = keyof typeof profileFields;
 export type ArticleProfile = Record<Exclude<ProfileField,'capacity_gb'>,string|null> & {capacity_gb:number|null;version:number;updated_at?:string};
