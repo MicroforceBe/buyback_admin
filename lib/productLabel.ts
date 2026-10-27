@@ -1,6 +1,6 @@
 import JsBarcode from 'jsbarcode';
 
-export type ProductLabel = { sku: string; title: string | null; serial?: string; battery?: string; grade?: string; vatMargin: boolean | null };
+export type ProductLabel = { sku: string; title: string | null; serial?: string; battery?: string; grade?: string; omitEmptyBattery?: boolean; vatMargin: boolean | null };
 export const labelSize = { width: 89, height: 36, dpi: 300, barcodeWidth: 64, quietModules: 10 } as const;
 // Keep a 1 mm page reserve against driver/pixel rounding and 2.5 mm inside
 // the artwork. Flow content at the exact roll size can paginate a blank label.
@@ -63,6 +63,6 @@ export function renderProductLabel(data: ProductLabel) {
   const battery=data.battery?.trim() ?? '';
   if(battery && (!/^\d{1,3}$/.test(battery) || Number(battery)>100))throw new Error('Batterij moet een geheel percentage van 0 tot 100 zijn.');
   const vat=data.vatMargin===true?'Margin VAT':data.vatMargin===false?'Normal VAT':'BTW-regeling onbekend';
-  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div><div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div><div class="label-ce">CE</div></div></article></div>`;
+  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div>${battery || !data.omitEmptyBattery ? `<div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div>` : ''}<div class="label-ce">CE</div></div></article></div>`;
 }
 
