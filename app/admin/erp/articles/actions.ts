@@ -21,10 +21,11 @@ export async function setArticleCore(id:string,expected:boolean|null):Promise<Sa
  await requireAccess('erp', 'write', false);
  if(!uuidPattern.test(id)||!(expected===null||typeof expected==='boolean'))return {ok:false,error:'Ongeldig artikel.'};
  try{
-  let q=supabaseAdmin.from('erp_articles').update({core_assortment:!expected}).eq('id',id).eq('refurbished_product',false);
+  let q=supabaseAdmin.from('erp_articles').update({core_assortment:!expected}).eq('id',id).or('refurbished_product.eq.false,refurbished_product.is.null');
   q=expected===null?q.is('core_assortment',null):q.eq('core_assortment',expected);
   const {data,error}=await q.select('id').maybeSingle();
   if(error||!data)return {ok:false,error:'De selectie is intussen gewijzigd of kon niet worden opgeslagen. Vernieuw de pagina.'};
   revalidatePath('/admin/erp/articles');revalidatePath(`/admin/erp/articles/${id}`);return {ok:true};
  }catch{return {ok:false,error:'Core-assortiment kon niet worden opgeslagen.'};}
 }
+
