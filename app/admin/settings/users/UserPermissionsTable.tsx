@@ -10,7 +10,7 @@ type Props={initialUsers:UserRow[];currentUserEmail:string|null;canEdit:boolean;
 const groups=[{label:'Dagelijkse verwerking',features:['dashboard','leads','leads_finalize','refurb','rma_supplier','refurb_analytics','erp'] as AdminFeature[]},{label:'Catalogus & beheer',features:['catalog','multipliers','uploads','settings'] as AdminFeature[]}];
 const notes:Partial<Record<AdminFeature,string>>={rma_supplier:'Bekijken omvat dossiergegevens en bedragen. Verwerken omvat aanmaken, koppelen, logistiek en opvolging. Bedragen en leveranciersbeslissingen vereisen Financieel; definitief afsluiten vereist Afsluiten.',refurb:'Bestaande receptie- en artikelrechten. Beheer van statussen, locaties en modellen blijft voor beheerders.',settings:'Bestaande instellingenrechten. Gebruikersbeheer blijft uitsluitend voor beheerders.',refurb_analytics:'Afzonderlijke toegang tot grafieken en financiële analyses.'};
 export default function UserPermissionsTable({initialUsers,currentUserEmail,canEdit,audit}:Props){
- const [users,setUsers]=useState(()=>initialUsers.map(u=>({...u,permissions:normalizeAccessPermissions(u.permissions)})));
+ const [users,setUsers]=useState<UserRow[]>(()=>initialUsers.map(u=>({...u,permissions:normalizeAccessPermissions(u.permissions)})));
  const [selected,setSelected]=useState(initialUsers[0]?.email??''),[query,setQuery]=useState(''),[newEmail,setNewEmail]=useState('');
  const [dirty,setDirty]=useState<Record<string,boolean>>({}),[passwords,setPasswords]=useState<Record<string,{password:string;confirm:string}>>({});
  const [feedback,setFeedback]=useState<{error:boolean;text:string}|null>(null),[pending,startTransition]=useTransition();
