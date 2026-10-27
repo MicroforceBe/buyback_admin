@@ -1175,6 +1175,10 @@ async function copyCompleteRmaOverview() {
     lines: string[]
   ) {
     if (!canWrite || columnSavePending.current || !lines.some((line) => line.trim())) return;
+    if (field === 'battery_percentage') {
+      try { lines.filter(line=>line.trim()).forEach(parseReceptionBattery); }
+      catch(error) { window.alert((error as Error).message); return; }
+    }
     columnSavePending.current = true;
     try {
       setIsPasting(true);

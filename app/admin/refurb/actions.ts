@@ -1121,6 +1121,7 @@ export async function tryUpdateRefurbItemCell(itemId: string, field: EditableFie
     if (message.includes('RMA_COMPENSATION_REQUIRED')) return {error:'Vul eerst een compensatiebedrag in voordat dit artikel aan RMA Supplier wordt gekoppeld.'};
     if (message.includes('RMA_REFUNDED')) return {error:'Een refunded artikel kan niet opnieuw als RMA worden gemeld.'};
     if (message.includes('vergrendeld')) return {error:'Dit artikel is geboekt. Gebruik Nieuw RMA melden (ook na afwerking) in het RMA-overzicht.'};
+    if (message.startsWith('Batterijcapaciteit moet')) return {error:message};
     if (message.startsWith('Status "') || message.includes('SKU is verplicht') || message.includes('rechten om deze status')) return {error:message};
     return {error:'De wijziging is niet opgeslagen. Controleer de toegelaten statustransitie en probeer opnieuw.'};
   }
