@@ -6,7 +6,7 @@ import {redirect} from 'next/navigation';
 import {revalidatePath} from 'next/cache';
 
 export async function createBacklogItem(form:FormData){
- const user=await requireAccess('settings','write',true);
+ const user = await requireAccess('settings', 'write', true);
  let message='created';
  try{
   const input=backlogInput(form);
@@ -16,7 +16,7 @@ export async function createBacklogItem(form:FormData){
  revalidatePath('/admin/backlog');redirect('/admin/backlog?message='+message);
 }
 export async function saveBacklogItem(form:FormData){
- const user=await requireAccess('settings','write',true);
+ const user = await requireAccess('settings', 'write', true);
  let message='saved';
  try{
   const id=String(form.get('id')||''),version=Number(form.get('version'));
