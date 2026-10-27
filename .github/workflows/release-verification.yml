@@ -1,7 +1,7 @@
 name: Production release verification
 on:
   push:
-    branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, main]
+    branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, release/backlog-compact-20261027, main]
     paths:
       - app/admin/backlog/**
       - lib/developmentBacklog.ts

@@ -7,3 +7,8 @@ export function backlogInput(form:FormData){
  if(!title||title.length>180||description.length>10000||module.length>80||!Object.hasOwn(backlogStatuses,status)||!Object.hasOwn(backlogPriorities,priority))throw Error('BACKLOG_INPUT');
  return {title,description,module,status,priority};
 }
+
+const priorityRank:Record<BacklogItem['priority'],number>={urgent:0,high:1,normal:2,low:3};
+export function sortBacklogItems(items:BacklogItem[]):BacklogItem[]{
+ return [...items].sort((a,b)=>priorityRank[a.priority]-priorityRank[b.priority]||Date.parse(b.updated_at)-Date.parse(a.updated_at)||a.title.localeCompare(b.title,'nl-BE')||a.id.localeCompare(b.id));
+}
