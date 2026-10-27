@@ -1,7 +1,7 @@
 name: Production release verification
 on:
   push:
-    branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, release/backlog-compact-20261027, main]
+    branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, release/backlog-compact-20261027, release/erp-20261027, main]
     paths:
       - app/admin/backlog/**
       - lib/developmentBacklog.ts
@@ -47,6 +47,10 @@ on:
       - package-lock.json
       - security/tests/zod-compat.test.mjs
       - security/tests/ftp-compat.test.mjs
+      - app/admin/erp/**
+      - lib/erpArticleProfile.ts
+      - security/sql/erp-article*.sql
+      - security/tests/erp-article-profile.test.mjs
       - lib/erpSync.ts
       - lib/security/labelLinks.ts
       - lib/security/mailProbe.ts
@@ -117,6 +121,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
       - name: Verify reception status links and filtered item lists without external services
         run: node --experimental-vm-modules --test security/tests/reception-status-filter.test.mjs security/tests/reception-status-ui.test.mjs
+      - name: Verify internal article profiles and external ERP authority
+        run: node --experimental-vm-modules --test security/tests/erp-article-profile.test.mjs
       - name: Verify label authorization and ERP orchestration
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify lead status validation and SKU selection without live services
