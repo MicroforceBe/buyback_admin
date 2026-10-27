@@ -12,11 +12,19 @@ export async function processTrustpilotRegistration(leadId: string): Promise<str
   if (!row) return 'not_registered';
   const q = row as TrustpilotRecord;
   if (q.mode === 'preview' || !['queued','failed'].includes(q.status)) return q.status;
-  if (!trustpilotLiveAllowed(process.env)) return 'disabled';
+  const isTest = q.mode === 'test';
+  const testEnv = 'https://ekqmhexbabrwudetkfcm.supabase.co';
+  if(isTest) {
+    if(process.env.NEXT_PUBLIC_SUPABASE_URL!==testEnv || (process.env.SUPABASE_URL&&process.env.SUPABASE_URL!==testEnv)
+      || !process.env.RESEND_API_KEY || !process.env.MAIL_FROM) return 'disabled';
+    const {data:allow,error:allowError}=await sb.from('buyback_trustpilot_test_authorization').select('lead_id,recipient_email,expires_at').eq('id',true).single();
+    if(allowError||!allow||allow.lead_id!==leadId||allow.recipient_email!==q.recipient_email||Date.parse(allow.expires_at)<=Date.now()) return 'disabled';
+  } else if (!trustpilotLiveAllowed(process.env)) return 'disabled';
   const {data: config, error: configError} = await sb.from('buyback_trustpilot_config').select('mode').eq('id',true).single();
-  if (configError || config?.mode !== 'live') return 'disabled';
-  const {data: lead, error: leadError} = await sb.from('buyback_leads').select('status').eq('id',leadId).single();
+  if (configError || config?.mode !== (isTest?'preview':'live')) return 'disabled';
+  const {data: lead, error: leadError} = await sb.from('buyback_leads').select('status,source,email,order_code').eq('id',leadId).single();
   if (leadError || lead?.status !== 'done') return 'not_done';
+  if(isTest&&(lead.source!=='trustpilot_e2e_test'||lead.email!==q.recipient_email||lead.order_code!=='TEST-TRUSTPILOT-E2E-20261027')) return 'disabled';
 
   const now = new Date();
   // Resend deduplicates for 24h; never blindly resend outside that window.

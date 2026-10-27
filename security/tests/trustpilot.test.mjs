@@ -8,7 +8,7 @@ import ts from 'typescript';
 const root=new URL('../../',import.meta.url), read=p=>fs.readFileSync(new URL(p,root),'utf8');
 const row=()=>({lead_id:'00000000-0000-4000-8000-000000000001',reference_id:'TEST-TP-1',recipient_name:'TEST Person',recipient_email:'test@example.invalid',mode:'preview',status:'preview',afs_email:'microforce.be+10c2ba8b1d@invite.trustpilot.com',delay_days:7,completed_at:'2026-10-27T12:00:00.000Z',expected_invite_at:'2026-11-03T12:00:00.000Z',error_code:null});
 const liveEnv={TRUSTPILOT_SEND_ENABLED:'true',NEXT_PUBLIC_SUPABASE_URL:'https://poqyuyqguumfmldwffdv.supabase.co',VERCEL_ENV:'production',RESEND_API_KEY:'synthetic-key',MAIL_FROM:'TEST <sender@example.invalid>'};
-async function load(entry,{env={},q=row(),deny=false,provider='success',dbFail=false,finishFail=false,sourceStatus='done'}={}) {
+async function load(entry,{env={},q=row(),deny=false,provider='success',dbFail=false,finishFail=false,sourceStatus='done',configMode='live',authorization=null,source='trustpilot_e2e_test'}={}) {
  const state={q:q?structuredClone(q):null,requests:[],writes:0,dbCalls:0,guards:[],order:[],ranges:[],sourceStatus};
  const db={from(table){state.dbCalls++;let patch=null,filters=[],list=false;const query=new Proxy({}, {get(_,k){
    if(k==='update')return v=>{patch=v;return query;};
@@ -17,7 +17,7 @@ async function load(entry,{env={},q=row(),deny=false,provider='success',dbFail=f
    if(k==='then')return (yes,no)=>run().then(yes,no);
    if(k==='single'||k==='maybeSingle')return run;
    return ()=>query;
- }});async function run(){if(dbFail)return {error:{message:'PRIVATE DATABASE DETAIL'}};if(table==='buyback_trustpilot_config')return {data:{mode:'live',afs_email:row().afs_email,delay_days:7},error:null};if(table==='buyback_leads')return {data:{status:state.sourceStatus},error:null};if(patch){if(!state.q||!filters.every(([k,v])=>(state.q[k]??null)===v))return {data:null,error:null};if(finishFail&&patch.provider_id)return {error:{message:'PRIVATE FINISH'}};state.writes++;Object.assign(state.q,patch);return {data:{lead_id:state.q.lead_id},error:null};}return {data:list ? (state.q ? [structuredClone(state.q)] : []) : (state.q ? structuredClone(state.q) : null),count:list?60:undefined,error:null};}return query;},rpc:async()=>({error:null})};
+ }});async function run(){if(dbFail)return {error:{message:'PRIVATE DATABASE DETAIL'}};if(table==='buyback_trustpilot_config')return {data:{mode:configMode,afs_email:row().afs_email,delay_days:7},error:null};if(table==='buyback_trustpilot_test_authorization')return {data:authorization,error:null};if(table==='buyback_leads')return {data:{status:state.sourceStatus,source,email:state.q?.recipient_email,order_code:'TEST-TRUSTPILOT-E2E-20261027'},error:null};if(patch){if(!state.q||!filters.every(([k,v])=>(state.q[k]??null)===v))return {data:null,error:null};if(finishFail&&patch.provider_id)return {error:{message:'PRIVATE FINISH'}};state.writes++;Object.assign(state.q,patch);return {data:{lead_id:state.q.lead_id},error:null};}return {data:list ? (state.q ? [structuredClone(state.q)] : []) : (state.q ? structuredClone(state.q) : null),count:list?60:undefined,error:null};}return query;},rpc:async()=>({error:null})};
  const context=vm.createContext({console:{info(){},warn(){},error(){}},process:{env},Date,Error,URL,AbortSignal,
    fetch:async(url,opts)=>{state.requests.push({url,opts});if(provider==='timeout')throw Error('PRIVATE NETWORK');return {ok:provider==='success',json:async()=>provider==='success'?{id:'synthetic-accepted'}:{message:'PRIVATE PROVIDER DETAIL'}};}});
  const cache=new Map();async function synthetic(id,e){if(cache.has(id))return cache.get(id);const m=new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});cache.set(id,m);return m;}
@@ -69,7 +69,7 @@ test('non-done, blocked and unregistered leads never submit; persistence failure
  const f=await load('lib/trustpilotDelivery.ts',{env:liveEnv,q:{...row(),mode:'live',status:'queued'},finishFail:true});await assert.rejects(f.api.processTrustpilotRegistration(row().lead_id));assert.equal(f.state.q.status,'sending');await f.api.processTrustpilotRegistration(row().lead_id);assert.equal(f.state.requests.length,1);
 });
 test('admin-only actions and page deny before database or provider access',async()=>{
- for(const entry of ['app/admin/leads/trustpilot/actions.ts','app/admin/leads/trustpilot/page.tsx','app/admin/leads/trustpilot/previewActions.ts']){const h=await load(entry,{deny:true});if(entry.endsWith('tsx'))await assert.rejects(h.api.default({searchParams:{}}),/denied/);else for(const name of entry.endsWith('previewActions.ts')?['finishTrustpilotFixtureAction']:['refreshTrustpilotAction','retryTrustpilotAction'])await assert.rejects(h.api[name](new Map()),/denied/);assert.equal(h.state.dbCalls,0);assert.equal(h.state.requests.length,0);for(const args of h.state.guards)assert.equal(args.at(-1),true);}
+ for(const entry of ['app/admin/leads/trustpilot/actions.ts','app/admin/leads/trustpilot/page.tsx','app/admin/leads/trustpilot/previewActions.ts']){const h=await load(entry,{deny:true});if(entry.endsWith('tsx'))await assert.rejects(h.api.default({searchParams:{}}),/denied/);else for(const name of entry.endsWith('previewActions.ts')?['finishTrustpilotFixtureAction','sendTrustpilotRealTestAction']:['refreshTrustpilotAction','retryTrustpilotAction'])await assert.rejects(h.api[name](new Map()),/denied/);assert.equal(h.state.dbCalls,0);assert.equal(h.state.requests.length,0);for(const args of h.state.guards)assert.equal(args.at(-1),true);}
 });
 
 async function leadActionHarness({previous='check_passed',denied=false,mailFails=false,deliveryFails=false,updateFails=false}={}) {
@@ -102,4 +102,23 @@ function pageText(node){if(Array.isArray(node))return node.map(pageText).join(' 
 test('Next page awaits promised searchParams and renders pagination and feedback',async()=>{
  const h=await load('app/admin/leads/trustpilot/page.tsx');const tree=await h.api.default({searchParams:Promise.resolve({page:'2',msg:'refreshed'})});
  assert.deepEqual(h.state.ranges,[[25,49]]);const text=pageText(tree);assert.match(text,/Pagina\s+2/);assert.ok(text.includes('opnieuw gecontroleerd'));assert.ok(text.includes('TEST-TP-1'));assert.match(text,/3\/11\/2026/);assert.equal(h.state.requests.length,0);
+});
+
+const testEnv={...liveEnv,NEXT_PUBLIC_SUPABASE_URL:'https://ekqmhexbabrwudetkfcm.supabase.co',TRUSTPILOT_SEND_ENABLED:undefined};
+const realTestRow=()=>({...row(),mode:'test',status:'queued',reference_id:'TEST-TRUSTPILOT-E2E-20261027',test_send_at:new Date(Date.now()+180000).toISOString()});
+const testAuthorization=()=>({lead_id:row().lead_id,recipient_email:row().recipient_email,expires_at:new Date(Date.now()+3600000).toISOString()});
+test('one authorized real TEST sends through the shared provider path once with its own preferred time',async()=>{
+ const q=realTestRow(),h=await load('lib/trustpilotDelivery.ts',{env:testEnv,q,configMode:'preview',authorization:testAuthorization()});
+ await Promise.all([h.api.processTrustpilotRegistration(q.lead_id),h.api.processTrustpilotRegistration(q.lead_id)]);assert.equal(h.state.requests.length,1);assert.equal(h.state.q.status,'submitted');
+ const envelope=JSON.parse(h.state.requests[0].opts.body),payload=JSON.parse(envelope.html.replace(/^<script[^>]*>/,'').replace(/<\/script>$/,''));assert.equal(envelope.to,row().afs_email);assert.equal(payload.preferredSendTime,q.test_send_at);assert.equal(payload.recipientEmail,row().recipient_email);
+ await h.api.processTrustpilotRegistration(q.lead_id);assert.equal(h.state.requests.length,1);
+});
+test('real TEST refuses missing, different or expired authorization, source mismatch, LIVE host and global live mode',async()=>{
+ for(const patch of [{authorization:null},{authorization:{...testAuthorization(),recipient_email:'other@example.invalid'}},{authorization:{...testAuthorization(),lead_id:'different'}},{authorization:{...testAuthorization(),expires_at:new Date(Date.now()-1000).toISOString()}},{source:'ordinary_lead'},{env:liveEnv},{configMode:'live'}]){
+  const h=await load('lib/trustpilotDelivery.ts',{env:testEnv,q:realTestRow(),configMode:'preview',authorization:testAuthorization(),...patch});await h.api.processTrustpilotRegistration(row().lead_id);assert.equal(h.state.requests.length,0);assert.equal(h.state.writes,0);
+ }
+});
+test('preferred send time is confined to test rows, and missing test time refuses sending',async()=>{
+ const h=await load('lib/trustpilot.ts');assert.ok(!h.api.buildTrustpilotEnvelope({...row(),test_send_at:new Date().toISOString()},'sender@example.invalid').html.includes('preferredSendTime'));
+ assert.throws(()=>h.api.buildTrustpilotEnvelope({...realTestRow(),test_send_at:null},'sender@example.invalid'));
 });
