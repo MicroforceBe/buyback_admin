@@ -7,7 +7,7 @@ function articleQuery(params:Record<string,string>){
  let q=supabaseAdmin.from('erp_article_classified').select('*',{count:'exact'});
  const area=articleArea(params.area??'all');
  if(area==='core')q=q.eq('core_assortment',true).or('refurbished_product.eq.false,refurbished_product.is.null');
- else if(area!=='all')q=q.eq('management_group',area);
+ else if(area==='unclassified')q=q.is('assigned_group_id',null);
  if(params.source==='missing')q=q.eq('missing_from_erp',true);
  else if(params.source!=='all')q=q.eq('missing_from_erp',false);
  if(params.group&&/^[0-9a-f-]{36}$/i.test(params.group))q=q.eq('article_group_id',params.group);
