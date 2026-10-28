@@ -1,6 +1,6 @@
 export const stockColumns=['inventory_qty','stock_gentbrugge','stock_oudenaarde','stock_antwerpen'] as const;
 export type StockColumn=typeof stockColumns[number];
-export type StockArticle={id:string;article_group_id:string|null;article_group_name:string|null;article_subgroup_id:string|null;article_subgroup_name:string|null;recognized_model:string|null}&Record<StockColumn,number|null>;
+export type StockArticle={id:string;sku?:string;title?:string|null;article_group_id:string|null;article_group_name:string|null;article_subgroup_id:string|null;article_subgroup_name:string|null;recognized_model:string|null}&Record<StockColumn,number|null>;
 export type StockTotal={value:number|null;missing:number};
 export type StockRow={groupId:string|null;groupName:string;subgroupId:string|null;subgroupName:string;model:string|null;articles:number;totals:Record<StockColumn,StockTotal>};
 export function stockTotals(rows:StockArticle[]):Record<StockColumn,StockTotal>{
@@ -18,4 +18,15 @@ export function stockArticleHref(row:StockRow,status:string,location?:StockColum
  if(row.model)p.set('model',row.model);else p.set('modelState','unknown');
  if(location&&location!=='inventory_qty')p.set('location',location.replace('stock_',''));
  return '/admin/erp/articles?'+p;
+}
+
+export function storeArticles(articles:StockArticle[],column:StockColumn):StockArticle[]{return articles.filter(a=>typeof a[column]==='number'&&Number.isFinite(a[column])&&a[column]!>0);}
+export function stockHierarchy(articles:StockArticle[]){
+ const groups=new Map<string|null,{id:string|null;name:string;articles:StockArticle[];subgroups:Map<string|null,{id:string|null;name:string;articles:StockArticle[];models:(StockRow&{items:StockArticle[]})[]}>}>();
+ for(const row of summarizeStock(articles,true)){
+  const items=articles.filter(a=>a.article_group_id===row.groupId&&a.article_subgroup_id===row.subgroupId&&(a.recognized_model||null)===row.model).sort((a,b)=>(a.sku||a.id).localeCompare(b.sku||b.id,'nl',{numeric:true}));
+  let group=groups.get(row.groupId);if(!group){group={id:row.groupId,name:row.groupName,articles:[],subgroups:new Map()};groups.set(row.groupId,group);}group.articles.push(...items);
+  let subgroup=group.subgroups.get(row.subgroupId);if(!subgroup){subgroup={id:row.subgroupId,name:row.subgroupName,articles:[],models:[]};group.subgroups.set(row.subgroupId,subgroup);}subgroup.articles.push(...items);subgroup.models.push({...row,items});
+ }
+ return [...groups.values()].map(group=>({...group,subgroups:[...group.subgroups.values()]}));
 }
