@@ -197,3 +197,21 @@ export async function bulkSupplierRma(form:FormData){
  revalidatePath('/admin/refurb','layout');revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);revalidatePath('/admin/refurb/analytics');
  redirect('/admin/refurb/rma/'+id+'?saved=1');
 }
+
+export async function bulkSupplierRmaCustody(form:FormData){
+ const user = await requireAccess('rma_supplier','write',false);
+ let id:string|undefined;
+ try{
+  id=uuid(form.get('case_id'));
+  const all=form.get('all')==='1',ids=[...new Set(form.getAll('item_ids').map(uuid))];
+  if(!all&&(!ids.length||ids.length>200))throw Error('RMA_INPUT');
+  if(form.get('confirm_bulk')!=='1')throw Error('RMA_INPUT');
+  const custody=short(form,'custody');if(!Object.prototype.hasOwnProperty.call(custodyStates,custody))throw Error('RMA_CUSTODY_INVALID');
+  const versions=JSON.parse(short(form,'followup_versions',20000));
+  if(!versions||Array.isArray(versions)||typeof versions!=='object'||Object.entries(versions).some(([key,value])=>!uuid(key)||!Number.isSafeInteger(value)||Number(value)<0))throw Error('RMA_INPUT');
+  const {error}=await supabaseAdmin.rpc('bulk_supplier_rma',{p_command:'custody',p_data:{case_id:id,version:version(form),all,item_ids:ids,followup_versions:versions,custody,outbound_on:rmaDate(form.get('outbound_on')),returned_on:rmaDate(form.get('returned_on')),return_reference:short(form,'return_reference')},p_actor:user.email});
+  if(error)throw Error(error.message);
+ }catch(error){redirect((id?'/admin/refurb/rma/'+id:'/admin/refurb/rma')+'?msg='+errorCode(error));}
+ revalidatePath('/admin/refurb','layout');revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);
+ redirect('/admin/refurb/rma/'+id+'?saved=1');
+}
