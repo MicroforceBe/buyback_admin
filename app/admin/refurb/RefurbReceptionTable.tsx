@@ -10,6 +10,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { isSupplierRmaItem, compensationOnRmaEntry, isRefundedRmaItem, supplierRmaStages } from "@/lib/supplierRma";
 import { resolveReceptionStatusFilter } from "@/lib/refurbStatusFilter";
 import RefurbLabelPrintButton from "./RefurbLabelPrintButton";
+import SkuResultsPopup from "./SkuResultsPopup";
 import { canPrintRefurbLabel } from "@/lib/refurbLabel";
 import { useRouter } from "next/navigation";
 import {
@@ -379,6 +380,7 @@ function SkuAutocompleteCell({
     e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => void;
 }) {
+  const inputAnchor = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState(value);
   const [results, setResults] = useState<ErpSkuSearchResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -431,6 +433,7 @@ function SkuAutocompleteCell({
     <div className="relative">
       <div className="flex items-center gap-1">
         <input
+          ref={inputAnchor}
           className="bb-input h-7 text-[11px] px-1 w-full"
           value={input}
           disabled={disabled}
@@ -440,7 +443,6 @@ function SkuAutocompleteCell({
           }}
           onFocus={() => setOpen(true)}
           onBlur={async () => {
-            setTimeout(() => setOpen(false), 150);
             await onChange(input.trim());
           }}
           onPaste={onPaste}
@@ -449,8 +451,8 @@ function SkuAutocompleteCell({
         <CopyBtn value={input.trim()} title="Copy SKU" />
       </div>
 
-      {open && (results.length > 0 || loading) && (
-        <div className="absolute z-50 mt-1 w-[520px] overflow-hidden rounded-xl border bg-white shadow-2xl">
+      {open && !disabled && (results.length > 0 || loading) && (
+        <SkuResultsPopup anchor={inputAnchor} onClose={() => setOpen(false)}>
           {loading && (
             <div className="px-3 py-2 text-[11px] text-slate-500">
               Zoeken...
@@ -497,7 +499,7 @@ function SkuAutocompleteCell({
                 </div>
               </button>
             ))}
-        </div>
+        </SkuResultsPopup>
       )}
     </div>
   );
