@@ -20,7 +20,7 @@ test('financial split separates claims, awards, refusals, write-offs and unknown
 });
 
 async function panel(){const context=vm.createContext({});const helper=await pure('lib/supplierRmaResolution.ts',context);
- const imports={'next/link':{default:'Link'},'./actions':Object.fromEntries(['bulkSupplierRma','updateSupplierRmaDecision','updateSupplierRmaCustody','updateSupplierRmaRepair'].map(k=>[k,()=>{throw Error('No actual writes');}])),'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'}};
+ const imports={'next/link':{default:'Link'},'./actions':Object.fromEntries(['bulkSupplierRmaCustody','bulkSupplierRma','updateSupplierRmaDecision','updateSupplierRmaCustody','updateSupplierRmaRepair'].map(k=>[k,()=>{throw Error('No actual writes');}])),'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'}};
  const code=ts.transpileModule(fs.readFileSync(new URL('app/admin/refurb/rma/ResolutionPanel.tsx',root),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{if(spec==='@/lib/supplierRmaResolution')return helper;const e=imports[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return m.namespace;
 }
@@ -73,4 +73,18 @@ test('bulk panel exposes explicit scope and confirmation only to financial edito
  const ui=await panel(),props={dossier:{id:'case',stage:'submitted',version:2},items:[{id:'line',reception_item_id:'source',decision:'pending'}],sourceById:new Map(),followups:[],canFinance:true};
  let tree=ui.default(props);assert.equal(nodes(tree,n=>n.props?.name==='all').length,1);assert.equal(nodes(tree,n=>n.props?.name==='item_ids').length,1);assert.equal(nodes(tree,n=>n.props?.name==='confirm_bulk'&&n.props.required).length,1);
  for(const patch of [{canFinance:false},{dossier:{...props.dossier,stage:'handled'}}]){tree=ui.default({...props,...patch});assert.equal(nodes(tree,n=>n.props?.name==='confirm_bulk').length,0);}
+});
+
+test('bulk custody requires write access and sends selected article versions with shared dates',async()=>{
+ const h=await actions(),f=form({case_id:ids.case,version:3,all:'1',confirm_bulk:'1',custody:'sent',outbound_on:'2026-10-28',return_reference:'TEST TRACKING',followup_versions:JSON.stringify({[ids.line]:2})});
+ await assert.rejects(h.api.bulkSupplierRmaCustody(f),e=>e.url.endsWith('?saved=1'));
+ assert.equal(h.calls.length,1);const p=h.calls[0].payload;
+ assert.equal(p.p_command,'custody');assert.equal(p.p_actor,'trusted-actor@example.invalid');
+ assert.equal(p.p_data.followup_versions[ids.line],2);assert.equal(p.p_data.outbound_on,'2026-10-28');assert.equal(p.p_data.return_reference,'TEST TRACKING');
+ const bad=await actions();await assert.rejects(bad.api.bulkSupplierRmaCustody(form({case_id:ids.case,version:3,all:'1',confirm_bulk:'1',custody:'INVALID'})),e=>e.url.endsWith('?msg=custody'));assert.equal(bad.calls.length,0);
+});
+test('physical bulk form remains available after financial closure and is hidden from read-only users',async()=>{
+ const ui=await panel(),props={dossier:{id:'case',stage:'handled',version:2},items:[{id:'line',reception_item_id:'source'}],sourceById:new Map(),followups:[],canWrite:true};
+ let tree=ui.default(props);assert.equal(nodes(tree,n=>n.props?.name==='followup_versions').length,1);assert.equal(nodes(tree,n=>n.props?.name==='custody'&&n.props.defaultValue==='sent').length,1);
+ tree=ui.default({...props,canWrite:false});assert.equal(nodes(tree,n=>n.props?.name==='followup_versions').length,0);
 });

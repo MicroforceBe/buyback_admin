@@ -2,7 +2,7 @@ import Link from 'next/link';
 import {supplierDecisions,custodyStates,repairStates,repairNextStates,repairTerminal,needsInternalFollowup} from '@/lib/supplierRmaResolution';
 import type {RmaFollowup} from '@/lib/supplierRmaResolution';
 import type {RmaCase,RmaCaseItem,RmaSource} from './data';
-import {bulkSupplierRma,updateSupplierRmaDecision,updateSupplierRmaCustody,updateSupplierRmaRepair} from './actions';
+import {bulkSupplierRmaCustody,bulkSupplierRma,updateSupplierRmaDecision,updateSupplierRmaCustody,updateSupplierRmaRepair} from './actions';
 
 export default function ResolutionPanel({dossier,items,sourceById,followups,selectedItemId,canWrite=false,canFinance=false}:{dossier:RmaCase;items:RmaCaseItem[];sourceById:Map<string,RmaSource>;followups:RmaFollowup[];selectedItemId?:string;canWrite?:boolean;canFinance?:boolean}){
  const byItem=new Map(followups.map(f=>[f.case_item_id,f])),financialFinal=dossier.stage==='handled';
@@ -24,6 +24,24 @@ export default function ResolutionPanel({dossier,items,sourceById,followups,sele
  <label className="rma-flow-check"><input required type="checkbox" name="confirm_bulk" value="1"/>Ik wil deze bewerking op de gekozen artikelen toepassen. Bestaande waarden worden overschreven waar de huidige regels dit toestaan.</label>
  <p>Als één artikel niet gewijzigd mag worden, wordt niets opgeslagen. Elke wijziging blijft in de historiek.</p>
  <button className="bb-btn bb-btn-primary">Bulkbewerking opslaan</button>
+ </form></details>}
+
+ {canWrite&&items.length>0&&<details className="rma-flow-card"><summary><div><strong>Fysieke opvolging voor meerdere artikelen</strong><span>Verzending of retour · alle artikelen of eigen selectie</span></div></summary>
+ <form action={bulkSupplierRmaCustody} className="rma-flow-form">
+ <input type="hidden" name="case_id" value={dossier.id}/><input type="hidden" name="version" value={dossier.version}/>
+ <input type="hidden" name="followup_versions" value={JSON.stringify(Object.fromEntries(items.map(item=>[item.id,byItem.get(item.id)?.version??0])))}/>
+ <fieldset><legend className="font-semibold">1 · Artikelen selecteren</legend>
+ <label className="rma-flow-check"><input type="checkbox" name="all" value="1"/>Alle {items.length} artikelen (vervangt de selectie hieronder)</label>
+ <div className="max-h-64 overflow-y-auto border rounded-md p-3 space-y-2">{items.map(item=>{const source=sourceById.get(item.reception_item_id);return <label key={item.id} className="rma-flow-check"><input type="checkbox" name="item_ids" value={item.id}/><span><strong>{source?.imei_sn||source?.manual_sn||'Geen SN'}</strong> · {source?.description||'Artikel'} · {custodyStates[byItem.get(item.id)?.custody||'unknown']}</span></label>;})}</div></fieldset>
+ <fieldset><legend className="font-semibold">2 · Fysieke opvolging</legend>
+ <label>Waar zijn de toestellen?<select name="custody" defaultValue="sent">{Object.entries(custodyStates).map(([key,text])=><option key={key} value={key}>{text}</option>)}</select></label>
+ <label>Werkelijk verzonden op<input name="outbound_on" type="date"/></label>
+ <label>Retour ontvangen op<input name="returned_on" type="date"/></label>
+ <label>Retour-/trackingreferentie<input name="return_reference" maxLength={250}/></label>
+ <p>Deze waarden worden op elk gekozen artikel toegepast. Voor verzending is een verzenddatum nodig; voor retour ook een retourdatum. Reeds opgeslagen datums kunnen niet zomaar worden gewist. Gebruik een aparte selectie bij verschillende verzenddatums.</p></fieldset>
+ <label className="rma-flow-check"><input required type="checkbox" name="confirm_bulk" value="1"/>Ik bevestig de fysieke toestand en datums voor alle gekozen artikelen.</label>
+ <p>Als één artikel niet gewijzigd mag worden of intussen gewijzigd is, wordt niets opgeslagen. Financiële bedragen blijven behouden.</p>
+ <button className="bb-btn bb-btn-primary">Fysieke opvolging voor selectie opslaan</button>
  </form></details>}
  {items.map(item=>{
   const source=sourceById.get(item.reception_item_id),f=byItem.get(item.id),decision=item.decision||'pending',state=f?.repair_state||'none',custody=f?.custody||'unknown';
