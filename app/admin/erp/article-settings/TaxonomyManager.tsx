@@ -1,0 +1,49 @@
+'use client';
+import Link from 'next/link';
+import {useState,useTransition} from 'react';
+import {useRouter} from 'next/navigation';
+import {Save,FolderTree,Hash,ScanSearch,Eye,Plus} from 'lucide-react';
+import {groupLabel,usableGroup,type Group,type Prefix,type ModelRule} from '@/lib/erpArticleTaxonomy';
+import {saveTaxonomy,previewSkuPrefix} from './actions';
+import styles from './settings.module.css';
+type Field={name:string;label:string;type?:string;value?:string|number;options?:Array<[string,string]>;max?:number;required?:boolean};
+function Editor({kind,row,fields,canWrite,onSaved}:{kind:string;row?:{id:string;version:number};fields:Field[];canWrite:boolean;onSaved:()=>void}){
+ const [error,setError]=useState(''),[pending,start]=useTransition();
+ return <form className={styles.editor} onSubmit={e=>{e.preventDefault();if(!canWrite||pending)return;const form=e.currentTarget,data=new FormData(form);setError('');start(async()=>{try{const result=await saveTaxonomy(data);if(!result.ok)setError(result.error??'Opslaan mislukt.');else {if(!row)form.reset();onSaved();}}catch{setError('Je sessie of toegang is verlopen. Vernieuw de pagina.');}});}}>
+  <input type="hidden" name="kind" value={kind}/><input type="hidden" name="id" value={row?.id??''}/><input type="hidden" name="version" value={row?.version??0}/>
+  <fieldset disabled={!canWrite||pending}>{fields.map(f=><label key={f.name}>{f.label}{f.options?<select name={f.name} defaultValue={String(f.value??'')}>{f.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>:<input name={f.name} defaultValue={f.value??''} type={f.type??'text'} required={f.required} maxLength={f.max} min={f.type==='number'?0:undefined} max={f.type==='number'?999:undefined} step={f.type==='number'?1:undefined}/>}</label>)}</fieldset>
+  {canWrite&&<button className="erp-button primary" type="submit" disabled={pending}>{row?<Save size={14}/>:<Plus size={14}/>} {pending?'Opslaan…':row?'Opslaan':'Toevoegen'}</button>}{error&&<p className={styles.error} role="alert">{error}</p>}
+ </form>;
+}
+const activeOptions:[string,string][]=[['true','Actief'],['false','Inactief']];
+export default function TaxonomyManager({groups,prefixes,models,canWrite}:{groups:Group[];prefixes:Prefix[];models:ModelRule[];canWrite:boolean}){
+ const router=useRouter(),[notice,setNotice]=useState(''),[prefix,setPrefix]=useState('211'),[pending,start]=useTransition(),[preview,setPreview]=useState<Awaited<ReturnType<typeof previewSkuPrefix>>|null>(null);
+ const roots=groups.filter(g=>!g.parent_id).sort((a,b)=>a.name.localeCompare(b.name,'nl'));
+ const sorted=[...groups].sort((a,b)=>groupLabel(a,groups).localeCompare(groupLabel(b,groups),'nl'));
+ const options:[string,string][]=[['','Kies groep / subgroep'],...sorted.map(g=>[g.id,groupLabel(g,groups)] as [string,string])];
+ const saved=()=>{setPreview(null);setNotice('Opgeslagen. De indeling wordt direct opnieuw bepaald voor bestaande en nieuwe artikelen.');router.refresh();};
+ const groupFields=(g?:Group):Field[]=>[{name:'name',label:'Naam',value:g?.name,max:100,required:true},{name:'parent_id',label:'Bovenliggende groep',value:g?.parent_id??'',options:[['','Hoofdgroep'],...roots.filter(r=>r.id!==g?.id).map(r=>[r.id,r.name] as [string,string])]},{name:'active',label:'Status',value:String(g?.active??true),options:activeOptions}];
+ const prefixFields=(p?:Prefix):Field[]=>[{name:'prefix',label:'Eerste 3 SKU-cijfers',value:p?.prefix,max:3,required:true},{name:'group_id',label:'Artikelgroep / subgroep',value:p?.group_id,options},{name:'active',label:'Status',value:String(p?.active??true),options:activeOptions}];
+ const modelFields=(m?:ModelRule):Field[]=>[{name:'group_id',label:'Voor groep / subgroep',value:m?.group_id,options},{name:'name',label:'Modelnaam',value:m?.name,max:150,required:true},{name:'include_terms',label:'Alle termen vereist (komma)',value:m?.include_terms.join(', '),max:809,required:true},{name:'exclude_terms',label:'Uitsluiten (komma)',value:m?.exclude_terms.join(', '),max:809},{name:'priority',label:'Prioriteit (hoogste wint)',type:'number',value:m?.priority??100},{name:'active',label:'Status',value:String(m?.active??true),options:activeOptions}];
+ return <div className={styles.manager}>
+  <nav className={styles.links}><a href="#groups"><FolderTree size={16}/>Groepen & subgroepen</a><a href="#prefixes"><Hash size={16}/>SKU-matching</a><a href="#models"><ScanSearch size={16}/>Modelherkenning</a><a href="#preview"><Eye size={16}/>Voorbeeldcontrole</a></nav>
+  {notice&&<div className="erp-notice success" role="status">{notice}</div>}
+  {!canWrite&&<div className="erp-notice">Je hebt leesrechten. Een gebruiker met ERP-schrijfrechten kan deze instellingen wijzigen.</div>}
+  <section className={styles.section} id="groups"><header><FolderTree size={21}/><div><h2>Artikelgroepen & subgroepen</h2><p>Beheer maximaal twee niveaus. Deactiveren bewaart bestaande koppelingen en de historiek.</p></div></header>
+   {canWrite&&<details className={styles.new}><summary>Nieuwe groep of subgroep</summary><Editor kind="group" fields={groupFields()} canWrite={canWrite} onSaved={saved}/></details>}
+   {roots.map(root=><details className={styles.group} key={root.id}><summary>{root.name}<span>{groups.filter(g=>g.parent_id===root.id).length} subgroepen · {root.active?'Actief':'Inactief'}</span></summary><Editor key={root.id+root.version} kind="group" row={root} fields={groupFields(root)} canWrite={canWrite} onSaved={saved}/>{groups.filter(g=>g.parent_id===root.id).map(g=><div className={styles.child} key={g.id}><b>{g.name}</b><Editor key={g.id+g.version} kind="group" row={g} fields={groupFields(g)} canWrite={canWrite} onSaved={saved}/></div>)}</details>)}{!roots.length&&<p className={styles.empty}>Nog geen artikelgroepen. Maak eerst een hoofdgroep en daarna eventueel een subgroep aan.</p>}
+  </section>
+  <section className={styles.section} id="prefixes"><header><Hash size={21}/><div><h2>SKU-prefix matchingtabel</h2><p>Elke prefix bestaat uit drie cijfers en heeft één doel. Meerdere prefixen mogen dezelfde groep of subgroep gebruiken. Handmatige artikeltoekenningen gaan voor.</p></div></header>
+   {canWrite&&<details className={styles.new}><summary>Nieuwe SKU-prefix</summary><Editor kind="prefix" fields={prefixFields()} canWrite={canWrite} onSaved={saved}/></details>}
+   {[...prefixes].sort((a,b)=>a.prefix.localeCompare(b.prefix)).map(p=><details className={styles.group} key={p.id}><summary><code>{p.prefix}…</code><span>{groups.find(g=>g.id===p.group_id)?groupLabel(groups.find(g=>g.id===p.group_id)!,groups):'Onbekende groep'} · {p.active?'Actief':'Inactief'}</span></summary><Editor key={p.id+p.version} kind="prefix" row={p} fields={prefixFields(p)} canWrite={canWrite} onSaved={saved}/></details>)}{!prefixes.length&&<p className={styles.empty}>Nog geen prefixregels. Zonder regel wordt geen artikelgroep geraden.</p>}
+  </section>
+  <section className={styles.section} id="models"><header><ScanSearch size={21}/><div><h2>Modelherkenning uit de omschrijving</h2><p>Regels gelden voor de gekozen groep of subgroep. Alle vereiste termen moeten als woord of woordgroep voorkomen; uitgesloten termen mogen niet voorkomen. Hoofdletters spelen geen rol.</p></div></header>
+   <div className="erp-notice">Hoogste prioriteit wint. Bij gelijke prioriteit wint de specifiekste combinatie (totale lengte van de vereiste termen). Blijven verschillende modellen gelijkwaardig, dan verschijnt ‘Conflict’. Een model dat handmatig op de fiche is ingevuld, gaat altijd voor. Voor iPhone 14 Pro kun je ‘max’ uitsluiten.</div>
+   {canWrite&&<details className={styles.new}><summary>Nieuwe modelregel</summary><Editor kind="model" fields={modelFields()} canWrite={canWrite} onSaved={saved}/></details>}
+   {[...models].sort((a,b)=>a.name.localeCompare(b.name,'nl')).map(m=><details className={styles.group} key={m.id}><summary>{m.name}<span>{groups.find(g=>g.id===m.group_id)?groupLabel(groups.find(g=>g.id===m.group_id)!,groups):''} · {m.active?'Actief':'Inactief'}</span></summary><Editor key={m.id+m.version} kind="model" row={m} fields={modelFields(m)} canWrite={canWrite} onSaved={saved}/></details>)}{!models.length&&<p className={styles.empty}>Nog geen modelregels. De bestaande ERP- of handmatig ingevulde modelgegevens blijven beschikbaar.</p>}
+  </section>
+  <section className={styles.section} id="preview"><header><Eye size={21}/><div><h2>Voorbeeldcontrole</h2><p>Bekijk de huidige indeling voor bestaande SKU’s met deze prefix. Er worden geen artikelen gewijzigd.</p></div></header><form className={styles.previewForm} onSubmit={e=>{e.preventDefault();start(async()=>{try{setPreview(await previewSkuPrefix(prefix));}catch{setPreview({ok:false,error:'Controleer je toegang of vernieuw de pagina.'});}});}}><label>SKU-prefix<input value={prefix} onChange={e=>setPrefix(e.target.value)} inputMode="numeric" maxLength={3} pattern="[0-9]{3}" required/></label><button type="submit" disabled={pending} className="erp-button">{pending?'Controleren…':'Voorbeelden tonen'}</button></form>
+   {preview&&!preview.ok&&<p role="alert" className={styles.error}>{preview.error}</p>}{preview?.ok&&<><p className={styles.empty}>{preview.count} artikelen gevonden · maximaal 20 voorbeelden</p><div className={styles.table}><table><thead><tr><th>SKU / artikel</th><th>Groep / subgroep</th><th>Model</th><th>Herkomst groep</th></tr></thead><tbody>{preview.articles?.map(a=><tr key={a.id}><td><Link href={`/admin/erp/articles/${a.id}`}>{a.sku}</Link><small>{a.title}</small></td><td>{[a.article_group_name,a.article_subgroup_name].filter(Boolean).join(' / ')||'Niet toegewezen'}</td><td>{a.recognized_model||'Niet herkend'}</td><td>{a.group_origin==='manual'?'Handmatig':a.group_origin==='prefix'?'SKU-prefix':a.group_origin==='excluded'?'Bewust uitgesloten':'Geen match'}</td></tr>)}</tbody></table></div></>}
+  </section>
+ </div>;
+}

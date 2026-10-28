@@ -35,5 +35,6 @@ export function articleDate(value:string|null|undefined){return value?new Date(v
 export function erpSearchFilter(value:string){
  // A quoted PostgREST value keeps commas, parentheses and operators literal.
  const literal=value.replace(/[\\%_]/g,'\\$&').replace(/"/g,'\\"');
- return ['sku','title','source_title','ean','brand','model'].map(key=>`${key}.ilike."%${literal}%"`).join(',');
+ return ['sku','title','source_title','ean','brand','model','recognized_model'].map(key=>`${key}.ilike."%${literal}%"`).join(',');
 }
+

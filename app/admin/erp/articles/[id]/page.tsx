@@ -8,19 +8,23 @@ import {titleGrade} from '@/lib/productLabel';
 import {articleDetail} from '../data';
 import ProfileForm from '../ProfileForm';
 import CoreButton from '../CoreButton';
+import TaxonomyCard from '../TaxonomyCard';
+import {articleTaxonomy} from '../../article-settings/data';
 import styles from '../../erp.module.css';
 export const dynamic='force-dynamic';
 export const revalidate=0;
 export default async function ArticlePage({params}:{params:Promise<{id:string}>}){
  const user = await requirePageAccess('erp', false);
  const {id}=await params;if(!uuidPattern.test(id))notFound();
- const {source:a,profile,history,error}=await articleDetail(id);
+ const [detail,taxonomy]=await Promise.all([articleDetail(id),articleTaxonomy(id).catch(()=>null)]);
+ const {source:a,profile,history,error}=detail;
  if(error)return <div className={styles.shell}><Link className={styles.back} href="/admin/erp/articles">← Naar artikelen</Link><div className="erp-notice error" role="alert">De artikelfiche kon niet worden geladen. Probeer opnieuw.</div></div>;
  if(!a)notFound();const canWrite=hasPermission(user,'erp','write');
  return <div className={styles.shell}>
   <Link className={styles.back} href="/admin/erp/articles"><ArrowLeft size={13} style={{display:'inline',marginRight:5}}/>Artikeloverzicht</Link>
   <header className={styles.hero}><div><div className={styles.eyebrow}>ARTIKELFICHE / {a.sku}</div><h1>{profile?.display_name||a.title}</h1><div className={styles.meta}><span className={`erp-pill ${a.active?'green':''}`}>{a.active?'Actief':'Inactief'}</span>{a.refurbished_product&&<span className="erp-pill blue">Refurbished</span>}<span className="erp-pill">{a.vat_margin?'Marge BTW':'Normale BTW'}</span>{a.missing_from_erp&&<span className="erp-pill red">Ontbreekt in ERP</span>}</div></div><Link href={`/admin/erp/labels?sku=${encodeURIComponent(a.sku)}`} className="erp-button"><ExternalLink size={14}/>Labeltool openen</Link></header>
   <div className={styles.columns}><div className="space-y-5">
+   {taxonomy?<TaxonomyCard articleId={id} key={'taxonomy:'+id+':'+(taxonomy.assignment?.version??0)} groups={taxonomy.groups} assignment={taxonomy.assignment} classification={taxonomy.classification} canWrite={canWrite}/>:<div className="erp-notice error" role="alert">De aanvullende artikelgroep kon niet worden geladen. Vernieuw de pagina.</div>}
    <section className={styles.panel}><ProfileForm id={id} key={id} profile={profile as ArticleProfile|null} source={a} canWrite={canWrite}/></section>
    <section className={styles.panel}><details className={styles.history}><summary><History size={15} style={{display:'inline',marginRight:7}}/>Wijzigingshistoriek {history.length>0&&`· ${history.length} recent`}</summary>{history.length?history.map(h=>{const before=h.before_data as Record<string,unknown>|null,after=h.after_data as Record<string,unknown>;const changed=Object.keys(profileFields).filter(k=>(before?.[k]??null)!==(after?.[k]??null));return <div key={h.id} className={styles.historyRow}><b>Versie {h.version}</b> · {articleDate(h.changed_at)}<p>{changed.length?changed.map(k=>profileFields[k as ProfileField]).join(' · '):'Fiche opgeslagen zonder inhoudelijke wijziging'}</p></div>;}):<p className={styles.muted}>Er zijn nog geen interne wijzigingen opgeslagen.</p>}</details></section>
   </div><aside className={styles.side}>
@@ -32,4 +36,5 @@ export default async function ArticlePage({params}:{params:Promise<{id:string}>}
   </aside></div>
  </div>;
 }
+
 
