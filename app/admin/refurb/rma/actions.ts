@@ -172,3 +172,28 @@ export async function updateSupplierRmaRepair(form:FormData){
  return resolveItem(form,'repair',user.email);
 }
 
+
+export async function bulkSupplierRma(form:FormData){
+ const user = await requireAccess('rma_supplier','finance',false);
+ let id:string|undefined;
+ try{
+  id=uuid(form.get('case_id'));
+  const command=short(form,'operation');
+  if(!['decision','copy_received'].includes(command))throw Error('RMA_INPUT');
+  const all=form.get('all')==='1',ids=[...new Set(form.getAll('item_ids').map(uuid))];
+  if(!all&&(!ids.length||ids.length>200))throw Error('RMA_INPUT');
+  if(form.get('confirm_bulk')!=='1')throw Error('RMA_INPUT');
+  const payload:Record<string,unknown>={case_id:id,version:version(form),all,item_ids:ids};
+  if(command==='decision'){
+   const decision=short(form,'decision');
+   if(!Object.prototype.hasOwnProperty.call(supplierDecisions,decision))throw Error('RMA_DECISION_INVALID');
+   const reason=short(form,'reason',5000);
+   if(['partial','rejected','repaired'].includes(decision)&&!reason)throw Error('RMA_REASON_REQUIRED');
+   Object.assign(payload,{decision,reason,approved_cents:decision==='partial'?rmaMoney(form.get('approved')):null});
+  }
+  const {error}=await supabaseAdmin.rpc('bulk_supplier_rma',{p_command:command,p_data:payload,p_actor:user.email});
+  if(error)throw Error(error.message);
+ }catch(error){redirect((id?'/admin/refurb/rma/'+id:'/admin/refurb/rma')+'?msg='+errorCode(error));}
+ revalidatePath('/admin/refurb','layout');revalidatePath('/admin/refurb/rma');revalidatePath('/admin/refurb/rma/'+id);revalidatePath('/admin/refurb/analytics');
+ redirect('/admin/refurb/rma/'+id+'?saved=1');
+}
