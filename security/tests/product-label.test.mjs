@@ -39,7 +39,7 @@ test('real CODE128 encodings fit 99012 with at least two dots per module and ten
 test('one shared label preserves full source description and safely escapes product data',async()=>{
  const {namespace:m}=await helper();const title='Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB Grade A <script>alert(1)</script>';
  const html=m.renderProductLabel({sku:'211000040644',title,serial:'SERIAL-123',vatMargin:true,battery:'0'});
- assert.ok(html.includes('Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('0%'));assert.ok(html.includes('label-side-value\">A</div>'));assert.equal((html.match(/<svg /g)||[]).length,2);assert.ok(html.includes('Margin VAT'));
+ assert.ok(html.includes('Apple MacBook Pro 14-inch M1 Pro 2021 16GB 512GB'));assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes('0%'));assert.ok(html.includes('label-side-value\">A</div>'));assert.equal((html.match(/class="label-barcode"/g)||[]).length,2);assert.ok(html.includes('Margin VAT'));
  assert.throws(()=>m.renderProductLabel({sku:'123',title:'Test',battery:'101',vatMargin:null}),/Batterij/);
  assert.ok(m.renderProductLabel({sku:'123',title:'Test',vatMargin:null}).includes('BTW-regeling onbekend'));
 });
@@ -83,10 +83,15 @@ test('right-column branding and CE stay away from the physical right and bottom 
  assert.match(side,/padding-right:1\.5mm/);
  assert.match(side,/padding-bottom:1mm/);
  assert.match(css,/\.label-brand\{[^}]*font-size:4\.7pt;[^}]*white-space:nowrap/);
- assert.match(css,/\.label-ce\{[^}]*text-align:left/);
+ assert.match(css,/\.label-ce\{[^}]*width:7mm;height:5mm;[^}]*flex-shrink:0/);
  const html=m.renderProductLabel({sku:'TEST-123',title:'Test',serial:'SERIAL-123',vatMargin:true});
  assert.ok(html.includes('>MICROFORCE</div>'));
- assert.ok(html.includes('class="label-ce">CE</div>'));
+ assert.match(html, /class="label-ce" width="7mm" height="5mm" viewBox="0 0 840 600"/);
+ assert.ok(!html.includes('>CE</div>'));
+ const mark=html.match(/<svg[^>]*class="label-ce"[\s\S]*?<\/svg>/)[0];
+ assert.equal((mark.match(/<path /g)||[]).length,2);
+ assert.match(mark,/translate\(-111 749\) scale\(1 -1\)/);
+ assert.ok(!/<(?:text|image|script)\b/.test(mark));
 });
 
 

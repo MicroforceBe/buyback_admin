@@ -19,10 +19,14 @@ export const labelStyles = `
 .label-brand{font-size:4.7pt;font-weight:800;letter-spacing:.04mm;line-height:3mm;white-space:nowrap}
 .label-side-caption{font-size:5.5pt;line-height:2.5mm}
 .label-side-value{font-size:10pt;font-weight:700;line-height:4mm;overflow-wrap:anywhere}
-.label-ce{font-size:6pt;line-height:2mm;text-align:left;flex-shrink:0}
+.label-ce{display:block;width:7mm;height:5mm;align-self:flex-start;flex-shrink:0}
 @page{size:89mm 36mm;margin:0}
 @media print{html,body{width:89mm;height:35mm;margin:0!important;padding:0!important;overflow:hidden}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.label-sheet{position:absolute;top:0;left:0;margin:0!important;break-before:auto;break-after:auto}.label-card{overflow:hidden}}
 `;
+// Exact filled paths from the European Commission CE.ai artwork (lettre layer).
+// Source: https://single-market-economy.ec.europa.eu/single-market/goods/ce-marking_en
+// Keep the original 840:600 proportions; inline vector avoids font and image-loading dependencies.
+const ceMarkSvg = '<svg xmlns="http://www.w3.org/2000/svg" class="label-ce" width="7mm" height="5mm" viewBox="0 0 840 600" role="img" aria-label="CE-markering"><g transform="translate(-111 749) scale(1 -1)" fill="#000"><path d="M 951.00 150.48 L 951.00 241.13 C 941.20 239.72 931.19 239.00 921.00 239.00 C 820.46 239.00 736.43 309.64 715.83 404.00 L 891.00 404.00 L 891.00 494.00 L 715.83 494.00 C 736.43 588.36 820.46 659.00 921.00 659.00 C 931.19 659.00 941.20 658.28 951.00 656.88 L 951.00 747.52 C 941.13 748.50 931.13 749.00 921.00 749.00 C 755.31 749.00 621.00 614.69 621.00 449.00 C 621.00 283.31 755.31 149.00 921.00 149.00 C 931.13 149.00 941.13 149.50 951.00 150.48 Z"/><path d="M 111.00 449.00 C 111.00 283.31 245.31 149.00 411.00 149.00 C 421.81 149.00 432.49 149.57 443.00 150.68 L 443.00 241.42 C 432.57 239.82 421.88 239.00 411.00 239.00 C 295.02 239.00 201.00 333.02 201.00 449.00 C 201.00 564.98 295.02 659.00 411.00 659.00 C 421.88 659.00 432.57 658.18 443.00 656.58 L 443.00 747.32 C 432.49 748.43 421.81 749.00 411.00 749.00 C 245.31 749.00 111.00 614.69 111.00 449.00 Z"/></g></svg>';
 export function escapeLabelText(value: unknown) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 }
@@ -63,6 +67,6 @@ export function renderProductLabel(data: ProductLabel) {
   const battery=data.battery?.trim() ?? '';
   if(battery && (!/^\d{1,3}$/.test(battery) || Number(battery)>100))throw new Error('Batterij moet een geheel percentage van 0 tot 100 zijn.');
   const vat=data.vatMargin===true?'Margin VAT':data.vatMargin===false?'Normal VAT':'BTW-regeling onbekend';
-  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div>${battery || !data.omitEmptyBattery ? `<div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div>` : ''}<div class="label-ce">CE</div></div></article></div>`;
+  return `<div class="label-sheet"><article class="label-card" aria-label="Productlabel"><div class="label-main"><div class="label-model">${escapeLabelText(data.title?.trim() || sku)}</div><div class="label-line"><div class="label-caption"><strong>SKU</strong> · ${escapeLabelText(sku)}</div>${barcodeMarkup(sku)}</div><div class="label-line"><div class="label-caption"><strong>IMEI / SN</strong> · ${escapeLabelText(serial || '—')}</div>${barcodeMarkup(serial)}</div><div class="label-footer">${escapeLabelText(vat)}</div></div><div class="label-side"><div class="label-brand">MICROFORCE</div><div><div class="label-side-caption">Grade</div><div class="label-side-value">${escapeLabelText(grade)}</div></div>${battery || !data.omitEmptyBattery ? `<div><div class="label-side-caption">Battery</div><div class="label-side-value">${escapeLabelText(battery?battery+'%':'—')}</div></div>` : ''}${ceMarkSvg}</div></article></div>`;
 }
 
