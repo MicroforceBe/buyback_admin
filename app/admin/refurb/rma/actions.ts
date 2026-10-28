@@ -174,7 +174,7 @@ export async function updateSupplierRmaRepair(form:FormData){
 
 
 export async function bulkSupplierRma(form:FormData){
- const user=await requireAccess('rma_supplier','finance',false);
+ const user = await requireAccess('rma_supplier','finance',false);
  let id:string|undefined;
  try{
   id=uuid(form.get('case_id'));
