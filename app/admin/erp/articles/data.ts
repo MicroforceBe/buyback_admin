@@ -12,6 +12,9 @@ function articleQuery(params:Record<string,string>){
  else if(params.source!=='all')q=q.eq('missing_from_erp',false);
  if(params.group&&/^[0-9a-f-]{36}$/i.test(params.group))q=q.eq('article_group_id',params.group);
  if(params.subgroup&&/^[0-9a-f-]{36}$/i.test(params.subgroup))q=q.eq('article_subgroup_id',params.subgroup);
+ if(params.model)q=q.eq('recognized_model',params.model);
+ if(params.modelState==='unknown')q=q.is('recognized_model',null);
+ if(params.subgroupState==='none')q=q.is('article_subgroup_id',null);
  if(params.groupState==='unassigned')q=q.is('assigned_group_id',null);
  if(params.groupState==='manual')q=q.eq('group_origin','manual');
  const words=parseSkuSearch(params.q??'');
