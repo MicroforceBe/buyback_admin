@@ -109,7 +109,7 @@ begin
   select sid,c.id,c.sku,nullif(c.ean,''),c.title,c.article_group_name,c.article_subgroup_name,c.recognized_model,
    case s.location when 'gentbrugge' then a.stock_gentbrugge when 'oudenaarde' then a.stock_oudenaarde else a.stock_antwerpen end
   from public.erp_article_classified c join public.erp_articles a on a.id=c.id
-  where a.active and not a.missing_from_erp and (s.group_id is null or c.article_group_id=s.group_id) and (s.subgroup_id is null or c.article_subgroup_id=s.subgroup_id);
+  where not a.missing_from_erp and (s.group_id is null or c.article_group_id=s.group_id) and (s.subgroup_id is null or c.article_subgroup_id=s.subgroup_id);
   get diagnostics n=row_count;
   if n=0 then raise exception 'stock_empty_scope'; end if;
   name:=regexp_replace(btrim(coalesce(p_payload->>'zone','')),'\s+',' ','g');
@@ -212,7 +212,7 @@ begin
    if s.status<>'review' or length(note) not between 10 and 1000 or coalesce((p_payload->>'confirmed')::boolean,false) is not true then raise exception 'stock_approval_required'; end if;
    if exists(select 1 from public.stock_count_lines where session_id=sid and (needs_recount or (s.count_type='full' and counted_qty is null and (expected_qty is null or expected_qty<>0 or review_qty is null or review_qty<>0)))) then raise exception 'stock_uncounted'; end if;
    lock table public.erp_articles in share mode;
-   if s.count_type='full' and exists(select 1 from public.erp_article_classified c join public.erp_articles a on a.id=c.id where a.active and not a.missing_from_erp and (s.group_id is null or c.article_group_id=s.group_id) and (s.subgroup_id is null or c.article_subgroup_id=s.subgroup_id) and (case s.location when 'gentbrugge' then a.stock_gentbrugge when 'oudenaarde' then a.stock_oudenaarde else a.stock_antwerpen end)>0 and not exists(select 1 from public.stock_count_lines cl where cl.session_id=sid and cl.article_id=c.id)) then raise exception 'stock_scope_changed'; end if;
+   if s.count_type='full' and exists(select 1 from public.erp_article_classified c join public.erp_articles a on a.id=c.id where not a.missing_from_erp and (s.group_id is null or c.article_group_id=s.group_id) and (s.subgroup_id is null or c.article_subgroup_id=s.subgroup_id) and (case s.location when 'gentbrugge' then a.stock_gentbrugge when 'oudenaarde' then a.stock_oudenaarde else a.stock_antwerpen end)>0 and not exists(select 1 from public.stock_count_lines cl where cl.session_id=sid and cl.article_id=c.id)) then raise exception 'stock_scope_changed'; end if;
    if exists(select 1 from public.stock_count_lines cl left join public.erp_articles a on a.id=cl.article_id and not a.missing_from_erp where cl.session_id=sid and cl.counted_qty is not null and (cl.review_missing is distinct from (a.id is null) or cl.review_qty is distinct from case s.location when 'gentbrugge' then a.stock_gentbrugge when 'oudenaarde' then a.stock_oudenaarde else a.stock_antwerpen end)) then raise exception 'stock_erp_changed'; end if;
    update public.stock_count_sessions set status='approved',approved_at=now(),approved_by=p_actor,approval_note=note where id=sid;
    result:=jsonb_build_object('ok',true);

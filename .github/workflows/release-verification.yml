@@ -41,6 +41,7 @@ on:
       - security/tests/zod-compat.test.mjs
       - security/tests/ftp-compat.test.mjs
       - app/admin/erp/**
+      - app/api/admin/erp/counts/**
       - lib/erpArticleProfile.ts
       - lib/erpStock.ts
       - lib/stockCounts.ts
