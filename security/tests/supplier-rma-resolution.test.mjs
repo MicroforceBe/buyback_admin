@@ -20,7 +20,7 @@ test('financial split separates claims, awards, refusals, write-offs and unknown
 });
 
 async function panel(){const context=vm.createContext({});const helper=await pure('lib/supplierRmaResolution.ts',context);
- const imports={'next/link':{default:'Link'},'./actions':Object.fromEntries(['updateSupplierRmaDecision','updateSupplierRmaCustody','updateSupplierRmaRepair'].map(k=>[k,()=>{throw Error('No actual writes');}])),'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'}};
+ const imports={'next/link':{default:'Link'},'./actions':Object.fromEntries(['bulkSupplierRma','updateSupplierRmaDecision','updateSupplierRmaCustody','updateSupplierRmaRepair'].map(k=>[k,()=>{throw Error('No actual writes');}])),'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'}};
  const code=ts.transpileModule(fs.readFileSync(new URL('app/admin/refurb/rma/ResolutionPanel.tsx',root),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{if(spec==='@/lib/supplierRmaResolution')return helper;const e=imports[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return m.namespace;
 }
@@ -56,4 +56,21 @@ test('new actions bind the actor, version and article and reject malformed finan
  const bad=await actions();await assert.rejects(bad.api.updateSupplierRmaDecision(form({case_id:ids.case,item_id:ids.line,version:3,decision:'partial',approved:'-1'})),e=>e.url.endsWith('?msg=invalid'));assert.equal(bad.calls.length,0);
  const rejected=await actions({error:'RMA_RETURN_REQUIRED PRIVATE DIAGNOSTICS'});await assert.rejects(rejected.api.updateSupplierRmaRepair(form({case_id:ids.case,item_id:ids.line,followup_version:2,repair_state:'queued'})),e=>e.url==='/admin/refurb/rma/'+ids.case+'?msg=return_required');
  assert.equal(rejected.calls[0].payload.p_data.followup_version,2);
+});
+
+test('bulk actions use one atomic RPC with selected IDs, trusted actor and version',async()=>{
+ const h=await actions(),f=form({case_id:ids.case,version:3,operation:'decision',decision:'approved',confirm_bulk:'1',actor:'forged'});
+ f.append('item_ids',ids.line);f.append('item_ids',ids.line);
+ await assert.rejects(h.api.bulkSupplierRma(f),e=>e.url==='/admin/refurb/rma/'+ids.case+'?saved=1');
+ assert.equal(h.calls.length,1);const call=h.calls[0];
+ assert.equal(call.name,'bulk_supplier_rma');assert.equal(call.payload.p_actor,'trusted-actor@example.invalid');
+ assert.deepEqual(Array.from(call.payload.p_data.item_ids),[ids.line]);assert.equal(call.payload.p_data.version,3);
+ const empty=await actions();await assert.rejects(empty.api.bulkSupplierRma(form({case_id:ids.case,version:3,operation:'decision',decision:'approved',confirm_bulk:'1'})),e=>e.url.endsWith('?msg=invalid'));assert.equal(empty.calls.length,0);
+ const noConfirm=await actions();await assert.rejects(noConfirm.api.bulkSupplierRma(form({case_id:ids.case,version:3,operation:'copy_received',all:'1'})),e=>e.url.endsWith('?msg=invalid'));assert.equal(noConfirm.calls.length,0);
+ const all=await actions();await assert.rejects(all.api.bulkSupplierRma(form({case_id:ids.case,version:3,operation:'copy_received',all:'1',confirm_bulk:'1'})),e=>e.url.endsWith('?saved=1'));assert.equal(all.calls[0].payload.p_data.all,true);
+});
+test('bulk panel exposes explicit scope and confirmation only to financial editors of open cases',async()=>{
+ const ui=await panel(),props={dossier:{id:'case',stage:'submitted',version:2},items:[{id:'line',reception_item_id:'source',decision:'pending'}],sourceById:new Map(),followups:[],canFinance:true};
+ let tree=ui.default(props);assert.equal(nodes(tree,n=>n.props?.name==='all').length,1);assert.equal(nodes(tree,n=>n.props?.name==='item_ids').length,1);assert.equal(nodes(tree,n=>n.props?.name==='confirm_bulk'&&n.props.required).length,1);
+ for(const patch of [{canFinance:false},{dossier:{...props.dossier,stage:'handled'}}]){tree=ui.default({...props,...patch});assert.equal(nodes(tree,n=>n.props?.name==='confirm_bulk').length,0);}
 });

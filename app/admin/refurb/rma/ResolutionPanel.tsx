@@ -2,11 +2,29 @@ import Link from 'next/link';
 import {supplierDecisions,custodyStates,repairStates,repairNextStates,repairTerminal,needsInternalFollowup} from '@/lib/supplierRmaResolution';
 import type {RmaFollowup} from '@/lib/supplierRmaResolution';
 import type {RmaCase,RmaCaseItem,RmaSource} from './data';
-import {updateSupplierRmaDecision,updateSupplierRmaCustody,updateSupplierRmaRepair} from './actions';
+import {bulkSupplierRma,updateSupplierRmaDecision,updateSupplierRmaCustody,updateSupplierRmaRepair} from './actions';
 
 export default function ResolutionPanel({dossier,items,sourceById,followups,selectedItemId,canWrite=false,canFinance=false}:{dossier:RmaCase;items:RmaCaseItem[];sourceById:Map<string,RmaSource>;followups:RmaFollowup[];selectedItemId?:string;canWrite?:boolean;canFinance?:boolean}){
  const byItem=new Map(followups.map(f=>[f.case_item_id,f])),financialFinal=dossier.stage==='handled';
  return <section className="rma-section"><h2>Beslissing, retour en intern herstel</h2><p className="rma-flow-intro">Open een artikel om de leveranciersbeslissing en fysieke toestand afzonderlijk vast te leggen. Geweigerd vóór verzending? Bevestig dat het toestel nog bij Microforce is en start direct intern herstel. Na verzending moet eerst de retour zijn ontvangen.</p>
+
+ {canFinance&&!financialFinal&&items.length>0&&<details className="rma-flow-card"><summary><div><strong>Meerdere artikelen tegelijk bewerken</strong><span>Leveranciersbeslissing of ontvangen compensatie · alle artikelen of eigen selectie</span></div></summary>
+ <form action={bulkSupplierRma} className="rma-flow-form">
+ <input type="hidden" name="case_id" value={dossier.id}/><input type="hidden" name="version" value={dossier.version}/>
+ <fieldset><legend className="font-semibold">1 · Artikelen selecteren</legend>
+ <label className="rma-flow-check"><input type="checkbox" name="all" value="1"/>Alle {items.length} artikelen in dit dossier (vervangt de selectie hieronder)</label>
+ <div className="max-h-64 overflow-y-auto border rounded-md p-3 space-y-2">{items.map(item=>{const source=sourceById.get(item.reception_item_id);return <label key={item.id} className="rma-flow-check"><input type="checkbox" name="item_ids" value={item.id}/><span><strong>{source?.imei_sn||source?.manual_sn||'Geen SN'}</strong> · {source?.description||'Artikel'} · {supplierDecisions[(item.decision||'pending') as keyof typeof supplierDecisions]}</span></label>;})}</div></fieldset>
+ <fieldset><legend className="font-semibold">2 · Bewerking kiezen</legend>
+ <label>Bewerking<select name="operation" defaultValue="decision"><option value="decision">Dezelfde leveranciersbeslissing vastleggen</option><option value="copy_received">Toegekend overnemen naar ontvangen</option></select></label>
+ <p>Overnemen naar ontvangen overschrijft de geselecteerde ontvangen bedragen. Alleen gebruiken na werkelijke ontvangst; voor elk geselecteerd artikel moet een beslissing zijn opgeslagen.</p>
+ <label>Leveranciersbeslissing<select name="decision" defaultValue="approved">{Object.entries(supplierDecisions).map(([key,text])=><option key={key} value={key}>{text}</option>)}</select></label>
+ <label>Bedrag per artikel bij gedeeltelijke vergoeding (€)<input name="approved" inputMode="decimal" placeholder="Hetzelfde bedrag voor elk geselecteerd artikel"/></label>
+ <label>Reden / toelichting<textarea name="reason" rows={2} maxLength={5000}/></label>
+ <p>Bij volledige vergoeding krijgt elk artikel zijn eigen geclaimde bedrag toegekend. Bij gedeeltelijke vergoeding geldt het ingevulde bedrag per artikel. Reden verplicht bij gedeeltelijke vergoeding, weigering of herstel. Beslissing en reden worden alleen gebruikt bij de eerste bewerking.</p></fieldset>
+ <label className="rma-flow-check"><input required type="checkbox" name="confirm_bulk" value="1"/>Ik wil deze bewerking op de gekozen artikelen toepassen. Bestaande waarden worden overschreven waar de huidige regels dit toestaan.</label>
+ <p>Als één artikel niet gewijzigd mag worden, wordt niets opgeslagen. Elke wijziging blijft in de historiek.</p>
+ <button className="bb-btn bb-btn-primary">Bulkbewerking opslaan</button>
+ </form></details>}
  {items.map(item=>{
   const source=sourceById.get(item.reception_item_id),f=byItem.get(item.id),decision=item.decision||'pending',state=f?.repair_state||'none',custody=f?.custody||'unknown';
   const mayStart=['rejected','partial'].includes(decision)&&['on_site','returned'].includes(custody),terminal=repairTerminal(state);
