@@ -6,7 +6,7 @@ import {articleTypes,articleAreas,articleArea,money} from '@/lib/erpArticleProfi
 import {titleGrade} from '@/lib/productLabel';
 import {listArticles,coreSummary,PAGE_SIZE} from './data';
 import CoreButton from './CoreButton';
-import {taxonomySettings} from '../article-settings/data';
+import {taxonomyGroups} from '../article-settings/data';
 import styles from '../erp.module.css';
 export const dynamic='force-dynamic';
 export const revalidate=0;
@@ -21,7 +21,7 @@ export default async function ArticlesPage({searchParams}:{searchParams?:Promise
  const rawPage=Number(first(sp?.page)),page=Number.isSafeInteger(rawPage)&&rawPage>0?Math.min(rawPage,100000):1;
  params.area=articleArea(params.area);
  const [{articles,count,error},core]=await Promise.all([listArticles(params,page),params.area==='core'?coreSummary(params):Promise.resolve(null)]),pages=Math.max(1,Math.ceil(count/PAGE_SIZE));
- const groups=await taxonomySettings().then(s=>s.groups).catch(()=>[]);
+ const groups=await taxonomyGroups().catch(()=>[]);
  const canWrite=hasPermission(user,'erp','write');
  return <div className={styles.shell}>
   <header className={styles.hero}><div><div className={styles.eyebrow}>ERP / CENTRAAL ARTIKELBEHEER</div><h1>{params.area==='all'?'Artikelen':articleAreas[params.area as keyof typeof articleAreas]}</h1><p>{params.area==='core'?'Volg het vaste assortiment en voorraadtekorten per vestiging op.':params.area==='repairs'?'Onderdelen en hersteldiensten voor reparaties.':params.area==='accessories'?'Accessoires met eigen artikelfiches en voorraadoverzicht.':params.area==='refurb'?'Refurbished toestellen uit de bestaande ERP-koppeling.':'Alle SKU’s, artikelgegevens en voorraad op één plek.'}</p></div><div className={styles.heroActions}><Link href="/admin/erp/article-settings" className="erp-button">Artikelinstellingen</Link>{params.area==='core'&&<Link href="/admin/erp/articles?area=all&refurbished=no" className="erp-button">Core-selectie beheren</Link>}<Link href="/admin/erp/sync" className="erp-button"><RefreshCw size={15}/>Synchronisatie</Link>{canWrite&&<Link href="/admin/erp/import" className="erp-button">CSV-import</Link>}</div></header>
@@ -62,4 +62,5 @@ export default async function ArticlesPage({searchParams}:{searchParams?:Promise
   </section><div className="erp-notice"><Info size={17}/><span>Prijzen en voorraad worden hier niet aangepast. Open een artikel om de interne fiche aan te vullen; de bestaande SKU en ERP-koppelingen blijven behouden.</span></div>
  </div>;
 }
+
 
