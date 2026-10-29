@@ -69,5 +69,16 @@ test('distribution loader uses configured root group instead of unreliable ERP r
  assert.equal((await m.namespace.distributionArticles(null)).length,0);assert.equal(reads,0);
  assert.equal((await m.namespace.distributionArticles(id)).length,501);
  assert.ok(calls.some(c=>c[0]==='eq'&&c[1]==='article_group_id'&&c[2]===id));assert.equal(calls.some(c=>c[1]==='refurbished_product'),false);
+ assert.ok(calls.some(c=>c[0]==='or'&&c[1]==='stock_gentbrugge.neq.0,stock_oudenaarde.neq.0,stock_antwerpen.neq.0,stock_gentbrugge.is.null,stock_oudenaarde.is.null,stock_antwerpen.is.null'));
  assert.match(read('security/sql/erp-distribution.sql'),/article_group_id=nullif/);
+});
+
+test('omitting all-zero SKUs leaves proposals, missing-model flags and manual availability unchanged',async()=>{
+ const h=(await helper()).namespace;
+ const rows=[a(),a({id:'zero',sku:'ZERO',stock_gentbrugge:0,stock_oudenaarde:0,stock_antwerpen:0}),a({id:'negative',sku:'NEGATIVE',recognized_model:'Other',stock_gentbrugge:-1,stock_oudenaarde:2}),a({id:'unknown',sku:'UNKNOWN',stock_gentbrugge:null,stock_oudenaarde:2}),a({id:'onlygb',sku:'GB',stock_gentbrugge:1,stock_oudenaarde:0})];
+ const filtered=rows.filter(r=>['stock_gentbrugge','stock_oudenaarde','stock_antwerpen'].some(k=>r[k]!==0));
+ assert.equal(filtered.some(r=>r.id==='zero'),false);
+ for(const id of ['negative','unknown','onlygb'])assert.ok(filtered.some(r=>r.id===id));
+ const reduce=r=>r.map(x=>({id:x.article.id,source:x.source,available:x.available,recommended:x.recommended,missing:x.missing,modelMissing:x.modelMissing,unknown:x.unknown}));
+ assert.deepEqual(reduce(h.distributionSuggestions(rows,[],h.defaultDistributionRules)),reduce(h.distributionSuggestions(filtered,[],h.defaultDistributionRules)));
 });
