@@ -23,6 +23,7 @@ BEGIN
  IF p_command='rules' THEN
   SELECT * INTO config FROM public.erp_distribution_rules WHERE id FOR UPDATE;
   IF config.version IS DISTINCT FROM (p_data->>'version')::integer THEN RAISE EXCEPTION 'DIST_CONFLICT'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.erp_article_groups WHERE id=nullif(p_data->'rules'->>'article_group_id','')::uuid AND parent_id IS NULL AND active) THEN RAISE EXCEPTION 'DIST_SCOPE'; END IF;
   IF jsonb_typeof(p_data->'rules') IS DISTINCT FROM 'object' OR jsonb_typeof(p_data->'rules'->'overrides') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'DIST_INPUT'; END IF;
   UPDATE public.erp_distribution_rules SET rules=p_data->'rules',version=version+1,updated_by=p_actor,updated_at=now() WHERE id;
   INSERT INTO public.erp_distribution_history(event,actor,details) VALUES('rules',p_actor,jsonb_build_object('before',config.rules,'after',p_data->'rules'));
@@ -46,7 +47,7 @@ BEGIN
  IF selected_count<1 OR selected_count>500 OR (SELECT count(DISTINCT value->>'article_id') FROM jsonb_array_elements(p_data->'lines'))<>selected_count THEN RAISE EXCEPTION 'DIST_INPUT'; END IF;
  FOR row_data IN SELECT value FROM jsonb_array_elements(p_data->'lines') LOOP
   IF (row_data->>'quantity') !~ '^[1-9][0-9]{0,4}$' OR row_data->>'quantity' IS NULL THEN RAISE EXCEPTION 'DIST_INPUT'; END IF;
-  SELECT * INTO item FROM public.erp_article_classified WHERE id=(row_data->>'article_id')::uuid AND refurbished_product IS TRUE AND missing_from_erp IS FALSE;
+  SELECT * INTO item FROM public.erp_article_classified WHERE id=(row_data->>'article_id')::uuid AND article_group_id=nullif((SELECT rules->>'article_group_id' FROM public.erp_distribution_rules WHERE id),'')::uuid AND missing_from_erp IS FALSE;
   IF NOT FOUND THEN RAISE EXCEPTION 'DIST_ARTICLE'; END IF;
   current_stock:=CASE location WHEN 'gentbrugge' THEN item.stock_gentbrugge WHEN 'oudenaarde' THEN item.stock_oudenaarde ELSE item.stock_antwerpen END;
   SELECT coalesce(sum((line->>'quantity')::integer),0) INTO planned FROM public.erp_distribution_lists l CROSS JOIN LATERAL jsonb_array_elements(l.lines) line WHERE l.state='open' AND l.source=location AND line->>'article_id'=item.id::text;
@@ -60,3 +61,16 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.erp_distribution_command(text,jsonb,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.erp_distribution_command(text,jsonb,text) TO service_role;
+
+DO $$
+DECLARE selected_group uuid; n integer; previous jsonb;
+BEGIN
+ SELECT count(*),min(id::text)::uuid INTO n,selected_group FROM public.erp_article_groups WHERE parent_id IS NULL AND active AND lower(trim(name))='refurb artikelen';
+ IF n=1 THEN
+  SELECT rules INTO previous FROM public.erp_distribution_rules WHERE id;
+  IF nullif(previous->>'article_group_id','') IS NULL THEN
+   UPDATE public.erp_distribution_rules SET rules=jsonb_set(rules,'{article_group_id}',to_jsonb(selected_group::text)),version=version+1,updated_by='distribution_scope_fix',updated_at=now() WHERE id;
+   INSERT INTO public.erp_distribution_history(event,actor,details) VALUES('scope','distribution_scope_fix',jsonb_build_object('before',previous,'article_group_id',selected_group));
+  END IF;
+ END IF;
+END $$;

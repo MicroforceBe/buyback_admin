@@ -53,3 +53,21 @@ test('new read surfaces require ERP access and print/copy do not write stock',()
  const sql=read('security/sql/erp-distribution.sql');assert.doesNotMatch(sql,/(?:UPDATE|DELETE FROM|INSERT INTO) public\.erp_articles/i);
  assert.match(sql,/SECURITY INVOKER/);assert.match(sql,/pg_advisory_xact_lock/);assert.match(sql,/DIST_REPLAY/);assert.match(sql,/current_stock-planned/);
 });
+
+test('reported Antwerp iPhone examples are visible in the default all-store overview',async()=>{
+ const h=(await helper()).namespace;
+ const articles=[a({id:'iphone13',sku:'211000037163',stock_gentbrugge:0,stock_oudenaarde:0,stock_antwerpen:2}),a({id:'mini',sku:'211000038585',stock_gentbrugge:1,stock_oudenaarde:0,stock_antwerpen:5})];
+ const rows=h.distributionSourceRows(h.distributionSuggestions(articles,[],h.defaultDistributionRules),'all').filter(r=>r.recommended>0);
+ assert.equal(rows.length,2);assert.equal(rows[0].source,'antwerpen');assert.equal(rows[0].recommended,1);assert.equal(rows[1].recommended,2);
+ assert.equal(h.distributionSourceRows(rows,'oudenaarde').length,0);
+ assert.match(read('app/admin/erp/distribution/Planner.tsx'),/useState<Source>\('all'\)/);
+});
+test('distribution loader uses configured root group instead of unreliable ERP refurb flags and reads all pages',async()=>{
+ let reads=0;const calls=[],q=new Proxy({}, {get:(_,key)=>(...args)=>{calls.push([key,...args]);if(key==='range'){reads++;return Promise.resolve({data:reads===1?Array.from({length:500},(_,i)=>a({id:String(i)})):[a({id:'last'})],error:null});}return q;}});
+ const context=vm.createContext({}),helperModule=await helper(context),m=new vm.SourceTextModule(ts.transpileModule(read('app/admin/erp/distribution/data.ts'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,{context});
+ await m.link(spec=>{if(spec==='@/lib/erpDistribution')return helperModule;const e=spec==='server-only'?{}:{supabaseAdmin:{from:()=>q}};return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();
+ assert.equal((await m.namespace.distributionArticles(null)).length,0);assert.equal(reads,0);
+ assert.equal((await m.namespace.distributionArticles(id)).length,501);
+ assert.ok(calls.some(c=>c[0]==='eq'&&c[1]==='article_group_id'&&c[2]===id));assert.equal(calls.some(c=>c[1]==='refurbished_product'),false);
+ assert.match(read('security/sql/erp-distribution.sql'),/article_group_id=nullif/);
+});
