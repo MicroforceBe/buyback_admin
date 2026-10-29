@@ -17,9 +17,11 @@ async function readOpenLists(){
 }
 export async function distributionArticles(groupId:string|null|undefined){
  if(!groupId)return [];
+ // All-zero SKUs cannot contribute to a dispatch proposal or model stock sum.
+ // Keep unknown and negative values for existing validation and incomplete-model warnings.
  const rows:DistributionArticle[]=[];
  for(let start=0;;start+=500){
-  const {data,error}=await supabaseAdmin.from('erp_article_classified').select('id,sku,ean,title,recognized_model,article_group_name,article_subgroup_name,active,stock_gentbrugge,stock_oudenaarde,stock_antwerpen,source_updated_at').eq('missing_from_erp',false).eq('article_group_id',groupId).order('id').range(start,start+499);
+  const {data,error}=await supabaseAdmin.from('erp_article_classified').select('id,sku,ean,title,recognized_model,article_group_name,article_subgroup_name,active,stock_gentbrugge,stock_oudenaarde,stock_antwerpen,source_updated_at').eq('missing_from_erp',false).eq('article_group_id',groupId).or('stock_gentbrugge.neq.0,stock_oudenaarde.neq.0,stock_antwerpen.neq.0,stock_gentbrugge.is.null,stock_oudenaarde.is.null,stock_antwerpen.is.null').order('id').range(start,start+499);
   if(error)throw Error('Refurbvoorraad kon niet volledig geladen worden.');rows.push(...(data??[]) as DistributionArticle[]);
   if(!data||data.length<500)return rows;
  }
