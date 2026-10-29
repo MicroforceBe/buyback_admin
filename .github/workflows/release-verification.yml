@@ -50,6 +50,9 @@ on:
       - app/admin/erp/**
       - app/api/admin/erp/counts/**
       - lib/erpArticleProfile.ts
+      - lib/erpDistribution.ts
+      - security/tests/erp-distribution.test.mjs
+      - security/sql/erp-distribution.sql
       - lib/erpStock.ts
       - lib/stockCounts.ts
       - lib/skuPopupPosition.ts
@@ -132,7 +135,7 @@ jobs:
       - name: Verify reception status links and filtered item lists without external services
         run: node --experimental-vm-modules --test security/tests/reception-status-filter.test.mjs security/tests/reception-status-ui.test.mjs
       - name: Verify internal article profiles and external ERP authority
-        run: node --experimental-vm-modules --test security/tests/erp-article-profile.test.mjs security/tests/erp-article-taxonomy.test.mjs security/tests/erp-stock.test.mjs security/tests/stock-counts.test.mjs security/tests/sku-popup.test.mjs
+        run: node --experimental-vm-modules --test security/tests/erp-article-profile.test.mjs security/tests/erp-article-taxonomy.test.mjs security/tests/erp-stock.test.mjs security/tests/stock-counts.test.mjs security/tests/sku-popup.test.mjs security/tests/erp-distribution.test.mjs
       - name: Verify label authorization and ERP orchestration
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify lead status validation and SKU selection without live services

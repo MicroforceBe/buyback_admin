@@ -1,0 +1,10 @@
+'use client';
+import {useState,useTransition} from 'react';
+import {useRouter} from 'next/navigation';
+import {archiveDistributionList} from './actions';
+import {distributionLocations,type DistributionList} from '@/lib/erpDistribution';
+export default function ListControls({list,canWrite}:{list:DistributionList;canWrite:boolean}){
+ const [confirmed,setConfirmed]=useState(false),[message,setMessage]=useState(''),[pending,start]=useTransition(),router=useRouter();
+ function csv(){const cell=(v:unknown)=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';};const rows=[['Verzendlijst','Van','Naar','SKU','Omschrijving','Aantal'],...list.lines.map(l=>[list.code,distributionLocations[list.source],distributionLocations[list.destination],l.sku,l.title,l.quantity])];const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(cell).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=list.code+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+ return <div className="distribution-no-print"><div className="distribution-actions"><button className="erp-button" onClick={()=>window.print()}>Verzendlijst printen</button><button className="erp-button" onClick={csv}>CSV downloaden</button></div>{canWrite&&list.state==='open'&&<div className="distribution-archive"><label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Deze lijst niet langer als open planning meetellen. De ERP-voorraad is zo nodig afzonderlijk bijgewerkt en gesynchroniseerd.</label><button disabled={!confirmed||pending} className="erp-button" onClick={()=>{const f=new FormData();f.set('id',list.id);f.set('version',String(list.version));f.set('confirm','1');start(async()=>{try{const r=await archiveDistributionList(f);setMessage(r.ok?'Lijst gearchiveerd.':r.error||'Niet opgeslagen.');if(r.ok)router.refresh();}catch{setMessage('Geen bevestiging. Vernieuw en controleer de lijst.');}});}}>Lijst archiveren</button><p role="status">{message}</p></div>}</div>;
+}
