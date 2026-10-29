@@ -34,3 +34,27 @@ export async function archiveDistributionList(form:FormData){
   revalidatePath('/admin/erp/distribution','layout');return {ok:true};
  }catch(e){return {ok:false,error:message(e)};}
 }
+
+function wishMessage(e:unknown){const msg=e instanceof Error?e.message:'';if(msg.includes('WISH_STOCK')||msg.includes('DIST_STOCK'))return 'Niet genoeg beschikbaar: behoud 1 stuk in Gentbrugge en trek open aanvragen en lijsten af. Vernieuw de pagina.';if(msg.includes('WISH_EXISTS'))return 'Voor deze SKU bestaat al een open wens voor deze winkel. Controleer de gewenste toestellen.';if(msg.includes('WISH_CONFLICT'))return 'Deze aanvraag is intussen gewijzigd. Vernieuw de pagina.';if(msg.includes('WISH_BACKORDERS_UNKNOWN'))return 'Omzetten is geblokkeerd: klantbackordergegevens ontbreken.';return 'Niet opgeslagen. Controleer de selectie.';}
+export async function requestDistributionWishes(form:FormData){
+ const user = await requireAccess('erp','write',false);
+ let attempted=false;
+ try{
+  const destination=String(form.get('destination')),notes=String(form.get('notes')??'').trim(),raw=String(form.get('lines')??'');
+  if(!['oudenaarde','antwerpen'].includes(destination)||notes.length>2000||raw.length>60000||form.get('ack_unknown')!=='1')throw Error('INPUT');
+  const lines=JSON.parse(raw);if(!Array.isArray(lines)||!lines.length||lines.length>500)throw Error('INPUT');
+  const clean=lines.map((row:{article_id:unknown;quantity:unknown})=>{const quantity=Number(row.quantity);if(!Number.isSafeInteger(quantity)||quantity<1||quantity>10000)throw Error('INPUT');return {article_id:id(row.article_id),quantity};});
+  if(new Set(clean.map(r=>r.article_id)).size!==clean.length)throw Error('INPUT');
+  attempted=true;
+  const {error}=await supabaseAdmin.rpc('erp_distribution_wish_command',{p_command:'create',p_data:{request_id:id(form.get('request_id')),destination,notes,lines:clean,ack_unknown:true},p_actor:user.email});if(error)throw Error(error.message);
+  try{revalidatePath('/admin/erp/distribution','layout');}catch{}return {ok:true};
+ }catch(e){const uncertain=attempted&&!(e instanceof Error&&e.message.includes('WISH_'));return {ok:false,uncertain,error:uncertain?'Geen opslagbevestiging. Vernieuw en controleer eerst de gewenste toestellen.':wishMessage(e)};}
+}
+export async function cancelDistributionWish(form:FormData){
+ const user = await requireAccess('erp','write',false);
+ try{
+  if(form.get('confirm')!=='1')throw Error('INPUT');
+  const {error}=await supabaseAdmin.rpc('erp_distribution_wish_command',{p_command:'cancel',p_data:{id:id(form.get('id')),version:version(form),confirmed:true},p_actor:user.email});if(error)throw Error(error.message);
+  revalidatePath('/admin/erp/distribution','layout');return {ok:true};
+ }catch(e){return {ok:false,error:wishMessage(e)};}
+}

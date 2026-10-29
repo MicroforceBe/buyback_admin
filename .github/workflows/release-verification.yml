@@ -46,6 +46,7 @@ on:
       - lib/erpDistribution.ts
       - security/tests/erp-distribution.test.mjs
       - security/sql/erp-distribution.sql
+      - security/sql/erp-distribution-wishes.sql
       - lib/erpStock.ts
       - lib/stockCounts.ts
       - lib/skuPopupPosition.ts

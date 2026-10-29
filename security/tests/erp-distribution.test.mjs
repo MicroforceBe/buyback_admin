@@ -82,3 +82,29 @@ test('omitting all-zero SKUs leaves proposals, missing-model flags and manual av
  const reduce=r=>r.map(x=>({id:x.article.id,source:x.source,available:x.available,recommended:x.recommended,missing:x.missing,modelMissing:x.modelMissing,unknown:x.unknown}));
  assert.deepEqual(reduce(h.distributionSuggestions(rows,[],h.defaultDistributionRules)),reduce(h.distributionSuggestions(filtered,[],h.defaultDistributionRules)));
 });
+
+test('wish candidates preserve one GB item, subtract all planning and never claim unknown backorders are free',async()=>{
+ const h=(await helper()).namespace;
+ const articles=[a({id:'one',stock_gentbrugge:1}),a({id:'two',stock_gentbrugge:2}),a({id:'five',stock_gentbrugge:5}),a({id:'unknown',stock_gentbrugge:null})];
+ const lists=[{source:'gentbrugge',state:'open',lines:[{article_id:'five',quantity:1}]}],wishes=[{article_id:'five',state:'needs_check',quantity:2}];
+ const rows=h.wishCandidates(articles,lists,wishes);assert.equal(rows.some(r=>r.article.id==='one'||r.article.id==='unknown'),false);
+ assert.equal(rows.find(r=>r.article.id==='two').available,1);assert.equal(rows.find(r=>r.article.id==='five').available,1);assert.ok(rows.every(r=>r.backorders==='unknown'));
+ const manual=h.distributionSuggestions([a({id:'five',stock_gentbrugge:5})],lists,h.defaultDistributionRules,wishes).find(r=>r.source==='gentbrugge');assert.equal(manual.available,1);
+});
+test('worklist sorting is numeric where appropriate and search requires all terms',async()=>{
+ const h=(await helper()).namespace;
+ assert.ok(h.workCompare(2,10,'asc')<0);assert.ok(h.workCompare('SKU2','SKU10','asc')<0);assert.ok(h.workCompare(2,10,'desc')>0);assert.ok(h.workCompare(null,10,'desc')>0);
+ assert.equal(h.workMatches(['00123','iPhone 13 Mini','Antwerpen'],'00123 mini ANTWERPEN'),true);assert.equal(h.workMatches(['iPhone 13'],'iphone 14'),false);
+ for(const p of ['Planner.tsx','DesiredDevices.tsx','DistributionLists.tsx','DispatchLines.tsx']){const code=read('app/admin/erp/distribution/'+p);assert.match(code,/SortHeader/);assert.match(code,/placeholder=/);}
+});
+test('wishlist actions require ERP write, acknowledge missing backorders and bind the actor',async()=>{
+ for(const name of ['requestDistributionWishes','cancelDistributionWish']){const h=await actions(true);await assert.rejects(h.api[name](new FormData()),/DENIED/);assert.equal(h.calls.length,0);}
+ const h=await actions();assert.equal((await h.api.requestDistributionWishes(form({request_id:id,destination:'antwerpen',lines:JSON.stringify([{article_id:id,quantity:1}])}))).ok,false);assert.equal(h.calls.length,0);
+ const r=await h.api.requestDistributionWishes(form({request_id:id,destination:'antwerpen',ack_unknown:'1',actor:'forged',lines:JSON.stringify([{article_id:id,quantity:1}])}));assert.equal(r.ok,true);
+ assert.equal(h.calls[0].name,'erp_distribution_wish_command');assert.equal(h.calls[0].payload.p_actor,'actor@example.invalid');assert.equal(h.calls[0].payload.p_data.ack_unknown,true);
+ const sql=read('security/sql/erp-distribution-wishes.sql');assert.match(sql,/WISH_BACKORDERS_UNKNOWN/);assert.match(sql,/stock_gentbrugge-1-planned/);assert.match(sql,/pg_advisory_xact_lock/);assert.doesNotMatch(sql,/(?:UPDATE|INSERT INTO|DELETE FROM) public\.erp_articles/i);
+});
+test('dispatch search does not silently omit rows from the printed dispatch list',()=>{
+ const css=read('app/admin/erp/distribution/distribution.css'),lines=read('app/admin/erp/distribution/DispatchLines.tsx');
+ assert.match(lines,/ordered.map/);assert.match(lines,/distribution-filtered-out/);assert.match(css,/@media print\{\.distribution-filtered-out\{display:table-row/);
+});

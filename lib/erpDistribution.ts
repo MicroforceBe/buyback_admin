@@ -17,14 +17,15 @@ export function parseDistributionRules(raw:unknown):DistributionRules{
  });return {article_group_id:r.article_group_id??null,keep_empty:r.keep_empty,keep_stock:r.keep_stock,overrides};
 }
 export const distributionStock=(a:DistributionArticle,l:DistributionLocation)=>a[('stock_'+l) as 'stock_gentbrugge'|'stock_oudenaarde'|'stock_antwerpen'];
-export function distributionSuggestions(articles:DistributionArticle[],lists:DistributionList[],rules:DistributionRules){
+export function distributionSuggestions(articles:DistributionArticle[],lists:DistributionList[],rules:DistributionRules,wishes:DistributionWish[]=[]){
  const reserved=new Map<string,number>();
  for(const list of lists)if(list.state==='open')for(const line of list.lines){const key=list.source+':'+line.article_id;reserved.set(key,(reserved.get(key)||0)+line.quantity);}
+ for(const wish of wishes)if(wish.state==='needs_check'){const key='gentbrugge:'+wish.article_id;reserved.set(key,(reserved.get(key)||0)+wish.quantity);}
  const known=(n:number|null):n is number=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0;
  const modelHub=new Map<string,number|null>();
  for(const a of articles)if(a.recognized_model){const key=JSON.stringify([a.article_group_name,a.article_subgroup_name,a.recognized_model]);const current=modelHub.get(key);modelHub.set(key,!known(a.stock_gentbrugge)||current===null?null:(current||0)+a.stock_gentbrugge);}
  return articles.flatMap(a=>(Object.keys(distributionLocations) as DistributionLocation[]).map(source=>{
-  const stock=distributionStock(a,source),planned=reserved.get(source+':'+a.id)||0,available=known(stock)?Math.max(0,stock-planned):0;
+  const stock=distributionStock(a,source),planned=reserved.get(source+':'+a.id)||0,available=known(stock)?Math.max(0,stock-planned-(source==='gentbrugge'?1:0)):0;
   const override=rules.overrides.find(o=>o.sku===a.sku&&o.location===source),keep=a.stock_gentbrugge===0?(override?.keep_empty??rules.keep_empty):(override?.keep_stock??rules.keep_stock);
   const recommended=source!=='gentbrugge'&&known(a.stock_gentbrugge)&&known(stock)&&override?.enabled!==false?Math.max(0,available-keep):0;
   const missing=source!=='gentbrugge'&&a.stock_gentbrugge===0&&available>0;
@@ -35,3 +36,18 @@ export function distributionSuggestions(articles:DistributionArticle[],lists:Dis
 }
 
 export function distributionSourceRows<T extends {source:DistributionLocation}>(rows:T[],source:DistributionLocation|'all'){return rows.filter(r=>source==='all'?r.source!=='gentbrugge':r.source===source);}
+
+export type DistributionWish={id:string;article_id:string;sku:string;title:string;model:string|null;destination:'oudenaarde'|'antwerpen';quantity:number;state:'needs_check'|'cancelled';version:number;notes:string;created_by:string;created_at:string};
+export function wishCandidates(articles:DistributionArticle[],lists:DistributionList[],wishes:DistributionWish[]){
+ const planned=new Map<string,number>();
+ for(const list of lists)if(list.state==='open'&&list.source==='gentbrugge')for(const line of list.lines)planned.set(line.article_id,(planned.get(line.article_id)||0)+line.quantity);
+ for(const wish of wishes)if(wish.state==='needs_check')planned.set(wish.article_id,(planned.get(wish.article_id)||0)+wish.quantity);
+ return articles.filter(a=>Number.isSafeInteger(a.stock_gentbrugge)&&a.stock_gentbrugge!>=2).map(article=>({article,planned:planned.get(article.id)||0,available:Math.max(0,article.stock_gentbrugge!-1-(planned.get(article.id)||0)),backorders:'unknown' as const}));
+}
+export type WorkSort={key:string;direction:'asc'|'desc'};
+export function workCompare(a:unknown,b:unknown,direction:'asc'|'desc'){
+ const sign=direction==='asc'?1:-1;
+ if(a==null&&b==null)return 0;if(a==null)return 1;if(b==null)return -1;
+ return sign*(typeof a==='number'&&typeof b==='number'?a-b:String(a).localeCompare(String(b),'nl-BE',{numeric:true,sensitivity:'base'}));
+}
+export function workMatches(values:unknown[],q:string){const text=values.filter(v=>v!=null).join(' ').toLocaleLowerCase('nl-BE');return q.trim().toLocaleLowerCase('nl-BE').split(/\s+/).filter(Boolean).every(term=>text.includes(term));}
