@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.erp_distribution_lists(
  notes text NOT NULL DEFAULT '' CHECK(length(notes)<=2000),created_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),archived_at timestamptz);
 CREATE TABLE IF NOT EXISTS public.erp_distribution_history(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),list_id uuid REFERENCES public.erp_distribution_lists(id),event text NOT NULL,actor text NOT NULL,details jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS erp_distribution_lists_open_idx ON public.erp_distribution_lists(created_at) WHERE state='open';
+CREATE INDEX IF NOT EXISTS erp_distribution_history_list_idx ON public.erp_distribution_history(list_id);
 ALTER TABLE public.erp_distribution_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.erp_distribution_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.erp_distribution_history ENABLE ROW LEVEL SECURITY;
