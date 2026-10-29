@@ -644,7 +644,7 @@ export default async function RefurbListPage({
   const toggleHref = "/admin/refurb" + (toggleParams.size ? "?" + toggleParams.toString() : "");
 
   return (
-    <div className={`${ui.workspace} ${styles.reception}`}>
+    <div className={`${ui.workspace} ${styles.reception} ${styles.listPage}`}>
       {searchParams?.meta&&<p role={searchParams.meta==='saved'?'status':'alert'}>{searchParams.meta==='saved'?'Intern factuurnummer opgeslagen.':searchParams.meta==='conflict'?'Deze receptie is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.':'Niet opgeslagen. Controleer het factuurnummer.'}</p>}
       {searchParams?.msg === "delete_reception_failed" && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
@@ -658,12 +658,15 @@ export default async function RefurbListPage({
           De receptie is verwijderd.
         </div>
       )}
+      <header className={styles.listHeader}><h1>Recepties</h1>{permits(user,'refurb','write')&&<Link href="/admin/refurb/new" className="bb-btn">+ Nieuwe receptie</Link>}</header>
+      {expiringItems>0&&<div role="alert" className="reception-expiry-warning"><span aria-hidden="true">⚠</span><p><strong>Let op:</strong> voor {expiringItems} {expiringItems===1?'openstaand artikel vervalt':'openstaande artikelen vervalt'} de garantietermijn binnen 7 dagen.</p></div>}
+      <div className={styles.listUtilities}>
       <details
-        className="rounded-md border bg-white"
+        className="reception-panel"
         open={!!q}
       >
-        <summary className="cursor-pointer select-none px-4 py-3 font-medium">
-          Refurb tools
+        <summary className="reception-panel-heading">
+          <strong>Refurb tools · zoeken op IMEI / SN</strong><span className="reception-chevron" aria-hidden="true">›</span>
         </summary>
 
         <div className="border-t p-4 space-y-4">
@@ -772,13 +775,11 @@ export default async function RefurbListPage({
           )}
         </div>
       </details>
-
-      <header className="rma-hero"><div><div className="rma-kicker">Refurb / inkomende leveringen</div><h1>Recepties</h1><p>Verwerk toestellen, bewaak RMA-termijnen en volg leveranciers op.</p></div>{permits(user,'refurb','write')&&<Link href="/admin/refurb/new" className="bb-btn">+ Nieuwe receptie</Link>}</header>
-      {expiringItems>0&&<div role="alert" className="reception-expiry-warning"><span aria-hidden="true">⚠</span><p><strong>Let op:</strong> voor {expiringItems} {expiringItems===1?'openstaand artikel vervalt':'openstaande artikelen vervalt'} de garantietermijn binnen 7 dagen.</p></div>}
       <details id="reception-overview" className="reception-panel">
         <summary className="reception-panel-heading"><strong>Overzicht</strong><span className="reception-chevron" aria-hidden="true">›</span></summary>
         <div className="reception-panel-body"><div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount},{name:'Te verwerken artikelen',value:openItems},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0)},{name:'Garantie vervalt binnen 7 dagen',value:expiringItems}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div></div>)}</div></div>
       </details>
+      </div>
       <section className="rma-section"><div className="reception-deliveries-header"><h2>Leveringen</h2><div className="reception-deliveries-actions">
         <ReceptionQuickSearch receptions={receptions.map(row=>({id:row.id,number:row.reception_number,supplier:row.supplier,date:row.reception_date,completed:!!row.total_items&&row.finished_items_count===row.total_items}))}/>
         <Link

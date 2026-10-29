@@ -60,3 +60,28 @@
 .reception :global(.reception-expiry-warning) p{color:inherit;font-size:13px;line-height:1.5}
 .reception :global(.reception-expiry-warning)>span{font-size:18px;line-height:1.1}
 @media(max-width:640px){.reception :global(.reception-deliveries-actions){width:100%;justify-content:flex-start}.reception :global(.reception-deliveries-actions)>:first-child{flex-basis:100%}}
+
+/* List-only density: keep reception detail and supplier RMA layouts unchanged. */
+.reception.listPage{padding:0;gap:10px;max-width:none;border-radius:0;background:transparent}
+.reception.listPage .listHeader{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:11px 16px;border-radius:11px;background:linear-gradient(115deg,#172e46,#21465c);color:#fff}
+.reception.listPage .listHeader h1{font-size:21px;line-height:1.25;letter-spacing:-.35px;margin:0}
+.reception.listPage .listHeader :global(.bb-btn){min-height:34px;padding:6px 12px;background:white;color:#17334a;border-color:white}
+.listUtilities{display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px}
+.reception.listPage .listUtilities>details{flex:1 1 220px;min-width:0;padding:0;border-radius:9px}
+.reception.listPage .listUtilities>details[open]{flex-basis:100%}
+.reception.listPage .listUtilities :global(.reception-panel-heading){min-height:34px;padding:6px 12px;background:#fff;font-size:12px}
+.reception.listPage .listUtilities :global(.reception-chevron){width:20px;height:20px;flex-basis:20px;font-size:20px}
+.reception.listPage .listUtilities :global(.rma-stat){padding:14px;min-height:86px}
+.reception.listPage .listUtilities :global(.rma-stat-value){font-size:23px;margin-top:6px}
+.reception.listPage .listUtilities :global(.reception-panel-body)>:global(.rma-stats){margin-bottom:0}
+.reception.listPage :global(.reception-expiry-warning){padding:7px 12px;gap:8px;align-items:center;border-radius:9px}
+.reception.listPage :global(.reception-expiry-warning) p{font-size:12px;line-height:1.5}
+.reception.listPage :global(.rma-section){padding:12px 16px;border-radius:12px}
+.reception.listPage :global(.reception-deliveries-header){gap:10px}
+.reception.listPage :global(.reception-deliveries-header) h2{font-size:15px}
+.reception.listPage :global(.reception-deliveries-actions){gap:8px}
+.reception.listPage :global(.reception-deliveries-actions) input{height:36px!important;min-height:36px;font-size:12px}
+.reception.listPage :global(.reception-deliveries-actions) :global(.bb-btn){min-height:36px;padding:7px 12px}
+.reception.listPage :global(.rma-section)>div:has(>table){margin-top:10px}
+.reception.listPage :global(.rma-section) thead th{padding-top:10px;padding-bottom:10px}
+@media(max-width:640px){.reception.listPage .listHeader{padding:10px 12px}.reception.listPage .listUtilities>details{flex-basis:100%}.reception.listPage :global(.rma-section){padding:10px}.reception.listPage :global(.reception-expiry-warning){align-items:flex-start}}
