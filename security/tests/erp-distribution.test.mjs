@@ -108,3 +108,31 @@ test('dispatch search does not silently omit rows from the printed dispatch list
  const css=read('app/admin/erp/distribution/distribution.css'),lines=read('app/admin/erp/distribution/DispatchLines.tsx');
  assert.match(lines,/ordered.map/);assert.match(lines,/distribution-filtered-out/);assert.match(css,/@media print\{\.distribution-filtered-out\{display:table-row/);
 });
+
+test('selected store model stock includes other SKU variants without grouping unknown models or other subgroups',async()=>{
+ const h=(await helper()).namespace;
+ const rows=[
+  a({id:'candidate',sku:'A',recognized_model:'iPhone 13 Pro',stock_gentbrugge:4,stock_antwerpen:0}),
+  a({id:'other1',sku:'B',recognized_model:'iPhone 13 Pro',stock_gentbrugge:0,stock_antwerpen:2}),
+  a({id:'other2',sku:'C',recognized_model:'iPhone 13 Pro',stock_gentbrugge:0,stock_antwerpen:3}),
+  a({id:'othermodel',sku:'D',recognized_model:'iPhone 13',stock_antwerpen:9}),
+  a({id:'othersubgroup',sku:'E',recognized_model:'iPhone 13 Pro',article_subgroup_name:'Other',stock_antwerpen:7}),
+  a({id:'unknownmodel',sku:'F',recognized_model:null,stock_antwerpen:11})
+ ];
+ const totals=h.storeModelTotals(rows,'antwerpen'),key=h.distributionModelKey(rows[0]);
+ assert.equal(totals.get(key).quantity,5);assert.equal(totals.get(key).skus,2);assert.equal(totals.get(key).unknown,0);
+ assert.equal(h.distributionModelKey(rows[5]),null);
+ assert.equal(h.storeModelTotals(rows,'gentbrugge').get(key).quantity,4);
+ const incomplete=h.storeModelTotals([...rows,a({id:'bad',recognized_model:'iPhone 13 Pro',stock_antwerpen:null})],'antwerpen').get(key);
+ assert.equal(incomplete.quantity,5);assert.equal(incomplete.unknown,1);
+});
+test('free refurb formula uses net stock after customer backorders and retains one unallocated item',async()=>{
+ const h=(await helper()).namespace;
+ assert.equal(h.freeRefurbQuantity(5,3),1);assert.equal(h.freeRefurbQuantity(2,1),0);assert.equal(h.freeRefurbQuantity(2,0),1);
+ assert.equal(h.freeRefurbQuantity(5,0,2),2);assert.equal(h.freeRefurbQuantity(5,null),null);assert.equal(h.freeRefurbQuantity(null,0),null);
+ assert.equal(h.freeRefurbQuantity(5,-1),null);assert.equal(h.freeRefurbQuantity(5,8),0);
+ const page=read('app/admin/erp/distribution/page.tsx'),planner=read('app/admin/erp/distribution/Planner.tsx');
+ assert.match(page,/tab=free/);assert.match(page,/Retour Hoofdmagazijn/);assert.match(page,/Vrije refurb voorraad/);
+ assert.equal(planner.includes('setDestination'),false);assert.match(planner,/Bestemming<strong>Gentbrugge/);
+ assert.match(planner,/filter\(\(\[k\]\)=>k!=='gentbrugge'\)/);
+});

@@ -51,3 +51,18 @@ export function workCompare(a:unknown,b:unknown,direction:'asc'|'desc'){
  return sign*(typeof a==='number'&&typeof b==='number'?a-b:String(a).localeCompare(String(b),'nl-BE',{numeric:true,sensitivity:'base'}));
 }
 export function workMatches(values:unknown[],q:string){const text=values.filter(v=>v!=null).join(' ').toLocaleLowerCase('nl-BE');return q.trim().toLocaleLowerCase('nl-BE').split(/\s+/).filter(Boolean).every(term=>text.includes(term));}
+
+export function distributionModelKey(article:DistributionArticle){
+ const model=article.recognized_model?.trim();return model?JSON.stringify([article.article_group_name,article.article_subgroup_name,model.toLocaleLowerCase('nl-BE')]):null;
+}
+export function storeModelTotals(articles:DistributionArticle[],location:DistributionLocation){
+ const totals=new Map<string,{quantity:number;skus:number;unknown:number}>();
+ for(const article of articles){const key=distributionModelKey(article);if(!key)continue;const total=totals.get(key)??{quantity:0,skus:0,unknown:0},n=distributionStock(article,location);
+  if(typeof n==='number'&&Number.isSafeInteger(n)&&n>=0){total.quantity+=n;if(n>0)total.skus++;}else total.unknown++;
+  totals.set(key,total);
+ }return totals;
+}
+export function freeRefurbQuantity(stock:number|null,customerBackorders:number|null,planned=0):number|null{
+ if(!Number.isSafeInteger(stock)||stock!<0||!Number.isSafeInteger(customerBackorders)||customerBackorders!<0||!Number.isSafeInteger(planned)||planned<0)return null;
+ const free=stock!-customerBackorders!;return free>1?Math.max(0,free-1-planned):0;
+}
