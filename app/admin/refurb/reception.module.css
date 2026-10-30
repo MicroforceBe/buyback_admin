@@ -85,3 +85,20 @@
 .reception.listPage :global(.rma-section)>div:has(>table){margin-top:10px}
 .reception.listPage :global(.rma-section) thead th{padding-top:10px;padding-bottom:10px}
 @media(max-width:640px){.reception.listPage .listHeader{padding:10px 12px}.reception.listPage .listUtilities>details{flex-basis:100%}.reception.listPage :global(.rma-section){padding:10px}.reception.listPage :global(.reception-expiry-warning){align-items:flex-start}}
+
+.reception :global(.reception-overview-stats){grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px}
+.reception :global(.reception-open-note){font-size:11px;color:#627c90;margin:10px 0}
+.reception :global(.reception-open-models){margin-top:14px;border-top:1px solid #e1e8ef;padding-top:12px}
+.reception :global(.reception-open-toolbar){display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.reception :global(.reception-open-toolbar) h3{font-size:13px;margin:0 auto 0 0;color:#1d3b53}
+.reception :global(.reception-open-toolbar) input,.reception :global(.reception-open-toolbar) select{border:1px solid #d3e1ec;border-radius:7px;min-height:32px;padding:5px 9px;font-size:12px;background:white;color:#254860;max-width:100%}
+.reception :global(.reception-open-table){overflow:auto;max-height:460px;border:1px solid #dce7ef;border-radius:8px}
+.reception :global(.reception-open-table) table{width:100%;border-collapse:collapse;font-size:12px}
+.reception :global(.reception-open-table) th,.reception :global(.reception-open-table) td{padding:7px 10px;border-bottom:1px solid #e7eef4;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.reception :global(.reception-open-table) th:first-child{text-align:left}
+.reception :global(.reception-open-table) thead{position:sticky;top:0;background:#eef5fa;z-index:1}
+.reception :global(.reception-open-table) button{border:0;padding:0;background:none;color:inherit;font:inherit;font-weight:650;cursor:pointer}
+.reception :global(.reception-open-table) button:focus-visible{outline:2px solid #1686ae;outline-offset:3px}
+.reception :global(.reception-open-status-row){background:#f6f9fc;color:#577086}
+.reception :global(.reception-open-status-row) th:first-child{padding-left:30px;font-weight:400}
+.reception :global(.reception-open-table) tfoot{background:#edf5f9;font-weight:700}

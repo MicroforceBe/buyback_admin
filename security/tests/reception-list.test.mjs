@@ -9,14 +9,16 @@ const reception=id=>({id,reception_number:'Reception '+id,reception_date:'2026-1
 const item=(id,reception_id,refurb_status)=>({id,reception_id,refurb_status});
 function nodes(tree,predicate){const all=[];function walk(node){if(Array.isArray(node)){node.forEach(walk);return;}if(!node||typeof node!=='object')return;if(predicate(node))all.push(node);walk(node.props?.children);}walk(tree);return all;}
 function text(node){if(Array.isArray(node))return node.map(text).join(' ');if(node&&typeof node==='object')return text(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
-async function render({work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
+async function render({models=[],modelsError=false,work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
  const reads=[],ranges=[];let userReads=0;
- const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?[]:table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:itemsError&&table==='refurb_reception_items'?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
+ const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;if(table==='refurb_reception_items')ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?[]:table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_models'?models:table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:(itemsError&&table==='refurb_reception_items'||modelsError&&table==='refurb_models')?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
  class FixtureDate extends Date {constructor(value){super(arguments.length?value:'2026-10-26T10:00:00Z');}}
  const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
  const workHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionRmaWork.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await workHelper.link(()=>{throw Error('Unexpected import')});await workHelper.evaluate();
+ const openSummary=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionOpenSummary.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await openSummary.link(()=>{throw Error('Unexpected import')});await openSummary.evaluate();
  const imports={
+ './OpenReceptionModels':{default:'OpenReceptionModels'},
  './rma/receptionWorkData':{loadReceptionRmaWork:async()=>work},
   './ReceptionQuickSearch':{default:'ReceptionQuickSearch'},
   './rma/rma.module.css':{default:{workspace:'workspace'}},'./reception.module.css':{default:{reception:'reception'}},'./receptionMetadataActions':{updateReceptionMetadata:()=>{throw Error('No writes')}},
@@ -31,7 +33,7 @@ async function render({work=[],params={},allowed=true,itemsError=false,reception
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},
  };
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
  const tree=await mod.namespace.default({searchParams:Promise.resolve(params)});
  return {tree,reads,ranges,userReads};
 }
@@ -122,3 +124,27 @@ test('all nonfinal statuses receive counted links, canonical labels and configur
  assert.equal(new URL(badges[3].props.href,'https://synthetic.invalid').searchParams.get('status'),'custom / status');
 });
 
+
+test('overview values and model/status counts use exactly the open reception items, including RMA work',async()=>{
+ const {tree}=await render({receptions:[reception('open'),reception('done')],models:[{id:'m',name:'iPhone 13',search_keywords:'iphone 13'}],
+ options:[{id:'n',value:'new',label:'Nieuw'},{id:'e',value:'booked',label:'Geboekt'}],transitions:[{from_status_id:'n',to_status_id:'e'}],
+ items:[{...item('1','open','new'),description:'iPhone 13 128GB',price_cents:10000},{...item('2','open','new'),description:'iPhone 13 256GB',price_cents:0},{...item('3','open','other'),description:'Other',price_cents:null},{...item('4','done','booked'),description:'iPhone 13',price_cents:50000},{...item('5','open','booked'),description:'iPhone 13',price_cents:2500}],
+ work:[{reception_item_id:'5',status:'booked',label:'Geboekt',case_id:'c',case_item_id:'line',code:'TEST'}]});
+ const panel=nodes(tree,n=>n.type==='details'&&n.props.id==='reception-overview')[0];
+ assert.match(text(panel),/Openstaande aankoopwaarde/);assert.match(text(panel),/125,00/);
+ const table=nodes(panel,n=>n.type==='OpenReceptionModels')[0];assert.ok(table);
+ assert.equal(table.props.rows.reduce((n,r)=>n+r.count,0),4);
+ assert.equal(table.props.rows.reduce((n,r)=>n+r.purchaseCents,0),12500);
+ assert.equal(table.props.rows.reduce((n,r)=>n+r.missingPrices,0),1);
+ assert.equal(table.props.rows.filter(r=>r.model==='iPhone 13').reduce((n,r)=>n+r.count,0),3);
+ assert.equal(table.props.rows.find(r=>r.status==='new').label,'Nieuw');
+ const complete=await render({params:{show_completed:'1'},receptions:[reception('open'),reception('done')],items:[{...item('1','done','booked'),price_cents:99999},{...item('2','open','new'),price_cents:100}]});
+ const result=nodes(complete.tree,n=>n.type==='OpenReceptionModels')[0];assert.equal(result.props.rows.reduce((n,r)=>n+r.purchaseCents,0),100);
+});
+test('overview distinguishes missing model configuration and unavailable item statistics from real zeros',async()=>{
+ const result=await render({modelsError:true,items:[{...item('1','open','new'),description:'iPhone',price_cents:100}]});
+ assert.equal(nodes(result.tree,n=>n.type==='OpenReceptionModels')[0].props.rows[0].model,'Model niet beschikbaar');
+ const failed=await render({itemsError:true});assert.match(text(failed.tree),/Niet beschikbaar/);assert.equal(nodes(failed.tree,n=>n.type==='OpenReceptionModels').length,0);
+ const component=fs.readFileSync(new URL('../../app/admin/refurb/OpenReceptionModels.tsx',import.meta.url),'utf8');
+ assert.match(component,/aria-sort/);assert.match(component,/aria-expanded/);assert.match(component,/placeholder="Zoek model of status/);assert.match(component,/missingPrices/);
+});
