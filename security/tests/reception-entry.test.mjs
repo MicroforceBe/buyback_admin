@@ -66,3 +66,32 @@ test('inline editing stops before any optimistic or server update for readers',a
   assert.equal(updates,0);
 });
 
+
+test('supplier device CSV uses unit Rate, keeps identifiers and validates complete file',async()=>{
+ const h=await new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/supplierDeviceCsv.ts',import.meta.url),'utf8'),{mode:'strip'}));
+ await h.link(()=>{throw Error('Unexpected import');});await h.evaluate();
+ const parse=h.namespace.parseSupplierDeviceCsv;
+ const header='Date,Company,Transaction,Class,Item,Device ID,Quantity,Currency,Rate,Amount\n';
+ const line='10/30/2026,Buyer,TEST-INV,Phones,"Phone, blue",001234567890123,1,Euro,255.00,765.00';
+ const result=parse('\uFEFF'+header+line+'\r\n');
+ assert.equal(result.items[0].imei_sn,'001234567890123');assert.equal(result.items[0].price_cents,25500);
+ assert.equal(result.items[0].description,'Phone, blue');assert.equal(result.total_cents,25500);assert.equal(result.date,'2026-10-30');
+ assert.throws(()=>parse(header+line+'\n'+line),/dubbele/);
+ assert.throws(()=>parse(header+line.replace(',1,Euro',',2,Euro')),/Aantal/);
+ assert.throws(()=>parse(header+line.replace('Euro','USD')),/EUR/);
+ assert.throws(()=>parse(header+line.replace('10/30/2026','02/30/2026')),/datum/);
+ assert.throws(()=>parse(header+line.replace('255.00','255.001')),/prijs/);
+ assert.throws(()=>parse(header+line+'\n'+line.replace('TEST-INV','OTHER').replace('001234567890123','001234567890124')),/factuur/);
+ assert.throws(()=>parse(header+'"unterminated'),/niet-afgesloten/);
+});
+test('supplier CSV action authenticates before parsing and preserves transactional RPC boundary',()=>{
+ const code=fs.readFileSync(new URL('../../app/admin/refurb/new/import/actions.ts',import.meta.url),'utf8');
+ assert.match(code,/const user = await requireAccess\('refurb','write',false\)/);
+ assert.ok(code.indexOf('requireAccess(\'refurb\'')<code.indexOf('form.get('));
+ assert.match(code,/parseSupplierDeviceCsv\(text\)/);assert.match(code,/p_actor:user.email/);
+ assert.match(code,/supabaseAdmin.rpc\('import_refurb_supplier_csv'/);
+ const sql=fs.readFileSync(new URL('../sql/supplier-device-details-import.sql',import.meta.url),'utf8');
+ assert.match(sql,/security invoker/i);assert.match(sql,/from public,anon,authenticated/);
+ assert.match(sql,/IMPORT_REPLAY_MISMATCH/);assert.match(sql,/IMPORT_DEVICE_EXISTS/);
+ assert.doesNotMatch(sql,/(?:update|insert into) public\.erp_articles/i);
+});
