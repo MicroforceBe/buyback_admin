@@ -102,3 +102,26 @@
 .reception :global(.reception-open-status-row){background:#f6f9fc;color:#577086}
 .reception :global(.reception-open-status-row) th:first-child{padding-left:30px;font-weight:400}
 .reception :global(.reception-open-table) tfoot{background:#edf5f9;font-weight:700}
+
+/* Detail density: retain every existing panel and interaction. */
+.refurbLayout:has(:global(.reception-detail)){padding:0;display:grid;gap:8px;min-width:0}
+.refurbLayout:has(:global(.reception-detail))>*{margin-top:0!important;margin-bottom:0!important}
+.refurbLayout:has(:global(.reception-detail))>div:first-child nav a{padding-top:6px;padding-bottom:6px}
+.reception:global(.reception-detail){padding:0;gap:6px;max-width:none}
+.reception:global(.reception-detail) :global(.reception-compact-header){padding:8px 12px;gap:10px;border-radius:9px}
+.reception:global(.reception-detail) :global(.reception-compact-header) h1{font-size:17px;line-height:1.2;margin:0}
+.reception:global(.reception-detail) :global(.reception-compact-header) p{font-size:11px;line-height:1.3;margin:3px 0 0}
+.reception:global(.reception-detail) :global(.reception-header-actions){gap:6px}
+.reception:global(.reception-detail) :global(.reception-header-actions) :global(.bb-btn){min-height:30px;padding:5px 10px;font-size:11px}
+.reception:global(.reception-detail) :global(.reception-work-area){gap:6px}
+.reception:global(.reception-detail) :global(.reception-panel){border-radius:8px}
+.reception:global(.reception-detail) :global(.reception-panel-heading){min-height:32px;padding:5px 11px;gap:8px;line-height:1.25}
+.reception:global(.reception-detail) :global(.reception-panel-heading) small{margin-left:9px;white-space:nowrap}
+.reception:global(.reception-detail) :global(.reception-chevron){width:20px;height:20px;flex-basis:20px;font-size:20px;border-radius:5px}
+.reception:global(.reception-detail) :global(.reception-panel-body){padding:12px}
+.reception:global(.reception-detail) :global(.reception-items-heading){min-height:32px}
+@media(max-width:640px){
+ .reception:global(.reception-detail) :global(.reception-compact-header){padding:8px 10px;gap:7px}
+ .reception:global(.reception-detail) :global(.reception-panel-heading){min-height:34px;padding:6px 10px}
+ .reception:global(.reception-detail) :global(.reception-panel-body){padding:10px}
+}

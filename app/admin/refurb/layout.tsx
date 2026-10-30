@@ -1,5 +1,6 @@
 // app/admin/refurb/layout.tsx
 import React from "react";
+import styles from "./reception.module.css";
 import RefurbTabs from "./RefurbTabs";
 import { getCurrentAdminUser } from "@/lib/getCurrentAdminUser";
 
@@ -16,7 +17,7 @@ export default async function RefurbLayout({
   const role = (user as any)?.role || null;
 
   return (
-    <div className="p-4 space-y-4">
+    <div className={`${styles.refurbLayout} p-4 space-y-4`}>
       <RefurbTabs role={role} permissions={user?.permissions} />
 
       {children}
