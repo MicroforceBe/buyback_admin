@@ -86,7 +86,7 @@ test('supplier device CSV uses unit Rate, keeps identifiers and validates comple
 });
 test('supplier CSV action authenticates before parsing and preserves transactional RPC boundary',()=>{
  const code=fs.readFileSync(new URL('../../app/admin/refurb/new/import/actions.ts',import.meta.url),'utf8');
- assert.match(code,/const user=await requireAccess\('refurb','write',false\)/);
+ assert.match(code,/const user = await requireAccess\('refurb','write',false\)/);
  assert.ok(code.indexOf('requireAccess(\'refurb\'')<code.indexOf('form.get('));
  assert.match(code,/parseSupplierDeviceCsv\(text\)/);assert.match(code,/p_actor:user.email/);
  assert.match(code,/supabaseAdmin.rpc\('import_refurb_supplier_csv'/);

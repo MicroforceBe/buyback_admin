@@ -4,7 +4,7 @@ import {supabaseAdmin} from '@/lib/supabaseAdmin';
 import {parseSupplierDeviceCsv} from '@/lib/supplierDeviceCsv';
 import {revalidatePath} from 'next/cache';
 export async function importSupplierDeviceCsv(form:FormData):Promise<{id?:string;error?:string;uncertain?:boolean}>{
- const user=await requireAccess('refurb','write',false);
+ const user = await requireAccess('refurb','write',false);
  try{
   const text=form.get('csv');if(typeof text!=='string')return {error:'Kies eerst een CSV-bestand.'};
   const parsed=parseSupplierDeviceCsv(text);
