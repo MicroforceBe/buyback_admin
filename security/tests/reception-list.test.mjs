@@ -80,8 +80,8 @@ test('overview tiles omit helper texts and count unfinished articles by the rece
  const items=[item('1','done','booked'),item('2','open','new'),item('3','open','rma'),item('4','open','booked'),item('5','later','new')];
  for(const params of [{},{show_completed:'1'}]){
   const {tree}=await render({params,receptions,items});const cards=nodes(tree,n=>n.props?.className==='rma-stat');
-  assert.equal(cards.length,4);const byName=Object.fromEntries(cards.map(card=>[text(nodes(card,n=>n.props?.className==='rma-stat-title')[0]),text(nodes(card,n=>n.props?.className==='rma-stat-value')[0])]));
-  assert.equal(byName['Te verwerken artikelen'],'3');assert.equal(byName['Garantie vervalt binnen 7 dagen'],'2');
+  assert.equal(cards.length,5);const byName=Object.fromEntries(cards.map(card=>[text(nodes(card,n=>n.props?.className==='rma-stat-title')[0]),text(nodes(card,n=>n.props?.className==='rma-stat-value')[0])]));
+  assert.ok(byName['Openstaande aankoopwaarde']);assert.equal(byName['Te verwerken artikelen'],'3');assert.equal(byName['Garantie vervalt binnen 7 dagen'],'2');
   assert.equal(byName['Afgewerkte recepties'],undefined);assert.equal(byName.Leveranciers,undefined);assert.equal(nodes(cards,n=>n.type==='small').length,0);
  }
 });
