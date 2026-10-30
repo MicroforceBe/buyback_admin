@@ -1,3 +1,5 @@
+import OpenReceptionModels from './OpenReceptionModels';
+import {buildOpenReceptionSummary,mergeOpenReceptionSummaries,type OpenReceptionItem,type OpenReceptionModel,type OpenReceptionSummary} from '@/lib/receptionOpenSummary';
 import {loadReceptionRmaWork} from './rma/receptionWorkData';
 import ui from './rma/rma.module.css';
 import styles from './reception.module.css';
@@ -30,6 +32,8 @@ type RefurbReception = {
   updated_at:string;
   rma_expiry_days:number|null;
   rma_expiry_date:string|null;
+  open_overview?:OpenReceptionSummary;
+  overview_unavailable?:boolean;
   total_items?: number;
   ready_to_book_count?: number;
   waiting_for_sku_count?: number;
@@ -40,6 +44,8 @@ type RefurbReception = {
 };
 
 type ReceptionItemStatsRow = {
+  description:string|null;
+  price_cents:number|null;
   id: string;
   reception_id: string;
   refurb_status: string | null;
@@ -259,7 +265,7 @@ let from = 0;
 while (true) {
   const { data: batch, error: itemsError } = await supabaseAdmin
     .from("refurb_reception_items")
-    .select("id, reception_id, refurb_status")
+    .select("id, reception_id, refurb_status, description, price_cents")
     .in("reception_id", receptionIds)
     .order("id", { ascending: true })
     .range(from, from + pageSize - 1);
@@ -272,6 +278,7 @@ while (true) {
 
     return receptions.map((reception) => ({
       ...reception,
+      overview_unavailable:true,
       total_items: 0,
       ready_to_book_count: 0,
       waiting_for_sku_count: 0,
@@ -292,6 +299,9 @@ while (true) {
   from += pageSize;
 }
 
+  const models:OpenReceptionModel[]=[];let modelsAvailable=true;
+  for(let offset=0;;offset+=1000){const result=await supabaseAdmin.from('refurb_models').select('id,name,search_keywords').order('id',{ascending:true}).range(offset,offset+999);if(result.error){modelsAvailable=false;break;}models.push(...(result.data||[]) as OpenReceptionModel[]);if((result.data||[]).length<1000)break;}
+  const openItemsByReception=new Map<string,OpenReceptionItem[]>();
   const rmaWork=await loadReceptionRmaWork();
   const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
 
@@ -364,6 +374,12 @@ while (true) {
       ? statusConfig.finalStatusValues.has(canonicalStatus)
       : isFallbackFinishedStatus(canonicalStatus));
 
+    if(!isFinished){
+      const detail=statusConfig.statusDetails.get(canonicalStatus),work=workById.get(item.id);
+      const open=openItemsByReception.get(receptionId)||[];
+      open.push({description:item.description??null,price_cents:item.price_cents??null,status:work?.status||canonicalStatus||'unknown',label:work?.label||detail?.label||item.refurb_status?.trim()||'Geen status'});
+      openItemsByReception.set(receptionId,open);
+    }
     if (isFinished) {
       currentStats.finished += 1;
     } else if (canonicalStatus) {
@@ -400,6 +416,7 @@ while (true) {
 
     return {
       ...reception,
+      open_overview:buildOpenReceptionSummary(openItemsByReception.get(reception.id)||[],models,modelsAvailable),
       total_items: totalItems,
       ready_to_book_count:
         receptionStats.readyToBook,
@@ -638,6 +655,9 @@ export default async function RefurbListPage({
     !(reception.total_items && reception.finished_items_count === reception.total_items)
   );
   const {openItems,expiringItems}=receptionOverviewCounts(receptions);
+  const openOverview=mergeOpenReceptionSummaries(receptions.map(row=>row.open_overview||{groups:[]}));
+  const overviewUnavailable=receptions.some(row=>row.overview_unavailable);
+  const openMoney=overviewUnavailable?'Niet beschikbaar':new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(openOverview.purchaseCents/100);
   const toggleParams = new URLSearchParams();
   if (q) toggleParams.set("q", q);
   if (!showCompleted) toggleParams.set("show_completed", "1");
@@ -777,7 +797,7 @@ export default async function RefurbListPage({
       </details>
       <details id="reception-overview" className="reception-panel">
         <summary className="reception-panel-heading"><strong>Overzicht</strong><span className="reception-chevron" aria-hidden="true">›</span></summary>
-        <div className="reception-panel-body"><div className="rma-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount},{name:'Te verwerken artikelen',value:openItems},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0)},{name:'Garantie vervalt binnen 7 dagen',value:expiringItems}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div></div>)}</div></div>
+        <div className="reception-panel-body"><div className="rma-stats reception-overview-stats">{[{name:'Openstaande recepties',value:receptions.length-completedCount},{name:'Te verwerken artikelen',value:openItems},{name:'Openstaande aankoopwaarde',value:openMoney},{name:'Artikelen in overzicht',value:visibleReceptions.reduce((sum,row)=>sum+(row.total_items??0),0)},{name:'Garantie vervalt binnen 7 dagen',value:expiringItems}].map(row=><div className="rma-stat" key={row.name}><div className="rma-stat-title">{row.name}</div><div className="rma-stat-value">{row.value}</div></div>)}</div>{overviewUnavailable?<p role="alert">Openstaande bedragen en modellen konden niet volledig geladen worden. Vernieuw de pagina.</p>:<><p className="reception-open-note">Aankoopwaarde van alle openstaande artikelen.{openOverview.missingPrices>0?` Voor ${openOverview.missingPrices} artikelen ontbreekt de aankoopprijs.`:''}</p><OpenReceptionModels rows={openOverview.groups}/></>}</div>
       </details>
       </div>
       <section className="rma-section"><div className="reception-deliveries-header"><h2>Leveringen</h2><div className="reception-deliveries-actions">
