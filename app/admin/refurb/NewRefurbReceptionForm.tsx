@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import ui from "./rma/rma.module.css";
 import styles from "./reception.module.css";
 import { rmaExpiryDate, parseRmaDays } from "@/lib/receptionTerms";
@@ -48,7 +49,7 @@ export default function NewRefurbReceptionForm({
           Maak een nieuwe receptie aan voor een leverancier. Daarna kun je in
           de tabel toestellen plakken of importeren.
         </p>
-      </div></header>
+      </div><Link href="/admin/refurb/new/import" className="bb-btn bb-btn-primary">CSV leverancier importeren</Link></header>
 
       {state.formError && (
         <div className="p-2 border border-red-200 bg-red-50 text-[11px] text-red-700 rounded">
