@@ -31,7 +31,7 @@ test('dashboard checks access before reading user and offers only permitted modu
 });
 test('shell leaves login alone and preserves logout and idle timer for signed-in users',async()=>{
  let user=null;
- const Layout=await load('app/admin/layout.tsx',{'./AdminChrome':{default:'AdminChrome'},'./Nav':{default:'Nav'},'./UserBadge':{default:'UserBadge'},'./IdleLogout':{default:'IdleLogout'},'./LogoutButton':{default:'LogoutButton'},'@/lib/getCurrentAdminUser':{getCurrentAdminUser:async()=>user}});
+ const Layout=await load('app/admin/layout.tsx',{'./AdminChrome':{default:'AdminChrome'},'./help/HelpAssistant':{default:'HelpAssistant'},'@/lib/helpManual':{allowedHelpModules:()=>[],helpTopics:[]},'./Nav':{default:'Nav'},'./UserBadge':{default:'UserBadge'},'./IdleLogout':{default:'IdleLogout'},'./LogoutButton':{default:'LogoutButton'},'@/lib/getCurrentAdminUser':{getCurrentAdminUser:async()=>user}});
  let tree=await Layout({children:'LOGIN'});assert.equal(nodes(tree,n=>n.type==='Nav').length,0);assert.equal(tree.props.children,'LOGIN');
  user={role:'admin'};tree=await Layout({children:'PAGE'});assert.equal(nodes(tree,n=>n.type==='Nav').length,1);assert.equal(nodes(tree,n=>n.type==='LogoutButton').length,1);assert.equal(nodes(tree,n=>n.type==='IdleLogout')[0].props.timeoutMs,900000);assert.equal(nodes(tree,n=>n.type==='main').length,1);
 });

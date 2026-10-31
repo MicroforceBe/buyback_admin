@@ -8,12 +8,15 @@ import UserBadge from './UserBadge';
 import IdleLogout from './IdleLogout';
 import LogoutButton from './LogoutButton';
 import styles from './AdminShell.module.css';
+import HelpAssistant from './help/HelpAssistant';
+import { allowedHelpModules, helpTopics } from '@/lib/helpManual';
 
 export const metadata={title:'Buyback Admin',description:'Beheer'};
 export default async function AdminLayout({children}:{children:ReactNode}){
   const currentUser=await getCurrentAdminUser();
   if(!currentUser)return <>{children}</>;
   const role=currentUser.role as string|undefined;
+  const helpChoices=allowedHelpModules(currentUser).map(m=>({...m,questions:helpTopics.filter(t=>t.module===m.id).slice(0,4).map(t=>t.question)}));
   return <AdminChrome loginContent={children}><div className={styles.shell}>
     <aside className={styles.sidebar} aria-label="Hoofdnavigatie">
       <Link href="/admin" className={styles.brand} prefetch={false}><span className={styles.brandMark} aria-hidden="true">m</span><span><strong>microforce</strong><small>Buyback operations</small></span></Link>
@@ -25,6 +28,5 @@ export default async function AdminLayout({children}:{children:ReactNode}){
       <div className={styles.topbar}><div className={styles.workspace}><strong>Microforce</strong><span aria-hidden="true">/</span><span>Beheeromgeving</span></div><div className={styles.account}><UserBadge user={currentUser}/><LogoutButton/></div></div>
       <div className={styles.content}>{children}</div>
     </main>
-  </div></AdminChrome>;
+  </div><HelpAssistant modules={helpChoices}/></AdminChrome>;
 }
-

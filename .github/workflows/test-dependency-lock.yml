@@ -3,6 +3,10 @@ on:
   push:
     branches: [security-test]
     paths:
+      - app/admin/help/**
+      - app/api/admin/help/**
+      - lib/helpManual.ts
+      - security/tests/help-assistant.test.mjs
       - app/admin/backlog/**
       - lib/developmentBacklog.ts
       - security/tests/development-backlog.test.mjs
@@ -82,6 +86,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/reception-battery.test.mjs security/tests/product-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/reception-status-filter.test.mjs security/tests/lead-device-validation.test.mjs
       - name: Verify admin-only development backlog
         run: node --experimental-vm-modules --test security/tests/development-backlog.test.mjs
+      - name: Verify read-only help assistant and independent module access
+        run: node --experimental-vm-modules --test security/tests/help-assistant.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
