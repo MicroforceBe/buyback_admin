@@ -142,18 +142,14 @@ export default async function DiagnosticsSessionDetailPage({
             <div>
               <strong>Gestart:</strong>{" "}
               {session.started_at
-                ? <LocalDate value={
-                    session.started_at
-                  } withTime/>
+                ? <LocalDate value={session.started_at} withTime/>
                 : "-"}
             </div>
 
             <div>
               <strong>Voltooid:</strong>{" "}
               {session.completed_at
-                ? <LocalDate value={
-                    session.completed_at
-                  } withTime/>
+                ? <LocalDate value={session.completed_at} withTime/>
                 : "-"}
             </div>
           </div>
@@ -226,7 +222,6 @@ export default async function DiagnosticsSessionDetailPage({
     </div>
   );
 }
-
 
 
 

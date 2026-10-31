@@ -172,14 +172,7 @@ type SearchParams = {
   limit?: string;
 };
 
-function fmtDate(ts?: string | null) {
-  if (!ts) return "—";
-  try {
-    return <LocalDate value={ts} withTime timeZone="Europe/Brussels"/>;
-  } catch {
-    return ts ?? "—";
-  }
-}
+function fmtDate(ts?: string | null) { return <LocalDate value={ts} withTime timeZone="Europe/Brussels"/>; }
 
 function qsWith(
   base: Record<string, string>,
@@ -869,7 +862,7 @@ export default async function LeadsPage({
         </div><p>{total} leads{hasActiveFilters ? " in deze selectie" : ""} · Pagina {page} van {totalPages}</p></div>
 
         <div className="leads-header-actions">
-          {adminUser?.role === "admin" && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
+          {adminUser.role === 'admin' && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
            {(adminUser as any).role === "admin" && (
             <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
               Analyse
@@ -1571,6 +1564,7 @@ export default async function LeadsPage({
     </div>
   );
 }
+
 
 
 
