@@ -1,7 +1,6 @@
+'use client';
 import LocalDate from '@/app/admin/LocalDate';
 //app/admin/settings/StatusTemplatesTabs.tsx
-"use client";
-
 import { useState } from "react";
 
 type TemplateRow = {

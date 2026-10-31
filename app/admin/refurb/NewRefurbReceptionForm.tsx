@@ -1,7 +1,6 @@
+'use client';
 import LocalDate from '@/app/admin/LocalDate';
 // app/admin/refurb/NewRefurbReceptionForm.tsx
-"use client";
-
 import { useState } from "react";
 import Link from "next/link";
 import ui from "./rma/rma.module.css";
