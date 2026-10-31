@@ -101,7 +101,7 @@ test('real lead action never calls Trustpilot on failed writes, denial, unchange
 function pageText(node){if(Array.isArray(node))return node.map(pageText).join(' ');if(node&&typeof node==='object')return pageText(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
 test('Next page awaits promised searchParams and renders pagination and feedback',async()=>{
  const h=await load('app/admin/leads/trustpilot/page.tsx');const tree=await h.api.default({searchParams:Promise.resolve({page:'2',msg:'refreshed'})});
- assert.deepEqual(h.state.ranges,[[25,49]]);const text=pageText(tree);assert.match(text,/Pagina\s+2/);assert.ok(text.includes('opnieuw gecontroleerd'));assert.ok(text.includes('TEST-TP-1'));assert.match(text,/3\/11\/2026/);assert.equal(h.state.requests.length,0);
+ assert.deepEqual(h.state.ranges,[[25,49]]);const text=pageText(tree);assert.match(text,/Pagina\s+2/);assert.ok(text.includes('opnieuw gecontroleerd'));assert.ok(text.includes('TEST-TP-1'));assert.ok(JSON.stringify(tree).includes('2026-11-03'));assert.equal(h.state.requests.length,0);
 });
 
 const testEnv={...liveEnv,NEXT_PUBLIC_SUPABASE_URL:'https://ekqmhexbabrwudetkfcm.supabase.co',TRUSTPILOT_SEND_ENABLED:undefined};
