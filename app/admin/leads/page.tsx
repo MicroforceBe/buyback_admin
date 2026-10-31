@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/page.tsx
 import Link from "next/link";
@@ -174,11 +175,7 @@ type SearchParams = {
 function fmtDate(ts?: string | null) {
   if (!ts) return "—";
   try {
-    return new Date(ts).toLocaleString("nl-BE", {
-      timeZone: "Europe/Brussels",
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+    return <LocalDate value={ts} withTime timeZone="Europe/Brussels"/>;
   } catch {
     return ts ?? "—";
   }
@@ -872,7 +869,7 @@ export default async function LeadsPage({
         </div><p>{total} leads{hasActiveFilters ? " in deze selectie" : ""} · Pagina {page} van {totalPages}</p></div>
 
         <div className="leads-header-actions">
-          {adminUser.role === 'admin' && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
+          {adminUser?.role === "admin" && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
            {(adminUser as any).role === "admin" && (
             <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
               Analyse
@@ -1574,7 +1571,6 @@ export default async function LeadsPage({
     </div>
   );
 }
-
 
 
 

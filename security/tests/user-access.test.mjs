@@ -17,7 +17,7 @@ async function harness(user={role:'admin',email:'admin@example.invalid',permissi
  async function file(p){if(cache.has(p)){if(linking.has(p))await linking.get(p);return cache.get(p);}
  const code=p.endsWith('tsx')?ts.transpileModule(read(p),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText:stripTypeScriptTypes(read(p),{mode:'strip'});
  const m=new vm.SourceTextModule(code,{context,identifier:p});cache.set(p,m);
- const linked=m.link(async(spec,from)=>{
+ const linked=m.link(async(spec,from)=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});
  if(spec==='server-only')return synthetic(spec,{});
  if(spec==='@/lib/getCurrentAdminUser')return synthetic(spec,{getCurrentAdminUser:async()=>state.user});
  if(spec==='@/lib/supabaseAdmin')return synthetic(spec,{supabaseAdmin:db});

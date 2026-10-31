@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import StationsClient from "./StationsClient";
@@ -93,7 +94,7 @@ export default async function StationsPage() {
                 <div>
                   <span className="font-medium">Laatste seen:</span>{" "}
                   {station.last_seen_at
-                    ? new Date(station.last_seen_at).toLocaleString("nl-BE")
+                    ? <LocalDate value={station.last_seen_at} withTime/>
                     : "-"}
                 </div>
               </div>

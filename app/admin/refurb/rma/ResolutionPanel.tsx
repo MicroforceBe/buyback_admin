@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import Link from 'next/link';
 import {supplierDecisions,custodyStates,repairStates,repairNextStates,repairTerminal,needsInternalFollowup} from '@/lib/supplierRmaResolution';
 import type {RmaFollowup} from '@/lib/supplierRmaResolution';
@@ -57,7 +58,7 @@ export default function ResolutionPanel({dossier,items,sourceById,followups,sele
      <label>Uitvoerder<input name="repair_assignee" maxLength={250} defaultValue={f?.repair_assignee||''} disabled={terminal}/></label><label>Werkzaamheden / resultaat<textarea name="repair_notes" maxLength={10000} rows={3} defaultValue={f?.repair_notes||''} disabled={terminal}/></label><label>Gebruikte onderdelen / SKU’s<textarea name="repair_parts" maxLength={2000} rows={2} placeholder="- bij geen onderdelen" defaultValue={f?.repair_parts||''} disabled={terminal}/></label>
      {state==='quality'&&<label className="rma-flow-check"><input type="checkbox" name="quality_confirmed" value="1"/>De eindcontrole is uitgevoerd en geslaagd.</label>}
      <p>Herstel wordt apart opgeslagen en blijft ook na financiële dossierafsluiting beschikbaar. Oorspronkelijke toestel- en boekingsgegevens worden niet gewijzigd.</p>
-     {terminal?<p className="rma-flow-done">{repairStates[state]} · {f?.completed_at?new Date(f.completed_at).toLocaleDateString('nl-BE',{timeZone:'Europe/Brussels'}):''}</p>:<button className="bb-btn bb-btn-primary" disabled={state==='none'&&!mayStart}>{state==='none'?'Intern herstel starten':'Herstelopvolging opslaan'}</button>}
+     {terminal?<p className="rma-flow-done">{repairStates[state]} · {f?.completed_at?<LocalDate value={f.completed_at} timeZone="Europe/Brussels"/>:''}</p>:<button className="bb-btn bb-btn-primary" disabled={state==='none'&&!mayStart}>{state==='none'?'Intern herstel starten':'Herstelopvolging opslaan'}</button>}
      {source&&<Link href={'/admin/refurb/'+source.reception_id+'#reception-items'} prefetch={false} className="rma-flow-link">{terminal?'Verder afwerken in de receptie':'Open oorspronkelijke receptie'} →</Link>}
     </fieldset></form>}
    </div>

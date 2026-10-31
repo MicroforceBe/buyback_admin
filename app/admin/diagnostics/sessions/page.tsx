@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -109,7 +110,7 @@ export default async function DiagnosticsSessionsPage() {
 
                 <td className="px-4 py-3 text-sm">
                   {session.started_at
-                    ? new Date(session.started_at).toLocaleString("nl-BE")
+                    ? <LocalDate value={session.started_at} withTime/>
                     : "-"}
                 </td>
               </tr>

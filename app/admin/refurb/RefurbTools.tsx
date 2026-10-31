@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 // app/admin/refurb/RefurbTools.tsx
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -194,7 +195,7 @@ export default async function RefurbTools({
                 </div>
 
                 <div>
-                  <b>Aankoopdatum:</b> {result.purchase_date || "—"}
+                  <b>Aankoopdatum:</b> {<LocalDate value={result.purchase_date}/>}
                 </div>
 
                 <div>

@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import styles from '../rma.module.css';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -13,7 +14,7 @@ export const dynamic='force-dynamic';export const revalidate=0;
 const money=(cents:number)=>new Intl.NumberFormat('nl-BE',{style:'currency',currency:'EUR'}).format(cents/100);
 const inputMoney=(cents:number|null)=>cents==null?'':(cents/100).toFixed(2);
 const cell='border-b px-3 py-2';
-const dateTime=(value:string)=>new Date(value).toLocaleString('nl-BE',{timeZone:'Europe/Brussels'});
+const dateTime=(value:string)=><LocalDate value={value} withTime timeZone="Europe/Brussels"/>;
 export default async function SupplierRmaDetail({params,searchParams}:{params:Promise<{id:string}>;searchParams?:Promise<{saved?:string;msg?:string;item?:string}>}){
   const user=await requirePageAccess('rma_supplier',false);
   const canWrite=hasPermission(user,'rma_supplier','write'),canFinance=hasPermission(user,'rma_supplier','finance'),canFinalize=hasPermission(user,'rma_supplier','finalize');

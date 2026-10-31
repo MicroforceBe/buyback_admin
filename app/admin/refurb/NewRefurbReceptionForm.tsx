@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 // app/admin/refurb/NewRefurbReceptionForm.tsx
 "use client";
 
@@ -112,7 +113,7 @@ export default function NewRefurbReceptionForm({
 
           {/* Leverancier (via SupplierField) */}
           <SupplierField canCreate={!!canCreateSupplier} onSelect={supplier=>setRmaDays(String(supplier?.rma_expiry_days??30))}/>
-          <label className="flex flex-col gap-1 text-xs">RMA Expire Date (dagen)<input name="rma_expiry_days" type="number" min={0} max={36500} step={1} required value={rmaDays} onChange={event=>setRmaDays(event.target.value)} className="bb-input"/><span className="text-xs text-slate-500">Overgenomen van leverancier; aanpasbaar voor deze receptie.{expires?' Vervaldatum: '+expires:''}</span></label>
+          <label className="flex flex-col gap-1 text-xs">RMA Expire Date (dagen)<input name="rma_expiry_days" type="number" min={0} max={36500} step={1} required value={rmaDays} onChange={event=>setRmaDays(event.target.value)} className="bb-input"/><span className="text-xs text-slate-500">Overgenomen van leverancier; aanpasbaar voor deze receptie.{expires?<> Vervaldatum: <LocalDate value={expires}/></>:null}</span></label>
 
           {/* BTW-regeling */}
           <div className="flex flex-col gap-1">

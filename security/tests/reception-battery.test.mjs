@@ -20,7 +20,7 @@ async function harness({battery=null,title='Apple iPhone 14 Refurbished 4*M',sta
  const context=vm.createContext({console:{error(){},log(){}},Date,process:{env:{}}}),cache=new Map();
  async function syn(key,e){if(cache.has(key))return cache.get(key);const m=new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});cache.set(key,m);return m;}
  async function load(p){if(cache.has(p))return cache.get(p);const m=new vm.SourceTextModule(stripTypeScriptTypes(read(p),{mode:'strip'}),{context,identifier:p});cache.set(p,m);
- await m.link(async(spec,from)=>{
+ await m.link(async(spec,from)=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});
  if(spec==='server-only')return syn(spec,{});
  if(spec==='@/lib/security/access')return syn(spec,{requireAccess:async()=>{if(state.denied)throw Error('DENIED');},requirePageAccess:async()=>{if(state.denied)throw Error('DENIED');}});
  if(spec==='@/lib/supabaseAdmin')return syn(spec,{supabaseAdmin:db});

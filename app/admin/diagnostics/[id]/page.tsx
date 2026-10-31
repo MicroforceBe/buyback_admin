@@ -1,10 +1,9 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/[id]/page.tsx
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import WebDiagnosticsQr from "./WebDiagnosticsQr";
-import { diagnosticReport, WEB_TESTS, RESULT_LABELS } from "@/lib/diagnostics";
-export const dynamic = "force-dynamic";
 
 import {
   finalizeDiagnosticSessionAction,
@@ -38,9 +37,7 @@ function asStringArray(value: unknown) {
 
 export default async function DiagnosticSessionPage({
   params: incomingParams,
-  searchParams: incomingSearch,
 }: {
-  searchParams?: Promise<{diagnostic_error?: string; diagnostic_saved?: string}>;
   params: Promise<{
     id: string;
   }>;
@@ -80,10 +77,6 @@ export default async function DiagnosticSessionPage({
     notFound();
   }
 
-  const query = incomingSearch ? await incomingSearch : {};
-  const report = diagnosticReport(session.tests, session.deviceUnit.batteryHealth, session.appTests);
-  const currentCertificate = session.status === "completed" && report.canFinalize && report.score === session.finalScore && report.grade === session.finalGrade && session.deviceUnit.securityGrade !== "FAIL";
-
   const previousSessions =
     session.deviceUnit.sessions.filter(
       (item) => item.id !== session.id
@@ -105,6 +98,8 @@ export default async function DiagnosticSessionPage({
   }
 
   const device = session.deviceUnit;
+  const webDiagnosticsUrl =
+    `${process.env.NEXT_PUBLIC_APP_URL}/admin/diagnostics/${session.id}/web-tests`;
 
   const securityWarnings =
     asStringArray(
@@ -122,8 +117,6 @@ export default async function DiagnosticSessionPage({
         Diagnostic sessie
       </h1>
 
-      {query.diagnostic_error ? <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-4">{query.diagnostic_error}</div> : null}
-      {query.diagnostic_saved ? <div role="status" className="mb-4 rounded border border-green-300 bg-green-50 p-4">Beoordeling afgerond met de bewaarde resultaten.</div> : null}
       {previousSessions.length > 0 ? (
         <div className="mb-6 rounded border border-yellow-300 bg-yellow-50 p-4">
           <h2 className="font-semibold text-yellow-900">
@@ -157,9 +150,7 @@ export default async function DiagnosticSessionPage({
             <div>
               Laatste vorige testdatum:{" "}
               {latestPreviousSession
-                ? latestPreviousSession.createdAt.toLocaleString(
-                    "nl-BE"
-                  )
+                ? <LocalDate value={latestPreviousSession.createdAt} withTime/>
                 : "—"}
             </div>
           </div>
@@ -229,8 +220,7 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Kleur:
               </span>{" "}
-              {(report.intake?report.intake.colorName:device.color) || "—"}
-              {report.intake?.colorSource==='model-part'?<div className="text-xs text-slate-500">Fabriekskleur volgens model en Apple-artikelnummer {report.intake.modelNumber}. Controleer op een vervangen behuizing.</div>:null}
+              {device.color || "—"}
             </div>
 
             <div>
@@ -331,10 +321,9 @@ export default async function DiagnosticSessionPage({
               <span className="font-medium text-gray-900">
                 Batterijconditie:
               </span>{" "}
-              {report.batteryHealth ??
+              {device.batteryHealth ??
                 "—"}
               %
-              {report.intake?.batterySource==='calculated'?<div className="text-xs text-amber-800">Berekend via USB: {report.intake.nominalChargeCapacity} / {report.intake.designCapacity} mAh (maximaal 100%). Kan afwijken van de batterijconditie in iOS.</div>:report.intake?.batterySource==='manual'?<div className="text-xs text-slate-500">Handmatig ingevuld.</div>:null}
             </div>
 
             <div>
@@ -507,7 +496,7 @@ export default async function DiagnosticSessionPage({
       </div>
 
       <WebDiagnosticsQr
-        sessionId={session.id}
+        url={webDiagnosticsUrl}
       />
 
       <div className="mt-6 rounded border p-4">
@@ -520,14 +509,14 @@ export default async function DiagnosticSessionPage({
             <span className="font-medium text-gray-900">
               Score:
             </span>{" "}
-            {currentCertificate ? session.finalScore : "Nog geen definitieve score"}
+            {session.finalScore ?? "—"}
           </div>
 
           <div>
             <span className="font-medium text-gray-900">
               Grade:
             </span>{" "}
-            {currentCertificate ? session.finalGrade : "Nog geen definitieve grade"}
+            {session.finalGrade || "—"}
           </div>
 
           <div>
@@ -539,17 +528,9 @@ export default async function DiagnosticSessionPage({
         </div>
       </div>
 
-      <section className="mt-6 rounded-xl border bg-white p-4">
-        <h2 className="font-semibold">Bewaarde webdiagnose — protocol v1</h2>
-        <p className="my-3 text-sm">{WEB_TESTS.length-report.incomplete.length} van {WEB_TESTS.length} controles beoordeeld. Niet getest of niet ondersteund blokkeert afronden. Aanvullende handmatige en appresultaten blijven behouden en tellen mee bij afkeuringen of aandachtspunten.</p>
-        {!report.batteryKnown ? <p className="my-2 text-sm text-amber-800">Batterijconditie ontbreekt of is ongeldig; er wordt geen grade berekend.</p> : null}
-        <a className="underline" href={`/admin/diagnostics/${session.id}/web-tests`}>Webcontrole openen / hervatten</a>
-        <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Controle</th><th className="p-2">Uitslag</th><th className="p-2">Toelichting</th></tr></thead><tbody>{WEB_TESTS.map(t=>{const r=report.results[t.key];return <tr className="border-t" key={t.key}><td className="p-2">{t.label}</td><td className="p-2">{RESULT_LABELS[r?.status || 'pending']}</td><td className="p-2">{r?.notes || '—'}</td></tr>;})}</tbody></table></div>
-      </section>
-
       <div className="mt-6 rounded border p-4">
         <h2 className="mb-4 font-semibold">
-          Aanvullende appresultaten
+          On-device app tests
         </h2>
       
         {session.appTests.length === 0 ? (
@@ -572,7 +553,7 @@ export default async function DiagnosticSessionPage({
                 </div>
       
                 <div className="text-gray-600">
-                  Tijdstip: {test.createdAt.toLocaleString("nl-BE")}
+                  Tijdstip: {<LocalDate value={test.createdAt} withTime/>}
                 </div>
       
                 {test.notes ? (
@@ -589,7 +570,7 @@ export default async function DiagnosticSessionPage({
       
       <div className="mt-6 rounded border p-4">
         <h2 className="font-semibold mb-4">
-          Aanvullende handmatige controles
+          Tests
         </h2>
 
         <div className="space-y-3">
@@ -672,8 +653,7 @@ export default async function DiagnosticSessionPage({
 
             <button
               type="submit"
-              disabled={!report.canFinalize || session.deviceUnit.securityGrade === "FAIL"}
-              className="rounded bg-black px-4 py-2 text-white disabled:opacity-40"
+              className="rounded bg-black px-4 py-2 text-white"
             >
               Sessie afronden en grade berekenen
             </button>
@@ -697,7 +677,6 @@ export default async function DiagnosticSessionPage({
     </div>
   );
 }
-
 
 
 

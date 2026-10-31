@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import ui from '../rma/rma.module.css';
 import styles from '../reception.module.css';
 import { updateSupplierRmaDays } from '../receptionMetadataActions';
@@ -180,7 +181,7 @@ export default async function RefurbSuppliersPage({searchParams}:{searchParams?:
                 </td>
                 <td className="px-3 py-2 align-top text-[11px] text-slate-500 whitespace-nowrap">
                   {s.created_at
-                    ? new Date(s.created_at).toLocaleDateString("nl-BE")
+                    ? <LocalDate value={s.created_at}/>
                     : "—"}
                 </td>
                 <td className="px-3 py-2"><form action={updateSupplierRmaDays} className="reception-inline-meta"><input type="hidden" name="supplier_id" value={s.id}/><input type="hidden" name="original_days" value={s.rma_expiry_days}/><input name="rma_expiry_days" aria-label={'RMA-termijn '+s.name} type="number" min={0} max={36500} step={1} required defaultValue={s.rma_expiry_days}/><button className="bb-btn">Opslaan</button></form></td>
