@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 //app/admin/settings/StatusTemplatesTabs.tsx
 "use client";
 
@@ -288,7 +289,7 @@ export default function StatusTemplatesTabs({
                   <span>
                     Laatst bijgewerkt:{" "}
                     {tpl.updated_at
-                      ? new Date(tpl.updated_at).toLocaleString("nl-BE")
+                      ? <LocalDate value={tpl.updated_at} withTime/>
                       : "—"}
                   </span>
                 </div>

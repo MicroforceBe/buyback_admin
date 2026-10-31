@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 import { requireAccess } from '@/lib/security/access';
 // app/admin/settings/email-templates/page.tsx
@@ -511,9 +512,7 @@ export default async function EmailTemplatesSettingsPage() {
                           <span>
                             Laatst bijgewerkt:{" "}
                             {tpl.updated_at
-                              ? new Date(tpl.updated_at).toLocaleString(
-                                  "nl-BE"
-                                )
+                              ? <LocalDate value={tpl.updated_at} withTime/>
                               : "—"}
                           </span>
                         </div>

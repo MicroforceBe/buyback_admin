@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/sessions/[id]/page.tsx
 import Link from "next/link";
@@ -141,18 +142,18 @@ export default async function DiagnosticsSessionDetailPage({
             <div>
               <strong>Gestart:</strong>{" "}
               {session.started_at
-                ? new Date(
+                ? <LocalDate value={
                     session.started_at
-                  ).toLocaleString("nl-BE")
+                  } withTime/>
                 : "-"}
             </div>
 
             <div>
               <strong>Voltooid:</strong>{" "}
               {session.completed_at
-                ? new Date(
+                ? <LocalDate value={
                     session.completed_at
-                  ).toLocaleString("nl-BE")
+                  } withTime/>
                 : "-"}
             </div>
           </div>

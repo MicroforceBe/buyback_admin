@@ -27,3 +27,14 @@ const form=values=>{const f=new FormData();for(const[k,v]of Object.entries(value
 test('metadata and supplier updates deny access before writes, with supplier admin requirement',async()=>{for(const name of ['updateReceptionMetadata','updateSupplierRmaDays']){const h=await actions(false);await assert.rejects(h.api[name](new FormData()),/DENIED/);assert.equal(h.calls.writes.length,0);assert.equal(h.calls.guards[0][2],name==='updateSupplierRmaDays')}});
 test('invoice-only list save preserves reception RMA settings and uses optimistic timestamp',async()=>{const h=await actions();await assert.rejects(h.api.updateReceptionMetadata(form({reception_id:id,list:'1',updated_at:'2026-10-25T10:00:00Z',internal_invoice_nr:' INV-123 '})),e=>e.url==='/admin/refurb?meta=saved');assert.equal(h.calls.writes[0].internal_invoice_nr,'INV-123');assert.equal(h.calls.writes[0].rma_expiry_days,undefined);assert.ok(h.calls.filters.some(([key])=>key==='updated_at'));});
 test('reception term override and supplier defaults validate days and surface conflicts safely',async()=>{const h=await actions();await assert.rejects(h.api.updateReceptionMetadata(form({reception_id:id,updated_at:'2026-10-25T10:00:00Z',internal_invoice_nr:'',rma_expiry_days:'45'})),e=>e.url.endsWith('?meta=saved'));assert.equal(h.calls.writes[0].rma_expiry_days,45);const conflict=await actions(true,false);await assert.rejects(conflict.api.updateSupplierRmaDays(form({supplier_id:id,original_days:'30',rma_expiry_days:'60'})),e=>e.url==='/admin/refurb/suppliers?meta=conflict');const invalid=await actions();await assert.rejects(invalid.api.updateReceptionMetadata(form({reception_id:id,updated_at:'2026-10-25T10:00:00Z',rma_expiry_days:'1.5'})),e=>e.url.endsWith('?meta=invalid'));assert.equal(invalid.calls.writes.length,0);});
+
+test('PC date presentation follows locale while Dutch dates use DD-MM-YYYY and calendar dates never shift',async()=>{
+ const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/pcDate.ts',root),'utf8'),{mode:'strip'}));await m.link(()=>{});await m.evaluate();const f=m.namespace.formatPcDate;
+ assert.equal(f('2026-10-31','nl-BE'),'31-10-2026');assert.equal(f('2026-10-31','nl-NL'),'31-10-2026');
+ assert.equal(f('2026-10-31','en-US'),'10/31/2026');assert.equal(f('2026-10-31','en-GB'),'31/10/2026');
+ assert.equal(f('2026-10-31','nl-BE',false,'America/Los_Angeles'),'31-10-2026');
+ assert.match(f('2026-10-31T22:45:00Z','nl-BE',true,'Europe/Brussels'),/^31-10-2026 23:45$/);
+ assert.equal(f('2026-02-30'),'—');assert.equal(f(null),'—');assert.equal(f('invalid'),'—');
+ const component=fs.readFileSync(new URL('app/admin/LocalDate.tsx',root),'utf8');
+ assert.match(component,/resolvedOptions\(\).locale/);assert.match(component,/useState\('nl-NL'\)/);
+});

@@ -9,7 +9,7 @@ async function load(path,extra={}){
  const imports={'@/lib/adminPermissions':{hasPermission:(u,f,m)=>u?.role==='admin'||u?.permissions?.[f]?.[m]===true},'next/link':{default:'Link'},'./AdminIcon':{default:'AdminIcon'},'./AdminShell.module.css':{default:css},'./dashboard.module.css':{default:css},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},...extra};
  const source=fs.readFileSync(new URL('../../'+path,import.meta.url),'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const context=vm.createContext({});const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{const entry=imports[spec];assert.ok(entry,'Unexpected dependency '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();return mod.namespace.default??mod.namespace;
+ const context=vm.createContext({});const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});const entry=imports[spec];assert.ok(entry,'Unexpected dependency '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();return mod.namespace.default??mod.namespace;
 }
 test('navigation retains role/permission filters and marks exactly the actual section active',async()=>{
  let pathname='/admin/refurb/rma/fixture';
@@ -86,7 +86,7 @@ test('manual and idle logout replace the current document after successful sessi
  async function client(file){
   const code=ts.transpileModule(fs.readFileSync(new URL('../../'+file,import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const context=vm.createContext({window:{location,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)},document:{visibilityState:'visible'},setTimeout:(fn,ms)=>{assert.equal(ms,900000);timer=fn;return 1;},clearTimeout:()=>{}});
-  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{const e=spec==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:extras[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return m.namespace.default;
+  const m=new vm.SourceTextModule(code,{context});await m.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});const e=spec==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:extras[spec];assert.ok(e,spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return m.namespace.default;
  }
  const Button=await client('app/admin/LogoutButton.tsx');Button().props.onClick();await Promise.all(pending);assert.deepEqual(navigations,['/admin/login']);
  const Idle=await client('app/admin/IdleLogout.tsx');Idle({timeoutMs:900000});await timer();

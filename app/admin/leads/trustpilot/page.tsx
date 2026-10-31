@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -7,7 +8,7 @@ import styles from './trustpilot.module.css';
 
 export const dynamic='force-dynamic';
 export const runtime='nodejs';
-const date=(value:string)=>new Intl.DateTimeFormat('nl-BE',{timeZone:'Europe/Brussels',dateStyle:'short',timeStyle:'short'}).format(new Date(value));
+const date=(value:string)=><LocalDate value={new Date(value)} withTime timeZone="Europe/Brussels"/>;
 const messages:Record<string,string>={fixture_finished:'De fictieve buyback is afgerond. Bekijk de nieuwe proefregistratie. Nogmaals klikken maakt geen tweede registratie.',refreshed:'De bestaande registratie is opnieuw gecontroleerd. Er is geen tweede registratie aangemaakt.',
   refresh_failed:'Deze registratie kan niet worden vernieuwd. Alleen nooit verzonden meldingen van afgewerkte buybacks zijn wijzigbaar.',
   delivery_check:'De registratie blijft bewaard. Controleer de verzendstatus voordat je opnieuw probeert.',processed:'De verwerking is gecontroleerd. Bekijk de status bij de buyback.'};

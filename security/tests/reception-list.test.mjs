@@ -35,7 +35,7 @@ async function render({receptionSearch=[],leadSearch=[],canReadLeads=false,model
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},
  };
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/refurbLabel')return labelHelper;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/refurbLabel')return labelHelper;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
  const tree=await mod.namespace.default({searchParams:Promise.resolve(params)});
  return {tree,reads,ranges,userReads};
 }
@@ -63,7 +63,7 @@ test('real quick search opens at three characters, includes finished matches, su
  const imports={'react':hooks,'next/link':{default:'Link'},'next/navigation':{useRouter:()=>({push:url=>navigation.push(url)})},'./ReceptionQuickSearch.module.css':{default:new Proxy({},{get:(_,key)=>key})},'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}};
  const file=fs.readFileSync(new URL('../../app/admin/refurb/ReceptionQuickSearch.tsx',import.meta.url),'utf8');
  const code=ts.transpileModule(file,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{const e=imports[spec];if(!e)throw Error('Unexpected '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});const e=imports[spec];if(!e)throw Error('Unexpected '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await mod.evaluate();
  const receptions=[{id:'open',number:'2600584',supplier:'Synthetic',date:'2026-10-26',completed:false},{id:'finished',number:'2600585',supplier:'Synthetic',date:'2026-10-25',completed:true}];
  const render=()=>{cursor=0;const tree=mod.namespace.default({receptions});for(const fn of effects.splice(0))fn();return tree;};
  let tree=render();const input=()=>nodes(tree,n=>n.props?.role==='combobox')[0];const type=value=>{input().props.onChange({target:{value}});tree=render();};

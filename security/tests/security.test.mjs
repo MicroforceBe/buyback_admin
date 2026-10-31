@@ -31,7 +31,7 @@ async function harness(entry,options={}) {
     if(cache.has(p))return cache.get(p);
     const code=stripTypeScriptTypes(source(p),{mode:'strip'});
     const m=new vm.SourceTextModule(code,{context,identifier:p});cache.set(p,m);
-    await m.link(async(spec,from)=>{
+    await m.link(async(spec,from)=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});
       if(spec==='server-only')return synthetic(spec,{});
       if(spec==='node:crypto'||spec==='crypto')return synthetic(spec,crypto);
       if(spec==='next/server')return synthetic(spec,{NextResponse:Response,NextRequest:Request});

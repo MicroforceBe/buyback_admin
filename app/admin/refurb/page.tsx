@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import RefurbLabelPrintButton from './RefurbLabelPrintButton';
 import LeadLabelPrintButton from '../leads/LeadLabelPrintButton';
 import {canPrintRefurbLabel} from '@/lib/refurbLabel';
@@ -82,15 +83,6 @@ type SearchResult = {
   link?: string;
 };
 
-function formatDate(date: string | null | undefined) {
-  if (!date) return "—";
-
-  try {
-    return new Date(date).toLocaleDateString("nl-BE");
-  } catch {
-    return date;
-  }
-}
 
 function normalizeStatus(value: string | null | undefined) {
   return String(value || "").trim().toLowerCase();
@@ -567,9 +559,7 @@ async function searchRefurbDevice(
         (lead as any).battery_percentage != null
           ? `${(lead as any).battery_percentage}%`
           : null,
-      purchase_date: formatDate(
-        (lead as any).created_at
-      ),
+      purchase_date:(lead as any).created_at,
       supplier:
         [
           (lead as any).customer_number,
@@ -782,7 +772,7 @@ export default async function RefurbListPage({
 
                     <div>
                       <b>Aankoopdatum:</b>{" "}
-                      {result.purchase_date || "—"}
+                      {<LocalDate value={result.purchase_date}/>}
                     </div>
 
                     <div>
@@ -910,7 +900,7 @@ export default async function RefurbListPage({
                 </td>
 
                 <td className="px-2 py-1">
-                  {reception.reception_date}
+                  {<LocalDate value={reception.reception_date}/>}
                 </td>
 
                 <td className="px-2 py-1">
@@ -932,7 +922,7 @@ export default async function RefurbListPage({
                   {permits(user,'refurb','write')?<form action={updateReceptionMetadata} className="reception-inline-meta"><input type="hidden" name="list" value="1"/><input type="hidden" name="show_completed" value={showCompleted?'1':'0'}/><input type="hidden" name="reception_id" value={reception.id}/><input type="hidden" name="updated_at" value={reception.updated_at}/><input name="internal_invoice_nr" aria-label={'Intern factuurnummer '+reception.reception_number} defaultValue={reception.internal_invoice_nr||''} maxLength={250}/><button className="bb-btn" aria-label={'Factuurnummer opslaan '+reception.reception_number}>Opslaan</button></form>:reception.internal_invoice_nr||'—'}
                 </td>
 
-                <td className="px-2 py-1"><strong>{receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} dagen</strong><span className="block text-xs text-slate-500">{reception.rma_expiry_date||'Nog geen vervaldatum'}</span></td>
+                <td className="px-2 py-1"><strong>{receptionRmaDays(reception.rma_expiry_days,reception.reception_date,reception.rma_expiry_date)} dagen</strong><span className="block text-xs text-slate-500">{<LocalDate value={reception.rma_expiry_date}/>}</span></td>
                 {isAdmin && (
                   <td className="px-2 py-1">
                     <details className="inline-block">

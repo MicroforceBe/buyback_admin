@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 import { requireAccess } from '@/lib/security/access';
 // app/admin/settings/page.tsx
@@ -238,7 +239,7 @@ export default async function SettingsBrandingPage() {
           <p className="text-xs text-gray-400">
             Laatst bijgewerkt:{" "}
             {row.updated_at
-              ? new Date(row.updated_at).toLocaleString("nl-BE")
+              ? <LocalDate value={row.updated_at} withTime/>
               : "—"}
           </p>
         </footer>

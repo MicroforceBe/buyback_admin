@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/leads/page.tsx
 import Link from "next/link";
@@ -174,11 +175,7 @@ type SearchParams = {
 function fmtDate(ts?: string | null) {
   if (!ts) return "—";
   try {
-    return new Date(ts).toLocaleString("nl-BE", {
-      timeZone: "Europe/Brussels",
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+    return <LocalDate value={ts} withTime timeZone="Europe/Brussels"/>;
   } catch {
     return ts ?? "—";
   }

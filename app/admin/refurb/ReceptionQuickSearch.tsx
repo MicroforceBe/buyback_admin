@@ -1,5 +1,6 @@
 'use client';
 
+import LocalDate from '@/app/admin/LocalDate';
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/navigation';
@@ -34,7 +35,7 @@ export default function ReceptionQuickSearch({receptions}:{receptions:ReceptionO
     <span className="sr-only" role="status" aria-live="polite">{term.length>=3?`${matches.length} recepties gevonden.`:''}</span>
     {visible&&<div className={styles.popover}>
       {matches.length?<ul id={resultId} role="listbox" aria-label="Gevonden recepties">{matches.map((row,index)=><li key={row.id} role="presentation"><Link id={`${resultId}-${index}`} href={'/admin/refurb/'+encodeURIComponent(row.id)} prefetch={false} role="option" aria-selected={selected===index} className={styles.option} data-active={selected===index} onMouseDown={event=>event.preventDefault()} onMouseEnter={()=>setActive(index)} onClick={()=>setOpen(false)}>
-        <strong>{row.number}{row.completed?<span className={styles.completed}>Afgewerkt</span>:null}</strong><span>{row.supplier}{row.date?' · '+row.date:''}</span>
+        <strong>{row.number}{row.completed?<span className={styles.completed}>Afgewerkt</span>:null}</strong><span>{row.supplier}{row.date?<span> · <LocalDate value={row.date}/></span>:null}</span>
       </Link></li>)}</ul>:<p id={resultId} className={styles.empty}>Geen recepties gevonden.</p>}
     </div>}
   </div>;

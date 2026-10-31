@@ -1,4 +1,5 @@
 'use client';
+import LocalDate from '@/app/admin/LocalDate';
 import {useRef,useState,useTransition} from 'react';
 import {useRouter} from 'next/navigation';
 import Link from 'next/link';
@@ -30,7 +31,7 @@ export default function ImportForm({suppliers,canSaveProfile,initialNumber}:{sup
  <p>Device Details: Device ID → IMEI/SN, Item → omschrijving, Rate → aankoopprijs per toestel. Amount wordt niet opgeteld. Geen automatische ERP-SKU of grade toegewezen.</p>
  </section>
  {message&&<p role="alert" className="rma-section">{message}{uncertain&&<> <Link href="/admin/refurb">Recepties controleren</Link></>}</p>}
- {parsed&&<section className="rma-section"><header><h2>Controle vóór import</h2><p>{filename} · {parsed.items.length} toestellen · {money(parsed.total_cents)} · factuur {parsed.invoice} · datum {parsed.date}</p></header>
+ {parsed&&<section className="rma-section"><header><h2>Controle vóór import</h2><p>{filename} · {parsed.items.length} toestellen · {money(parsed.total_cents)} · factuur {parsed.invoice} · datum {<LocalDate value={parsed.date}/>}</p></header>
  <div style={{overflowX:'auto',maxHeight:400}}><table className="w-full text-xs"><thead><tr><th>IMEI/SN</th><th>Omschrijving</th><th>Aankoopprijs</th></tr></thead><tbody>{parsed.items.map(item=><tr key={item.imei_sn}><td style={{whiteSpace:'nowrap',padding:6}}>{item.imei_sn}</td><td style={{padding:6}}>{item.description}</td><td style={{whiteSpace:'nowrap',padding:6}}>{money(item.price_cents)}</td></tr>)}</tbody><tfoot><tr><th colSpan={2}>Totaal</th><th>{money(parsed.total_cents)}</th></tr></tfoot></table></div>
  <label><input type="checkbox" checked={ack} disabled={locked} onChange={e=>setAck(e.target.checked)}/> Ik heb leverancier, btw-regeling, factuur en toestellen gecontroleerd.</label>
  <button className="bb-btn bb-btn-primary" disabled={!supplier||!vat||!nr||!ack||locked} onClick={submit}>{busy?'Importeren…':'Receptie met '+parsed.items.length+' toestellen aanmaken'}</button></section>}

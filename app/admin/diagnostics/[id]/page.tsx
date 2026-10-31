@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { requirePageAccess } from '@/lib/security/access';
 // app/admin/diagnostics/[id]/page.tsx
 import { notFound } from "next/navigation";
@@ -149,9 +150,7 @@ export default async function DiagnosticSessionPage({
             <div>
               Laatste vorige testdatum:{" "}
               {latestPreviousSession
-                ? latestPreviousSession.createdAt.toLocaleString(
-                    "nl-BE"
-                  )
+                ? <LocalDate value={latestPreviousSession.createdAt} withTime/>
                 : "—"}
             </div>
           </div>
@@ -554,7 +553,7 @@ export default async function DiagnosticSessionPage({
                 </div>
       
                 <div className="text-gray-600">
-                  Tijdstip: {test.createdAt.toLocaleString("nl-BE")}
+                  Tijdstip: {<LocalDate value={test.createdAt} withTime/>}
                 </div>
       
                 {test.notes ? (

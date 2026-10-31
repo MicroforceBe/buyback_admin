@@ -1,3 +1,4 @@
+import LocalDate from '@/app/admin/LocalDate';
 import { getCurrentAdminUser } from '@/lib/getCurrentAdminUser';
 import { redirect } from 'next/navigation';
 import AdminIcon from '../AdminIcon';
@@ -21,4 +22,4 @@ export default async function ReleaseNotesPage(){
     </div>
   </div>;
 }
-function ReleaseCard({entry}:{entry:(typeof releases)[number]}){return <article id={entry.id} className={styles.card}><div className={styles.cardMeta}><time dateTime={entry.date}>{new Intl.DateTimeFormat('nl-BE',{day:'numeric',month:'long',year:'numeric',timeZone:'Europe/Brussels'}).format(new Date(entry.date+'T12:00:00Z'))}</time><span>{entry.area}</span></div><div className={styles.cardTitle}><AdminIcon name="notes" size={19}/><h3>{entry.title}</h3></div><p className={styles.summary}>{entry.summary}</p><ul>{entry.changes.map(change=><li key={change}>{change}</li>)}</ul></article>;}
+function ReleaseCard({entry}:{entry:(typeof releases)[number]}){return <article id={entry.id} className={styles.card}><div className={styles.cardMeta}><time dateTime={entry.date}>{<LocalDate value={new Date(entry.date+'T12:00:00Z')} timeZone="Europe/Brussels"/>}</time><span>{entry.area}</span></div><div className={styles.cardTitle}><AdminIcon name="notes" size={19}/><h3>{entry.title}</h3></div><p className={styles.summary}>{entry.summary}</p><ul>{entry.changes.map(change=><li key={change}>{change}</li>)}</ul></article>;}
