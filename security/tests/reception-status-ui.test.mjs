@@ -52,10 +52,10 @@ test('legacy New resolves to configured new and refunded articles are excluded f
 
 test('linked RMA devices are grouped under clickable dossiers and excluded from new selection',async()=>{const h=await harness(),d={id:'case1',code:'TEST-DOSSIER-1',stage:'sent',supplier_reference:'SUP-123',reception_id:'synthetic'},p={...props,canWrite:true,canUseAdminStatuses:true,rmaCaseLinks:[{reception_item_id:'1',case_id:'case1',active:true,dossier:d}],rmaCases:[d]};h.render(p);let tree=h.render(p);nodes(tree,n=>n.props?.['aria-label']==='RMA-overzicht uitklappen')[0].props.onClick();tree=h.render(p);const card=nodes(tree,n=>n.props?.className==='overflow-hidden rounded-md border border-red-200 bg-white text-xs')[0];assert.ok(text(card).includes('Reeds toegevoegd aan RMA Supplier'));assert.equal(nodes(card,n=>n.type==='a'&&n.props.href==='/admin/refurb/rma/case1').length,1);assert.equal(nodes(card,n=>n.type==='input'&&n.props.name==='item_ids'&&n.props.value==='1').length,0);assert.equal(nodes(card,n=>n.type==='option'&&n.props.value==='case1').length,2);assert.ok(text(card).includes('Nieuw dossier — aparte zending / RMA-nummer'));});
 
-test('packaging label link appears only for Finished and Ready to book, including configured labels',async()=>{
+test('packaging label link appears for Finished, Ready to book and Booked, including configured labels',async()=>{
  const h=await harness(),p={...props,initialItems:['Finished','Ready to book','RMA Refunded (Finished)','Booked','New','finish_code'].map((status,index)=>({...props.initialItems[0],id:'item-'+index,row_index:index,refurb_status:status})),statusOptions:[...props.statusOptions,{value:'Finished',label:'Finished'},{value:'Ready to book',label:'Ready to book'},{value:'finish_code',label:'Finished'}]};
  h.render(p);let tree=h.render(p);nodes(tree,n=>n.type==='button'&&text(n).trim().startsWith('Afgewerkt ('))[0].props.onClick();tree=h.render(p);const links=nodes(tree,n=>n.type==='RefurbLabelPrintButton');
- assert.deepEqual(links.map(n=>n.props.itemId).sort(),['item-0','item-1','item-5']);assert.equal(nodes(tree,n=>n.type==='a'&&String(n.props.href).includes('/erp/labels')).length,0);
+ assert.deepEqual(links.map(n=>n.props.itemId).sort(),['item-0','item-1','item-3','item-5']);assert.equal(nodes(tree,n=>n.type==='a'&&String(n.props.href).includes('/erp/labels')).length,0);
 });
 
 test('bulk panel retains both target modes and all existing field controls',async()=>{

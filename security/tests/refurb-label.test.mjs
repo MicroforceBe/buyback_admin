@@ -17,8 +17,8 @@ async function harness({denied=false,status='Finished',sku='TEST-SKU',imei='IMEI
 const id='11111111-1111-1111-1111-111111111111';
 test('label eligibility is exact and supports canonical configured values and labels',async()=>{
  const {helper}=await harness();
- for(const status of ['Finished',' FINISHED ','Ready to book','ready_to_book'])assert.equal(helper.canPrintRefurbLabel(status),true);
- for(const status of ['New','Booked','RMA Refunded (Finished)','Unfinished','RMA Finished',''])assert.equal(helper.canPrintRefurbLabel(status),false);
+ for(const status of ['Finished',' FINISHED ','Ready to book','ready_to_book','Booked',' BOOKED '])assert.equal(helper.canPrintRefurbLabel(status),true);
+ for(const status of ['New','RMA Refunded (Finished)','Unfinished','RMA Finished',''])assert.equal(helper.canPrintRefurbLabel(status),false);
  assert.equal(helper.canPrintRefurbLabel('done',[{value:'done',label:'Finished'}]),true);
 });
 test('source denies access before any read and invalid IDs cause no lookup',async()=>{
@@ -26,7 +26,7 @@ test('source denies access before any read and invalid IDs cause no lookup',asyn
  const h=await harness();assert.ok((await h.api.getRefurbLabelSource('invalid')).error);assert.equal(h.reads.length,0);
 });
 test('source rechecks saved status, lookup errors and required SKU',async()=>{
- for(const options of [{status:'Booked'},{status:'RMA Refunded (Finished)'},{sku:''},{error:{message:'private provider detail'}},{optionsError:{message:'private provider detail'}}]){
+ for(const options of [{status:'New'},{status:'RMA Refunded (Finished)'},{sku:''},{error:{message:'private provider detail'}},{optionsError:{message:'private provider detail'}}]){
   const h=await harness(options),result=await h.api.getRefurbLabelSource(id);assert.ok(result.error);assert.ok(!result.error.includes('private provider detail'));
  }
 });
@@ -35,3 +35,9 @@ test('source uses saved SKU and IMEI, with manual serial fallback',async()=>{
  const fallback=await harness({imei:'',manual:'SERIAL'});assert.equal((await fallback.api.getRefurbLabelSource(id)).imei,'SERIAL');
 });
 
+
+test('booked source is printable without reopening or modifying the device',async()=>{
+ const h=await harness({status:'Booked'}),result=await h.api.getRefurbLabelSource(id);assert.equal(result.sku,'TEST-SKU');assert.equal(result.imei,'IMEI');
+ assert.equal(h.helper.canPrintRefurbLabel('locked',[{value:'locked',label:'Booked'}]),true);
+ assert.equal(h.helper.canPrintRefurbLabel('RMA Booked'),false);
+});
