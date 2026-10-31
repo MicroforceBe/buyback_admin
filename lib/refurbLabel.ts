@@ -6,7 +6,7 @@ export function canPrintRefurbLabel(status: string | null | undefined, options: 
   const value = normalize(status);
   if (!value) return false;
   const option = options.find(option => normalize(option.value) === value || normalize(option.label) === value);
-  const allowed = (text: string) => text === 'finished' || text === 'ready to book';
+  const allowed = (text: string) => text === 'finished' || text === 'ready to book' || text === 'booked';
   return allowed(value) || !!option && (allowed(normalize(option.value)) || allowed(normalize(option.label)));
 }
 

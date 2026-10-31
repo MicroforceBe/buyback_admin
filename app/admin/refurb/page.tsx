@@ -1,3 +1,6 @@
+import RefurbLabelPrintButton from './RefurbLabelPrintButton';
+import LeadLabelPrintButton from '../leads/LeadLabelPrintButton';
+import {canPrintRefurbLabel} from '@/lib/refurbLabel';
 import OpenReceptionModels from './OpenReceptionModels';
 import {buildOpenReceptionSummary,mergeOpenReceptionSummaries,type OpenReceptionItem,type OpenReceptionModel,type OpenReceptionSummary} from '@/lib/receptionOpenSummary';
 import {loadReceptionRmaWork} from './rma/receptionWorkData';
@@ -66,6 +69,8 @@ type RefurbStatusTransitionRow = {
 };
 
 type SearchResult = {
+  labelItemId?:string;
+  labelLeadId?:string;
   source: "Receptie lijst" | "Lead";
   reference_number: string | null;
   sku: string | null;
@@ -438,6 +443,7 @@ async function searchRefurbDevice(
   if (!q) return [];
 
   const results: SearchResult[] = [];
+  const printOptions=await supabaseAdmin.from("refurb_status_options").select("value,label");
 
   const {
     data: receptionItems,
@@ -452,6 +458,8 @@ async function searchRefurbDevice(
       used_parts,
       imei_sn,
       manual_sn,
+      battery_percentage,
+      refurb_status,
       created_at,
       refurb_receptions (
         id,
@@ -479,6 +487,7 @@ async function searchRefurbDevice(
 
     results.push({
       source: "Receptie lijst",
+      labelItemId:!printOptions.error&&canPrintRefurbLabel((item as any).refurb_status,printOptions.data||[])?String(item.id):undefined,
       reference_number:
         reception?.reception_number || null,
       sku: (item as any).sku || null,
@@ -486,7 +495,7 @@ async function searchRefurbDevice(
         (item as any).description || null,
       used_parts:
         (item as any).used_parts || null,
-      battery_status: null,
+      battery_status:(item as any).battery_percentage!=null?`${(item as any).battery_percentage}%`:null,
       purchase_date:
         reception?.reception_date ||
         (item as any).created_at ||
@@ -536,6 +545,7 @@ async function searchRefurbDevice(
 
     results.push({
       source: "Lead",
+      labelLeadId:(lead as any).id&&String((lead as any).sku||"").trim()?String((lead as any).id):undefined,
       reference_number:
         (lead as any).order_code || null,
       sku: (lead as any).sku || null,
@@ -780,14 +790,18 @@ export default async function RefurbListPage({
                       {result.supplier || "—"}
                     </div>
 
+                    <div className="flex items-center gap-3 pt-2">
                     {result.link && (
                       <Link
                         href={result.link}
-                        className="inline-block pt-2 text-blue-600 underline"
+                        className="inline-block text-blue-600 underline"
                       >
                         Open
                       </Link>
                     )}
+                    {result.labelItemId&&<RefurbLabelPrintButton itemId={result.labelItemId}/>}
+                    {result.labelLeadId&&permits(user,'leads','read')&&<LeadLabelPrintButton leadId={result.labelLeadId}/>}
+                    </div>
                   </div>
                 )
               )}

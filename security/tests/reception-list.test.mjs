@@ -9,20 +9,22 @@ const reception=id=>({id,reception_number:'Reception '+id,reception_date:'2026-1
 const item=(id,reception_id,refurb_status)=>({id,reception_id,refurb_status});
 function nodes(tree,predicate){const all=[];function walk(node){if(Array.isArray(node)){node.forEach(walk);return;}if(!node||typeof node!=='object')return;if(predicate(node))all.push(node);walk(node.props?.children);}walk(tree);return all;}
 function text(node){if(Array.isArray(node))return node.map(text).join(' ');if(node&&typeof node==='object')return text(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
-async function render({models=[],modelsError=false,work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
+async function render({receptionSearch=[],leadSearch=[],canReadLeads=false,models=[],modelsError=false,work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
  const reads=[],ranges=[];let userReads=0;
- const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;if(table==='refurb_reception_items')ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?[]:table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_models'?models:table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:(itemsError&&table==='refurb_reception_items'||modelsError&&table==='refurb_models')?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
+ const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;if(table==='refurb_reception_items')ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?(table==='refurb_reception_items'?receptionSearch:table==='buyback_leads'?leadSearch:[]):table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_models'?models:table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:(itemsError&&table==='refurb_reception_items'||modelsError&&table==='refurb_models')?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
  class FixtureDate extends Date {constructor(value){super(arguments.length?value:'2026-10-26T10:00:00Z');}}
  const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
  const workHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionRmaWork.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await workHelper.link(()=>{throw Error('Unexpected import')});await workHelper.evaluate();
  const openSummary=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionOpenSummary.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await openSummary.link(()=>{throw Error('Unexpected import')});await openSummary.evaluate();
+ const labelHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/refurbLabel.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await labelHelper.link(()=>{});await labelHelper.evaluate();
  const imports={
+ './RefurbLabelPrintButton':{default:'RefurbLabelPrintButton'},'../leads/LeadLabelPrintButton':{default:'LeadLabelPrintButton'},
  './OpenReceptionModels':{default:'OpenReceptionModels'},
  './rma/receptionWorkData':{loadReceptionRmaWork:async()=>work},
   './ReceptionQuickSearch':{default:'ReceptionQuickSearch'},
   './rma/rma.module.css':{default:{workspace:'workspace'}},'./reception.module.css':{default:{reception:'reception'}},'./receptionMetadataActions':{updateReceptionMetadata:()=>{throw Error('No writes')}},
-  '@/lib/security/policy':{permits:()=>false},
+  '@/lib/security/policy':{permits:(_user,feature)=>canReadLeads&&feature==='leads'},
   './actions':{deleteRefurbReception:async()=>{throw Error('No mutations permitted');}},
   '@/lib/security/access':{requirePageAccess:async()=>{if(!allowed)throw Error('ACCESS_DENIED');},requireAccess:async()=>{throw Error('No actions permitted');}},
   'next/link':{default:'Link'},
@@ -33,7 +35,7 @@ async function render({models=[],modelsError=false,work=[],params={},allowed=tru
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},
  };
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/refurbLabel')return labelHelper;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
  const tree=await mod.namespace.default({searchParams:Promise.resolve(params)});
  return {tree,reads,ranges,userReads};
 }
@@ -147,4 +149,14 @@ test('overview distinguishes missing model configuration and unavailable item st
  const failed=await render({itemsError:true});assert.match(text(failed.tree),/Niet beschikbaar/);assert.equal(nodes(failed.tree,n=>n.type==='OpenReceptionModels').length,0);
  const component=fs.readFileSync(new URL('../../app/admin/refurb/OpenReceptionModels.tsx',import.meta.url),'utf8');
  assert.match(component,/aria-sort/);assert.match(component,/aria-expanded/);assert.match(component,/placeholder="Zoek model of status/);assert.match(component,/missingPrices/);
+});
+
+test('Refurb tools prints reception matches directly by saved item ID including Booked, without enabling ineligible statuses',async()=>{
+ const {tree}=await render({params:{q:'TEST-SERIAL'},options:[{value:'locked',label:'Booked'}],receptionSearch:[
+ {id:'booked-id',refurb_status:'locked',sku:'SAVED',imei_sn:'TEST-SERIAL',battery_percentage:90,refurb_receptions:{id:'r',reception_number:'TEST'}},
+ {id:'new-id',refurb_status:'New',sku:'OTHER',imei_sn:'TEST-SERIAL'}]});
+ const buttons=nodes(tree,n=>n.type==='RefurbLabelPrintButton');assert.equal(buttons.length,1);assert.equal(buttons[0].props.itemId,'booked-id');assert.match(text(tree),/90%/);
+ const lead={id:'lead-id',sku:'SAVED',imei_sn:'TEST-SERIAL'};
+ const denied=await render({params:{q:'TEST-SERIAL'},leadSearch:[lead]});assert.equal(nodes(denied.tree,n=>n.type==='LeadLabelPrintButton').length,0);
+ const allowed=await render({params:{q:'TEST-SERIAL'},leadSearch:[lead],canReadLeads:true});assert.equal(nodes(allowed.tree,n=>n.type==='LeadLabelPrintButton')[0].props.leadId,'lead-id');
 });
