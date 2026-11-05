@@ -18,7 +18,10 @@ stocktellingen, distributie, diagnostics en Trustpilot-uitnodigingen.
 - Node 22 (zelfde versie als Vercel en CI).
 - Supabase (Postgres 17) via `@supabase/supabase-js`; Prisma voor de diagnostics-tabellen
   (`prisma/schema.prisma`).
-- Hosting: Vercel, team `microforce`, project `buyback-admin`. Cron: `/api/erp-sync` elke 15 min.
+- Hosting: Vercel, team `microforce`.
+  - `buyback-admin` = **productie** (alleen `main`; preview-deployments staan uit).
+  - `buyback-admin-test` = **testomgeving**, gekoppeld aan het Supabase-testproject.
+  - Cron: `/api/erp-sync` elke 15 min.
 - Overige integraties: ERP via FTP/Excel, Resend (mail), Sendcloud (labels), Trustpilot.
 
 ## Mappen
@@ -78,7 +81,7 @@ node --experimental-vm-modules --test security/tests/<relevante>.test.mjs
 
 - **Nooit rechtstreeks naar `main` pushen.** `main` deployt automatisch naar productie.
 - Werk op een branch: `codex/<korte-omschrijving>` of `claude/<korte-omschrijving>`.
-- Open een pull request naar `main`. Vercel maakt een preview-deployment; controleer die.
+- Open een pull request naar `main`. Test de branch op `buyback-admin-test` (testdatabase), nooit tegen productie.
 - Eén onderwerp per pull request. Kleine, reviewbare wijzigingen.
 - Commitberichten: Engels, gebiedende wijs, beschrijven het *gedrag*
   (bv. "Show ERP-ready checks for reception items waiting for SKU").
