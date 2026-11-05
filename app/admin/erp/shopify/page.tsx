@@ -42,8 +42,12 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   const c = (selected?.counts ?? {}) as Record<string, unknown>;
   const view = params.view && Object.hasOwn(LISTS, params.view) ? (params.view as ListKey) : null;
   const q = (params.q ?? '').trim().toLowerCase();
-  const allUnmatched = view && Array.isArray(c[LISTS[view].key]) ? (c[LISTS[view].key] as { sku: string; title: string; productId?: string }[]) : [];
+  const allUnmatched = view && Array.isArray(c[LISTS[view].key]) ? (c[LISTS[view].key] as { sku: string; title: string; productId?: string; inventory?: Record<string, number> }[]) : [];
   const unmatched = q ? allUnmatched.filter(u => u.sku.toLowerCase().includes(q) || u.title.toLowerCase().includes(q)) : allUnmatched;
+  // One column per store (location), shortened: "Microforce Gentbrugge" -> "Gentbrugge".
+  const stores = [...new Set(allUnmatched.flatMap(u => Object.keys(u.inventory ?? {})))].sort();
+  const storeLabel = (name: string) => name.replace(/^Microforce\s+/i, '');
+  const total = (u: { inventory?: Record<string, number> }) => Object.values(u.inventory ?? {}).reduce((a, b) => a + b, 0);
   const store = (() => { try { return shopifyConfig()?.domain.replace(/\.myshopify\.com$/, '') ?? null; } catch { return null; } })();
   const productUrl = (gid?: string) => (store && gid ? `https://admin.shopify.com/store/${store}/products/${gid.split('/').pop()}` : null);
 
@@ -129,7 +133,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
               <p className="mt-1 text-xs text-slate-500">{LISTS[view].help}</p>
               <div className="mt-2 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
+                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
                   <tbody className="divide-y">
                     {unmatched.map(u => {
                       const url = productUrl(u.productId);
@@ -137,11 +141,13 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                         <tr key={u.sku}>
                           <td className="py-1.5 pr-4 font-mono">{u.sku}</td>
                           <td className="pr-4">{u.title || '—'}</td>
+                          {stores.map(st => <td key={st} className="pr-4 text-right tabular-nums">{u.inventory?.[st] ?? '—'}</td>)}
+                          <td className={`pr-4 text-right font-semibold tabular-nums ${total(u) > 0 ? 'text-green-700' : 'text-slate-400'}`}>{total(u)}</td>
                           <td>{url && <a href={url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">openen</a>}</td>
                         </tr>
                       );
                     })}
-                    {!unmatched.length && <tr><td colSpan={3} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
+                    {!unmatched.length && <tr><td colSpan={4 + stores.length} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
                   </tbody>
                 </table>
               </div>

@@ -52,7 +52,7 @@ export type Change = {
   newValue: string | null;
 };
 
-export type UnmatchedSku = { sku: string; title: string; productId?: string };
+export type UnmatchedSku = { sku: string; title: string; productId?: string; inventory: Record<string, number> };
 export type Plan = {
   changes: Change[];
   /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
@@ -200,13 +200,13 @@ export function planSync(input: {
   }
   for (const sku of duplicate) {
     const c = bySku.get(sku)!;
-    plan.unmatched.duplicate.push({ sku, title: c.title, productId: c.productId });
+    plan.unmatched.duplicate.push({ sku, title: c.title, productId: c.productId, inventory: { ...c.inventory } });
     bySku.delete(sku);
   }
   plan.counts.duplicateSkus = duplicate.size;
 
   const desiredSkus = new Set(input.desired.map(d => d.sku));
-  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId });
+  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId, inventory: { ...c.inventory } });
   plan.counts.shopifyOnly = plan.unmatched.shopifyOnly.length;
 
   const unknownLocations = new Set<string>();
@@ -218,7 +218,7 @@ export function planSync(input: {
   for (const d of input.desired) {
     if (duplicate.has(d.sku)) continue;
     const c = bySku.get(d.sku);
-    if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '' }); continue; }
+    if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '', inventory: { ...d.inventory } }); continue; }
     plan.counts.matched++;
     const before = plan.changes.length;
 

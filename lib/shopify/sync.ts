@@ -108,7 +108,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const state = parseBulkVariants(jsonl);
     const plan = planSync({ desired, current: state.variants, locations: { ...state.locations, ...apiLocations }, invalidRows: invalid });
     // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
-    const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), ...(u.productId ? { productId: u.productId } : {}) }));
+    const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}) }));
     Object.assign(counts, plan.counts, {
       changes: plan.changes.length, shopifyVariants: state.variants.length,
       erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), duplicateSkuList: cap(plan.unmatched.duplicate),

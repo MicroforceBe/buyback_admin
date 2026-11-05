@@ -90,8 +90,8 @@ test('nothing is created or deleted: one-sided and duplicate SKUs are only count
   assert.equal(p.counts.erpOnly, 1);
   assert.equal(p.counts.shopifyOnly, 1);
   assert.equal(p.counts.duplicateSkus, 1);
-  assert.deepEqual(plain(p.unmatched.erpOnly.map(u => u.sku)), ['ONLY-ERP']);
-  assert.deepEqual(plain(p.unmatched.shopifyOnly), [{ sku: 'ONLY-SHOP', title: 'iPhone 13 128GB', productId: 'gid://shopify/Product/1' }]);
+  assert.deepEqual(plain(p.unmatched.erpOnly.map(u => [u.sku, u.inventory])), [['ONLY-ERP', { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }]]);
+  assert.deepEqual(plain(p.unmatched.shopifyOnly), [{ sku: 'ONLY-SHOP', title: 'iPhone 13 128GB', productId: 'gid://shopify/Product/1', inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 } }]);
   assert.deepEqual(plain(p.unmatched.duplicate.map(u => u.sku)), ['DUP']);
 });
 
