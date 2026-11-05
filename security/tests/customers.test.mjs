@@ -7,7 +7,7 @@ const plain=v=>JSON.parse(JSON.stringify(v));
 const read=p=>fs.readFileSync(new URL('../../'+p,import.meta.url),'utf8');
 const ID='11111111-1111-4111-8111-111111111111',LEAD='22222222-2222-4222-8222-222222222222';
 
-async function harness({permissions={customers:{read:true,write:true},leads:{read:true,write:true}},duplicates=[],current={id:ID,version:3,archived_at:null,marketing_opt_in:false,marketing_opt_in_at:null},conflict=false,dbError=false,rpcError=null}={}){
+async function harness({permissions={customers:{read:true,write:true},leads:{read:true,write:true}},duplicates=[],current={id:ID,version:3,archived_at:null,marketing_opt_in:false,marketing_opt_in_at:null},conflict=false,dbError=false,rpcError=null,numberTaken=false,uniqueViolation=false}={}){
  const state={guards:[],calls:[],writes:[],rpc:[]};
  const context=vm.createContext({console,Date,FormData,Number,Object,Error,String,Array,RegExp,Set,Math,Promise});
  const access=(feature,mode)=>{state.guards.push([feature,mode]);if(permissions[feature]?.[mode]!==true)throw Error('DENIED');return {email:'staff@example.invalid',role:'user',permissions};};
@@ -16,6 +16,8 @@ async function harness({permissions={customers:{read:true,write:true},leads:{rea
   const result=()=>{
    if(dbError)return {data:null,error:{message:'db'}};
    const write=q.ops.find(o=>o[0]==='insert'||o[0]==='update');
+   if(write&&uniqueViolation){state.writes.push({table,op:write[0],row:write[1],filters:[]});return {data:null,error:{code:'23505',message:'duplicate key'}};}
+   if(!write&&q.ops.some(o=>o[0]==='eq'&&o[1]==='customer_number')){state.numberChecks=(state.numberChecks||0)+1;return {data:numberTaken?{id:LEAD,customer_type:'private',first_name:'Andere',last_name:'Klant',company_name:''}:null,error:null};}
    if(write){state.writes.push({table,op:write[0],row:write[1],filters:q.ops.filter(o=>['eq','is','neq','not'].includes(o[0]))});return {data:conflict&&write[0]==='update'?null:{id:ID},error:null};}
    if(q.ops.some(o=>o[0]==='or'))return {data:duplicates,error:null};
    return {data:current,error:null};
@@ -107,17 +109,38 @@ test('postal codes follow the rules of each country, including written prefixes'
 test('every action checks rights before touching the database',async()=>{
  const h=await harness({permissions:{customers:{read:true}}}),a=await h.actions();
  await assert.rejects(a.createCustomer(form({})),/DENIED/);await assert.rejects(a.updateCustomer(form({id:ID,version:'1'})),/DENIED/);
- await assert.rejects(a.setCustomerArchived({id:ID,version:1,archived:true}),/DENIED/);await assert.rejects(a.linkLeadToCustomer({customerId:ID,leadId:LEAD}),/DENIED/);
+ await assert.rejects(a.setCustomerArchived({id:ID,version:1,archived:true}),/DENIED/);await assert.rejects(a.resolveCustomerReview({id:ID,version:1}),/DENIED/);await assert.rejects(a.linkLeadToCustomer({customerId:ID,leadId:LEAD}),/DENIED/);
  assert.equal(h.state.calls.length,0);assert.equal(h.state.rpc.length,0);
  const noLeads=await harness({permissions:{customers:{read:true,write:true},leads:{read:true}}}),b=await noLeads.actions();
  await assert.rejects(b.linkLeadToCustomer({customerId:ID,leadId:LEAD}),/DENIED/);assert.equal(noLeads.state.rpc.length,0);
 });
 test('creation stores the trusted actor, ignores forged fields and records marketing consent time',async()=>{
  const h=await harness(),a=await h.actions();
- const result=await a.createCustomer(form({created_by:'forged',customer_number:'K999999',version:'99',marketing_opt_in:'on'}));
+ const result=await a.createCustomer(form({created_by:'forged',customer_number:' 12.345 ',version:'99',review_note:'forged',marketing_opt_in:'on'}));
  assert.deepEqual(plain(result),{ok:true,id:ID});const w=h.state.writes[0];
  assert.equal(w.op,'insert');assert.equal(w.row.created_by,'staff@example.invalid');assert.equal(w.row.updated_by,'staff@example.invalid');
- assert.equal('customer_number' in w.row,false);assert.equal('version' in w.row,false);assert.ok(w.row.marketing_opt_in_at);
+ assert.equal(w.row.customer_number,'12345');assert.equal('version' in w.row,false);assert.equal('review_note' in w.row,false);assert.ok(w.row.marketing_opt_in_at);
+ const empty=await harness(),e=await empty.actions();await e.createCustomer(form({}));assert.equal(empty.state.writes[0].row.customer_number,null);assert.equal(empty.state.numberChecks??0,0,'no lookup without a number');
+});
+test('customer numbers are digits from the accounting package and stay unique, also under concurrent saves',async()=>{
+ const {lib}=await harness();
+ assert.equal(lib.normalizeCustomerNumber(''),null);assert.equal(lib.normalizeCustomerNumber('500 063'),'500063');
+ for(const bad of ['K000001','123','12345678901','open','12-345'])assert.throws(()=>lib.normalizeCustomerNumber(bad),e=>e.field==='customer_number'&&/4 tot 10 cijfers/.test(e.message),bad);
+ const taken=await harness({numberTaken:true}),t=await taken.actions();
+ const r=await t.createCustomer(form({customer_number:'12345'}));assert.equal(r.ok,false);assert.equal(r.field,'customer_number');assert.match(r.error,/12345 is al gekoppeld aan Andere Klant/);assert.equal(taken.state.writes.length,0);
+ const u=await t.updateCustomer(form({id:ID,version:'3',customer_number:'12345'}));assert.equal(u.field,'customer_number');assert.equal(taken.state.writes.length,0);
+ const race=await harness({uniqueViolation:true}),ra=await race.actions();
+ const c=await ra.createCustomer(form({customer_number:'12345'}));assert.equal(c.field,'customer_number');assert.match(c.error,/intussen/);
+});
+test('a review note can only be cleared by a writer, with the expected version',async()=>{
+ const reader=await harness({permissions:{customers:{read:true}}}),r=await reader.actions();
+ await assert.rejects(r.resolveCustomerReview({id:ID,version:2}),/DENIED/);assert.equal(reader.state.calls.length,0);
+ const h=await harness(),a=await h.actions();
+ assert.deepEqual(plain(await a.resolveCustomerReview({id:ID,version:2})),{ok:true});const w=h.state.writes[0];
+ assert.equal(w.row.review_note,null);assert.equal(w.row.version,3);assert.equal(w.row.updated_by,'staff@example.invalid');
+ assert.ok(w.filters.some(f=>f[1]==='version'&&f[2]===2));assert.ok(w.filters.some(f=>f[0]==='not'&&f[1]==='review_note'));
+ assert.equal((await a.resolveCustomerReview({id:'x',version:2})).ok,false);
+ const c=await harness({conflict:true}),ca=await c.actions();assert.match((await ca.resolveCustomerReview({id:ID,version:2})).error,/intussen/);
 });
 test('possible duplicates are shown first and only saved after explicit confirmation',async()=>{
  const dup=[{id:LEAD,customer_number:'K000001',customer_type:'private',first_name:'Bestaande',last_name:'Klant',company_name:'',email:'klant@example.invalid',phone:null}];

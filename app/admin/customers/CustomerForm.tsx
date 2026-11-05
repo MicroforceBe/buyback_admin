@@ -57,6 +57,14 @@ export default function CustomerForm({ customer, shops }: { customer?: Customer;
       </div>
 
       <div className={styles.section}>
+        <h2>Klantnummer</h2>
+        <p>Het klantnummer uit het boekhoudpakket. Het is uniek en wordt gebruikt voor de koppeling met het CRM en de boekhouding. Laat leeg als de klant nog geen nummer heeft.</p>
+        <div className={styles.grid}>
+          <label className={styles.field + ' ' + styles.span2}>Klantnummer<input name="customer_number" inputMode="numeric" maxLength={14} defaultValue={customer?.customer_number ?? ''} placeholder="Bijv. 12345" {...invalid('customer_number')} />{fieldError('customer_number')}</label>
+        </div>
+      </div>
+
+      <div className={styles.section}>
         <h2>{type === 'business' ? 'Bedrijf en contactpersoon' : 'Persoon'}</h2>
         <p>{type === 'business' ? 'Bedrijfsnaam is verplicht. Een Belgisch btw-nummer wordt gecontroleerd.' : 'Vul minstens een voor- of achternaam in.'}</p>
         <div className={styles.grid}>
@@ -103,7 +111,7 @@ export default function CustomerForm({ customer, shops }: { customer?: Customer;
       {failure?.duplicates?.length ? (
         <div className={styles.duplicates} role="alert" id="customer-form-error">
           <strong>{failure.error}</strong>
-          <ul>{failure.duplicates.map(d => <li key={d.id}><Link href={'/admin/customers/' + d.id}>{d.name || 'Naamloos'}</Link> · {d.customer_number}{d.email ? ' · ' + d.email : ''}{d.phone ? ' · ' + d.phone : ''}</li>)}</ul>
+          <ul>{failure.duplicates.map(d => <li key={d.id}><Link href={'/admin/customers/' + d.id}>{d.name || 'Naamloos'}</Link>{d.customer_number ? ' · ' + d.customer_number : ''}{d.email ? ' · ' + d.email : ''}{d.phone ? ' · ' + d.phone : ''}</li>)}</ul>
           <button type="button" className={styles.secondary} disabled={pending} onClick={() => submit(true)}>Toch opslaan als aparte klant</button>
         </div>
       ) : failure && !failure.field ? (

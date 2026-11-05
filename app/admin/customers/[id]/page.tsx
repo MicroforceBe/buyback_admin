@@ -4,11 +4,11 @@ import { requirePageAccess } from '@/lib/security/access';
 import { hasPermission } from '@/lib/adminPermissions';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import {
-  CUSTOMER_COLUMNS, customerDisplayName, customerEventLabels, customerFieldLabels, customerTypes, formatPhone, isUuid, type Customer,
+  CUSTOMER_COLUMNS, customerDisplayName, customerEventLabels, customerFieldLabels, customerTypes, formatPhone, isUuid, NO_CUSTOMER_NUMBER, type Customer,
 } from '@/lib/customers';
 import LocalDate from '@/app/admin/LocalDate';
 import CustomerForm from '../CustomerForm';
-import { ArchiveButton, LinkLeadButton } from './CustomerControls';
+import { ArchiveButton, LinkLeadButton, ResolveReviewButton } from './CustomerControls';
 import styles from '../customers.module.css';
 
 export const dynamic = 'force-dynamic';
@@ -56,7 +56,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       <Link className={styles.back} href="/admin/customers">← Alle klanten</Link>
       <header className={styles.hero}>
         <div>
-          <span>Klant {customer.customer_number}</span>
+          <span>{customer.customer_number ? 'Klant ' + customer.customer_number : 'Klant · ' + NO_CUSTOMER_NUMBER.toLowerCase()}</span>
           <h1>{customerDisplayName(customer) || 'Naamloos'}</h1>
           <div className={styles.heroMeta}>
             <span>{customerTypes[customer.customer_type]}</span>
@@ -67,7 +67,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         {canWrite && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><ArchiveButton id={customer.id} version={customer.version} archived={Boolean(customer.archived_at)} /></div>}
       </header>
 
-      {created && <p role="status" className={styles.success}>Klant {customer.customer_number} is aangemaakt.</p>}
+      {created && <p role="status" className={styles.success}>{customer.customer_number ? `Klant ${customer.customer_number} is aangemaakt.` : 'De klant is aangemaakt, nog zonder klantnummer.'}</p>}
+      {customer.review_note && (
+        <div role="status" className={styles.review}>
+          <div><strong>Te controleren</strong>{customer.review_note}</div>
+          {canWrite && !customer.archived_at && <ResolveReviewButton id={customer.id} version={customer.version} />}
+        </div>
+      )}
       {customer.archived_at && <p role="status" className={styles.error}>Deze klant is gearchiveerd. Zet de klant terug om gegevens te wijzigen of leads te koppelen.</p>}
 
       <div className={styles.layout}>
@@ -91,7 +97,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           <div className={styles.card}>
             <h3>Overzicht</h3>
             <dl className={styles.facts}>
-              <dt>Klantnummer</dt><dd className={styles.number}>{customer.customer_number}</dd>
+              <dt>Klantnummer</dt><dd className={customer.customer_number ? styles.number : styles.muted}>{customer.customer_number ?? NO_CUSTOMER_NUMBER}</dd>
               <dt>Telefoon</dt><dd>{formatPhone(customer.phone) || '—'}</dd>
               <dt>Voorkeurwinkel</dt><dd>{shopName || '—'}</dd>
               <dt>Marketing</dt><dd>{customer.marketing_opt_in ? <>Ja, sinds {customer.marketing_opt_in_at ? <LocalDate value={new Date(customer.marketing_opt_in_at)} timeZone="Europe/Brussels" /> : '—'}</> : 'Geen toestemming'}</dd>

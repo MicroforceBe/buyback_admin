@@ -7,6 +7,7 @@ export type CustomerType = keyof typeof customerTypes;
 export const customerCountries = { BE: 'België', NL: 'Nederland', FR: 'Frankrijk', LU: 'Luxemburg', DE: 'Duitsland' } as const;
 
 export type CustomerInput = {
+  customer_number: string | null;
   customer_type: CustomerType;
   first_name: string;
   last_name: string;
@@ -26,8 +27,8 @@ export type CustomerInput = {
 
 export type Customer = CustomerInput & {
   id: string;
-  customer_number: string;
   marketing_opt_in_at: string | null;
+  review_note: string | null;
   version: number;
   archived_at: string | null;
   created_at: string;
@@ -37,7 +38,7 @@ export type Customer = CustomerInput & {
 };
 
 export const CUSTOMER_COLUMNS =
-  'id,customer_number,customer_type,first_name,last_name,company_name,vat_number,email,phone,street,house_number,postal_code,city,country,preferred_shop_id,marketing_opt_in,marketing_opt_in_at,note,version,archived_at,created_at,updated_at,created_by,updated_by';
+  'id,customer_number,customer_type,first_name,last_name,company_name,vat_number,email,phone,street,house_number,postal_code,city,country,preferred_shop_id,marketing_opt_in,marketing_opt_in_at,note,review_note,version,archived_at,created_at,updated_at,created_by,updated_by';
 
 /** Error with a Dutch message for the user and the form field it belongs to. */
 export class CustomerInputError extends Error {
@@ -141,6 +142,17 @@ function normalizePostalCode(raw: string, country: string): string {
   return country === 'NL' ? value.slice(0, 4) + ' ' + value.slice(4) : value;
 }
 
+/**
+ * The customer number is the number of the customer in the external accounting/CRM package.
+ * It is optional (unknown for new customers until the package assigns one) and unique when set.
+ */
+export function normalizeCustomerNumber(raw: string): string | null {
+  const value = raw.replace(/[\s.]/g, '');
+  if (!value) return null;
+  if (!/^[0-9]{4,10}$/.test(value)) throw new CustomerInputError('customer_number', 'Een klantnummer bestaat uit 4 tot 10 cijfers, zoals in het boekhoudpakket. Laat leeg als de klant nog geen nummer heeft.');
+  return value;
+}
+
 /** Parses and validates customer form data. Throws CustomerInputError with a Dutch message. */
 export function customerInput(form: FormData): CustomerInput {
   const type = String(form.get('customer_type') ?? 'private');
@@ -168,6 +180,7 @@ export function customerInput(form: FormData): CustomerInput {
   if (note.length > 4000) throw new CustomerInputError('note', 'Notitie mag maximaal 4000 tekens bevatten.');
 
   return {
+    customer_number: normalizeCustomerNumber(String(form.get('customer_number') ?? '')),
     customer_type,
     first_name,
     last_name,
@@ -258,8 +271,11 @@ export const customerEventLabels: Record<string, string> = {
   lead_linked: 'Buyback-lead gekoppeld',
 };
 
+/** Shown instead of the number when a customer has none yet. */
+export const NO_CUSTOMER_NUMBER = 'Geen klantnummer';
+
 export const customerFieldLabels: Record<string, string> = {
-  customer_type: 'type', first_name: 'voornaam', last_name: 'achternaam', company_name: 'bedrijfsnaam', vat_number: 'btw-nummer',
+  customer_number: 'klantnummer', review_note: 'controlepunt', customer_type: 'type', first_name: 'voornaam', last_name: 'achternaam', company_name: 'bedrijfsnaam', vat_number: 'btw-nummer',
   email: 'e-mail', phone: 'telefoon', street: 'straat', house_number: 'huisnummer', postal_code: 'postcode', city: 'gemeente',
   country: 'land', preferred_shop_id: 'voorkeurwinkel', marketing_opt_in: 'marketingtoestemming', marketing_opt_in_at: 'marketingtoestemming', note: 'notitie',
 };

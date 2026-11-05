@@ -1,7 +1,7 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { linkLeadToCustomer, setCustomerArchived } from '../actions';
+import { linkLeadToCustomer, resolveCustomerReview, setCustomerArchived } from '../actions';
 import styles from '../customers.module.css';
 
 export function ArchiveButton({ id, version, archived }: { id: string; version: number; archived: boolean }) {
@@ -44,6 +44,27 @@ export function LinkLeadButton({ customerId, leadId }: { customerId: string; lea
   return (
     <span>
       <button type="button" className={styles.secondary} style={{ padding: '6px 11px' }} disabled={pending} onClick={run}>{pending ? 'Koppelen…' : 'Koppelen'}</button>
+      {error && <span role="alert" className={styles.inlineError}> {error}</span>}
+    </span>
+  );
+}
+
+export function ResolveReviewButton({ id, version }: { id: string; version: number }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  function run() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await resolveCustomerReview({ id, version });
+        if (!result.ok) setError(result.error); else router.refresh();
+      } catch { setError('Niet gelukt. Probeer opnieuw.'); }
+    });
+  }
+  return (
+    <span>
+      <button type="button" className={styles.secondary} disabled={pending} onClick={run}>{pending ? 'Bezig…' : 'Gecontroleerd'}</button>
       {error && <span role="alert" className={styles.inlineError}> {error}</span>}
     </span>
   );

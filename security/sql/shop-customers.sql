@@ -1,11 +1,10 @@
 -- Shop customers (winkelbeheer fase 1). Additive only: new tables, one nullable column on buyback_leads.
 -- Apply on the test project first, then on production (by a human).
 
-create sequence public.shop_customer_number_seq start 1;
-
 create table public.shop_customers(
  id uuid primary key default gen_random_uuid(),
- customer_number text not null unique default ('K'||lpad(nextval('public.shop_customer_number_seq')::text,6,'0')),
+ -- Customer number in the external accounting/CRM package. Unique when known; empty until known.
+ customer_number text unique check(customer_number is null or customer_number ~ '^[0-9]{4,10}$'),
  customer_type text not null default 'private' check(customer_type in ('private','business')),
  first_name text not null default '' check(length(first_name)<=80),
  last_name text not null default '' check(length(last_name)<=80),
@@ -22,6 +21,8 @@ create table public.shop_customers(
  marketing_opt_in boolean not null default false,
  marketing_opt_in_at timestamptz,
  note text not null default '' check(length(note)<=4000),
+ -- Set by imports when data needs a human check (e.g. conflicting customer numbers); cleared by staff.
+ review_note text check(review_note is null or length(review_note)<=1000),
  version integer not null default 1 check(version>0),
  archived_at timestamptz,
  created_at timestamptz not null default now(),
@@ -39,6 +40,7 @@ create index shop_customers_phone_idx on public.shop_customers(phone) where phon
 create index shop_customers_last_name_idx on public.shop_customers(lower(last_name));
 create index shop_customers_company_idx on public.shop_customers(lower(company_name)) where company_name<>'';
 create index shop_customers_vat_idx on public.shop_customers(vat_number) where vat_number is not null;
+create index shop_customers_review_idx on public.shop_customers(updated_at desc) where review_note is not null;
 create index shop_customers_updated_idx on public.shop_customers(updated_at desc);
 
 create table public.shop_customer_events(
@@ -111,11 +113,9 @@ alter table public.shop_customers enable row level security;
 alter table public.shop_customer_events enable row level security;
 alter table public.shop_customer_external_refs enable row level security;
 revoke all on public.shop_customers,public.shop_customer_events,public.shop_customer_external_refs from public,anon,authenticated,service_role;
-revoke all on sequence public.shop_customer_number_seq from public,anon,authenticated,service_role;
 grant select,insert,update on public.shop_customers to service_role;
 grant select on public.shop_customer_events to service_role;
 grant select,insert,update on public.shop_customer_external_refs to service_role;
-grant usage on sequence public.shop_customer_number_seq to service_role;
 revoke all on function public.shop_customers_audit() from public,anon,authenticated;
 revoke all on function public.shop_customer_link_lead(uuid,uuid,text) from public,anon,authenticated;
 grant execute on function public.shop_customer_link_lead(uuid,uuid,text) to service_role;

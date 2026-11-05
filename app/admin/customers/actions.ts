@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { customerInput, CustomerInputError, isUuid, type CustomerInput } from '@/lib/customers';
 import { revalidatePath } from 'next/cache';
 
-export type DuplicateCandidate = { id: string; customer_number: string; name: string; email: string | null; phone: string | null };
+export type DuplicateCandidate = { id: string; customer_number: string | null; name: string; email: string | null; phone: string | null };
 export type CustomerSaveResult =
   | { ok: true; id: string }
   | { ok: false; error: string; field?: string; duplicates?: DuplicateCandidate[] };
@@ -41,11 +41,35 @@ async function findDuplicates(input: CustomerInput, excludeId?: string): Promise
   }));
 }
 
+/**
+ * The customer number must be unique, including archived customers: it identifies the customer in
+ * the accounting package. Returns an error result when another customer already has the number.
+ */
+async function numberConflict(input: CustomerInput, excludeId?: string): Promise<CustomerSaveResult | null> {
+  if (!input.customer_number) return null;
+  let query = supabaseAdmin
+    .from('shop_customers')
+    .select('id,customer_type,first_name,last_name,company_name')
+    .eq('customer_number', input.customer_number)
+    .limit(1);
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error('NUMBER_CHECK_FAILED');
+  if (!data) return null;
+  const name = data.customer_type === 'business' ? data.company_name : [data.first_name, data.last_name].filter(Boolean).join(' ');
+  return { ok: false, field: 'customer_number', error: `Klantnummer ${input.customer_number} is al gekoppeld aan ${name || 'een andere klant'}. Controleer het nummer in het boekhoudpakket.` };
+}
+
+const isUniqueViolation = (error: { code?: string } | null) => error?.code === '23505';
+const NUMBER_TAKEN: CustomerSaveResult = { ok: false, field: 'customer_number', error: 'Dit klantnummer is intussen aan een andere klant gekoppeld. Controleer het nummer.' };
+
 export async function createCustomer(form: FormData): Promise<CustomerSaveResult> {
   const user = await requireAccess('customers', 'write');
   let input: CustomerInput;
   try { input = customerInput(form); } catch (error) { return invalid(error); }
   try {
+    const conflict = await numberConflict(input);
+    if (conflict) return conflict;
     if (form.get('confirm_duplicate') !== '1') {
       const duplicates = await findDuplicates(input);
       if (duplicates.length) return { ok: false, error: 'Er bestaat al een klant met dit e-mailadres, telefoonnummer of btw-nummer.', duplicates };
@@ -56,6 +80,7 @@ export async function createCustomer(form: FormData): Promise<CustomerSaveResult
       .insert({ ...input, marketing_opt_in_at: input.marketing_opt_in ? now : null, created_by: user.email, updated_by: user.email })
       .select('id')
       .single();
+    if (isUniqueViolation(error)) return NUMBER_TAKEN;
     if (error || !data) return { ok: false, error: SAVE_FAILED };
     revalidatePath('/admin/customers');
     return { ok: true, id: data.id };
@@ -80,6 +105,8 @@ export async function updateCustomer(form: FormData): Promise<CustomerSaveResult
     if (readError) return { ok: false, error: SAVE_FAILED };
     if (!current) return { ok: false, error: 'Deze klant bestaat niet meer.' };
     if (current.archived_at) return { ok: false, error: 'Een gearchiveerde klant kan niet worden gewijzigd. Zet de klant eerst terug.' };
+    const conflict = await numberConflict(input, id);
+    if (conflict) return conflict;
     if (form.get('confirm_duplicate') !== '1') {
       const duplicates = await findDuplicates(input, id);
       if (duplicates.length) return { ok: false, error: 'Een andere klant heeft hetzelfde e-mailadres, telefoonnummer of btw-nummer.', duplicates };
@@ -94,6 +121,7 @@ export async function updateCustomer(form: FormData): Promise<CustomerSaveResult
       .is('archived_at', null)
       .select('id')
       .maybeSingle();
+    if (isUniqueViolation(error)) return NUMBER_TAKEN;
     if (error) return { ok: false, error: SAVE_FAILED };
     if (!data) return { ok: false, error: 'Deze klant is intussen door iemand anders gewijzigd. Vernieuw de pagina en probeer opnieuw.' };
     revalidatePath('/admin/customers');
@@ -146,5 +174,31 @@ export async function linkLeadToCustomer(input: { customerId: string; leadId: st
     return { ok: true };
   } catch {
     return { ok: false, error: 'Koppelen is niet gelukt. Probeer opnieuw.' };
+  }
+}
+
+/** Marks the import/control note of a customer as handled. Versioned like every other change. */
+export async function resolveCustomerReview(input: { id: string; version: number }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireAccess('customers', 'write');
+  if (!input || !isUuid(input.id) || !Number.isSafeInteger(input.version) || input.version < 1) {
+    return { ok: false, error: 'Ongeldige klant of versie. Vernieuw de pagina.' };
+  }
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await supabaseAdmin
+      .from('shop_customers')
+      .update({ review_note: null, version: input.version + 1, updated_by: user.email, updated_at: now })
+      .eq('id', input.id)
+      .eq('version', input.version)
+      .not('review_note', 'is', null)
+      .select('id')
+      .maybeSingle();
+    if (error) return { ok: false, error: SAVE_FAILED };
+    if (!data) return { ok: false, error: 'Deze klant is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.' };
+    revalidatePath('/admin/customers');
+    revalidatePath('/admin/customers/' + input.id);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: SAVE_FAILED };
   }
 }
