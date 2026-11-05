@@ -84,6 +84,12 @@ test('multi-word search requires every word and numbers search the phone in any 
  assert.equal(f('a b c d e f').length,4);
  for(const q of ['0470 12 34','0470/12.34','+32 470 12 34','047012 34'])assert.ok(f(q).length===1&&/phone\.ilike\.%(32)?4701234%/.test(f(q)[0]),q);
  assert.match(f('K000012')[0],/customer_number\.ilike\.%K000012%/);assert.match(f('BE 0123')[1],/vat_number\.ilike\.%0123%/);
+ // Every notation accepted when saving finds the stored number when searching (Codex review, PR #3).
+ for(const q of ['+32 (0)470 12 34 56','+320470123456','0032 (0)470 12 34 56','0032 470 12 34 56','0470 12 34 56','+32 470 12 34 56']){
+  const stored=lib.normalizePhone(q.replace(/[^0-9+()\s]/g,''),'BE'),digits=lib.phoneSearchDigits(lib.customerSearchTerm(q));
+  assert.ok(stored.includes(digits),q+' → '+digits+' not in '+stored);
+ }
+ assert.equal(lib.phoneSearchDigits('047'),null);assert.equal(lib.phoneSearchDigits('0470'),'470');
 });
 test('phone numbers are stored as unambiguous E.164 and odd notations are normalised or refused',async()=>{
  const {lib}=await harness();
