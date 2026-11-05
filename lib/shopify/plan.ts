@@ -108,8 +108,10 @@ function parseStatus(raw: unknown): ProductStatus | undefined {
   return v === 'ACTIVE' || v === 'DRAFT' || v === 'ARCHIVED' ? v : undefined;
 }
 
+// Only trim: inner whitespace (e.g. double spaces in ERP titles) is kept exactly as Matrixify did,
+// otherwise every such title would show up as a change.
 const text = (raw: unknown, max: number) => {
-  const v = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  const v = String(raw ?? '').trim();
   return v ? v.slice(0, max) : undefined;
 };
 

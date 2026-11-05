@@ -61,6 +61,13 @@ test('an identical ERP row and Shopify variant plan no changes', async () => {
   assert.equal(p.counts.unchanged, 1);
 });
 
+test('titles keep inner double spaces from the ERP, so they match Shopify', async () => {
+  const { plan } = await loadModules();
+  const t = 'Office Home & Business 2024  PC/MAC';
+  const p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ Title: ' ' + t + ' ' }))], current: [current({ title: t })], locations: LOCS });
+  assert.equal(p.changes.length, 0);
+});
+
 test('price, stock, status and metafield differences become batched mutations', async () => {
   const { plan } = await loadModules();
   const desired = plan.desiredFromRow(csvRow({ 'Variant Price': '449,00', 'Variant Compare At Price': '499,00', Status: 'Draft', 'Inventory Available: Microforce Antwerpen': '3', 'Metafield: custom.refurbished_product': 'FALSE' }));
