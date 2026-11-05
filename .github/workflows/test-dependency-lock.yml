@@ -83,7 +83,7 @@ jobs:
       - name: Verify user preservation, separate module capabilities and real permission guards
         run: node --experimental-vm-modules --test security/tests/user-access.test.mjs security/tests/supplier-rma.test.mjs security/tests/supplier-rma-page.test.mjs security/tests/supplier-rma-resolution.test.mjs security/tests/supplier-rma-reception-data.test.mjs security/tests/reception-rma-work.test.mjs security/tests/reception-status-ui.test.mjs security/tests/refurb-analytics-page.test.mjs security/tests/admin-dashboard.test.mjs
       - name: Verify current live reception, battery and label features
-        run: node --experimental-vm-modules --test security/tests/reception-battery.test.mjs security/tests/product-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/reception-status-filter.test.mjs security/tests/lead-device-validation.test.mjs
+        run: node --experimental-vm-modules --test security/tests/reception-battery.test.mjs security/tests/tool-battery.test.mjs security/tests/product-label.test.mjs security/tests/refurb-label-page.test.mjs security/tests/reception-status-filter.test.mjs security/tests/lead-device-validation.test.mjs
       - name: Verify admin-only development backlog
         run: node --experimental-vm-modules --test security/tests/development-backlog.test.mjs
       - name: Verify read-only help assistant and independent module access

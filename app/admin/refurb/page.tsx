@@ -1,3 +1,4 @@
+import ToolBatteryField from './ToolBatteryField';
 import LocalDate from '@/app/admin/LocalDate';
 import RefurbLabelPrintButton from './RefurbLabelPrintButton';
 import LeadLabelPrintButton from '../leads/LeadLabelPrintButton';
@@ -767,7 +768,7 @@ export default async function RefurbListPage({
 
                     <div>
                       <b>Batterij status:</b>{" "}
-                      {result.battery_status || "—"}
+                      {<ToolBatteryField itemId={result.labelItemId} known={result.battery_status} canEdit={permits(user,'refurb','write')}/>}
                     </div>
 
                     <div>
@@ -789,7 +790,7 @@ export default async function RefurbListPage({
                         Open
                       </Link>
                     )}
-                    {result.labelItemId&&<RefurbLabelPrintButton itemId={result.labelItemId}/>}
+                    {result.labelItemId&&<RefurbLabelPrintButton key={result.battery_status||'missing'} itemId={result.labelItemId}/>}
                     {result.labelLeadId&&permits(user,'leads','read')&&<LeadLabelPrintButton leadId={result.labelLeadId}/>}
                     </div>
                   </div>
@@ -992,4 +993,3 @@ export default async function RefurbListPage({
     </div>
   );
 }
-
