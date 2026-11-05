@@ -9,6 +9,7 @@ import styles from "./AdminShell.module.css";
 type NavPermissions = {
   dashboard?: boolean;
   leads?: boolean;
+  customers?: boolean;
   refurb?: boolean;
   rma_supplier?:boolean;
   diagnostics?: boolean;
@@ -40,6 +41,13 @@ const items: Item[] = [
     label: "Leads",
     icon: "leads",
     permKey: "leads",
+  },
+
+  {
+    href: "/admin/customers",
+    label: "Klanten",
+    icon: "customers",
+    permKey: "customers",
   },
 
   {

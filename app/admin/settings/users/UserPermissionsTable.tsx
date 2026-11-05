@@ -8,7 +8,7 @@ import styles from './users.module.css';
 type UserRow={email:string;role:AdminRole;permissions:AdminPermissions;is_active:boolean;role_profile:RoleProfile|null;version:number;isRoot?:boolean};
 type Audit={id:string;actor:string;subject_email:string;event:string;created_at:string;changes?:{password_changed?:boolean}};
 type Props={initialUsers:UserRow[];currentUserEmail:string|null;canEdit:boolean;audit:Audit[]};
-const groups=[{label:'Dagelijkse verwerking',features:['dashboard','leads','leads_finalize','refurb','rma_supplier','refurb_analytics','erp'] as AdminFeature[]},{label:'Catalogus & beheer',features:['catalog','multipliers','uploads','settings'] as AdminFeature[]}];
+const groups=[{label:'Dagelijkse verwerking',features:['dashboard','leads','leads_finalize','customers','refurb','rma_supplier','refurb_analytics','erp'] as AdminFeature[]},{label:'Catalogus & beheer',features:['catalog','multipliers','uploads','settings'] as AdminFeature[]}];
 const notes:Partial<Record<AdminFeature,string>>={rma_supplier:'Bekijken omvat dossiergegevens en bedragen. Verwerken omvat aanmaken, koppelen, logistiek en opvolging. Bedragen en leveranciersbeslissingen vereisen Financieel; definitief afsluiten vereist Afsluiten.',refurb:'Bestaande receptie- en artikelrechten. Beheer van statussen, locaties en modellen blijft voor beheerders.',settings:'Bestaande instellingenrechten. Gebruikersbeheer blijft uitsluitend voor beheerders.',refurb_analytics:'Afzonderlijke toegang tot grafieken en financiële analyses.'};
 export default function UserPermissionsTable({initialUsers,currentUserEmail,canEdit,audit}:Props){
  const [users,setUsers]=useState<UserRow[]>(()=>initialUsers.map(u=>({...u,permissions:normalizeAccessPermissions(u.permissions)})));
