@@ -1,5 +1,7 @@
 // app/admin/refurb/RefurbReceptionTable.tsx
 "use client";
+import {isWaitingForSku,normalizeWaitingSku,buildWaitingSkuIndex,matchWaitingSku,type WaitingSkuMatch} from "@/lib/waitingSku";
+import WaitingSkuCheck from "./WaitingSkuCheck";
 import { parseReceptionBattery } from "@/lib/receptionBattery";
 import type {ReceptionRmaWork} from '@/lib/receptionRmaWork';
 import type { ReceptionRmaCase, ReceptionRmaLink } from './rma/receptionData';
@@ -29,6 +31,7 @@ import type { RefurbStatusOption, RefurbLocationOption } from "./settingsActions
 type StatusTransitionsMap = Record<string, string[]>;
 
 type Props = {
+  waitingSkuMatches?:Record<string,WaitingSkuMatch>;
   receptionId: string;
   rmaWork?:ReceptionRmaWork[];
   rmaCaseLinks?: ReceptionRmaLink[];
@@ -366,12 +369,16 @@ function UsedPartsCell({ rawValue, locked, onChange, onPasteToColumn }: UsedPart
 }
 
 function SkuAutocompleteCell({
+  waitingForSku=false,
+  availableArticle,
   value,
   vatScheme,
   disabled,
   onChange,
   onPaste,
 }: {
+  waitingForSku?:boolean;
+  availableArticle?:WaitingSkuMatch;
   value: string;
   vatScheme: "margin" | "normal";
   disabled: boolean;
@@ -429,6 +436,8 @@ function SkuAutocompleteCell({
     };
   }, [input, vatScheme]);
 
+  const savedMatch=availableArticle&&(normalizeWaitingSku(input)===normalizeWaitingSku(availableArticle.input)||availableArticle.sku.split(', ').some(sku=>normalizeWaitingSku(sku)===normalizeWaitingSku(input)))?availableArticle:null;
+  const match=waitingForSku?(savedMatch||matchWaitingSku(buildWaitingSkuIndex(results.map(r=>({...r,refurbished_product:true,missing_from_erp:false}))),input,vatScheme)):null;
   return (
     <div className="relative">
       <div className="flex items-center gap-1">
@@ -448,6 +457,7 @@ function SkuAutocompleteCell({
           onPaste={onPaste}
         />
 
+        {match&&<WaitingSkuCheck sku={match.sku} title={match.title}/>}
         <CopyBtn value={input.trim()} title="Copy SKU" />
       </div>
 
@@ -508,6 +518,7 @@ function SkuAutocompleteCell({
 
 export default function RefurbReceptionTable({
   receptionId,
+  waitingSkuMatches={},
   rmaWork = [],
   rmaCaseLinks = [],
   rmaCases = [],
@@ -1685,6 +1696,8 @@ async function copyCompleteRmaOverview() {
              {/* SKU + autocomplete */}
               <td className="px-1 py-0.5 border">
                 <SkuAutocompleteCell
+                  waitingForSku={isWaitingForSku(it.refurb_status,statusOptions)}
+                  availableArticle={waitingSkuMatches[it.id]}
                   value={it.sku ?? ""}
                   vatScheme={vatScheme}
                   disabled={!canWrite || rowBooked}
@@ -2436,7 +2449,4 @@ async function copyCompleteRmaOverview() {
     </div>
   );
 }
-
-
-
 

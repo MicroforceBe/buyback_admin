@@ -3,6 +3,8 @@ on:
   push:
     branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, release/backlog-compact-20261027, release/erp-20261027, release/article-settings-20261028, main]
     paths:
+      - lib/waitingSku*.ts
+      - security/tests/waiting-sku.test.mjs
       - app/admin/backlog/**
       - lib/developmentBacklog.ts
       - security/tests/development-backlog.test.mjs
@@ -132,7 +134,7 @@ jobs:
       - name: Verify Supabase SDK and cookie contracts with mocked transport only
         run: node --test security/tests/supabase-compat.test.mjs
       - name: Recheck access, sessions, reception and lead security
-        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
+        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/waiting-sku.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
       - name: Verify reception status links and filtered item lists without external services
         run: node --experimental-vm-modules --test security/tests/reception-status-filter.test.mjs security/tests/reception-status-ui.test.mjs
       - name: Verify internal article profiles and external ERP authority
