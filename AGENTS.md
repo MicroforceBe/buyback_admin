@@ -89,6 +89,33 @@ node --experimental-vm-modules --test security/tests/<relevante>.test.mjs
   uitvoeren (met volgorde: testproject → productie), en risico's.
 - Codex en Claude reviewen elkaars pull requests waar mogelijk; de eigenaar (Olivier) merget.
 
+## Review guidelines
+
+Voor Codex- en Claude-reviews van pull requests. Behandel als **P0** (blokkerend):
+
+- Een server action, pagina of route die data leest of wijzigt zonder eerst `requireAccess`,
+  `requirePageAccess` of `apiAccess` aan te roepen, of die het verkeerde recht controleert.
+- Secrets of de service role key in client-code, `NEXT_PUBLIC_*`, URL's, logs of commits.
+- Code of SQL die de productiedatabase wijzigt buiten een reviewbaar SQL-bestand in
+  `security/sql/`, of een destructieve migratie (`drop`, `truncate`, brede `update`/`delete`).
+- Vertrouwen op waarden uit het formulier die de server zelf moet bepalen (actor, rol, rechten,
+  prijzen, statusovergangen, versie).
+- Echte klant- of leveranciersgegevens in tests, fixtures of PR-teksten.
+
+Behandel als **P1**:
+
+- Ontbrekende of zwakke invoervalidatie; foutmeldingen die niet in het Nederlands zijn of
+  interne details lekken.
+- Ontbrekende tests voor nieuwe logica, randgevallen of geweigerde rechten; een nieuw
+  testbestand dat niet in `.github/workflows/release-verification.yml` staat.
+- Gelijktijdige bewerkingen zonder versiecontrole waar andere modules die wel hebben.
+- PostgREST-filters (`.or(...)`, `ilike`) opgebouwd uit niet-gesaneerde gebruikersinvoer.
+- Wijzigingen aan vergrendelde ("Booked") records of bestaande guards.
+- SQL-wijziging zonder bijhorend `security/sql/test-*.sql`, of een PR zonder uitleg welke SQL
+  een mens moet uitvoeren.
+
+Geen opmerkingen nodig over pure opmaak of stijl die overeenkomt met het aangepaste bestand.
+
 ## Stijl
 
 - Volg de stijl van het bestand dat je aanpast; herformatteer geen code die je niet wijzigt.
