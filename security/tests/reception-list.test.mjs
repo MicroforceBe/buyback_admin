@@ -19,7 +19,7 @@ async function render({receptionSearch=[],leadSearch=[],canReadLeads=false,model
  const openSummary=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionOpenSummary.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await openSummary.link(()=>{throw Error('Unexpected import')});await openSummary.evaluate();
  const labelHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/refurbLabel.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await labelHelper.link(()=>{});await labelHelper.evaluate();
  const imports={
- './RefurbLabelPrintButton':{default:'RefurbLabelPrintButton'},'../leads/LeadLabelPrintButton':{default:'LeadLabelPrintButton'},
+ './RefurbLabelPrintButton':{default:'RefurbLabelPrintButton'},'./ToolBatteryField':{default:'ToolBatteryField'},'../leads/LeadLabelPrintButton':{default:'LeadLabelPrintButton'},
  './OpenReceptionModels':{default:'OpenReceptionModels'},
  './rma/receptionWorkData':{loadReceptionRmaWork:async()=>work},
   './ReceptionQuickSearch':{default:'ReceptionQuickSearch'},
@@ -155,8 +155,13 @@ test('Refurb tools prints reception matches directly by saved item ID including 
  const {tree}=await render({params:{q:'TEST-SERIAL'},options:[{value:'locked',label:'Booked'}],receptionSearch:[
  {id:'booked-id',refurb_status:'locked',sku:'SAVED',imei_sn:'TEST-SERIAL',battery_percentage:90,refurb_receptions:{id:'r',reception_number:'TEST'}},
  {id:'new-id',refurb_status:'New',sku:'OTHER',imei_sn:'TEST-SERIAL'}]});
- const buttons=nodes(tree,n=>n.type==='RefurbLabelPrintButton');assert.equal(buttons.length,1);assert.equal(buttons[0].props.itemId,'booked-id');assert.match(text(tree),/90%/);
+ const buttons=nodes(tree,n=>n.type==='RefurbLabelPrintButton');assert.equal(buttons.length,1);assert.equal(buttons[0].props.itemId,'booked-id');assert.equal(nodes(tree,n=>n.type==='ToolBatteryField')[0].props.known,'90%');
  const lead={id:'lead-id',sku:'SAVED',imei_sn:'TEST-SERIAL'};
  const denied=await render({params:{q:'TEST-SERIAL'},leadSearch:[lead]});assert.equal(nodes(denied.tree,n=>n.type==='LeadLabelPrintButton').length,0);
  const allowed=await render({params:{q:'TEST-SERIAL'},leadSearch:[lead],canReadLeads:true});assert.equal(nodes(allowed.tree,n=>n.type==='LeadLabelPrintButton')[0].props.leadId,'lead-id');
 });
+
+ test('Refurb tools offers missing battery entry only with a printable saved source ID and write rights',async()=>{
+ const h=await render({params:{q:'TEST'},receptionSearch:[{id:'source',refurb_status:'Booked',battery_percentage:null,refurb_receptions:{id:'r'}}]});
+ const field=nodes(h.tree,n=>n.type==='ToolBatteryField')[0];assert.equal(field.props.itemId,'source');assert.equal(field.props.known,null);assert.equal(field.props.canEdit,false);
+ });
