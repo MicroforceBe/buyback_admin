@@ -7,6 +7,8 @@ on:
       - app/api/admin/help/**
       - lib/helpManual.ts
       - security/tests/help-assistant.test.mjs
+      - lib/waitingSku*.ts
+      - security/tests/waiting-sku.test.mjs
       - app/admin/backlog/**
       - lib/developmentBacklog.ts
       - security/tests/development-backlog.test.mjs
@@ -77,7 +79,7 @@ jobs:
       - name: Verify Supabase SDK and cookie contracts with mocked transport only
         run: node --test security/tests/supabase-compat.test.mjs
       - name: Recheck access, sessions, reception and lead security
-        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
+        run: node --experimental-vm-modules --test security/tests/security.test.mjs security/tests/workflow.test.mjs security/tests/reception-delete-page.test.mjs security/tests/reception-entry.test.mjs security/tests/reception-list.test.mjs security/tests/waiting-sku.test.mjs security/tests/lead-storage.test.mjs security/tests/lead-price.test.mjs
       - name: Verify label authorization, email error handling and ERP orchestration without external services
         run: node --experimental-vm-modules --test security/tests/label-links.test.mjs security/tests/mail-integration.test.mjs security/tests/erp-flow.test.mjs
       - name: Verify user preservation, separate module capabilities and real permission guards
@@ -112,3 +114,4 @@ jobs:
             dependency-review.json
           retention-days: 7
           if-no-files-found: error
+

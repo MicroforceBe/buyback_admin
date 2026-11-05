@@ -1,3 +1,4 @@
+import {loadWaitingSkuMatches} from '@/lib/waitingSkuData';
 import LocalDate from '@/app/admin/LocalDate';
 import {loadReceptionRmaWork} from '../rma/receptionWorkData';
 import ui from '../rma/rma.module.css';
@@ -330,6 +331,7 @@ export default async function RefurbReceptionDetailPage({
     refurb_status: canonicalizeStatusValue(it.refurb_status, statusOptions || []),
   }));
 
+  const waitingSku=await loadWaitingSkuMatches(sourceItems.map(i=>({...i,vat_scheme:reception.vat_scheme})),statusOptions||[]);
   const rmaWork=await loadReceptionRmaWork(sourceItems.map(item=>item.id));
   const workById=new Map(rmaWork.map(work=>[work.reception_item_id,work]));
   const items=sourceItems;
@@ -652,6 +654,7 @@ export default async function RefurbReceptionDetailPage({
 
 
       <RefurbReceptionTable
+        waitingSkuMatches={waitingSku.matches}
         rmaWork={rmaWork}
         rmaCaseLinks={rmaDossiers.links}
         rmaCases={rmaDossiers.cases}
@@ -677,9 +680,4 @@ export default async function RefurbReceptionDetailPage({
     </div>
   );
 }
-
-
-
-
-
 

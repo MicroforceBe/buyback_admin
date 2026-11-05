@@ -1,3 +1,6 @@
+import {loadWaitingSkuMatches} from '@/lib/waitingSkuData';
+import {isWaitingForSku} from '@/lib/waitingSku';
+import WaitingSkuCheck from './WaitingSkuCheck';
 import ToolBatteryField from './ToolBatteryField';
 import LocalDate from '@/app/admin/LocalDate';
 import RefurbLabelPrintButton from './RefurbLabelPrintButton';
@@ -45,10 +48,11 @@ type RefurbReception = {
   rma_count?: number;
   finished_items_count?: number;
   finished_percent?: number;
-  open_status_counts?: { value: string; label: string; color: string; count: number; order: number }[];
+  open_status_counts?: { value: string; label: string; color: string; count: number; order: number; skuAvailable?:number|null }[];
 };
 
 type ReceptionItemStatsRow = {
+  sku:string|null;
   description:string|null;
   price_cents:number|null;
   id: string;
@@ -263,7 +267,7 @@ let from = 0;
 while (true) {
   const { data: batch, error: itemsError } = await supabaseAdmin
     .from("refurb_reception_items")
-    .select("id, reception_id, refurb_status, description, price_cents")
+    .select("id, reception_id, refurb_status, sku, description, price_cents")
     .in("reception_id", receptionIds)
     .order("id", { ascending: true })
     .range(from, from + pageSize - 1);
@@ -297,6 +301,8 @@ while (true) {
   from += pageSize;
 }
 
+  const vatByReception=new Map(receptions.map(r=>[r.id,r.vat_scheme]));
+  const waitingSku=await loadWaitingSkuMatches(items.map(i=>({...i,vat_scheme:vatByReception.get(i.reception_id)||'normal'})),Array.from(statusConfig.statusDetails.values()));
   const models:OpenReceptionModel[]=[];let modelsAvailable=true;
   for(let offset=0;;offset+=1000){const result=await supabaseAdmin.from('refurb_models').select('id,name,search_keywords').order('id',{ascending:true}).range(offset,offset+999);if(result.error){modelsAvailable=false;break;}models.push(...(result.data||[]) as OpenReceptionModel[]);if((result.data||[]).length<1000)break;}
   const openItemsByReception=new Map<string,OpenReceptionItem[]>();
@@ -324,7 +330,7 @@ while (true) {
     });
   }
 
-  const openStatusCounts = new Map<string, Map<string, { value: string; label: string; color: string; count: number; order: number }>>();
+  const openStatusCounts = new Map<string, Map<string, { value: string; label: string; color: string; count: number; order: number; skuAvailable?:number|null }>>();
 
   for (const item of items) {
     const receptionId = String(
@@ -385,6 +391,7 @@ while (true) {
       const detail = statusConfig.statusDetails.get(canonicalStatus) || { value: item.refurb_status?.trim() || canonicalStatus, label: item.refurb_status?.trim() || canonicalStatus, color: "#64748b", order: Number.MAX_SAFE_INTEGER };
       const badge = counts.get(canonicalStatus) || { ...detail, count: 0 };
       badge.count++;
+      if(isWaitingForSku(canonicalStatus,Array.from(statusConfig.statusDetails.values())))badge.skuAvailable=waitingSku.failed?null:(badge.skuAvailable||0)+(waitingSku.matches[item.id]?1:0);
       counts.set(canonicalStatus, badge);
       openStatusCounts.set(receptionId, counts);
     }
@@ -881,12 +888,13 @@ export default async function RefurbListPage({
                         key={badge.value}
                         href={`/admin/refurb/${reception.id}?status=${encodeURIComponent(badge.value)}#reception-items`}
                         prefetch={false}
-                        aria-label={`${badge.label}: ${badge.count} artikelen. Open gefilterde receptie`}
-                        title={`${badge.label}: ${badge.count}`}
+                        aria-label={`${badge.label}: ${badge.count} artikelen.${badge.skuAvailable!==undefined?` ${badge.skuAvailable===null?'Onbekend aantal':badge.skuAvailable} beschikbaar in ERP.`:''} Open gefilterde receptie`}
+                        title={`${badge.label}: ${badge.count}${badge.skuAvailable!==undefined?` · ${badge.skuAvailable===null?'Controle niet beschikbaar':badge.skuAvailable+' van '+badge.count+' beschikbaar in ERP'}`:''} ` .trim()}
                         className="inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full border border-slate-200 bg-white px-1.5 text-[11px] font-bold text-slate-800 hover:border-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-500"
                       >
                         <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: badge.color }} />
-                        {badge.count}
+                        {typeof badge.skuAvailable==='number'&&badge.skuAvailable>0&&<WaitingSkuCheck sku={String(badge.skuAvailable)+' van '+badge.count} title="Waiting for SKU"/>}
+                        {badge.skuAvailable!==undefined?`${badge.skuAvailable===null?'?':badge.skuAvailable}/${badge.count}`:badge.count}
                       </Link>
                     ))}
                   </div>
@@ -993,3 +1001,4 @@ export default async function RefurbListPage({
     </div>
   );
 }
+

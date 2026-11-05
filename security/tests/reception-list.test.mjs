@@ -9,16 +9,19 @@ const reception=id=>({id,reception_number:'Reception '+id,reception_date:'2026-1
 const item=(id,reception_id,refurb_status)=>({id,reception_id,refurb_status});
 function nodes(tree,predicate){const all=[];function walk(node){if(Array.isArray(node)){node.forEach(walk);return;}if(!node||typeof node!=='object')return;if(predicate(node))all.push(node);walk(node.props?.children);}walk(tree);return all;}
 function text(node){if(Array.isArray(node))return node.map(text).join(' ');if(node&&typeof node==='object')return text(node.props?.children);return typeof node==='string'||typeof node==='number'?String(node):'';}
-async function render({receptionSearch=[],leadSearch=[],canReadLeads=false,models=[],modelsError=false,work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
+async function render({erp=[],erpError=false,receptionSearch=[],leadSearch=[],canReadLeads=false,models=[],modelsError=false,work=[],params={},allowed=true,itemsError=false,receptions=[reception('done'),reception('open'),reception('empty')],items=[item('1','done','booked'),item('2','open','rma')],options=[],transitions=[]}={}){
  const reads=[],ranges=[];let userReads=0;
- const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;if(table==='refurb_reception_items')ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?(table==='refurb_reception_items'?receptionSearch:table==='buyback_leads'?leadSearch:[]):table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='refurb_models'?models:table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:(itemsError&&table==='refurb_reception_items'||modelsError&&table==='refurb_models')?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
+ const db={from(table){reads.push(table);let from=0,to=Infinity,search=false;const q={select(){return q;},order(){return q;},in(){return q;},range(a,b){from=a;to=b;if(table==='refurb_reception_items')ranges.push([a,b]);return q;},or(){search=true;return q;},ilike(){search=true;return q;},limit(){return q;},then(resolve,reject){const data=search?(table==='refurb_reception_items'?receptionSearch:table==='buyback_leads'?leadSearch:[]):table==='refurb_receptions'?receptions:table==='refurb_reception_items'?items.slice(from,to+1):table==='erp_articles'?erp.slice(from,to+1):table==='refurb_models'?models:table==='refurb_status_options'?options:table==='refurb_status_transitions'?transitions:[];return Promise.resolve({data,error:(itemsError&&table==='refurb_reception_items'||modelsError&&table==='refurb_models'||erpError&&table==='erp_articles')?{message:'Synthetic read failure'}:null}).then(resolve,reject);}};return q;}};
  class FixtureDate extends Date {constructor(value){super(arguments.length?value:'2026-10-26T10:00:00Z');}}
  const context=vm.createContext({URLSearchParams,Date:FixtureDate,console:{error(){}}});
  const terms=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionTerms.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await terms.link(()=>{throw Error('Unexpected dependency')});await terms.evaluate();
  const workHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionRmaWork.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await workHelper.link(()=>{throw Error('Unexpected import')});await workHelper.evaluate();
  const openSummary=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/receptionOpenSummary.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await openSummary.link(()=>{throw Error('Unexpected import')});await openSummary.evaluate();
  const labelHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/refurbLabel.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await labelHelper.link(()=>{});await labelHelper.evaluate();
+ const waitingHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/waitingSku.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await waitingHelper.link(()=>{});await waitingHelper.evaluate();
+ const waitingData=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('../../lib/waitingSkuData.ts',import.meta.url),'utf8'),{mode:'strip'}),{context});await waitingData.link(spec=>{if(spec==='@/lib/waitingSku')return waitingHelper;const e=spec==='server-only'?{}:{supabaseAdmin:db};return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await waitingData.evaluate();
  const imports={
+ './WaitingSkuCheck':{default:'WaitingSkuCheck'},
  './RefurbLabelPrintButton':{default:'RefurbLabelPrintButton'},'./ToolBatteryField':{default:'ToolBatteryField'},'../leads/LeadLabelPrintButton':{default:'LeadLabelPrintButton'},
  './OpenReceptionModels':{default:'OpenReceptionModels'},
  './rma/receptionWorkData':{loadReceptionRmaWork:async()=>work},
@@ -35,7 +38,7 @@ async function render({receptionSearch=[],leadSearch=[],canReadLeads=false,model
   'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:'Fragment'},
  };
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/refurbLabel')return labelHelper;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
+ const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});if(spec==='@/lib/waitingSku')return waitingHelper;if(spec==='@/lib/waitingSkuData')return waitingData;if(spec==='@/lib/receptionRmaWork')return workHelper;if(spec==='@/lib/receptionTerms')return terms;if(spec==='@/lib/refurbLabel')return labelHelper;if(spec==='@/lib/receptionOpenSummary')return openSummary;const entry=imports[spec];if(!entry)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(entry),function(){for(const[k,v]of Object.entries(entry))this.setExport(k,v);},{context});});await mod.evaluate();
  const tree=await mod.namespace.default({searchParams:Promise.resolve(params)});
  return {tree,reads,ranges,userReads};
 }
@@ -165,3 +168,16 @@ test('Refurb tools prints reception matches directly by saved item ID including 
  const h=await render({params:{q:'TEST'},receptionSearch:[{id:'source',refurb_status:'Booked',battery_percentage:null,refurb_receptions:{id:'r'}}]});
  const field=nodes(h.tree,n=>n.type==='ToolBatteryField')[0];assert.equal(field.props.itemId,'source');assert.equal(field.props.known,null);assert.equal(field.props.canEdit,false);
  });
+
+test('waiting badge reports exact available devices over total, including duplicate device requests, correct VAT and no stock requirement',async()=>{
+ const art={sku:'211FIX',title:'iPhone 16 Pro 256GB White Refurbished 5* M',vat_margin:true,refurbished_product:true,missing_from_erp:false,inventory_qty:0};
+ const options=[{id:'w',value:'wait',label:'Waiting For SKU'},{id:'e',value:'Booked',label:'Booked'}];
+ const items=[{...item('1','open','wait'),sku:art.title},{...item('2','open','wait'),sku:'Other article'},{...item('3','open','wait'),sku:'Other article'}];
+ const result=await render({receptions:[reception('open')],items,options,transitions:[{from_status_id:'w',to_status_id:'e'}],erp:[art]});
+ const badge=nodes(result.tree,n=>n.type==='Link'&&n.props.title?.includes('beschikbaar in ERP'))[0];assert.ok(badge);assert.match(text(badge),/1\/3/);assert.equal(nodes(badge,n=>n.type==='WaitingSkuCheck').length,1);assert.match(badge.props.href,/status=wait/);
+ const wrong=await render({receptions:[reception('open')],items,options,transitions:[{from_status_id:'w',to_status_id:'e'}],erp:[{...art,vat_margin:false}]});
+ const zero=nodes(wrong.tree,n=>n.type==='Link'&&n.props.title?.includes('beschikbaar in ERP'))[0];assert.match(text(zero),/0\/3/);assert.equal(nodes(zero,n=>n.type==='WaitingSkuCheck').length,0);
+ const failed=await render({receptions:[reception('open')],items,options,transitions:[{from_status_id:'w',to_status_id:'e'}],erpError:true});
+ const unknown=nodes(failed.tree,n=>n.type==='Link'&&n.props.title?.includes('Controle niet beschikbaar'))[0];assert.match(text(unknown),/\?\/3/);assert.equal(nodes(unknown,n=>n.type==='WaitingSkuCheck').length,0);
+});
+
