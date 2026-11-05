@@ -1,4 +1,4 @@
-export type WaitingSkuArticle={sku:string;title:string|null;vat_margin:boolean;refurbished_product?:boolean;missing_from_erp?:boolean};
+export type WaitingSkuArticle={sku:string;title:string|null;vat_margin:boolean|null;refurbished_product?:boolean;missing_from_erp?:boolean};
 export type WaitingSkuMatch={input:string;sku:string;title:string};
 export function normalizeWaitingSku(value:string|null|undefined){return (value||'').trim().replace(/\s+/g,' ').toLowerCase();}
 export function isWaitingForSku(status:string|null|undefined,options:Array<{value:string;label?:string|null}>=[]){
