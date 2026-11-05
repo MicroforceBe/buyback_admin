@@ -1,5 +1,8 @@
 name: Production release verification
 on:
+  # Every pull request to main is verified before it can be merged and deployed to production.
+  pull_request:
+    branches: [main]
   push:
     branches: [release/security-20261024, release/users-20261027, release/backlog-20261027, release/backlog-compact-20261027, release/erp-20261027, release/article-settings-20261028, main]
     paths:

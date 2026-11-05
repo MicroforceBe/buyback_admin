@@ -94,13 +94,14 @@ create trigger shop_customers_audit after insert or update on public.shop_custom
  for each row execute function public.shop_customers_audit();
 
 -- Link a buyback lead to a customer atomically, with an audit event. Refuses archived customers.
-create function public.shop_customer_link_lead(p_customer uuid,p_lead uuid,p_actor text) returns void
+-- The customer row is locked for the duration of the link, so a concurrent archive waits and
+-- cannot leave a lead linked to a customer that was archived in between.
+create or replace function public.shop_customer_link_lead(p_customer uuid,p_lead uuid,p_actor text) returns void
 language plpgsql security definer set search_path=public as $$
 begin
  if p_actor is null or length(trim(p_actor))=0 then raise exception 'SHOP_CUSTOMER_ACTOR_REQUIRED'; end if;
- if not exists(select 1 from public.shop_customers where id=p_customer and archived_at is null) then
-  raise exception 'SHOP_CUSTOMER_NOT_AVAILABLE';
- end if;
+ perform 1 from public.shop_customers where id=p_customer and archived_at is null for update;
+ if not found then raise exception 'SHOP_CUSTOMER_NOT_AVAILABLE'; end if;
  update public.buyback_leads set shop_customer_id=p_customer where id=p_lead and shop_customer_id is null;
  if not found then raise exception 'SHOP_CUSTOMER_LEAD_NOT_LINKABLE'; end if;
  insert into public.shop_customer_events(customer_id,event,actor,reference_id) values(p_customer,'lead_linked',p_actor,p_lead);

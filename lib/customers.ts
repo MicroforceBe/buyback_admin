@@ -72,15 +72,28 @@ export function normalizeEmail(raw: string): string | null {
 
 const DIAL_CODES: Record<string, string> = { BE: '32', NL: '31', FR: '33', LU: '352', DE: '49' };
 
-/** Normalises to international format (+32470123456). Local numbers get the country's dial code. */
+/**
+ * Normalises to international E.164 format (+32470123456).
+ * Accepts local numbers with a leading 0 (country's dial code is added), 00-prefixes and the
+ * written "+32 (0)470…" form. Numbers without 0, 00 or + are refused: their country is ambiguous.
+ */
 export function normalizePhone(raw: string, country: string): string | null {
-  let value = raw.trim().replace(/[\s.\-/()]/g, '');
+  const invalid = () => new CustomerInputError('phone', 'Vul een geldig telefoonnummer in, bijvoorbeeld 0470 12 34 56 of +32 470 12 34 56.');
+  let value = raw.trim().replace(/[\s.\-/]/g, '');
   if (!value) return null;
+  value = value.replace(/^(\+[0-9]{1,3})\(0\)/, '$1').replace(/[()]/g, '');
   if (value.startsWith('00')) value = '+' + value.slice(2);
-  else if (value.startsWith('0') && DIAL_CODES[country]) value = '+' + DIAL_CODES[country] + value.slice(1);
-  if (!/^\+?[0-9]{6,15}$/.test(value)) {
-    throw new CustomerInputError('phone', 'Vul een geldig telefoonnummer in, bijvoorbeeld 0470 12 34 56.');
+  else if (value.startsWith('0')) {
+    if (!DIAL_CODES[country]) throw new CustomerInputError('phone', 'Vermeld het telefoonnummer met landcode, bijvoorbeeld +33 6 12 34 56 78.');
+    value = '+' + DIAL_CODES[country] + value.slice(1);
   }
+  if (!value.startsWith('+')) throw invalid();
+  // A trunk 0 directly after a known dial code ("+320470…") is never dialled internationally.
+  for (const code of Object.values(DIAL_CODES)) {
+    if (value.startsWith('+' + code + '0')) { value = '+' + code + value.slice(code.length + 2); break; }
+  }
+  // E.164: at most 15 digits, and a country code never starts with 0.
+  if (!/^\+[1-9][0-9]{6,14}$/.test(value)) throw invalid();
   return value;
 }
 
@@ -108,12 +121,23 @@ export function normalizeVat(raw: string, country: string): string | null {
   return value;
 }
 
+const POSTAL_RULES: Record<string, { pattern: RegExp; message: string }> = {
+  BE: { pattern: /^[1-9][0-9]{3}$/, message: 'Een Belgische postcode bestaat uit 4 cijfers, van 1000 tot 9999.' },
+  LU: { pattern: /^[0-9]{4}$/, message: 'Een Luxemburgse postcode bestaat uit 4 cijfers, bijvoorbeeld 1234 of L-1234.' },
+  NL: { pattern: /^[1-9][0-9]{3}[A-Z]{2}$/, message: 'Een Nederlandse postcode heeft de vorm 1234 AB.' },
+  FR: { pattern: /^[0-9]{5}$/, message: 'Een Franse postcode bestaat uit 5 cijfers.' },
+  DE: { pattern: /^[0-9]{5}$/, message: 'Een Duitse postcode bestaat uit 5 cijfers.' },
+};
+
 function normalizePostalCode(raw: string, country: string): string {
-  const value = raw.toUpperCase().replace(/\s+/g, '');
+  let value = raw.toUpperCase().replace(/[\s-]+/g, '');
   if (!value) return '';
-  if (['BE', 'LU'].includes(country) && !/^[0-9]{4}$/.test(value)) throw new CustomerInputError('postal_code', 'Een postcode in ' + (country === 'BE' ? 'België' : 'Luxemburg') + ' bestaat uit 4 cijfers.');
-  if (country === 'NL' && !/^[0-9]{4}[A-Z]{2}$/.test(value)) throw new CustomerInputError('postal_code', 'Een Nederlandse postcode heeft de vorm 1234AB.');
-  if (value.length > 12) throw new CustomerInputError('postal_code', 'Postcode is te lang.');
+  // Postal codes are sometimes written with the country prefix: B-9000, L-1234, D-10115, F-75001.
+  const prefix: Record<string, string> = { BE: 'B', LU: 'L', DE: 'D', FR: 'F' };
+  if (prefix[country] && value.startsWith(prefix[country]) && /^[0-9]/.test(value.slice(1))) value = value.slice(1);
+  const rule = POSTAL_RULES[country];
+  if (rule && !rule.pattern.test(value)) throw new CustomerInputError('postal_code', rule.message);
+  if (!/^[0-9A-Z]{2,12}$/.test(value)) throw new CustomerInputError('postal_code', 'Vul een geldige postcode in.');
   return country === 'NL' ? value.slice(0, 4) + ' ' + value.slice(4) : value;
 }
 
@@ -172,12 +196,30 @@ export function customerSearchTerm(raw: unknown): string | null {
   return value.length >= 2 ? value : null;
 }
 
-/** Builds the PostgREST `or` filter for a search term (already sanitised by customerSearchTerm). */
-export function customerSearchFilter(term: string): string {
-  const parts = ['customer_number', 'first_name', 'last_name', 'company_name', 'email', 'city', 'vat_number'].map(c => `${c}.ilike.%${term}%`);
-  const digits = term.replace(/[^0-9]/g, '');
+const SEARCH_COLUMNS = ['customer_number', 'first_name', 'last_name', 'company_name', 'email', 'city', 'vat_number'] as const;
+
+function wordFilter(word: string): string {
+  const parts = SEARCH_COLUMNS.map(c => `${c}.ilike.%${word}%`);
+  const digits = word.replace(/[^0-9]/g, '');
   if (digits.length >= 4) parts.push(`phone.ilike.%${digits.replace(/^0+/, '')}%`);
   return parts.join(',');
+}
+
+/**
+ * Builds PostgREST `or` filters for a search term (already sanitised by customerSearchTerm).
+ * Each filter must match (they are combined with AND), so "Jan Peeters" finds a customer whose
+ * first name contains "Jan" and last name contains "Peeters". A term without letters is treated
+ * as one number, so "0470 12 34" finds the phone number +32470123456.
+ */
+export function customerSearchFilters(term: string): string[] {
+  if (!/[a-z]/i.test(term)) {
+    const compact = term.replace(/[\s+]/g, '');
+    const digits = compact.replace(/[^0-9]/g, '');
+    const parts = SEARCH_COLUMNS.map(c => `${c}.ilike.%${compact}%`);
+    if (digits.length >= 4) parts.push(`phone.ilike.%${digits.replace(/^0+/, '')}%`);
+    return [parts.join(',')];
+  }
+  return term.split(' ').filter(word => word.length > 0).slice(0, 4).map(wordFilter);
 }
 
 export function customerDisplayName(c: Pick<CustomerInput, 'customer_type' | 'first_name' | 'last_name' | 'company_name'>): string {
