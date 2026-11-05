@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { hasPermission } from '@/lib/adminPermissions';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { customerDisplayName, customerSearchFilter, customerSearchTerm, customerTypes, formatPhone, type CustomerType } from '@/lib/customers';
+import { customerDisplayName, customerSearchFilters, customerSearchTerm, customerTypes, formatPhone, type CustomerType } from '@/lib/customers';
 import LocalDate from '@/app/admin/LocalDate';
 import styles from './customers.module.css';
 
@@ -29,7 +29,7 @@ export default async function CustomersPage({ searchParams }: { searchParams?: P
     .order('updated_at', { ascending: false })
     .limit(LIMIT);
   if (!showArchived) query = query.is('archived_at', null);
-  if (term) query = query.or(customerSearchFilter(term));
+  if (term) for (const filter of customerSearchFilters(term)) query = query.or(filter);
   const { data, error, count } = await query;
   const rows = (data ?? []) as Row[];
 

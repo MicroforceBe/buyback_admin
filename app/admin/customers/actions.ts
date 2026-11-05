@@ -111,13 +111,15 @@ export async function setCustomerArchived(input: { id: string; version: number; 
   }
   try {
     const now = new Date().toISOString();
-    const { data, error } = await supabaseAdmin
+    // Only archive an active customer and only restore an archived one, so a repeated or stale
+    // click never changes the archive date or writes a misleading history event.
+    let query = supabaseAdmin
       .from('shop_customers')
       .update({ archived_at: input.archived ? now : null, version: input.version + 1, updated_by: user.email, updated_at: now })
       .eq('id', input.id)
-      .eq('version', input.version)
-      .select('id')
-      .maybeSingle();
+      .eq('version', input.version);
+    query = input.archived ? query.is('archived_at', null) : query.not('archived_at', 'is', null);
+    const { data, error } = await query.select('id').maybeSingle();
     if (error) return { ok: false, error: SAVE_FAILED };
     if (!data) return { ok: false, error: 'Deze klant is intussen gewijzigd. Vernieuw de pagina en probeer opnieuw.' };
     revalidatePath('/admin/customers');

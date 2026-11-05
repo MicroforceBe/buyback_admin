@@ -16,7 +16,7 @@ async function harness({permissions={customers:{read:true,write:true},leads:{rea
   const result=()=>{
    if(dbError)return {data:null,error:{message:'db'}};
    const write=q.ops.find(o=>o[0]==='insert'||o[0]==='update');
-   if(write){state.writes.push({table,op:write[0],row:write[1],filters:q.ops.filter(o=>['eq','is','neq'].includes(o[0]))});return {data:conflict&&write[0]==='update'?null:{id:ID},error:null};}
+   if(write){state.writes.push({table,op:write[0],row:write[1],filters:q.ops.filter(o=>['eq','is','neq','not'].includes(o[0]))});return {data:conflict&&write[0]==='update'?null:{id:ID},error:null};}
    if(q.ops.some(o=>o[0]==='or'))return {data:duplicates,error:null};
    return {data:current,error:null};
   };
@@ -74,10 +74,29 @@ test('search input cannot change the structure of the database filter',async()=>
  assert.equal(lib.customerSearchTerm('a'),null);assert.equal(lib.customerSearchTerm(['x']),null);
  const term=lib.customerSearchTerm('jan,id.eq.x),(%_*"');
  assert.doesNotMatch(term,/[,()%_*"]/);
- const filter=lib.customerSearchFilter(term);
- assert.equal(filter.split(',').length,7);assert.ok(filter.split(',').every(p=>/^[a-z_]+\.ilike\.%[^,()]*%$/.test(p)));
- assert.match(lib.customerSearchFilter(lib.customerSearchTerm('0470 12')),/phone\.ilike\.%47012%/);
+ for(const filter of lib.customerSearchFilters(term)){assert.equal(filter.split(',').length,7);assert.ok(filter.split(',').every(p=>/^[a-z_]+\.ilike\.%[^,()]*%$/.test(p)));}
  assert.equal(lib.customerSearchTerm('jan.peeters@example.invalid'),'jan.peeters@example.invalid');
+ assert.ok(lib.customerSearchTerm('x '.repeat(100)).length<=80);
+});
+test('multi-word search requires every word and numbers search the phone in any notation',async()=>{
+ const {lib}=await harness(),f=q=>Array.from(lib.customerSearchFilters(lib.customerSearchTerm(q)));
+ const name=f('Jan Peeters');assert.equal(name.length,2);assert.match(name[0],/first_name\.ilike\.%Jan%/);assert.match(name[1],/last_name\.ilike\.%Peeters%/);
+ assert.equal(f('a b c d e f').length,4);
+ for(const q of ['0470 12 34','0470/12.34','+32 470 12 34','047012 34'])assert.ok(f(q).length===1&&/phone\.ilike\.%(32)?4701234%/.test(f(q)[0]),q);
+ assert.match(f('K000012')[0],/customer_number\.ilike\.%K000012%/);assert.match(f('BE 0123')[1],/vat_number\.ilike\.%0123%/);
+});
+test('phone numbers are stored as unambiguous E.164 and odd notations are normalised or refused',async()=>{
+ const {lib}=await harness();
+ const ok=[['0470 12 34 56','BE','+32470123456'],['+32 (0)470 12 34 56','BE','+32470123456'],['+320470123456','BE','+32470123456'],['0032 470 12 34 56','BE','+32470123456'],['06 12345678','NL','+31612345678'],['+31 (0)6 12345678','BE','+31612345678'],['+33 6 12 34 56 78','BE','+33612345678'],['09 123 45 67','BE','+3291234567']];
+ for(const [raw,country,expected] of ok)assert.equal(lib.normalizePhone(raw,country),expected,raw);
+ for(const raw of ['470123456','12','+0470123456','+3247012345678901','0470 12 34 56 ext 2','++32470123456'])assert.throws(()=>lib.normalizePhone(raw,'BE'),e=>e.field==='phone',raw);
+ assert.throws(()=>lib.normalizePhone('0612345678','XX'),e=>e.field==='phone'&&/landcode/.test(e.message));
+ assert.equal(lib.normalizePhone('  ','BE'),null);
+});
+test('postal codes follow the rules of each country, including written prefixes',async()=>{
+ const {lib}=await harness(),pc=(postal_code,country)=>lib.customerInput(form({postal_code,country,phone:'+32470123456'})).postal_code;
+ assert.equal(pc('9000','BE'),'9000');assert.equal(pc('B-9000','BE'),'9000');assert.equal(pc('L-1234','LU'),'1234');assert.equal(pc('1234ab','NL'),'1234 AB');assert.equal(pc('75001','FR'),'75001');assert.equal(pc('D-10115','DE'),'10115');assert.equal(pc('','BE'),'');
+ for(const [code,country] of [['0999','BE'],['90000','BE'],['0123AB','NL'],['1234','FR'],['ABCDE','DE'],['9000','NL']])assert.throws(()=>pc(code,country),e=>e.field==='postal_code',code+' '+country);
 });
 test('every action checks rights before touching the database',async()=>{
  const h=await harness({permissions:{customers:{read:true}}}),a=await h.actions();
@@ -116,6 +135,9 @@ test('updates use the expected version, keep consent time and report concurrent 
 test('archiving is versioned and linking uses the database function with the trusted actor',async()=>{
  const h=await harness(),a=await h.actions();
  assert.deepEqual(plain(await a.setCustomerArchived({id:ID,version:2,archived:true})),{ok:true});const w=h.state.writes[0];assert.ok(w.row.archived_at);assert.equal(w.row.version,3);
+ assert.ok(w.filters.some(f=>f[0]==='is'&&f[1]==='archived_at'&&f[2]===null),'archive only an active customer');
+ await a.setCustomerArchived({id:ID,version:3,archived:false});const r=h.state.writes[1];assert.equal(r.row.archived_at,null);
+ assert.ok(r.filters.some(f=>f[0]==='not'&&f[1]==='archived_at'&&f[2]==='is'),'restore only an archived customer');
  assert.equal((await a.setCustomerArchived({id:ID,version:2,archived:'yes'})).ok,false);
  assert.deepEqual(plain(await a.linkLeadToCustomer({customerId:ID,leadId:LEAD})),{ok:true});
  assert.deepEqual(plain(h.state.rpc[0]),['shop_customer_link_lead',{p_customer:ID,p_lead:LEAD,p_actor:'staff@example.invalid'}]);
