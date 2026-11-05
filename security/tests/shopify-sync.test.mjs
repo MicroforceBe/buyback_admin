@@ -90,6 +90,9 @@ test('nothing is created or deleted: one-sided and duplicate SKUs are only count
   assert.equal(p.counts.erpOnly, 1);
   assert.equal(p.counts.shopifyOnly, 1);
   assert.equal(p.counts.duplicateSkus, 1);
+  assert.deepEqual(plain(p.unmatched.erpOnly.map(u => u.sku)), ['ONLY-ERP']);
+  assert.deepEqual(plain(p.unmatched.shopifyOnly), [{ sku: 'ONLY-SHOP', title: 'iPhone 13 128GB', productId: 'gid://shopify/Product/1' }]);
+  assert.deepEqual(plain(p.unmatched.duplicate.map(u => u.sku)), ['DUP']);
 });
 
 test('stock is only set where the item is stocked; unknown locations are reported', async () => {
@@ -224,6 +227,8 @@ test('shadow mode records the changes but never writes to Shopify', async () => 
   assert.equal(result.mode, 'shadow');
   assert.equal(fake.mutations.length, 0);
   const recorded = log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert');
+  assert.deepEqual(plain(result.counts.shopifyOnlySkus), []);
+  assert.deepEqual(plain(result.counts.erpOnlySkus), []);
   assert.deepEqual(plain(recorded.row).map(r => [r.sku, r.field, r.old_value, r.new_value]), [['SKU1', 'price', '499.00', '399.00']]);
 });
 

@@ -52,8 +52,11 @@ export type Change = {
   newValue: string | null;
 };
 
+export type UnmatchedSku = { sku: string; title: string; productId?: string };
 export type Plan = {
   changes: Change[];
+  /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
+  unmatched: { erpOnly: UnmatchedSku[]; shopifyOnly: UnmatchedSku[]; duplicate: UnmatchedSku[] };
   productUpdates: { id: string; title?: string; vendor?: string; productType?: string; status?: ProductStatus }[];
   variantUpdates: { productId: string; variants: { id: string; price?: string; compareAtPrice?: string | null; taxable?: boolean }[] }[];
   inventory: { inventoryItemId: string; locationId: string; quantity: number }[];
@@ -183,7 +186,7 @@ export function planSync(input: {
   invalidRows?: number;
 }): Plan {
   const plan: Plan = {
-    changes: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
+    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], duplicate: [] }, productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
     counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0 },
   };
 
@@ -195,11 +198,16 @@ export function planSync(input: {
     if (bySku.has(c.sku)) duplicate.add(c.sku);
     else bySku.set(c.sku, c);
   }
-  for (const sku of duplicate) bySku.delete(sku);
+  for (const sku of duplicate) {
+    const c = bySku.get(sku)!;
+    plan.unmatched.duplicate.push({ sku, title: c.title, productId: c.productId });
+    bySku.delete(sku);
+  }
   plan.counts.duplicateSkus = duplicate.size;
 
   const desiredSkus = new Set(input.desired.map(d => d.sku));
-  plan.counts.shopifyOnly = [...bySku.keys()].filter(sku => !desiredSkus.has(sku)).length;
+  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId });
+  plan.counts.shopifyOnly = plan.unmatched.shopifyOnly.length;
 
   const unknownLocations = new Set<string>();
   const productFields = new Map<string, { sku: string; update: Plan['productUpdates'][number]; desired: DesiredState['product'] }>();
@@ -210,7 +218,7 @@ export function planSync(input: {
   for (const d of input.desired) {
     if (duplicate.has(d.sku)) continue;
     const c = bySku.get(d.sku);
-    if (!c) { plan.counts.erpOnly++; continue; }
+    if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '' }); continue; }
     plan.counts.matched++;
     const before = plan.changes.length;
 

@@ -13,6 +13,7 @@ export type SyncResult =
   | { status: 'succeeded' | 'failed' | 'stopped'; runId: string; mode: Exclude<SyncMode, 'off'>; counts: Record<string, unknown>; error?: string };
 
 const MAX_RECORDED_CHANGES = 5000;
+const MAX_UNMATCHED = 2000;
 const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
 const KEEP_RUNS_DAYS = 30;
 
@@ -106,7 +107,12 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
     const plan = planSync({ desired, current: state.variants, locations: { ...state.locations, ...apiLocations }, invalidRows: invalid });
-    Object.assign(counts, plan.counts, { changes: plan.changes.length, shopifyVariants: state.variants.length });
+    // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
+    const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), ...(u.productId ? { productId: u.productId } : {}) }));
+    Object.assign(counts, plan.counts, {
+      changes: plan.changes.length, shopifyVariants: state.variants.length,
+      erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), duplicateSkuList: cap(plan.unmatched.duplicate),
+    });
 
     const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
     for (const batch of chunk(recorded, 500)) {

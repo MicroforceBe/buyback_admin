@@ -11,6 +11,12 @@ export const maxDuration = 300;
 
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' }) : '—');
+const LISTS = {
+  erpOnly: { label: 'Alleen in ERP', key: 'erpOnlySkus', help: 'Staan in de ERP-CSV maar niet in Shopify. Ze worden niet aangemaakt.' },
+  shopifyOnly: { label: 'Alleen in Shopify', key: 'shopifyOnlySkus', help: 'Staan in Shopify maar niet in de ERP-CSV. Ze worden niet aangeraakt.' },
+  duplicate: { label: 'Dubbele SKU in Shopify', key: 'duplicateSkuList', help: 'Deze SKU staat op meer dan één variant in Shopify en wordt daarom overgeslagen.' },
+} as const;
+type ListKey = keyof typeof LISTS;
 const STATUS: Record<string, string> = { running: 'bezig', succeeded: 'geslaagd', failed: 'mislukt', stopped: 'noodrem' };
 const STATUS_CLASS: Record<string, string> = { running: 'bg-sky-100 text-sky-800', succeeded: 'bg-green-100 text-green-800', failed: 'bg-red-100 text-red-800', stopped: 'bg-amber-100 text-amber-800' };
 
@@ -22,16 +28,24 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
 
   const [{ data: settings }, { data: runs }] = await Promise.all([
     supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,version,updated_at,updated_by').eq('id', true).single(),
-    supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,finished_at,started_by,counts,error').order('started_at', { ascending: false }).limit(20),
+    supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,started_by').order('started_at', { ascending: false }).limit(20),
   ]);
   const selectedId = params.run ?? runs?.[0]?.id;
-  const selected = runs?.find(r => r.id === selectedId) ?? null;
+  const { data: selected } = selectedId
+    ? await supabaseAdmin.from('shopify_sync_runs').select('id,mode,status,started_at,counts,error').eq('id', selectedId).maybeSingle()
+    : { data: null };
   const onlyErrors = params.errors === '1';
   let changesQuery = supabaseAdmin.from('shopify_sync_changes').select('id,sku,scope,field,old_value,new_value,applied,error').eq('run_id', selectedId ?? '00000000-0000-0000-0000-000000000000').order('id').limit(300);
   if (onlyErrors) changesQuery = changesQuery.not('error', 'is', null);
   const { data: changes } = selected ? await changesQuery : { data: [] };
   const mode = (settings?.mode ?? 'off') as Mode;
   const c = (selected?.counts ?? {}) as Record<string, unknown>;
+  const view = params.view && Object.hasOwn(LISTS, params.view) ? (params.view as ListKey) : null;
+  const q = (params.q ?? '').trim().toLowerCase();
+  const allUnmatched = view && Array.isArray(c[LISTS[view].key]) ? (c[LISTS[view].key] as { sku: string; title: string; productId?: string }[]) : [];
+  const unmatched = q ? allUnmatched.filter(u => u.sku.toLowerCase().includes(q) || u.title.toLowerCase().includes(q)) : allUnmatched;
+  const store = (() => { try { return shopifyConfig()?.domain.replace(/\.myshopify\.com$/, '') ?? null; } catch { return null; } })();
+  const productUrl = (gid?: string) => (store && gid ? `https://admin.shopify.com/store/${store}/products/${gid.split('/').pop()}` : null);
 
   return (
     <div className="space-y-6">
@@ -92,11 +106,48 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes], ['Alleen in ERP', c.erpOnly], ['Alleen in Shopify', c.shopifyOnly], ['Dubbele SKU in Shopify', c.duplicateSkus], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus]] as [string, unknown][]).map(([label, value]) => (
-              <div key={label} className="rounded-xl border p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></div>
-            ))}
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+              const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
+              if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
+              const active = (target ?? null) === view;
+              return <Link key={label} href={back({ run: selected.id, ...(target ? { view: target } : {}) })} className={`rounded-xl border p-3 hover:border-sky-400 ${active ? 'border-sky-500 bg-sky-50 ring-1 ring-sky-500' : ''}`}>{body}<span className="text-xs text-sky-700">{active ? 'getoond' : 'toon lijst'}</span></Link>;
+            })}
           </dl>
           {Array.isArray(c.unknownLocations) && c.unknownLocations.length > 0 && <p className="mt-3 text-sm text-amber-700">Onbekende locaties in de CSV: {(c.unknownLocations as string[]).join(', ')}</p>}
+          {view ? (
+            <>
+              <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+                <h3 className="font-semibold">{LISTS[view].label} ({unmatched.length}{q ? ` van ${allUnmatched.length}` : ''})</h3>
+                <form className="flex gap-2">
+                  <input type="hidden" name="run" value={selected.id} />
+                  <input type="hidden" name="view" value={view} />
+                  <input name="q" defaultValue={params.q ?? ''} placeholder="Zoek SKU of titel" className="rounded-lg border px-3 py-1.5" />
+                  <button className="rounded-lg border px-3 py-1.5 font-semibold hover:bg-slate-50">Zoeken</button>
+                </form>
+                <Link href={back({ run: selected.id })} className="text-sky-700 hover:underline">Terug naar wijzigingen</Link>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">{LISTS[view].help}</p>
+              <div className="mt-2 overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
+                  <tbody className="divide-y">
+                    {unmatched.map(u => {
+                      const url = productUrl(u.productId);
+                      return (
+                        <tr key={u.sku}>
+                          <td className="py-1.5 pr-4 font-mono">{u.sku}</td>
+                          <td className="pr-4">{u.title || '—'}</td>
+                          <td>{url && <a href={url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">openen</a>}</td>
+                        </tr>
+                      );
+                    })}
+                    {!unmatched.length && <tr><td colSpan={3} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
           <div className="mt-6 flex items-center gap-3 text-sm">
             <h3 className="font-semibold">Wijzigingen{Number(c.changes ?? 0) > 300 ? ' (eerste 300)' : ''}</h3>
             <Link href={back({ run: selected.id, ...(onlyErrors ? {} : { errors: '1' }) })} className="text-sky-700 hover:underline">{onlyErrors ? 'Alles tonen' : 'Alleen fouten'}</Link>
@@ -118,6 +169,8 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
               </tbody>
             </table>
           </div>
+            </>
+          )}
         </section>
       )}
     </div>
