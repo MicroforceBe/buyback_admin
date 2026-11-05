@@ -1,6 +1,6 @@
 // Existing account roles remain unchanged. Profiles only fill permissions explicitly.
 export type AdminRole = 'admin' | 'user';
-export const ALL_FEATURES = ['dashboard','leads','leads_finalize','refurb','rma_supplier','refurb_analytics','erp','catalog','multipliers','uploads','settings'] as const;
+export const ALL_FEATURES = ['dashboard','leads','leads_finalize','customers','refurb','rma_supplier','refurb_analytics','erp','catalog','multipliers','uploads','settings'] as const;
 export type AdminFeature = typeof ALL_FEATURES[number];
 export type FeatureKey = AdminFeature;
 export type PermissionMode = 'read' | 'write' | 'finance' | 'finalize';
@@ -8,7 +8,7 @@ export type FeaturePermissions = {read?:boolean;write?:boolean;finance?:boolean;
 export type AdminPermissions = Partial<Record<AdminFeature,FeaturePermissions>>;
 export type PermissionsMap = Record<AdminFeature,{read:boolean;write:boolean;finance?:boolean;finalize?:boolean}>;
 export const FEATURE_LABELS:Record<AdminFeature,string> = {
- dashboard:'Dashboard',leads:'Buyback leads',leads_finalize:'Buybacks afronden',refurb:'Recepties & artikelen',
+ dashboard:'Dashboard',leads:'Buyback leads',leads_finalize:'Buybacks afronden',customers:'Klanten',refurb:'Recepties & artikelen',
  rma_supplier:'RMA Supplier',refurb_analytics:'Refurb analytics',erp:'ERP & artikelen',catalog:'Catalogus',
  multipliers:'Multipliers',uploads:'Uploads',settings:'Instellingen'
 };
@@ -26,10 +26,10 @@ export function profilePermissions(profile:RoleProfile):PermissionsMap {
  const set=(feature:AdminFeature,write=false)=>{permissions[feature]={read:true,write};};
  if(profile==='custom')return permissions;
  set('dashboard');
- if(profile==='reception'){set('leads',true);set('refurb',true);set('erp');}
- if(profile==='technician'){set('leads',true);set('refurb',true);set('rma_supplier',true);set('erp');}
- if(profile==='finance'){set('leads');set('rma_supplier',true);permissions.rma_supplier.finance=true;set('refurb_analytics');set('erp');}
- if(profile==='manager'){for(const key of ['leads','leads_finalize','refurb','rma_supplier','erp'] as const)set(key,true);set('refurb_analytics');permissions.rma_supplier.finance=true;permissions.rma_supplier.finalize=true;}
+ if(profile==='reception'){set('leads',true);set('customers',true);set('refurb',true);set('erp');}
+ if(profile==='technician'){set('leads',true);set('customers',true);set('refurb',true);set('rma_supplier',true);set('erp');}
+ if(profile==='finance'){set('leads');set('customers');set('rma_supplier',true);permissions.rma_supplier.finance=true;set('refurb_analytics');set('erp');}
+ if(profile==='manager'){for(const key of ['leads','leads_finalize','customers','refurb','rma_supplier','erp'] as const)set(key,true);set('refurb_analytics');permissions.rma_supplier.finance=true;permissions.rma_supplier.finalize=true;}
  return permissions;
 }
 type AnyAdminUser={role:string;permissions?:AdminPermissions|null};
