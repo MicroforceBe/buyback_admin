@@ -198,10 +198,26 @@ export function customerSearchTerm(raw: unknown): string | null {
 
 const SEARCH_COLUMNS = ['customer_number', 'first_name', 'last_name', 'company_name', 'email', 'city', 'vat_number'] as const;
 
+/**
+ * Digits to search for in the stored E.164 phone number, using the same rules as normalizePhone:
+ * "+32 (0)470…", "+320470…", "0032 470…" and "0470…" all search for "32470…"/"470…".
+ * Partial numbers keep working because the result is matched with ilike %…%.
+ */
+export function phoneSearchDigits(raw: string): string | null {
+  let digits = raw.replace(/[^0-9]/g, '');
+  if (digits.length < 4) return null;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  for (const code of Object.values(DIAL_CODES)) {
+    if (digits.startsWith(code + '0')) { digits = code + digits.slice(code.length + 1); break; }
+  }
+  digits = digits.replace(/^0+/, '');
+  return digits.length >= 3 ? digits : null;
+}
+
 function wordFilter(word: string): string {
   const parts = SEARCH_COLUMNS.map(c => `${c}.ilike.%${word}%`);
-  const digits = word.replace(/[^0-9]/g, '');
-  if (digits.length >= 4) parts.push(`phone.ilike.%${digits.replace(/^0+/, '')}%`);
+  const phone = phoneSearchDigits(word);
+  if (phone) parts.push(`phone.ilike.%${phone}%`);
   return parts.join(',');
 }
 
@@ -214,9 +230,9 @@ function wordFilter(word: string): string {
 export function customerSearchFilters(term: string): string[] {
   if (!/[a-z]/i.test(term)) {
     const compact = term.replace(/[\s+]/g, '');
-    const digits = compact.replace(/[^0-9]/g, '');
     const parts = SEARCH_COLUMNS.map(c => `${c}.ilike.%${compact}%`);
-    if (digits.length >= 4) parts.push(`phone.ilike.%${digits.replace(/^0+/, '')}%`);
+    const phone = phoneSearchDigits(term);
+    if (phone) parts.push(`phone.ilike.%${phone}%`);
     return [parts.join(',')];
   }
   return term.split(' ').filter(word => word.length > 0).slice(0, 4).map(wordFilter);
