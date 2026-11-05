@@ -39,17 +39,24 @@ async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: 
 }
 
 /** Writes the plan to Shopify in batches. Returns the Shopify ids (product, variant, inventory item or owner) whose write failed, with the reason. */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string): Promise<Map<string, string>> {
+class StoppedByOperator extends Error {}
+
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>): Promise<Map<string, string>> {
   const failed = new Map<string, string>();
+  // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
+  const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
   for (const update of plan.productUpdates) {
+    await guard();
     const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_UPDATE, { product: update });
     if (productUpdate.userErrors.length) failed.set(update.id, errorText(productUpdate.userErrors));
   }
   for (const group of plan.variantUpdates) {
+    await guard();
     const { productVariantsBulkUpdate } = await client.graphql<{ productVariantsBulkUpdate: { userErrors: UserError[] } }>(VARIANTS_UPDATE, group);
     if (productVariantsBulkUpdate.userErrors.length) for (const v of group.variants) failed.set(v.id, errorText(productVariantsBulkUpdate.userErrors));
   }
   for (const batch of chunk(plan.inventory, 100)) {
+    await guard();
     const { inventorySetQuantities } = await client.graphql<{ inventorySetQuantities: { userErrors: UserError[] } }>(INVENTORY_SET, {
       input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
       key: key(),
@@ -57,6 +64,7 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.set(q.inventoryItemId, errorText(inventorySetQuantities.userErrors));
   }
   for (const batch of chunk(plan.metafields, 25)) {
+    await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
     if (metafieldsSet.userErrors.length) for (const m of batch) failed.set(m.ownerId, errorText(metafieldsSet.userErrors));
   }
@@ -131,8 +139,12 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const skusById = new Map<string, string[]>();
     const add = (id: string, sku: string) => skusById.set(id, [...(skusById.get(id) ?? []), sku]);
     for (const v of state.variants) { add(v.productId, v.sku); add(v.variantId, v.sku); add(v.inventoryItemId, v.sku); }
+    const stillLive = async () => {
+      const { data, error } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle();
+      return !error && data?.mode === 'live';
+    };
     writing = true;
-    const failedById = await applyPlan(client, plan, runId, key);
+    const failedById = await applyPlan(client, plan, runId, key, stillLive);
     const failed = new Map<string, string>();
     for (const [id, reason] of failedById) for (const sku of skusById.get(id) ?? [id]) failed.set(sku, reason);
 
@@ -143,6 +155,9 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     counts.failedSkus = failedSkus.length;
     return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);
   } catch (error) {
+    if (error instanceof StoppedByOperator) {
+      return await finish('stopped', counts, 'Noodstop: de synchronisatie werd tijdens de run uitgezet of niet meer op live gezet. Er wordt niets meer geschreven; wijzigingen van vóór de stop kunnen al in Shopify staan.');
+    }
     const message = error instanceof ShopifyError ? error.message : error instanceof Error ? error.message : 'Onbekende fout.';
     const note = writing ? ' Een deel van de wijzigingen kan al in Shopify staan; de volgende run vergelijkt opnieuw en corrigeert de rest.' : '';
     return await finish('failed', counts, (message + note).slice(0, 1000));

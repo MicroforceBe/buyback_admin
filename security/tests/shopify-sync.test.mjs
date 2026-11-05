@@ -158,14 +158,15 @@ test('bulk export refuses a non-https download link', async () => {
 });
 
 // ---------- sync run ----------
-function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false } = {}) {
+function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null } = {}) {
   const log = [];
+  let settingsReads = 0;
   function from(table) {
     const q = { table, ops: [] };
     const result = () => {
       const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
       if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not'].includes(o[0])) });
-      if (table === 'shopify_sync_settings') return { data: { mode, max_changes: maxChanges }, error: null };
+      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges }, error: null }; }
       if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r })), error: null };
       if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
       return { data: null, error: null };
@@ -257,6 +258,17 @@ test('live mode writes the changes and records per-SKU errors', async () => {
   const errorUpdate = log.find(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
   assert.equal(errorUpdate.row.error, 'Niet toegestaan');
   assert.ok(errorUpdate.filters.some(f => f[1] === 'sku' && f[2] === 'SKU1'));
+});
+
+test('the emergency stop halts a live run before the next write', async () => {
+  const { db, log } = fakeDb({ mode: 'live', modeAfter: 'off', rows: [csvRow({ 'Variant Price': '399,00', Status: 'Draft' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'stopped');
+  assert.match(result.error, /Noodstop/);
+  assert.equal(fake.mutations.length, 0);
+  assert.ok(!log.some(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.applied === true));
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {
