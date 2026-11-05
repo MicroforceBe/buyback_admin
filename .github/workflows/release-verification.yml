@@ -109,6 +109,13 @@ on:
       - app/admin/customers/**
       - security/tests/customers.test.mjs
       - security/sql/*shop-customers*.sql
+      - lib/shopify/**
+      - lib/erpSync.ts
+      - app/api/shopify-sync/**
+      - app/admin/erp/shopify/**
+      - security/tests/shopify-sync.test.mjs
+      - security/sql/*shopify-sync*.sql
+      - vercel.json
 permissions:
   contents: read
 jobs:
@@ -170,6 +177,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/development-backlog.test.mjs
       - name: Verify customer validation, duplicate checks, versioning and access without live services
         run: node --experimental-vm-modules --test security/tests/customers.test.mjs
+      - name: Shopify sync tests
+        run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
