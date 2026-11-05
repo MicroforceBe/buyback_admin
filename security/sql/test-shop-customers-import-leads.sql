@@ -2,14 +2,21 @@
 -- shop-customers-import-leads.sql (without its final SELECT). Synthetic data only.
 do $$
 declare
- existing_g uuid; existing_x uuid; r jsonb; r2 jsonb; c record; n integer;
+ existing_g uuid; existing_x uuid; archived_z uuid; r jsonb; r2 jsonb; c record; n integer;
 begin
  insert into public.shop_customers(customer_type,first_name,email,customer_number,created_by,updated_by)
   values('private','Bestaand','import-g@example.invalid','80000009','fixture','fixture') returning id into existing_g;
  insert into public.shop_customers(customer_type,first_name,email,customer_number,created_by,updated_by)
   values('private','Bezet','import-x@example.invalid','70000005','fixture','fixture') returning id into existing_x;
 
+ insert into public.shop_customers(customer_type,first_name,email,customer_number,archived_at,created_by,updated_by)
+  values('private','Gearchiveerd','import-z@example.invalid','80000010',now(),'fixture','fixture') returning id into archived_z;
+
  insert into public.buyback_leads(status,model,order_code,base_price_cents,final_price_cents,email,first_name,last_name,phone,country,customer_number,created_at) values
+  ('done','TEST','TEST-IMP-I1',1,1,'import-i@example.invalid','Ida','Iota',null,'BE','70000011',now()-interval '20 days'),
+  ('done','TEST','TEST-IMP-I2',1,1,'import-i@example.invalid','Ida','Iota',null,'BE','70000012',now()-interval '2 days'),
+  ('done','TEST','TEST-IMP-J1',1,1,'import-j@example.invalid','Jan','Kappa',null,'BE','70000011',now()-interval '6 days'),
+  ('done','TEST','TEST-IMP-Z1',1,1,'import-z@example.invalid','Zoe','Zeta',null,'BE','80000010',now()-interval '6 days'),
   ('done','TEST','TEST-IMP-A1',1,1,'Import-A@Example.invalid','Anna','Alfa','0470 12 34 56','BE','70000001',now()-interval '30 days'),
   ('done','TEST','TEST-IMP-A2',1,1,'import-a@example.invalid','Anna','Alfa-Nieuw','0470 12 34 56','BE','70000001',now()-interval '1 day'),
   ('done','TEST','TEST-IMP-B1',1,1,'import-b@example.invalid','Bert','Beta',null,'BE','70000002',now()-interval '20 days'),
@@ -31,6 +38,20 @@ begin
     or c.created_by<>'import:buyback-leads' or c.marketing_opt_in then raise exception 'Case A failed'; end if;
  if (select count(*) from public.shop_customers where lower(email)='import-a@example.invalid')<>1 then raise exception 'Case A duplicated'; end if;
  if c.created_at > now()-interval '29 days' then raise exception 'Case A created_at not from first lead'; end if;
+ if c.email<>'import-a@example.invalid' then raise exception 'Case A e-mail not lowercased'; end if;
+
+ -- I/J: a number shared on an older lead is still ambiguous; both customers are marked, J keeps its number.
+ select * into c from public.shop_customers where email='import-i@example.invalid';
+ if c.customer_number<>'70000012' or c.review_note !~ '70000011, 70000012' or c.review_note !~ 'ook gevonden op leads van een andere klant' then raise exception 'Case I failed: %', row_to_json(c); end if;
+ select * into c from public.shop_customers where email='import-j@example.invalid';
+ if c.customer_number<>'70000011' or c.review_note !~ 'ook gevonden op leads van een andere klant' then raise exception 'Case J failed: %', row_to_json(c); end if;
+
+ -- Z: e-mail only known as an archived customer -> new active customer, lead linked, archive untouched.
+ if (select count(*) from public.shop_customers where email='import-z@example.invalid' and archived_at is null)<>1 then raise exception 'Case Z no active customer'; end if;
+ if (select shop_customer_id from public.buyback_leads where order_code='TEST-IMP-Z1') = archived_z then raise exception 'Case Z linked to archive'; end if;
+ select * into c from public.shop_customers where email='import-z@example.invalid' and archived_at is null;
+ if c.customer_number is not null or c.review_note !~ 'bestaande klant' then raise exception 'Case Z number taken from archive: %', row_to_json(c); end if;
+ if (select customer_number from public.shop_customers where id=archived_z)<>'80000010' then raise exception 'Case Z archive changed'; end if;
 
  -- B: two different numbers -> latest number, marked for review; cancelled lead also imported.
  select * into c from public.shop_customers where email='import-b@example.invalid';
@@ -64,7 +85,7 @@ begin
  if exists(select 1 from public.buyback_leads where order_code like 'TEST-IMP-%' and shop_customer_id is null) then raise exception 'Lead not linked'; end if;
  select count(*) into n from public.shop_customer_events e join public.buyback_leads l on l.id=e.reference_id
   where l.order_code like 'TEST-IMP-%' and e.event='lead_linked' and e.actor='import:buyback-leads';
- if n<>11 then raise exception 'Expected 11 link events, got %', n; end if;
+ if n<>15 then raise exception 'Expected 15 link events, got %', n; end if;
  if not exists(select 1 from public.shop_customer_events e join public.shop_customers s on s.id=e.customer_id
   where s.email='import-a@example.invalid' and e.event='created') then raise exception 'Creation not audited'; end if;
 

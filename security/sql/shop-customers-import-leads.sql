@@ -7,14 +7,18 @@
 --   Values such as "open" or notes are ignored. A number is never invented.
 -- * Several numbers on the leads of one customer: the number of the most recent lead is used and
 --   the customer is marked "te controleren".
--- * One number on the leads of several customers: the customer with the most leads carrying that
---   number keeps it (tie: most recent lead); the others get no number. All are marked "te controleren".
+-- * A number that appears on the leads of several customers (on any of their leads, not only the
+--   most recent) marks all those customers "te controleren". When several customers would get the
+--   same number, the customer with the most leads carrying it keeps it (tie: most recent lead);
+--   the others get no number.
 -- * A number already used by an existing customer is never taken over.
 -- * Phone numbers are normalised to E.164 (+32...); unusable numbers are left empty.
 -- * No marketing consent is assumed.
 -- * Every lead is linked to its customer, with a history event.
--- * Safe to run again: only leads without a customer are processed and existing customers
---   (same e-mail address) are reused, never overwritten.
+-- * E-mail addresses are stored in lowercase, like customers created in the app.
+-- * Safe to run again: only leads without a customer are processed and existing active customers
+--   (same e-mail address) are reused, never overwritten. An e-mail address that only belongs to an
+--   archived customer gets a new active customer; the archived record and its number stay untouched.
 
 -- Phone normalisation, same rules as normalizePhone in lib/customers.ts.
 create or replace function public.shop_normalize_phone(raw text, country text) returns text
@@ -72,7 +76,7 @@ begin
         min(created_at) over (partition by email_key) as first_at,
         count(*) over (partition by email_key) as lead_count
  from imp_leads
- where not exists (select 1 from public.shop_customers c where lower(c.email)=imp_leads.email_key)
+ where not exists (select 1 from public.shop_customers c where lower(c.email)=imp_leads.email_key and c.archived_at is null)
  order by email_key, created_at desc;
  alter table imp_customers add column numbers text[], add column chosen text, add column review text;
 
@@ -100,10 +104,18 @@ begin
         count(*) over (partition by ic.chosen) as claimants
  from imp_customers ic where ic.chosen is not null;
 
+ -- Any number seen on the leads of more than one e-mail address (on any lead, not only the chosen
+ -- number) is ambiguous: every customer involved is marked for review.
  update imp_customers ic set
-   review = concat_ws(' ', ic.review, 'Import buyback-leads: klantnummer ' || ic.chosen
-     || ' stond ook op leads van ' || (n.claimants - 1) || ' andere klant(en). Controleer of dit nummer bij deze klant hoort.')
- from imp_numbers n where n.email_key=ic.email_key and n.claimants > 1 and n.rank = 1;
+   review = concat_ws(' ', ic.review, 'Import buyback-leads: klantnummer(s) ' || shared.numbers
+     || ' ook gevonden op leads van een andere klant. Controleer of het nummer bij deze klant hoort.')
+ from (
+   select mine.email_key, string_agg(distinct mine.number, ', ' order by mine.number) as numbers
+   from (select distinct email_key, number from imp_leads where number is not null) mine
+   where exists (select 1 from imp_leads other where other.number = mine.number and other.email_key <> mine.email_key)
+   group by mine.email_key
+ ) shared
+ where shared.email_key = ic.email_key;
 
  update imp_customers ic set
    review = concat_ws(' ', ic.review, 'Import buyback-leads: klantnummer ' || ic.chosen
@@ -125,7 +137,7 @@ begin
    select 'private',
           left(coalesce(ic.first_name, ''), 80),
           left(coalesce(ic.last_name, case when ic.first_name is null then ic.customer_name end, ''), 80),
-          ic.email,
+          ic.email_key,
           public.shop_normalize_phone(ic.phone, ic.country),
           left(ic.street,160), left(ic.house_number,20), left(ic.postal_code,12), left(ic.city,80), ic.country,
           (select s.id from public.buyback_shops s where s.id = ic.shop_id),
