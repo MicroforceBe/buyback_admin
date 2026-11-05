@@ -34,6 +34,9 @@
 .badge{display:inline-block;font-size:10px;font-weight:650;padding:4px 8px;border-radius:20px;background:#eef3f7;color:#4c687c}
 .badge[data-type=business]{background:#e8f5fc;color:#1b6b92}
 .badge[data-state=archived]{background:#f6eeee;color:#8b4545}
+.badge[data-state=review]{background:#fff6e7;color:#92601e}
+.review{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;border:1px solid #eddbb6;background:#fff9ee;border-radius:10px;padding:13px 17px;margin:0 0 16px;font-size:13px;color:#6b5122}
+.review strong{display:block;margin-bottom:3px}
 .empty{padding:50px 20px;text-align:center;color:#6f889c}
 .empty h3{font-size:17px;color:#2f5269;margin:0 0 6px}
 .empty p{font-size:13px;margin:0}

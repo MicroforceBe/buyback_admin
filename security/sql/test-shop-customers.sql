@@ -1,10 +1,17 @@
 -- Execute inside BEGIN/ROLLBACK, after shop-customers.sql, using service_role. Synthetic only.
 do $$
-declare c uuid; l uuid:=gen_random_uuid(); n integer; num text;
+declare c uuid; c2 uuid; l uuid:=gen_random_uuid(); n integer; num text;
 begin
-  insert into public.shop_customers(customer_type,first_name,last_name,email,created_by,updated_by)
-   values('private','TEST','Klant','klant@example.invalid','fixture@example.invalid','fixture@example.invalid') returning id,customer_number into c,num;
-  if num !~ '^K[0-9]{6}$' then raise exception 'Customer number format'; end if;
+  insert into public.shop_customers(customer_type,first_name,last_name,email,customer_number,created_by,updated_by)
+   values('private','TEST','Klant','klant@example.invalid','90000001','fixture@example.invalid','fixture@example.invalid') returning id,customer_number into c,num;
+  if num<>'90000001' then raise exception 'Customer number not stored'; end if;
+  insert into public.shop_customers(customer_type,first_name,email,created_by,updated_by)
+   values('private','Zonder nummer','zonder@example.invalid','x','x') returning id into c2;
+  if (select customer_number from public.shop_customers where id=c2) is not null then raise exception 'Number invented'; end if;
+  begin insert into public.shop_customers(customer_type,first_name,email,customer_number,created_by,updated_by) values('private','Dubbel','dubbel@example.invalid','90000001','x','x'); raise exception 'Duplicate customer number accepted';
+  exception when unique_violation then null; end;
+  begin insert into public.shop_customers(customer_type,first_name,email,customer_number,created_by,updated_by) values('private','Fout','fout@example.invalid','K12','x','x'); raise exception 'Non-numeric customer number accepted';
+  exception when check_violation then null; end;
   if not exists(select 1 from public.shop_customer_events where customer_id=c and event='created' and actor='fixture@example.invalid') then raise exception 'Create not audited'; end if;
 
   update public.shop_customers set city='Gent',version=version+1,updated_by='editor@example.invalid',updated_at=now() where id=c;
