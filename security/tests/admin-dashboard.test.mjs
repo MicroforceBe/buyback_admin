@@ -14,10 +14,12 @@ async function load(path,extra={}){
 test('navigation retains role/permission filters and marks exactly the actual section active',async()=>{
  let pathname='/admin/refurb/rma/fixture';
  const Nav=await load('app/admin/Nav.tsx',{'react':{useMemo:fn=>fn()},'next/navigation':{usePathname:()=>pathname}});
- const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,12);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb/rma']);
+ const links=nodes(Nav({role:'admin'}),n=>n.type==='Link');assert.equal(links.length,13);assert.deepEqual(links.filter(n=>n.props['aria-current']==='page').map(n=>n.props.href),['/admin/refurb/rma']);
  assert.ok(links.every(n=>n.props.prefetch===false&&nodes(n,x=>x.type==='span').length===1));
  assert.equal(nodes(Nav({role:'user'}),n=>n.type==='Link'&&n.props.href==='/admin/diagnostics').length,0);
  assert.equal(nodes(Nav({role:'admin',permissions:{leads:false}}),n=>n.type==='Link'&&n.props.href==='/admin/leads').length,0);
+ assert.equal(nodes(Nav({role:'user',permissions:{customers:false}}),n=>n.type==='Link'&&n.props.href==='/admin/customers').length,0);
+ pathname='/admin/customers/fixture';assert.deepEqual(nodes(Nav({role:'admin'}),n=>n.props?.['aria-current']==='page').map(n=>n.props.href),['/admin/customers']);pathname='/admin/refurb/rma/fixture';
  assert.deepEqual(nodes(Nav({role:'technician'}),n=>n.type==='Link').map(n=>n.props.href),['/admin','/admin/leads','/admin/refurb','/admin/release-notes']);
  pathname='/admin';assert.deepEqual(nodes(Nav({role:'admin'}),n=>n.props?.['aria-current']==='page').map(n=>n.props.href),['/admin']);
 });
