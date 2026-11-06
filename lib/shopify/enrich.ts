@@ -52,10 +52,11 @@ const NON_MODEL = new Set(['refurbished', 'refurb', 'nieuw', 'new', 'm', 'qwerty
  * all words except stars, colour codes and condition words. Lower case, quotes removed.
  */
 export function modelOf(title: string): string {
-  const words = title.toLowerCase().replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
+  // Remove condition stars before punctuation is stripped; keep numeric model generations.
+  const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
   const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
   if (cut > 0) return words.slice(0, cut).join(' ');
-  return words.filter(w => !/^\d\*?$/.test(w) && !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
+  return words.filter(w => !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
 }
 
 function titleWords(title: string): Set<string> {

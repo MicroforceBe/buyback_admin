@@ -578,3 +578,14 @@ test('live draft creation sends the filled properties with the product', async (
   assert.ok(created.includes('magento.backcamera=12 MP'));
   assert.ok(created.includes('magento.colour_of_product=Blue'));
 });
+
+test('capacity-free models keep their numeric generation and never borrow hardware across generations', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'), 'apple watch series 8 45mm');
+  assert.equal(e.modelOf('Apple Watch Series 7 45mm SG Refurbished 4*'), 'apple watch series 7 45mm');
+  const result = e.enrichMetafields('Apple Watch Series 8 45mm SG Refurbished 5*', [{
+    sku: 'REF', title: 'Apple Watch Series 7 45mm SG Refurbished 4*', lead: 3,
+    metafields: [mf('magento.processor_family', 'Older generation')],
+  }]);
+  assert.equal(plain(result.metafields).find(m => m.key === 'processor_family'), undefined);
+});
