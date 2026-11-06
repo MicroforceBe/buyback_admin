@@ -27,3 +27,14 @@ Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicat
 1. `security/sql/shopify-sync.sql` op productie (staat al op test).
 2. Merge; daarna draait de cron, maar de modus staat op **Uit**.
 3. Variabelen instellen → **Schaduw** → enkele runs nakijken → Matrixify pauzeren → **Live**.
+
+## Nieuwe artikelen als concept (optioneel)
+Instelling "Nieuwe ERP-artikelen als concept aanmaken" (standaard uit, alleen beheerders).
+- SKU's die alleen in het ERP staan, worden aangemaakt als **draft**-product met één variant, met de tag `erp-nieuw`:
+  titel, merk, type, prijs, vergelijkingsprijs, btw, barcode, voorraadopvolging, verzending, voorraad per winkel en de vijf metavelden.
+- Niet aangemaakt: rijen zonder titel of prijs, cadeaubonnen en artikelen die in het ERP gearchiveerd zijn.
+- Maximaal 50 per run; bij meer dan 200 nieuwe SKU's tegelijk wordt niets aangemaakt (vermoedelijk een fout in het ERP-bestand).
+- Zolang de tag `erp-nieuw` op het product staat, past de synchronisatie de **status** niet aan. Alle andere velden worden wel bijgewerkt.
+  Verwijder de tag zodra foto's en beschrijving klaar zijn; vanaf dan volgt de status opnieuw het ERP.
+- Aanmaken wordt bij een serverfout niet automatisch herhaald (geen dubbele producten); de volgende run probeert opnieuw als het product er nog niet is.
+- Vereist `security/sql/shopify-sync-drafts.sql`.

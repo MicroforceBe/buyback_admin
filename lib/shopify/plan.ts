@@ -25,7 +25,12 @@ export type DesiredState = {
   /** Available quantity per Shopify location name. */
   inventory: Record<string, number>;
   metafields: Record<string, string>;
+  /** Fields only used when the product is created (new products start as draft). */
+  create: { barcode?: string; tracked?: boolean; requiresShipping?: boolean; giftCard?: boolean };
 };
+
+/** Tag on products created by the sync. While it is present the ERP never changes the status. */
+export const NEW_PRODUCT_TAG = 'erp-nieuw';
 
 export type CurrentState = {
   sku: string;
@@ -42,6 +47,7 @@ export type CurrentState = {
   /** Available quantity per location name (only locations where the item is stocked). */
   inventory: Record<string, number>;
   metafields: Record<string, string | null>;
+  tags: string[];
 };
 
 export type Change = {
@@ -57,6 +63,8 @@ export type Plan = {
   changes: Change[];
   /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
   unmatched: { erpOnly: UnmatchedSku[]; shopifyOnly: UnmatchedSku[]; duplicate: UnmatchedSku[] };
+  /** Desired state of the ERP-only SKUs, for creating them as draft products. */
+  newCandidates: DesiredState[];
   productUpdates: { id: string; title?: string; vendor?: string; productType?: string; status?: ProductStatus }[];
   variantUpdates: { productId: string; variants: { id: string; price?: string; compareAtPrice?: string | null; taxable?: boolean }[] }[];
   inventory: { inventoryItemId: string; locationId: string; quantity: number }[];
@@ -72,6 +80,8 @@ export type Plan = {
     notStocked: number;
     productConflicts: number;
     invalidRows: number;
+    /** Status changes skipped because the product still carries the erp-nieuw tag. */
+    statusLocked: number;
   };
 };
 
@@ -138,7 +148,15 @@ export function normalizeMetafield(type: string, raw: unknown): string | null {
 export function desiredFromRow(row: Record<string, unknown>): DesiredState | null {
   const sku = String(row['Variant SKU [ID]'] ?? '').trim();
   if (!sku) return null;
-  const desired: DesiredState = { sku, product: {}, variant: {}, inventory: {}, metafields: {} };
+  const desired: DesiredState = { sku, product: {}, variant: {}, inventory: {}, metafields: {}, create: {} };
+  const barcode = text(row['Variant Barcode'], 255);
+  if (barcode) desired.create.barcode = barcode;
+  const tracker = String(row['Variant Inventory Tracker'] ?? '').trim().toLowerCase();
+  if (tracker) desired.create.tracked = tracker === 'shopify';
+  const shipping = parseBool(row['Variant Requires Shipping']);
+  if (shipping !== null) desired.create.requiresShipping = shipping;
+  const giftCard = parseBool(row['Gift Card']);
+  if (giftCard !== null) desired.create.giftCard = giftCard;
 
   const title = text(row['Title'], 255);
   if (title) desired.product.title = title;
@@ -177,7 +195,8 @@ const sameCompare = (a: number | null | undefined, b: number | null | undefined)
 
 /**
  * Compares the desired ERP state with the current Shopify state and plans batched mutations.
- * Only SKUs present on both sides are touched; nothing is created or deleted in Shopify.
+ * Only SKUs present on both sides are updated; nothing is deleted. Creating new products is planned
+ * separately by planCreates.
  */
 export function planSync(input: {
   desired: DesiredState[];
@@ -186,8 +205,8 @@ export function planSync(input: {
   invalidRows?: number;
 }): Plan {
   const plan: Plan = {
-    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], duplicate: [] }, productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0 },
+    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -218,7 +237,7 @@ export function planSync(input: {
   for (const d of input.desired) {
     if (duplicate.has(d.sku)) continue;
     const c = bySku.get(d.sku);
-    if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '', inventory: { ...d.inventory } }); continue; }
+    if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '', inventory: { ...d.inventory } }); plan.newCandidates.push(d); continue; }
     plan.counts.matched++;
     const before = plan.changes.length;
 
@@ -232,7 +251,11 @@ export function planSync(input: {
       if (d.product.title !== undefined && d.product.title !== c.title) { update.title = d.product.title; add({ sku: d.sku, scope: 'product', field: 'title', oldValue: c.title, newValue: d.product.title }); }
       if (d.product.vendor !== undefined && d.product.vendor !== c.vendor) { update.vendor = d.product.vendor; add({ sku: d.sku, scope: 'product', field: 'vendor', oldValue: c.vendor, newValue: d.product.vendor }); }
       if (d.product.productType !== undefined && d.product.productType !== c.productType) { update.productType = d.product.productType; add({ sku: d.sku, scope: 'product', field: 'productType', oldValue: c.productType, newValue: d.product.productType }); }
-      if (d.product.status !== undefined && d.product.status !== c.status) { update.status = d.product.status; add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: d.product.status }); }
+      if (d.product.status !== undefined && d.product.status !== c.status) {
+        // A product created as draft by the sync keeps its status until someone removes the erp-nieuw tag.
+        if (c.tags.includes(NEW_PRODUCT_TAG)) plan.counts.statusLocked++;
+        else { update.status = d.product.status; add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: d.product.status }); }
+      }
       productFields.set(c.productId, { sku: d.sku, update, desired: d.product });
     }
 
@@ -295,6 +318,65 @@ export function planSync(input: {
   for (const [productId, variants] of variantsByProduct) plan.variantUpdates.push({ productId, variants });
   plan.counts.unknownLocations = [...unknownLocations].sort();
   return plan;
+}
+
+export type ProductSetInput = {
+  title: string; vendor?: string; productType?: string; status: 'DRAFT'; tags: string[];
+  productOptions: { name: string; values: { name: string }[] }[];
+  metafields: { namespace: string; key: string; type: string; value: string }[];
+  variants: {
+    optionValues: { optionName: string; name: string }[];
+    sku: string; price: string; compareAtPrice?: string | null; taxable?: boolean;
+    barcodes?: { value: string }[];
+    inventoryItem: { tracked: boolean; requiresShipping?: boolean };
+    inventoryQuantities: { locationId: string; name: 'available'; quantity: number }[];
+  }[];
+};
+
+/**
+ * Plans new draft products for ERP-only SKUs (one product with one variant per CSV row, as the
+ * ERP file has no handle/option columns). Rows without title or price, gift cards and rows the ERP
+ * marks as archived are skipped. Only known locations are stocked; negative stock becomes 0.
+ */
+export function planCreates(candidates: DesiredState[], locations: Record<string, string>): { creates: { sku: string; input: ProductSetInput }[]; skipped: { sku: string; reason: string }[] } {
+  const creates: { sku: string; input: ProductSetInput }[] = [];
+  const skipped: { sku: string; reason: string }[] = [];
+  for (const d of candidates) {
+    if (!d.product.title) { skipped.push({ sku: d.sku, reason: 'geen titel' }); continue; }
+    if (d.variant.priceCents === undefined) { skipped.push({ sku: d.sku, reason: 'geen prijs' }); continue; }
+    if (d.create.giftCard) { skipped.push({ sku: d.sku, reason: 'cadeaubon' }); continue; }
+    if (d.product.status === 'ARCHIVED') { skipped.push({ sku: d.sku, reason: 'gearchiveerd in ERP' }); continue; }
+    const inventoryQuantities = Object.entries(d.inventory)
+      .filter(([name]) => locations[name])
+      .map(([name, quantity]) => ({ locationId: locations[name], name: 'available' as const, quantity: Math.max(0, quantity) }));
+    const metafields = SYNCED_METAFIELDS.flatMap(m => {
+      const value = d.metafields[metafieldId(m)];
+      return value === undefined ? [] : [{ namespace: m.namespace, key: m.key, type: m.type, value }];
+    });
+    creates.push({
+      sku: d.sku,
+      input: {
+        title: d.product.title,
+        ...(d.product.vendor ? { vendor: d.product.vendor } : {}),
+        ...(d.product.productType ? { productType: d.product.productType } : {}),
+        status: 'DRAFT',
+        tags: [NEW_PRODUCT_TAG],
+        productOptions: [{ name: 'Title', values: [{ name: 'Default Title' }] }],
+        metafields,
+        variants: [{
+          optionValues: [{ optionName: 'Title', name: 'Default Title' }],
+          sku: d.sku,
+          price: formatMoney(d.variant.priceCents),
+          ...(d.variant.compareAtCents ? { compareAtPrice: formatMoney(d.variant.compareAtCents) } : {}),
+          ...(d.variant.taxable !== undefined ? { taxable: d.variant.taxable } : {}),
+          ...(d.create.barcode ? { barcodes: [{ value: d.create.barcode }] } : {}),
+          inventoryItem: { tracked: d.create.tracked ?? true, ...(d.create.requiresShipping !== undefined ? { requiresShipping: d.create.requiresShipping } : {}) },
+          inventoryQuantities,
+        }],
+      },
+    });
+  }
+  return { creates, skipped };
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {

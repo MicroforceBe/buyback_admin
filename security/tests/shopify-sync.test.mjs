@@ -38,7 +38,7 @@ const csvRow = (over = {}) => ({
 const current = (over = {}) => ({
   sku: 'SKU1', productId: 'gid://shopify/Product/1', variantId: 'gid://shopify/ProductVariant/11', inventoryItemId: 'gid://shopify/InventoryItem/111',
   title: 'iPhone 13 128GB', vendor: 'Apple', productType: 'Smartphone', status: 'ACTIVE', priceCents: 49900, compareAtCents: null, taxable: true,
-  inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' }, ...over,
+  inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' }, tags: [], ...over,
 });
 const LOCS = { 'Microforce Gentbrugge': 'gid://shopify/Location/1', 'Microforce Antwerpen': 'gid://shopify/Location/2' };
 
@@ -158,7 +158,7 @@ test('bulk export refuses a non-https download link', async () => {
 });
 
 // ---------- sync run ----------
-function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null } = {}) {
+function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null, createDrafts = false } = {}) {
   const log = [];
   let settingsReads = 0;
   function from(table) {
@@ -166,7 +166,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
     const result = () => {
       const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
       if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not'].includes(o[0])) });
-      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges }, error: null }; }
+      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges, create_drafts: createDrafts }, error: null }; }
       if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r })), error: null };
       if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
       return { data: null, error: null };
@@ -185,14 +185,15 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null }
   return {
     mutations,
     client: {
-      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' } } })
+      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' } } })
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
-      graphql: async (query, vars) => {
-        mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars)]);
+      graphql: async (query, vars, options) => {
+        mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
         if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
         const field = query.match(/\{\s*(\w+)\(/)[1];
+        if (field === 'productSet') return { productSet: { product: { id: 'gid://shopify/Product/999' }, userErrors } };
         return { [field]: { userErrors } };
       },
     },
@@ -307,6 +308,100 @@ test('the emergency stop halts a live run before the next write', async () => {
   assert.match(result.error, /Noodstop/);
   assert.equal(fake.mutations.length, 0);
   assert.ok(!log.some(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.applied === true));
+});
+
+test('new ERP articles are planned as single-variant draft products tagged erp-nieuw', async () => {
+  const { plan } = await loadModules();
+  const ok = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW1', Status: 'Active', 'Variant Compare At Price': '599,00', 'Variant Barcode': '1234567890123', 'Variant Inventory Tracker': 'shopify', 'Variant Requires Shipping': 'TRUE', 'Gift Card': 'FALSE', 'Inventory Available: Microforce Antwerpen': '-2', 'Inventory Available: Onbekend': '5' }));
+  const archived = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'OLD', Status: 'Archived' }));
+  const noPrice = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NOPRICE', 'Variant Price': '' }));
+  const gift = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'GIFT', 'Gift Card': 'TRUE' }));
+  const r = plain(plan.planCreates([ok, archived, noPrice, gift], LOCS));
+  assert.deepEqual(r.skipped, [{ sku: 'OLD', reason: 'gearchiveerd in ERP' }, { sku: 'NOPRICE', reason: 'geen prijs' }, { sku: 'GIFT', reason: 'cadeaubon' }]);
+  assert.equal(r.creates.length, 1);
+  const input = r.creates[0].input;
+  assert.equal(input.status, 'DRAFT');
+  assert.deepEqual(input.tags, ['erp-nieuw']);
+  assert.equal(input.title, 'iPhone 13 128GB');
+  assert.deepEqual(input.variants[0].optionValues, [{ optionName: 'Title', name: 'Default Title' }]);
+  assert.equal(input.variants[0].sku, 'NEW1');
+  assert.equal(input.variants[0].price, '499.00');
+  assert.equal(input.variants[0].compareAtPrice, '599.00');
+  assert.deepEqual(input.variants[0].barcodes, [{ value: '1234567890123' }]);
+  assert.deepEqual(input.variants[0].inventoryItem, { tracked: true, requiresShipping: true });
+  assert.deepEqual(input.variants[0].inventoryQuantities, [
+    { locationId: 'gid://shopify/Location/1', name: 'available', quantity: 2 },
+    { locationId: 'gid://shopify/Location/2', name: 'available', quantity: 0 },
+  ]);
+  assert.deepEqual(input.metafields.map(m => [m.namespace + '.' + m.key, m.value]), [['custom.refurbished_product', 'true'], ['magento.tax_bebat', '0']]);
+});
+
+test('the ERP never changes the status of a product still tagged erp-nieuw', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ Status: 'Active' }))], current: [current({ status: 'DRAFT', tags: ['erp-nieuw'] })], locations: LOCS });
+  assert.equal(p.changes.length, 0);
+  assert.equal(p.counts.statusLocked, 1);
+  const untagged = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ Status: 'Active' }))], current: [current({ status: 'DRAFT' })], locations: LOCS });
+  assert.deepEqual(plain(untagged.productUpdates), [{ id: 'gid://shopify/Product/1', status: 'ACTIVE' }]);
+});
+
+test('draft creation is off unless enabled', async () => {
+  const { db } = fakeDb({ mode: 'live', rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'NEW1' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(fake.mutations.length, 0);
+  assert.equal(result.counts.newDrafts, undefined);
+});
+
+test('shadow mode only records planned drafts; live mode creates them without server-error retries', async () => {
+  for (const mode of ['shadow', 'live']) {
+    const { db, log } = fakeDb({ mode, createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'NEW1' })] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current()]);
+    const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.counts.newDrafts, 1);
+    const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB']]);
+    if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
+    else {
+      assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
+      assert.deepEqual(fake.mutations[0][2], { retryServerErrors: false });
+      assert.equal(fake.mutations[0][1].input.status, 'DRAFT');
+    }
+  }
+});
+
+test('a suspicious number of new articles creates nothing', async () => {
+  const rows = Array.from({ length: 201 }, (_, i) => csvRow({ 'Variant SKU [ID]': 'X' + i }));
+  const { db } = fakeDb({ mode: 'live', createDrafts: true, rows });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.match(result.counts.createBlocked, /verdacht veel/);
+  assert.equal(fake.mutations.length, 0);
+});
+
+test('at most 50 drafts are created per run', async () => {
+  const rows = Array.from({ length: 60 }, (_, i) => csvRow({ 'Variant SKU [ID]': 'N' + i }));
+  const { db } = fakeDb({ mode: 'live', createDrafts: true, rows });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(fake.mutations.length, 50);
+  assert.equal(result.counts.newDraftsPending, 10);
+});
+
+test('client does not retry server errors when asked (non-idempotent create)', async () => {
+  const { client } = await loadModules();
+  let calls = 0;
+  const fetch = async url => String(url).endsWith('/oauth/access_token')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 't', expires_in: 86399 }) }
+    : (calls++, { ok: false, status: 502, json: async () => ({}) });
+  const c = client.createShopifyClient({ domain: 'shop.myshopify.com', clientId: 'a', clientSecret: 'b' }, { fetch, sleep: async () => {}, now: () => 0 });
+  await assert.rejects(c.graphql('mutation X { x }', {}, { retryServerErrors: false }), /HTTP 502/);
+  assert.equal(calls, 1);
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {

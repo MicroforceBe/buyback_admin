@@ -3,9 +3,9 @@ import 'server-only';
 // and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_UPDATE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
-import { chunk, desiredFromRow, planSync, type DesiredState, type Plan } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, planCreates, planSync, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -14,6 +14,11 @@ export type SyncResult =
 
 const MAX_RECORDED_CHANGES = 5000;
 const MAX_UNMATCHED = 2000;
+// New draft products: at most this many per run (the rest follows in the next runs), and none at all
+// when the number of new SKUs looks like a broken export (e.g. changed SKU format).
+const MAX_CREATES_PER_RUN = 50;
+const MAX_NEW_CANDIDATES = 200;
+export const CREATE_FIELD = 'nieuw artikel (draft)';
 const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
 const KEEP_RUNS_DAYS = 30;
 
@@ -67,7 +72,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[]): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -98,6 +103,11 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     // metafieldsSet is atomic: any error means nothing in this batch was written.
     if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsSet.userErrors) });
   }
+  for (const c of creates) {
+    await guard();
+    const { productSet } = await client.graphql<{ productSet: { product: { id: string } | null; userErrors: UserError[] } }>(PRODUCT_CREATE, { input: c.input }, { retryServerErrors: false });
+    if (productSet.userErrors.length || !productSet.product) failed.push({ id: `new:${c.sku}`, scope: 'product', field: CREATE_FIELD, reason: errorText(productSet.userErrors.length ? productSet.userErrors : [{ message: 'Shopify maakte het product niet aan.' }]) });
+  }
   return failed;
 }
 
@@ -109,7 +119,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
   const db = deps.db ?? supabaseAdmin;
   const key = deps.idempotencyKey ?? randomUUID;
 
-  const { data: settings, error: settingsError } = await db.from('shopify_sync_settings').select('mode,max_changes').eq('id', true).maybeSingle();
+  const { data: settings, error: settingsError } = await db.from('shopify_sync_settings').select('mode,max_changes,create_drafts').eq('id', true).maybeSingle();
   if (settingsError || !settings) throw new Error('Shopify-instellingen konden niet worden geladen.');
   const mode = settings.mode as SyncMode;
   if (mode === 'off') return { status: 'skipped', reason: 'off' };
@@ -153,6 +163,22 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), duplicateSkuList: cap(plan.unmatched.duplicate),
     });
 
+    // New ERP articles become draft products (only when enabled in the settings).
+    let creates: { sku: string; input: ProductSetInput }[] = [];
+    if (settings.create_drafts === true) {
+      if (plan.newCandidates.length > MAX_NEW_CANDIDATES) {
+        counts.createBlocked = `${plan.newCandidates.length} nieuwe artikelen is verdacht veel (maximum ${MAX_NEW_CANDIDATES}); er worden geen concepten aangemaakt. Controleer het ERP-bestand.`;
+      } else {
+        const planned = planCreates(plan.newCandidates, locations);
+        creates = planned.creates.slice(0, MAX_CREATES_PER_RUN);
+        counts.newDrafts = creates.length;
+        counts.newDraftsPending = planned.creates.length - creates.length;
+        counts.newSkipped = planned.skipped.slice(0, MAX_UNMATCHED);
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: c.input.title });
+      }
+    }
+    counts.changes = plan.changes.length;
+
     const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
     for (const batch of chunk(recorded, 500)) {
       const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
@@ -170,12 +196,13 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const skusById = new Map<string, string[]>();
     const add = (id: string, sku: string) => skusById.set(id, [...(skusById.get(id) ?? []), sku]);
     for (const v of state.variants) { add(v.productId, v.sku); add(v.variantId, v.sku); add(v.inventoryItemId, v.sku); }
+    for (const c of creates) add(`new:${c.sku}`, c.sku);
     const stillLive = async () => {
       const { data, error } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle();
       return !error && data?.mode === 'live';
     };
     writing = true;
-    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])));
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates);
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });
