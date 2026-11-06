@@ -27,7 +27,8 @@ const errorText = (errors: UserError[]) => errors.map(e => e.message).join('; ')
 
 /**
  * Splits user errors over the items of a batch by the index in their field path
- * (e.g. ["variants","3","price"] or ["input","quantities","2","quantity"]). Errors without an index
+ * (e.g. ["variants","3","price"]). Only for mutations that allow partial success
+ * (productVariantsBulkUpdate with allowPartialUpdates). Errors without an index
  * cannot be attributed and count for the whole batch.
  */
 function failedItems<T>(items: T[], errors: UserError[]): { item: T; reason: string }[] {
@@ -87,12 +88,14 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
       input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
       key: key(),
     });
-    for (const { item, reason } of failedItems(batch, inventorySetQuantities.userErrors)) failed.push({ id: item.inventoryItemId, scope: 'inventory', reason });
+    // Atomic mutation: any error means nothing in this batch was written.
+    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', reason: errorText(inventorySetQuantities.userErrors) });
   }
   for (const batch of chunk(plan.metafields, 25)) {
     await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
-    for (const { item, reason } of failedItems(batch, metafieldsSet.userErrors)) failed.push({ id: item.ownerId, scope: 'metafield', reason });
+    // metafieldsSet is atomic: any error means nothing in this batch was written.
+    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', reason: errorText(metafieldsSet.userErrors) });
   }
   return failed;
 }

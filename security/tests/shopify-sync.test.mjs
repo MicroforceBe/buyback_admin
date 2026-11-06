@@ -284,6 +284,19 @@ test('a rejected variant only marks that SKU as failed', async () => {
   assert.deepEqual(plain(errs.map(e => [e.filters.find(f => f[1] === 'sku')[2], e.row.error])), [['SKU2', 'Ongeldige prijs']]);
 });
 
+test('a rejected metafield batch marks every metafield change in it as failed (atomic mutation)', async () => {
+  const two = [current(), current({ sku: 'SKU2', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })];
+  const { db, log } = fakeDb({ mode: 'live', rows: two.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Metafield: custom.refurbished_product': 'FALSE' })) });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient(two);
+  const original = fake.client.graphql;
+  fake.client.graphql = async (q, v) => q.includes('metafieldsSet') ? { metafieldsSet: { userErrors: [{ field: ['metafields', '1', 'value'], message: 'Ongeldig' }] } } : original(q, v);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.counts.failedSkus, 2);
+  const errs = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.deepEqual(plain(errs.map(e => e.filters.find(f => f[1] === 'sku')[2]).sort()), ['SKU1', 'SKU2']);
+});
+
 test('the emergency stop halts a live run before the next write', async () => {
   const { db, log } = fakeDb({ mode: 'live', modeAfter: 'off', rows: [csvRow({ 'Variant Price': '399,00', Status: 'Draft' })] });
   const { sync } = await loadModules(db);
