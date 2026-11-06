@@ -1,0 +1,261 @@
+import 'server-only';
+// One Shopify sync run: ERP CSV rows -> desired state -> compare with Shopify -> record changes,
+// and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
+import { randomUUID } from 'node:crypto';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { enrichMetafields, starsOf, type MetafieldValue } from '@/lib/shopify/enrich';
+import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
+import { chunk, desiredFromRow, duplicateTitles, planCreates, planSync, rankSimilar, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+
+export type SyncMode = 'off' | 'shadow' | 'live';
+export type SyncResult =
+  | { status: 'skipped'; reason: 'off' | 'running' | 'not_configured' }
+  | { status: 'succeeded' | 'failed' | 'stopped'; runId: string; mode: Exclude<SyncMode, 'off'>; counts: Record<string, unknown>; error?: string };
+
+const MAX_RECORDED_CHANGES = 5000;
+const MAX_UNMATCHED = 2000;
+// New draft products: at most this many per run (the rest follows in the next runs), and none at all
+// when the number of new SKUs looks like a broken export (e.g. changed SKU format).
+const MAX_CREATES_PER_RUN = 50;
+const MAX_NEW_CANDIDATES = 200;
+// Most similar existing products whose properties are read for a new draft.
+const MAX_REFERENCES = 15;
+export const CREATE_FIELD = 'nieuw artikel (draft)';
+const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
+const KEEP_RUNS_DAYS = 30;
+// Runs that changed nothing and had no problem are only useful for a day.
+const KEEP_QUIET_RUNS_HOURS = 24;
+
+type Db = typeof supabaseAdmin;
+type Deps = { db?: Db; client?: ShopifyClient | null; idempotencyKey?: () => string };
+
+class StoppedByOperator extends Error {}
+
+type UserError = { field?: string[] | null; message: string };
+const errorText = (errors: UserError[]) => errors.map(e => e.message).join('; ').slice(0, 900);
+
+/**
+ * Splits user errors over the items of a batch by the index in their field path
+ * (e.g. ["variants","3","price"]). Only for mutations that allow partial success
+ * (productVariantsBulkUpdate with allowPartialUpdates). Errors without an index
+ * cannot be attributed and count for the whole batch.
+ */
+function failedItems<T>(items: T[], errors: UserError[]): { item: T; reason: string }[] {
+  const byIndex = new Map<number, UserError[]>();
+  const general: UserError[] = [];
+  for (const e of errors) {
+    const index = (e.field ?? []).map(f => (/^\d+$/.test(f) ? Number(f) : NaN)).find(n => Number.isInteger(n) && n < items.length);
+    if (index === undefined) general.push(e); else byIndex.set(index, [...(byIndex.get(index) ?? []), e]);
+  }
+  if (general.length) return items.map((item, i) => ({ item, reason: errorText([...general, ...(byIndex.get(i) ?? [])]) }));
+  return [...byIndex].map(([i, errs]) => ({ item: items[i], reason: errorText(errs) }));
+}
+
+async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: number }> {
+  const desired: DesiredState[] = [];
+  let invalid = 0;
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('erp_articles').select('sku,raw_erp_row').eq('missing_from_erp', false).order('sku').range(from, from + 999);
+    if (error) throw new Error('ERP-artikelen konden niet worden geladen.');
+    for (const row of data ?? []) {
+      const d = row.raw_erp_row && typeof row.raw_erp_row === 'object' ? desiredFromRow(row.raw_erp_row as Record<string, unknown>) : null;
+      if (d && d.sku === row.sku) desired.push(d); else invalid++;
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return { desired, invalid };
+}
+
+type Scope = 'product' | 'variant' | 'inventory' | 'metafield';
+/** field: the location name or metafield id when only that field failed; absent = every field of the scope. */
+type Failure = { id: string; scope: Scope; field?: string; reason: string };
+// Shopify accepts at most 250 items per input array.
+const MAX_INPUT_ITEMS = 250;
+
+/**
+ * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
+ * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
+ */
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[]): Promise<Failure[]> {
+  const failed: Failure[] = [];
+  // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
+  const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
+  for (const update of plan.productUpdates) {
+    await guard();
+    const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_UPDATE, { product: update });
+    if (productUpdate.userErrors.length) failed.push({ id: update.id, scope: 'product', reason: errorText(productUpdate.userErrors) });
+  }
+  for (const group of plan.variantUpdates) {
+    for (const variants of chunk(group.variants, MAX_INPUT_ITEMS)) {
+      await guard();
+      const { productVariantsBulkUpdate } = await client.graphql<{ productVariantsBulkUpdate: { userErrors: UserError[] } }>(VARIANTS_UPDATE, { productId: group.productId, variants });
+      for (const { item, reason } of failedItems(variants, productVariantsBulkUpdate.userErrors)) failed.push({ id: item.id, scope: 'variant', reason });
+    }
+  }
+  for (const batch of chunk(plan.inventory, 100)) {
+    await guard();
+    const { inventorySetQuantities } = await client.graphql<{ inventorySetQuantities: { userErrors: UserError[] } }>(INVENTORY_SET, {
+      input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
+      key: key(),
+    });
+    // Atomic mutation: any error means nothing in this batch was written.
+    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', field: locationNameById.get(q.locationId) ?? q.locationId, reason: errorText(inventorySetQuantities.userErrors) });
+  }
+  for (const batch of chunk(plan.metafields, 25)) {
+    await guard();
+    const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
+    // metafieldsSet is atomic: any error means nothing in this batch was written.
+    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsSet.userErrors) });
+  }
+  for (const c of creates) {
+    await guard();
+    const { productSet } = await client.graphql<{ productSet: { product: { id: string } | null; userErrors: UserError[] } }>(PRODUCT_CREATE, { input: c.input }, { retryServerErrors: false });
+    if (productSet.userErrors.length || !productSet.product) failed.push({ id: `new:${c.sku}`, scope: 'product', field: CREATE_FIELD, reason: errorText(productSet.userErrors.length ? productSet.userErrors : [{ message: 'Shopify maakte het product niet aan.' }]) });
+  }
+  return failed;
+}
+
+/**
+ * Runs one sync. Safe to call from cron and from the admin page: a second concurrent run is
+ * refused by the database, and nothing is written to Shopify unless the mode is 'live'.
+ */
+export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor: string }, deps: Deps = {}): Promise<SyncResult> {
+  const db = deps.db ?? supabaseAdmin;
+  const key = deps.idempotencyKey ?? randomUUID;
+
+  const { data: settings, error: settingsError } = await db.from('shopify_sync_settings').select('mode,max_changes,create_drafts').eq('id', true).maybeSingle();
+  if (settingsError || !settings) throw new Error('Shopify-instellingen konden niet worden geladen.');
+  const mode = settings.mode as SyncMode;
+  if (mode === 'off') return { status: 'skipped', reason: 'off' };
+
+  let client: ShopifyClient | null;
+  try {
+    client = deps.client !== undefined ? deps.client : (() => { const cfg = shopifyConfig(); return cfg ? createShopifyClient(cfg) : null; })();
+  } catch (error) {
+    client = null;
+    if (error instanceof ShopifyError) throw error;
+  }
+  if (!client) return { status: 'skipped', reason: 'not_configured' };
+
+  // A run that crashed (e.g. a function timeout) must not block the sync forever.
+  await db.from('shopify_sync_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error: 'Afgebroken: de run duurde te lang of de server stopte.' })
+    .eq('status', 'running').lt('started_at', new Date(Date.now() - STALE_RUN_MINUTES * 60_000).toISOString());
+
+  const { data: run, error: runError } = await db.from('shopify_sync_runs').insert({ trigger: input.trigger, mode, started_by: input.actor }).select('id').single();
+  if (runError?.code === '23505') return { status: 'skipped', reason: 'running' };
+  if (runError || !run) throw new Error('Synchronisatie kon niet starten.');
+  const runId = run.id as string;
+
+  const finish = async (status: 'succeeded' | 'failed' | 'stopped', counts: Record<string, unknown>, error?: string): Promise<SyncResult> => {
+    await db.from('shopify_sync_runs').update({ status, counts, error: error ?? null, finished_at: new Date().toISOString() }).eq('id', runId);
+    await db.from('shopify_sync_runs').delete().lt('started_at', new Date(Date.now() - KEEP_RUNS_DAYS * 86_400_000).toISOString());
+    // Quiet runs (succeeded, 0 changes) after 24 hours; runs with changes, errors, brake or stop stay 30 days.
+    await db.from('shopify_sync_runs').delete().eq('status', 'succeeded').eq('counts->>changes', '0').neq('id', runId)
+      .lt('started_at', new Date(Date.now() - KEEP_QUIET_RUNS_HOURS * 3_600_000).toISOString());
+    return { status, runId, mode, counts, ...(error ? { error } : {}) };
+  };
+
+  const counts: Record<string, unknown> = {};
+  let writing = false;
+  try {
+    const { desired, invalid } = await loadDesired(db);
+    const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
+    const state = parseBulkVariants(jsonl);
+    const locations = { ...state.locations, ...apiLocations };
+    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid });
+    // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
+    const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}), ...(u.status ? { status: u.status } : {}) }));
+    Object.assign(counts, plan.counts, {
+      changes: plan.changes.length, shopifyVariants: state.variants.length,
+      duplicateTitleList: duplicateTitles(desired, state.variants).slice(0, MAX_UNMATCHED).map(a => ({ ...a, title: a.title.slice(0, 200) })),
+      duplicateTitles: duplicateTitles(desired, state.variants).length,
+      erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), shopifyOnlyArchivedSkus: cap(plan.unmatched.shopifyOnlyArchived), duplicateSkuList: cap(plan.unmatched.duplicate),
+    });
+
+    // New ERP articles become draft products (only when enabled in the settings).
+    let creates: { sku: string; input: ProductSetInput; categoryFrom: string | null }[] = [];
+    if (settings.create_drafts === true) {
+      if (plan.newCandidates.length > MAX_NEW_CANDIDATES) {
+        counts.createBlocked = `${plan.newCandidates.length} nieuwe artikelen is verdacht veel (maximum ${MAX_NEW_CANDIDATES}); er worden geen concepten aangemaakt. Controleer het ERP-bestand.`;
+      } else {
+        const planned = planCreates(plan.newCandidates, locations, { shopifyTitles: state.variants.map(v => v.title), erpTitles: desired.map(d => d.product.title ?? '').filter(Boolean), existing: state.variants.map(v => ({ sku: v.sku, title: v.title, tags: v.tags })) });
+        creates = planned.creates.slice(0, MAX_CREATES_PER_RUN);
+        counts.newDrafts = creates.length;
+        counts.newDuplicateTitles = creates.filter(c => c.input.tags.includes('controle-dubbele-titel')).length;
+        counts.newDraftsPending = planned.creates.length - creates.length;
+        counts.newSkipped = planned.skipped.slice(0, MAX_UNMATCHED);
+        // Properties of the new drafts from their title and the most similar existing products.
+        const products = state.variants.map(v => ({ sku: v.sku, title: v.title, productId: v.productId }));
+        const metafieldCache = new Map<string, MetafieldValue[]>();
+        const enrichedCount = new Map<string, number>();
+        for (const c of creates) {
+          const ranked = rankSimilar(c.sku, c.input.title, products);
+          const stars = starsOf(c.input.title);
+          const picked = ranked.slice(0, MAX_REFERENCES);
+          const sameStars = ranked.find(r => starsOf(r.title) === stars);
+          if (sameStars && !picked.includes(sameStars)) picked.push(sameStars);
+          const missing = [...new Set(picked.map(r => r.productId))].filter(id => !metafieldCache.has(id));
+          if (missing.length) {
+            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids: missing });
+            for (const n of nodes) if (n?.id) metafieldCache.set(n.id, n.metafields.nodes);
+          }
+          const { metafields } = enrichMetafields(c.input.title, picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [] })));
+          const fromErp = new Set(c.input.metafields.map(m => `${m.namespace}.${m.key}`));
+          const extra = metafields.filter(m => !fromErp.has(`${m.namespace}.${m.key}`));
+          c.input.metafields.push(...extra);
+          enrichedCount.set(c.sku, extra.length);
+        }
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld`.slice(0, 1000) });
+        counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
+      }
+    }
+    counts.changes = plan.changes.length;
+
+    const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
+    for (const batch of chunk(recorded, 500)) {
+      const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
+      if (error) throw new Error('Wijzigingen konden niet worden vastgelegd.');
+    }
+    counts.recordedChanges = recorded.length;
+
+    if (mode === 'shadow' || plan.changes.length === 0) return await finish('succeeded', counts);
+
+    if (plan.changes.length > settings.max_changes) {
+      return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
+    }
+
+    // Map Shopify ids to SKUs for error reporting.
+    const skusById = new Map<string, string[]>();
+    const add = (id: string, sku: string) => skusById.set(id, [...(skusById.get(id) ?? []), sku]);
+    for (const v of state.variants) { add(v.productId, v.sku); add(v.variantId, v.sku); add(v.inventoryItemId, v.sku); }
+    for (const c of creates) add(`new:${c.sku}`, c.sku);
+    const stillLive = async () => {
+      const { data, error } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle();
+      return !error && data?.mode === 'live';
+    };
+    writing = true;
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates);
+    // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
+    const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
+    for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });
+
+    const { error: markError } = await db.from('shopify_sync_changes').update({ applied: true }).eq('run_id', runId);
+    if (markError) throw new Error('Status van de wijzigingen kon niet worden bijgewerkt.');
+    for (const f of failed.values()) {
+      let q = db.from('shopify_sync_changes').update({ applied: false, error: f.reason }).eq('run_id', runId).eq('sku', f.sku).eq('scope', f.scope);
+      if (f.field) q = q.eq('field', f.field);
+      await q;
+    }
+    const failedSkus = [...new Set([...failed.values()].map(f => f.sku))];
+    counts.failedSkus = failedSkus.length;
+    return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);
+  } catch (error) {
+    if (error instanceof StoppedByOperator) {
+      return await finish('stopped', counts, 'Noodstop: de synchronisatie werd tijdens de run uitgezet of niet meer op live gezet. Er wordt niets meer geschreven; wijzigingen van vóór de stop kunnen al in Shopify staan.');
+    }
+    const message = error instanceof ShopifyError ? error.message : error instanceof Error ? error.message : 'Onbekende fout.';
+    const note = writing ? ' Een deel van de wijzigingen kan al in Shopify staan; de volgende run vergelijkt opnieuw en corrigeert de rest.' : '';
+    return await finish('failed', counts, (message + note).slice(0, 1000));
+  }
+}
