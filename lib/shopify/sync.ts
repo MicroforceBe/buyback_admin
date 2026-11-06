@@ -171,18 +171,19 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     });
 
     // New ERP articles become draft products (only when enabled in the settings).
-    let creates: { sku: string; input: ProductSetInput }[] = [];
+    let creates: { sku: string; input: ProductSetInput; categoryFrom: string | null }[] = [];
     if (settings.create_drafts === true) {
       if (plan.newCandidates.length > MAX_NEW_CANDIDATES) {
         counts.createBlocked = `${plan.newCandidates.length} nieuwe artikelen is verdacht veel (maximum ${MAX_NEW_CANDIDATES}); er worden geen concepten aangemaakt. Controleer het ERP-bestand.`;
       } else {
-        const planned = planCreates(plan.newCandidates, locations, { shopifyTitles: state.variants.map(v => v.title), erpTitles: desired.map(d => d.product.title ?? '').filter(Boolean) });
+        const planned = planCreates(plan.newCandidates, locations, { shopifyTitles: state.variants.map(v => v.title), erpTitles: desired.map(d => d.product.title ?? '').filter(Boolean), existing: state.variants.map(v => ({ sku: v.sku, title: v.title, tags: v.tags })) });
         creates = planned.creates.slice(0, MAX_CREATES_PER_RUN);
         counts.newDrafts = creates.length;
         counts.newDuplicateTitles = creates.filter(c => c.input.tags.includes('controle-dubbele-titel')).length;
         counts.newDraftsPending = planned.creates.length - creates.length;
         counts.newSkipped = planned.skipped.slice(0, MAX_UNMATCHED);
-        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: c.input.title });
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'}`.slice(0, 1000) });
+        counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
       }
     }
     counts.changes = plan.changes.length;

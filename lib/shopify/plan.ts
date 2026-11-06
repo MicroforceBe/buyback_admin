@@ -367,8 +367,40 @@ export type ProductSetInput = {
  * ERP file has no handle/option columns). Rows without title or price, gift cards and rows the ERP
  * marks as archived are skipped. Only known locations are stocked; negative stock becomes 0.
  */
-export function planCreates(candidates: DesiredState[], locations: Record<string, string>, context: { shopifyTitles?: string[]; erpTitles?: string[] } = {}): { creates: { sku: string; input: ProductSetInput }[]; skipped: { sku: string; reason: string }[] } {
-  const creates: { sku: string; input: ProductSetInput }[] = [];
+export const CATEGORY_REVIEW_TAG = 'controle-categorie';
+export const NO_CATEGORY_TAG = 'geen-categorie';
+
+const titleTokens = (t: string) => t.toLowerCase().replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
+const skuFamily = (sku: string) => sku.trim().padStart(12, '0').slice(0, 3);
+const isCategoryTag = (tag: string) => (tag.startsWith('cat_') && tag.length > 4) || (tag.startsWith('attribute_set_code_') && tag.length > 19);
+
+/**
+ * Category tags for a new product, copied from the most similar existing Shopify product: same SKU
+ * family (first 3 digits, e.g. 207 = MacBook) and the longest common start of the title (the model
+ * is at the start), then the largest word overlap. Requires at least two leading words in common.
+ */
+export function suggestCategoryTags(sku: string, title: string, existing: { sku: string; title: string; tags: string[] }[]): { tags: string[]; fromSku: string } | null {
+  const family = skuFamily(sku);
+  const words = titleTokens(title);
+  let best: { score: number; tags: string[]; fromSku: string } | null = null;
+  for (const e of existing) {
+    if (e.sku === sku || skuFamily(e.sku) !== family) continue;
+    const tags = e.tags.filter(isCategoryTag);
+    if (!tags.some(t => t.startsWith('cat_'))) continue;
+    const other = titleTokens(e.title);
+    let lead = 0;
+    while (lead < words.length && lead < other.length && words[lead] === other[lead]) lead++;
+    if (lead < 2) continue;
+    const a = new Set(words), b = new Set(other);
+    const overlap = [...a].filter(w => b.has(w)).length / new Set([...a, ...b]).size;
+    const score = lead * 10 + overlap;
+    if (!best || score > best.score) best = { score, tags, fromSku: e.sku };
+  }
+  return best ? { tags: [...new Set(best.tags)].sort(), fromSku: best.fromSku } : null;
+}
+
+export function planCreates(candidates: DesiredState[], locations: Record<string, string>, context: { shopifyTitles?: string[]; erpTitles?: string[]; existing?: { sku: string; title: string; tags: string[] }[] } = {}): { creates: { sku: string; input: ProductSetInput; categoryFrom: string | null }[]; skipped: { sku: string; reason: string }[] } {
+  const creates: { sku: string; input: ProductSetInput; categoryFrom: string | null }[] = [];
   const skipped: { sku: string; reason: string }[] = [];
   // A title that already exists in Shopify, or on more than one ERP article, may be an accidental
   // duplicate in the ERP: the draft is still created, but tagged for review.
@@ -387,14 +419,19 @@ export function planCreates(candidates: DesiredState[], locations: Record<string
       const value = d.metafields[metafieldId(m)];
       return value === undefined ? [] : [{ namespace: m.namespace, key: m.key, type: m.type, value }];
     });
+    const category = suggestCategoryTags(d.sku, d.product.title, context.existing ?? []);
+    const duplicateTitle = shopifyTitles.has(titleKey(d.product.title)) || (erpTitleCount.get(titleKey(d.product.title)) ?? 0) > 1;
+    const tags = [NEW_PRODUCT_TAG, ...(duplicateTitle ? [DUPLICATE_TITLE_TAG] : []),
+      ...(category ? [CATEGORY_REVIEW_TAG, ...category.tags] : [NO_CATEGORY_TAG]), `main_sku_${d.sku.replace(/^0+/, '')}`];
     creates.push({
       sku: d.sku,
+      categoryFrom: category?.fromSku ?? null,
       input: {
         title: d.product.title,
         ...(d.product.vendor ? { vendor: d.product.vendor } : {}),
         ...(d.product.productType ? { productType: d.product.productType } : {}),
         status: 'DRAFT',
-        tags: shopifyTitles.has(titleKey(d.product.title)) || (erpTitleCount.get(titleKey(d.product.title)) ?? 0) > 1 ? [NEW_PRODUCT_TAG, DUPLICATE_TITLE_TAG] : [NEW_PRODUCT_TAG],
+        tags,
         productOptions: [{ name: 'Title', values: [{ name: 'Default Title' }] }],
         metafields,
         variants: [{

@@ -329,7 +329,7 @@ test('new ERP articles are planned as single-variant draft products tagged erp-n
   assert.equal(r.creates.length, 1);
   const input = r.creates[0].input;
   assert.equal(input.status, 'DRAFT');
-  assert.deepEqual(input.tags, ['erp-nieuw']);
+  assert.deepEqual(input.tags, ['erp-nieuw', 'geen-categorie', 'main_sku_NEW1']);
   assert.equal(input.title, 'iPhone 13 128GB');
   assert.deepEqual(input.variants[0].optionValues, [{ optionName: 'Title', name: 'Default Title' }]);
   assert.equal(input.variants[0].sku, 'NEW1');
@@ -371,7 +371,7 @@ test('shadow mode only records planned drafts; live mode creates them without se
     assert.equal(result.status, 'succeeded');
     assert.equal(result.counts.newDrafts, 1);
     const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
-    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB']]);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB — geen categorie gevonden']]);
     if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
     else {
       assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
@@ -429,7 +429,7 @@ test('a new draft whose title already exists is still created but tagged for rev
   const other = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW2', Title: 'Ander toestel' }));
   const twin = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW3', Title: 'Tweeling' }));
   const r = plain(plan.planCreates([dup, other, twin], LOCS, { shopifyTitles: ['iPhone 13  128GB'], erpTitles: ['iPhone 13 128GB', 'Ander toestel', 'Tweeling', 'tweeling'] }));
-  assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags]), [['NEW1', ['erp-nieuw', 'controle-dubbele-titel']], ['NEW2', ['erp-nieuw']], ['NEW3', ['erp-nieuw', 'controle-dubbele-titel']]]);
+  assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags.includes('controle-dubbele-titel')]), [['NEW1', true], ['NEW2', false], ['NEW3', true]]);
 });
 
 test('quiet runs are pruned after 24 hours, other runs after 30 days', async () => {
@@ -442,6 +442,28 @@ test('quiet runs are pruned after 24 hours, other runs after 30 days', async () 
   assert.deepEqual(quiet.filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]]), [['status', 'succeeded'], ['counts->>changes', '0']]);
   const hours = (Date.now() - new Date(quiet.filters.find(f => f[0] === 'lt')[2]).getTime()) / 3_600_000;
   assert.ok(hours > 23.9 && hours < 24.1);
+});
+
+test('category tags are copied from the most similar product in the same SKU family', async () => {
+  const { plan } = await loadModules();
+  const existing = [
+    { sku: '211000037140', title: 'iPhone 13 128GB Blue Refurbished 4*', tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13', 'cat_microforce', 'main_sku_211000037140', 'erp-nieuw'] },
+    { sku: '211000037999', title: 'iPhone 13 Mini 128GB Red Refurbished 4*', tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13 Mini', 'cat_microforce'] },
+    { sku: '207000037217', title: 'iPhone 13 Mini 128GB Red sleeve', tags: ['cat_Accessoires'] },
+    { sku: '211000030000', title: 'iPhone 13 Mini kapot', tags: ['cat_'] },
+  ];
+  const s = plain(plan.suggestCategoryTags('211000040892', 'iPhone 13 Mini 128GB Red Refurbished 5*', existing));
+  assert.deepEqual(s, { tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13 Mini', 'cat_microforce'], fromSku: '211000037999' });
+  assert.equal(plan.suggestCategoryTags('211000040000', 'Samsung A55 5G', existing), null);
+  assert.equal(plan.suggestCategoryTags('216000040000', 'iPhone 13 Mini 128GB', existing), null);
+});
+
+test('a new draft gets the copied category tags, a review tag and its own main_sku tag', async () => {
+  const { plan } = await loadModules();
+  const d = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': '211000040892', Title: 'iPhone 13 Mini 128GB Red Refurbished 5*' }));
+  const r = plain(plan.planCreates([d], LOCS, { existing: [{ sku: '211000037999', title: 'iPhone 13 Mini 128GB Red Refurbished 4*', tags: ['cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000037999'] }] }));
+  assert.deepEqual(r.creates[0].input.tags, ['erp-nieuw', 'controle-categorie', 'cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000040892']);
+  assert.equal(r.creates[0].categoryFrom, '211000037999');
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {
