@@ -173,7 +173,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
     const q = { table, ops: [] };
     const result = () => {
       const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
-      if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not'].includes(o[0])) });
+      if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not', 'neq'].includes(o[0])) });
       if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges, create_drafts: createDrafts }, error: null }; }
       if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r })), error: null };
       if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
@@ -430,6 +430,18 @@ test('a new draft whose title already exists is still created but tagged for rev
   const twin = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW3', Title: 'Tweeling' }));
   const r = plain(plan.planCreates([dup, other, twin], LOCS, { shopifyTitles: ['iPhone 13  128GB'], erpTitles: ['iPhone 13 128GB', 'Ander toestel', 'Tweeling', 'tweeling'] }));
   assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags]), [['NEW1', ['erp-nieuw', 'controle-dubbele-titel']], ['NEW2', ['erp-nieuw']], ['NEW3', ['erp-nieuw', 'controle-dubbele-titel']]]);
+});
+
+test('quiet runs are pruned after 24 hours, other runs after 30 days', async () => {
+  const { db, log } = fakeDb();
+  const { sync } = await loadModules(db);
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current()]).client });
+  const deletes = plain(log.filter(l => l.table === 'shopify_sync_runs' && l.op === 'delete'));
+  assert.equal(deletes.length, 2);
+  const quiet = deletes.find(d => d.filters.some(f => f[1] === 'counts->>changes'));
+  assert.deepEqual(quiet.filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]]), [['status', 'succeeded'], ['counts->>changes', '0']]);
+  const hours = (Date.now() - new Date(quiet.filters.find(f => f[0] === 'lt')[2]).getTime()) / 3_600_000;
+  assert.ok(hours > 23.9 && hours < 24.1);
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {
