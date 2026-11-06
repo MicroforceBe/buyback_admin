@@ -41,12 +41,17 @@ export function pickImages(title: string, refs: Reference[]): { files: { origina
   const model = modelOf(title);
   if (!model) return null;
   const colourOf = (r: Reference) => r.metafields.find(m => `${m.namespace}.${m.key}` === 'magento.colour_of_product')?.value.trim().toLowerCase() ?? '';
-  const titleColour = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])].filter(c => sameColour(title, c))
-    .sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
-  if (!titleColour) return null;
+  const known = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])];
+  const mostSpecific = (t: string) => known.filter(c => sameColour(t, c)).sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
+  const titleColour = mostSpecific(title);
+  // Same colour: by the colour field or by the reference's own title (many products lack the field).
+  // A title without a colour (e.g. most laptops) only matches references whose title has none either.
+  const sameColourAs = (r: Reference) => titleColour
+    ? colourOf(r) === titleColour || mostSpecific(r.title) === titleColour
+    : !mostSpecific(r.title) && !colourOf(r);
   let best: { ref: Reference; good: RefImage[] } | null = null;
   for (const r of refs) {
-    if (modelOf(r.title) !== model || colourOf(r) !== titleColour) continue;
+    if (modelOf(r.title) !== model || !sameColourAs(r)) continue;
     const good = (r.images ?? []).filter(goodImage);
     if (good.length && (!best || good.length > best.good.length)) best = { ref: r, good };
   }
@@ -74,7 +79,13 @@ const id = (m: { namespace: string; key: string }) => `${m.namespace}.${m.key}`;
 // no Rose Gold reference is available. Colours of the reference products are added at run time.
 const KNOWN_COLOURS = ['rose gold', 'space grey', 'space gray', 'space black', 'pacific blue', 'sierra blue', 'alpine green', 'midnight green',
   'deep purple', 'jet black', 'light gold', 'sky blue', 'mist blue', 'deep blue', 'cosmic orange', 'cloud white',
-  'natural titanium', 'black titanium', 'white titanium', 'blue titanium', 'desert titanium', 'product red'];
+  'natural titanium', 'black titanium', 'white titanium', 'blue titanium', 'desert titanium', 'product red',
+  'onyx black', 'marble grey', 'cobalt violet', 'amber yellow', 'phantom black', 'cream', 'lavender', 'mint',
+  // single-word colours, so a title like "iPhone 13 128GB Blue" is recognised as coloured
+  'black', 'white', 'silver', 'gold', 'blue', 'red', 'green', 'pink', 'purple', 'yellow', 'graphite', 'midnight',
+  'starlight', 'grey', 'gray', 'orange', 'coral', 'violet', 'bronze', 'titanium'];
+// Every word of a known colour ("space", "grey", "rose", ...): never part of a model without capacities.
+const COLOUR_WORDS = new Set(KNOWN_COLOURS.flatMap(c => c.split(' ')));
 const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
 
 export function starsOf(title: string): string | null {
@@ -97,10 +108,11 @@ const NON_MODEL = new Set(['refurbished', 'refurb', 'nieuw', 'new', 'm', 'qwerty
  */
 export function modelOf(title: string): string {
   // Remove condition stars before punctuation is stripped; keep numeric model generations.
-  const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
+  // Hyphens count as spaces, so "M1-Max" and "M1 Max" are the same model.
+  const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+]+/g, ' ').trim().split(' ').filter(Boolean);
   const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
   if (cut > 0) return words.slice(0, cut).join(' ');
-  return words.filter(w => !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
+  return words.filter(w => !COLOUR_ALIASES[w] && !COLOUR_WORDS.has(w) && !NON_MODEL.has(w)).join(' ');
 }
 
 /** The descriptive words after the model (usually the colour), for choosing photo candidates. */

@@ -718,3 +718,22 @@ test('photo candidates include a same-model, same-colour product even beyond the
   assert.equal(c[0].n, 99);
   assert.ok(!c.some(x => x.n === 100));
 });
+
+test('photos for titles without a colour (laptops) and hyphen-insensitive models', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('MacBook Pro 16" L21 M1-Max 32GB 1TB SSD SG Refurbished 4*'), e.modelOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*'));
+  const hp = { sku: 'HP', title: 'HP ZBook Power G9 I7 32GB 1TB SSD 15" W11 Refurbished 5*', lead: 6, metafields: [], images: [img(1110, 678)] };
+  assert.equal(plain(e.pickImages('HP ZBook Power G9 I7 32GB 512SSD 15" W11 Refurbished 5*', [hp])).fromSku, 'HP');
+  // A coloured title never takes photos from a colourless reference, and vice versa.
+  assert.equal(e.pickImages('iPhone 13 128GB Blue Refurbished 4*', [{ ...hp, title: 'iPhone 13 256GB Refurbished 5*' }]), null);
+  assert.equal(e.pickImages('HP ZBook Power G9 I7 32GB 512SSD Refurbished 5*', [{ ...hp, title: 'HP ZBook Power G9 I7 32GB 1TB SSD Silver Refurbished 5*' }]), null);
+  // Colour from the reference title when its colour field is missing.
+  const sg = { sku: 'SG', title: 'MacBook Pro 16" L21 M1-Max 32GB 512SSD SG Refurbished 5* M', lead: 7, metafields: [], images: [img(1280, 800)] };
+  assert.equal(plain(e.pickImages('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', [sg])).fromSku, 'SG');
+});
+
+test('colour words never become part of a capacity-free model (Space-Grey = SG)', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'));
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), 'apple watch series 8 45mm');
+});
