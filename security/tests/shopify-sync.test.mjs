@@ -710,3 +710,11 @@ test('capacity-free models keep their numeric generation and never borrow hardwa
   }]);
   assert.equal(plain(result.metafields).find(m => m.key === 'processor_family'), undefined);
 });
+
+test('photo candidates include a same-model, same-colour product even beyond the top 15 references', async () => {
+  const e = await loadEnrich();
+  const ranked = [...Array.from({ length: 15 }, (_, i) => ({ title: `iPhone 13 128GB ${['Red', 'Pink', 'Green'][i % 3]} Refurbished 4*`, n: i })), { title: 'iPhone 13 256GB Blue Refurbished 5*', n: 99 }, { title: 'iPhone 13 Mini 128GB Blue Refurbished 5*', n: 100 }];
+  const c = plain(e.photoCandidates('iPhone 13 128GB Blue Refurbished 4*', ranked, 3));
+  assert.equal(c[0].n, 99);
+  assert.ok(!c.some(x => x.n === 100));
+});

@@ -103,6 +103,27 @@ export function modelOf(title: string): string {
   return words.filter(w => !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
 }
 
+/** The descriptive words after the model (usually the colour), for choosing photo candidates. */
+export function descriptiveWords(title: string): Set<string> {
+  const model = new Set(modelOf(title).split(' '));
+  const out = new Set<string>();
+  for (const w of titleWords(title)) if (!model.has(w) && !CAPACITY_TOKEN.test(w) && !/^\d+$/.test(w) && !NON_MODEL.has(w)) out.add(w);
+  return out;
+}
+
+/**
+ * Photo candidates, independent of the metafield cut-off: products of exactly the same model,
+ * those sharing descriptive (colour) words first.
+ */
+export function photoCandidates<T extends { title: string }>(title: string, ranked: T[], max = 10): T[] {
+  const model = modelOf(title);
+  if (!model) return [];
+  const words = descriptiveWords(title);
+  const same = ranked.filter(r => modelOf(r.title) === model);
+  const shares = (r: T) => [...descriptiveWords(r.title)].some(w => words.has(w));
+  return [...same.filter(shares), ...same.filter(r => !shares(r))].slice(0, max);
+}
+
 function titleWords(title: string): Set<string> {
   const words = title.toLowerCase().replace(/[^a-z0-9-]+/g, ' ').split(' ').filter(Boolean);
   const out = new Set(words);

@@ -4,7 +4,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
-import { enrichMetafields, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
+import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { chunk, desiredFromRow, duplicateTitles, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
@@ -21,6 +21,7 @@ const MAX_CREATES_PER_RUN = 50;
 const MAX_NEW_CANDIDATES = 200;
 // Most similar existing products whose properties are read for a new draft.
 const MAX_REFERENCES = 15;
+const REFERENCE_BATCH = 5;
 const ARCHIVE_MISSING_AFTER_HOURS = 24;
 // More than this many articles disappearing within an hour looks like a broken export: do nothing.
 const MAX_NEWLY_MISSING = 100;
@@ -254,9 +255,12 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
           const picked = ranked.slice(0, MAX_REFERENCES);
           const sameStars = ranked.find(r => starsOf(r.title) === stars);
           if (sameStars && !picked.includes(sameStars)) picked.push(sameStars);
+          // Photo sources are chosen separately: same model, matching colour first, beyond the top 15.
+          for (const r of photoCandidates(c.input.title, ranked)) if (!picked.includes(r)) picked.push(r);
           const missing = [...new Set(picked.map(r => r.productId))].filter(id => !metafieldCache.has(id));
-          if (missing.length) {
-            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] }; media?: { nodes: ({ image?: RefImage | null } | null)[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids: missing });
+          // Small batches: each product asks for 100 metafields and 20 images (query cost limit).
+          for (const ids of chunk(missing, REFERENCE_BATCH)) {
+            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] }; media?: { nodes: ({ image?: RefImage | null } | null)[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids });
             for (const n of nodes) if (n?.id) {
               metafieldCache.set(n.id, n.metafields.nodes);
               imageCache.set(n.id, (n.media?.nodes ?? []).flatMap(m => (m?.image?.url ? [m.image] : [])));
