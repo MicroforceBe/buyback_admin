@@ -699,3 +699,14 @@ test('a new draft without usable photos gets the tag geen-afbeelding; with photo
     assert.equal(input.tags.includes('geen-afbeelding'), !expectFiles);
   }
 });
+
+test('capacity-free models keep their numeric generation and never borrow hardware across generations', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'), 'apple watch series 8 45mm');
+  assert.equal(e.modelOf('Apple Watch Series 7 45mm SG Refurbished 4*'), 'apple watch series 7 45mm');
+  const result = e.enrichMetafields('Apple Watch Series 8 45mm SG Refurbished 5*', [{
+    sku: 'REF', title: 'Apple Watch Series 7 45mm SG Refurbished 4*', lead: 3,
+    metafields: [mf('magento.processor_family', 'Older generation')],
+  }]);
+  assert.equal(plain(result.metafields).find(m => m.key === 'processor_family'), undefined);
+});
