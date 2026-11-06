@@ -256,6 +256,8 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
             </div>
             {archivedList.length > 0 && (
               <div className="mt-4 space-y-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm">
+                <p className="text-xs text-slate-600">De voorraad wordt vlak voor het verwijderen opnieuw gecontroleerd; producten die intussen weer voorraad hebben, worden overgeslagen tenzij je hieronder bewust toestemming geeft.</p>
+                <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad verwijderen</label>
                 <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
                 <div className="flex flex-wrap items-center gap-2">
                   <button name="removal" value="restore" className="rounded-lg border bg-white px-4 py-2 font-semibold">Terugzetten als concept</button>

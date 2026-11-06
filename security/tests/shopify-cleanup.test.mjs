@@ -75,6 +75,13 @@ test('delete requires archive by this tool at least 30 days ago', async () => {
   assert.equal(removal.checkRemoval({ ...base, products: [archived], archivedAt: new Map([[P(1).id, new Date('2026-11-30T12:00:00Z')]]) }).ok.length, 1);
 });
 
+test('current stock also blocks deletion unless explicitly allowed', async () => {
+  const { removal } = await load();
+  const args = { action: 'delete', requestedIds: [P(1).id], products: [P(1, { status: 'ARCHIVED', totalInventory: 2 })], erpSkus: new Set(), archivedAt: new Map([[P(1).id, new Date('2026-11-01T00:00:00Z')]]), now: NOW };
+  assert.match(removal.checkRemoval({ ...args, includeStock: false }).refused[0].reason, /voorraad \(2\)/);
+  assert.equal(removal.checkRemoval({ ...args, includeStock: true }).ok.length, 1);
+});
+
 test('more than 100 products at once are all refused', async () => {
   const { removal } = await load();
   const ids = Array.from({ length: 101 }, (_, i) => P(i).id);
