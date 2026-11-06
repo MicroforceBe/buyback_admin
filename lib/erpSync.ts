@@ -212,6 +212,9 @@ function rowToPayload(row: any) {
 
     missing_from_erp_at: null,
 
+    // The complete CSV row: the Shopify sync reads Title, Status, metafields etc. from it.
+    raw_erp_row: row,
+
     updated_at: new Date().toISOString(),
   };
 }

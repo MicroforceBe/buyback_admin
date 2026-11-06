@@ -94,7 +94,7 @@ export default function CustomerForm({ customer, shops }: { customer?: Customer;
           <label className={styles.field + ' ' + styles.span2}>Huisnummer<input name="house_number" maxLength={20} defaultValue={customer?.house_number} {...invalid('house_number')} />{fieldError('house_number')}</label>
           <label className={styles.field + ' ' + styles.span2}>Postcode<input name="postal_code" maxLength={12} defaultValue={customer?.postal_code} autoComplete="postal-code" {...invalid('postal_code')} />{fieldError('postal_code')}</label>
           <label className={styles.field + ' ' + styles.span2}>Gemeente<input name="city" maxLength={80} defaultValue={customer?.city} autoComplete="address-level2" {...invalid('city')} />{fieldError('city')}</label>
-          <label className={styles.field + ' ' + styles.span2}>Land<select name="country" defaultValue={customer?.country ?? 'BE'} {...invalid('country')}>{Object.entries(customerCountries).map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select>{fieldError('country')}</label>
+          <label className={styles.field + ' ' + styles.span2}>Land<select name="country" defaultValue={customer?.country ?? 'BE'} {...invalid('country')}>{customer?.country && !Object.hasOwn(customerCountries, customer.country) && <option value={customer.country}>{customer.country}</option>}{Object.entries(customerCountries).map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select>{fieldError('country')}</label>
         </div>
       </div>
 
