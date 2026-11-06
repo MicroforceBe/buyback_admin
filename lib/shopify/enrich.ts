@@ -84,6 +84,8 @@ const KNOWN_COLOURS = ['rose gold', 'space grey', 'space gray', 'space black', '
   // single-word colours, so a title like "iPhone 13 128GB Blue" is recognised as coloured
   'black', 'white', 'silver', 'gold', 'blue', 'red', 'green', 'pink', 'purple', 'yellow', 'graphite', 'midnight',
   'starlight', 'grey', 'gray', 'orange', 'coral', 'violet', 'bronze', 'titanium'];
+// Every word of a known colour ("space", "grey", "rose", ...): never part of a model without capacities.
+const COLOUR_WORDS = new Set(KNOWN_COLOURS.flatMap(c => c.split(' ')));
 const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
 
 export function starsOf(title: string): string | null {
@@ -110,7 +112,7 @@ export function modelOf(title: string): string {
   const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+]+/g, ' ').trim().split(' ').filter(Boolean);
   const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
   if (cut > 0) return words.slice(0, cut).join(' ');
-  return words.filter(w => !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
+  return words.filter(w => !COLOUR_ALIASES[w] && !COLOUR_WORDS.has(w) && !NON_MODEL.has(w)).join(' ');
 }
 
 /** The descriptive words after the model (usually the colour), for choosing photo candidates. */

@@ -731,3 +731,9 @@ test('photos for titles without a colour (laptops) and hyphen-insensitive models
   const sg = { sku: 'SG', title: 'MacBook Pro 16" L21 M1-Max 32GB 512SSD SG Refurbished 5* M', lead: 7, metafields: [], images: [img(1280, 800)] };
   assert.equal(plain(e.pickImages('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', [sg])).fromSku, 'SG');
 });
+
+test('colour words never become part of a capacity-free model (Space-Grey = SG)', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'));
+  assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), 'apple watch series 8 45mm');
+});
