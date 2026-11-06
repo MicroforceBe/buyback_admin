@@ -58,7 +58,8 @@ async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: 
 }
 
 type Scope = 'product' | 'variant' | 'inventory' | 'metafield';
-type Failure = { id: string; scope: Scope; reason: string };
+/** field: the location name or metafield id when only that field failed; absent = every field of the scope. */
+type Failure = { id: string; scope: Scope; field?: string; reason: string };
 // Shopify accepts at most 250 items per input array.
 const MAX_INPUT_ITEMS = 250;
 
@@ -66,7 +67,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -89,13 +90,13 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
       key: key(),
     });
     // Atomic mutation: any error means nothing in this batch was written.
-    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', reason: errorText(inventorySetQuantities.userErrors) });
+    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', field: locationNameById.get(q.locationId) ?? q.locationId, reason: errorText(inventorySetQuantities.userErrors) });
   }
   for (const batch of chunk(plan.metafields, 25)) {
     await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
     // metafieldsSet is atomic: any error means nothing in this batch was written.
-    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', reason: errorText(metafieldsSet.userErrors) });
+    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsSet.userErrors) });
   }
   return failed;
 }
@@ -143,7 +144,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const { desired, invalid } = await loadDesired(db);
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
-    const plan = planSync({ desired, current: state.variants, locations: { ...state.locations, ...apiLocations }, invalidRows: invalid });
+    const locations = { ...state.locations, ...apiLocations };
+    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid });
     // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
     const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}) }));
     Object.assign(counts, plan.counts, {
@@ -173,14 +175,18 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       return !error && data?.mode === 'live';
     };
     writing = true;
-    const failures = await applyPlan(client, plan, runId, key, stillLive);
-    // Failures per SKU and scope: a failed stock write must not mark the SKU's successful price write as failed.
-    const failed = new Map<string, { sku: string; scope: Scope; reason: string }>();
-    for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set(`${sku}\u0000${f.scope}`, { sku, scope: f.scope, reason: f.reason });
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])));
+    // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
+    const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
+    for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });
 
     const { error: markError } = await db.from('shopify_sync_changes').update({ applied: true }).eq('run_id', runId);
     if (markError) throw new Error('Status van de wijzigingen kon niet worden bijgewerkt.');
-    for (const f of failed.values()) await db.from('shopify_sync_changes').update({ applied: false, error: f.reason }).eq('run_id', runId).eq('sku', f.sku).eq('scope', f.scope);
+    for (const f of failed.values()) {
+      let q = db.from('shopify_sync_changes').update({ applied: false, error: f.reason }).eq('run_id', runId).eq('sku', f.sku).eq('scope', f.scope);
+      if (f.field) q = q.eq('field', f.field);
+      await q;
+    }
     const failedSkus = [...new Set([...failed.values()].map(f => f.sku))];
     counts.failedSkus = failedSkus.length;
     return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);

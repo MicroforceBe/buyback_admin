@@ -260,7 +260,7 @@ test('live mode writes the changes and records per-SKU errors', async () => {
   assert.equal(errorUpdates.length, 1);
   assert.equal(errorUpdates[0].row.error, 'Niet toegestaan');
   // Only the inventory change of SKU1 is marked failed; its successful price change stays applied.
-  assert.deepEqual(plain(errorUpdates[0].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'inventory']]);
+  assert.deepEqual(plain(errorUpdates[0].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'inventory'], ['field', 'Microforce Antwerpen']]);
 });
 
 test('variant updates are sent in batches of at most 250', async () => {
@@ -295,6 +295,7 @@ test('a rejected metafield batch marks every metafield change in it as failed (a
   assert.equal(result.counts.failedSkus, 2);
   const errs = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
   assert.deepEqual(plain(errs.map(e => e.filters.find(f => f[1] === 'sku')[2]).sort()), ['SKU1', 'SKU2']);
+  assert.ok(errs.every(e => e.filters.some(f => f[1] === 'field' && f[2] === 'custom.refurbished_product')));
 });
 
 test('the emergency stop halts a live run before the next write', async () => {
