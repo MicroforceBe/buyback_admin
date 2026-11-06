@@ -31,6 +31,28 @@ export type DesiredState = {
 
 /** Tag on products created by the sync. While it is present the ERP never changes the status. */
 export const NEW_PRODUCT_TAG = 'erp-nieuw';
+/** Extra tag on a new draft whose title already exists (in Shopify or on another ERP article). */
+export const DUPLICATE_TITLE_TAG = 'controle-dubbele-titel';
+
+/** Title key for duplicate detection: exact text, ignoring case and repeated spaces. */
+export const titleKey = (title: string) => title.trim().replace(/\s+/g, ' ').toLowerCase();
+
+export type DuplicateTitleArticle = { sku: string; title: string; priceCents: number | null; status: string | null; inventory: Record<string, number>; productId?: string };
+
+/** ERP articles whose title occurs more than once in the ERP file, grouped and sorted by title. */
+export function duplicateTitles(desired: DesiredState[], current: CurrentState[]): DuplicateTitleArticle[] {
+  const productBySku = new Map(current.map(c => [c.sku, c.productId]));
+  const groups = new Map<string, DesiredState[]>();
+  for (const d of desired) {
+    if (!d.product.title) continue;
+    const k = titleKey(d.product.title);
+    groups.set(k, [...(groups.get(k) ?? []), d]);
+  }
+  return [...groups.entries()].filter(([, g]) => g.length > 1).sort(([a], [b]) => a.localeCompare(b)).flatMap(([, g]) => g.map(d => ({
+    sku: d.sku, title: d.product.title ?? '', priceCents: d.variant.priceCents ?? null, status: d.product.status ?? null,
+    inventory: { ...d.inventory }, ...(productBySku.get(d.sku) ? { productId: productBySku.get(d.sku) } : {}),
+  })));
+}
 
 export type CurrentState = {
   sku: string;
@@ -338,9 +360,14 @@ export type ProductSetInput = {
  * ERP file has no handle/option columns). Rows without title or price, gift cards and rows the ERP
  * marks as archived are skipped. Only known locations are stocked; negative stock becomes 0.
  */
-export function planCreates(candidates: DesiredState[], locations: Record<string, string>): { creates: { sku: string; input: ProductSetInput }[]; skipped: { sku: string; reason: string }[] } {
+export function planCreates(candidates: DesiredState[], locations: Record<string, string>, context: { shopifyTitles?: string[]; erpTitles?: string[] } = {}): { creates: { sku: string; input: ProductSetInput }[]; skipped: { sku: string; reason: string }[] } {
   const creates: { sku: string; input: ProductSetInput }[] = [];
   const skipped: { sku: string; reason: string }[] = [];
+  // A title that already exists in Shopify, or on more than one ERP article, may be an accidental
+  // duplicate in the ERP: the draft is still created, but tagged for review.
+  const shopifyTitles = new Set((context.shopifyTitles ?? []).map(titleKey));
+  const erpTitleCount = new Map<string, number>();
+  for (const t of context.erpTitles ?? []) erpTitleCount.set(titleKey(t), (erpTitleCount.get(titleKey(t)) ?? 0) + 1);
   for (const d of candidates) {
     if (!d.product.title) { skipped.push({ sku: d.sku, reason: 'geen titel' }); continue; }
     if (d.variant.priceCents === undefined) { skipped.push({ sku: d.sku, reason: 'geen prijs' }); continue; }
@@ -360,7 +387,7 @@ export function planCreates(candidates: DesiredState[], locations: Record<string
         ...(d.product.vendor ? { vendor: d.product.vendor } : {}),
         ...(d.product.productType ? { productType: d.product.productType } : {}),
         status: 'DRAFT',
-        tags: [NEW_PRODUCT_TAG],
+        tags: shopifyTitles.has(titleKey(d.product.title)) || (erpTitleCount.get(titleKey(d.product.title)) ?? 0) > 1 ? [NEW_PRODUCT_TAG, DUPLICATE_TITLE_TAG] : [NEW_PRODUCT_TAG],
         productOptions: [{ name: 'Title', values: [{ name: 'Default Title' }] }],
         metafields,
         variants: [{

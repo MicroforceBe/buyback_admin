@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
-import { chunk, desiredFromRow, planCreates, planSync, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, planCreates, planSync, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -160,6 +160,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}) }));
     Object.assign(counts, plan.counts, {
       changes: plan.changes.length, shopifyVariants: state.variants.length,
+      duplicateTitleList: duplicateTitles(desired, state.variants).slice(0, MAX_UNMATCHED).map(a => ({ ...a, title: a.title.slice(0, 200) })),
+      duplicateTitles: duplicateTitles(desired, state.variants).length,
       erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), duplicateSkuList: cap(plan.unmatched.duplicate),
     });
 
@@ -169,9 +171,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       if (plan.newCandidates.length > MAX_NEW_CANDIDATES) {
         counts.createBlocked = `${plan.newCandidates.length} nieuwe artikelen is verdacht veel (maximum ${MAX_NEW_CANDIDATES}); er worden geen concepten aangemaakt. Controleer het ERP-bestand.`;
       } else {
-        const planned = planCreates(plan.newCandidates, locations);
+        const planned = planCreates(plan.newCandidates, locations, { shopifyTitles: state.variants.map(v => v.title), erpTitles: desired.map(d => d.product.title ?? '').filter(Boolean) });
         creates = planned.creates.slice(0, MAX_CREATES_PER_RUN);
         counts.newDrafts = creates.length;
+        counts.newDuplicateTitles = creates.filter(c => c.input.tags.includes('controle-dubbele-titel')).length;
         counts.newDraftsPending = planned.creates.length - creates.length;
         counts.newSkipped = planned.skipped.slice(0, MAX_UNMATCHED);
         for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: c.input.title });

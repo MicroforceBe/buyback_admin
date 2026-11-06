@@ -404,6 +404,26 @@ test('client does not retry server errors when asked (non-idempotent create)', a
   assert.equal(calls, 1);
 });
 
+test('duplicate ERP titles are listed per article, case and spacing ignored', async () => {
+  const { plan } = await loadModules();
+  const d = [
+    plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'A', Title: 'iPhone 16  Black', 'Variant Price': '549,00' })),
+    plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'B', Title: 'iphone 16 black', 'Variant Price': '529,00', Status: 'Draft' })),
+    plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'C', Title: 'Uniek' })),
+  ];
+  const list = plain(plan.duplicateTitles(d, [current({ sku: 'A' })]));
+  assert.deepEqual(list.map(x => [x.sku, x.priceCents, x.status, x.productId ?? null]), [['A', 54900, 'ACTIVE', 'gid://shopify/Product/1'], ['B', 52900, 'DRAFT', null]]);
+});
+
+test('a new draft whose title already exists is still created but tagged for review', async () => {
+  const { plan } = await loadModules();
+  const dup = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW1', Title: 'iPhone 13 128GB' }));
+  const other = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW2', Title: 'Ander toestel' }));
+  const twin = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW3', Title: 'Tweeling' }));
+  const r = plain(plan.planCreates([dup, other, twin], LOCS, { shopifyTitles: ['iPhone 13  128GB'], erpTitles: ['iPhone 13 128GB', 'Ander toestel', 'Tweeling', 'tweeling'] }));
+  assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags]), [['NEW1', ['erp-nieuw', 'controle-dubbele-titel']], ['NEW2', ['erp-nieuw']], ['NEW3', ['erp-nieuw', 'controle-dubbele-titel']]]);
+});
+
 test('cron route requires the cron secret and the job runs after the ERP import', () => {
   const route = read('app/api/shopify-sync/route.ts');
   assert.match(route, /bearerMatches\(request\.headers\.get\('authorization'\), process\.env\.CRON_SECRET\)/);

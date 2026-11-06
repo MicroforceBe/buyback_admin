@@ -38,3 +38,9 @@ Instelling "Nieuwe ERP-artikelen als concept aanmaken" (standaard uit, alleen be
   Verwijder de tag zodra foto's en beschrijving klaar zijn; vanaf dan volgt de status opnieuw het ERP.
 - Aanmaken wordt bij een serverfout niet automatisch herhaald (geen dubbele producten); de volgende run probeert opnieuw als het product er nog niet is.
 - Vereist `security/sql/shopify-sync-drafts.sql`.
+
+## Dubbele titels
+- De lijst "Dubbele titels in ERP" toont ERP-artikelen met exact dezelfde titel (hoofdletters en dubbele spaties genegeerd),
+  met prijs, status, voorraad per winkel en het Shopify-product. Ze worden gewoon per SKU gesynchroniseerd.
+- Een nieuw concept waarvan de titel al bestaat in Shopify of op een ander ERP-artikel, krijgt extra de tag `controle-dubbele-titel`.
+  Zo zie je bij het afwerken van het concept dat het om een dubbele aanmaak in het ERP kan gaan.
