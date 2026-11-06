@@ -3,8 +3,13 @@ alter table public.shopify_sync_settings add column if not exists handle_missing
 create table if not exists public.shopify_sku_missing(
  sku text primary key,
  product_id text not null,
- first_missing_at timestamptz not null default now()
+ first_missing_at timestamptz not null default now(),
+ -- held: part of a suspicious batch (>100 within an hour); never acted upon until released by an admin.
+ held boolean not null default false,
+ released boolean not null default false
 );
+alter table public.shopify_sku_missing add column if not exists held boolean not null default false;
+alter table public.shopify_sku_missing add column if not exists released boolean not null default false;
 alter table public.shopify_sku_missing enable row level security;
 revoke all on public.shopify_sku_missing from public, anon, authenticated, service_role;
-grant select, insert, delete on public.shopify_sku_missing to service_role;
+grant select, insert, update, delete on public.shopify_sku_missing to service_role;

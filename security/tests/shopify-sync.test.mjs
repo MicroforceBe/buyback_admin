@@ -166,17 +166,18 @@ test('bulk export refuses a non-https download link', async () => {
 });
 
 // ---------- sync run ----------
-function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null, createDrafts = false, handleMissing = false, missing = [], staleSkus = [] } = {}) {
+function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null, createDrafts = false, handleMissing = false, missing = [], staleSkus = [], failRemovalLog = false } = {}) {
   const log = [];
   let settingsReads = 0;
   function from(table) {
     const q = { table, ops: [] };
     const result = () => {
-      const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
+      const write = q.ops.find(o => ['insert', 'upsert', 'update', 'delete'].includes(o[0]));
       if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not', 'neq'].includes(o[0])) });
       if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges, create_drafts: createDrafts, handle_missing: handleMissing }, error: null }; }
       if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r, updated_at: staleSkus.includes(r['Variant SKU [ID]']) ? '2026-01-01T00:00:00Z' : new Date().toISOString() })), error: null };
       if (table === 'shopify_sku_missing' && !write) return { data: missing, error: null };
+      if (table === 'shopify_product_removals' && write?.[0] === 'insert' && failRemovalLog) return { data: null, error: { message: 'db' } };
       if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
       return { data: null, error: null };
     };
@@ -483,7 +484,7 @@ test('an article missing for less than 24 hours gets stock 0; after 24 hours its
     assert.deepEqual(productUpdates, archived ? [{ id: 'gid://shopify/Product/7', status: 'ARCHIVED' }] : []);
     const removalLog = log.find(l => l.table === 'shopify_product_removals' && l.op === 'insert');
     assert.equal(!!removalLog, archived);
-    if (archived) assert.equal(plain(removalLog.row)[0].actor, 'synchronisatie');
+    if (archived) assert.equal(plain(removalLog.row).actor, 'synchronisatie');
   }
 });
 
@@ -494,7 +495,7 @@ test('missing articles are only tracked, not changed, while the setting is off; 
   let fake = fakeClient([current(), gone]);
   await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
   assert.equal(fake.mutations.length, 0);
-  assert.ok(off.log.some(l => l.table === 'shopify_sku_missing' && l.op === 'insert'));
+  assert.ok(off.log.some(l => l.table === 'shopify_sku_missing' && l.op === 'upsert'));
   const kept = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: '2026-01-01T00:00:00Z' }] });
   ({ sync } = await loadModules(kept.db));
   fake = fakeClient([current(), { ...gone, tags: ['erp-negeren'] }]);
@@ -519,14 +520,36 @@ test('rows not refreshed by the recent ERP imports no longer count as ERP articl
   assert.equal(r.counts.shopifyOnly, 1);
 });
 
-test('more than 100 articles disappearing at once changes nothing', async () => {
+test('more than 100 articles disappearing at once are held, also after the first hour', async () => {
   const many = Array.from({ length: 101 }, (_, i) => current({ sku: 'G' + i, productId: 'gid://shopify/Product/' + (100 + i), variantId: 'v' + i, inventoryItemId: 'i' + i, inventory: { 'Microforce Gentbrugge': 1 } }));
-  const { db } = fakeDb({ mode: 'live', handleMissing: true });
-  const { sync } = await loadModules(db);
-  const fake = fakeClient([current(), ...many]);
-  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  const first = fakeDb({ mode: 'live', handleMissing: true });
+  let { sync } = await loadModules(first.db);
+  let fake = fakeClient([current(), ...many]);
+  let r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
   assert.match(r.counts.missingBlocked, /verdacht veel/);
   assert.equal(fake.mutations.length, 0);
+  assert.ok(first.log.some(l => l.table === 'shopify_sku_missing' && l.op === 'update' && l.row.held === true));
+  // Two hours later the batch is still on hold.
+  const later = fakeDb({ mode: 'live', handleMissing: true, missing: many.map(v => ({ sku: v.sku, first_missing_at: new Date(Date.now() - 2 * 3_600_000).toISOString(), held: true })) });
+  ({ sync } = await loadModules(later.db));
+  fake = fakeClient([current(), ...many]);
+  r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(fake.mutations.length, 0);
+  assert.equal(r.counts.missingHeld, 101);
+});
+
+test('releasing held articles is admin-only and needs confirmation', () => {
+  const actions = read('app/admin/erp/shopify/actions.ts');
+  assert.match(actions, /export async function releaseMissingAction\(formData: FormData\) \{\n  await requireAccess\('erp', 'write', true\);\n  if \(formData\.get\('confirm'\) !== 'on'\)/);
+});
+
+test('an automatic archive is logged right after it succeeds; a log failure stops the run', async () => {
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: {} });
+  const { db } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: '2026-01-01T00:00:00Z' }], failRemovalLog: true });
+  const { sync } = await loadModules(db);
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current(), gone]).client }));
+  assert.equal(r.status, 'failed');
+  assert.match(r.error, /kon niet in het opruimlogboek/);
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {

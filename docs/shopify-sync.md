@@ -96,9 +96,11 @@ Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld
 - **Instelling "voorraad 0 en archiveren"** (standaard uit, alleen beheerders):
   - de voorraad gaat meteen naar 0 op alle locaties;
   - na 24 uur wordt het product gearchiveerd, en alleen als geen enkele variant nog in het ERP staat;
-  - het archiveren komt in het opruimlogboek, zodat definitief verwijderen na 30 dagen mogelijk is.
+  - het archiveren wordt meteen in het opruimlogboek gezet, zodat definitief verwijderen na 30 dagen mogelijk is;
+    lukt dat niet, dan stopt de run met een melding.
 - **Uitzonderingen:**
   - de tag `erp-negeren` houdt een product buiten deze regel;
-  - verdwijnen er meer dan 100 artikelen binnen het uur, dan gebeurt er niets;
+  - verdwijnen er meer dan 100 artikelen binnen het uur, dan worden ze **vastgehouden**: ze worden nooit op 0 gezet of
+    gearchiveerd, tot een beheerder ze vrijgeeft (knop op de pagina) of ze terug in het ERP staan;
   - de noodrem en de noodstop gelden ook hier.
 - Vereist `security/sql/shopify-sync-missing.sql`.

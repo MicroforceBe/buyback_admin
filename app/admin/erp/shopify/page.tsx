@@ -4,7 +4,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
 import { MODES, PATH, back, type Mode } from './modes';
-import { removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
+import { releaseMissingAction, removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
 import { DELETE_AFTER_DAYS, MAX_PER_ACTION } from '@/lib/shopify/removal';
 
 export const dynamic = 'force-dynamic';
@@ -90,7 +90,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
         {{ archive: 'Gearchiveerd', restore: 'Teruggezet als concept', delete: 'Definitief verwijderd' }[params.removed] ?? 'Uitgevoerd'}: {params.ok} · overgeslagen: {params.refused} · mislukt: {params.failed}
         {params.removed === 'delete' && (params.scope === '1' ? ` · doorverwijzingen: ${params.redirects}` : ' · geen doorverwijzingen (recht write_online_store_navigation ontbreekt nog)')}. Details staan in het logboek onderaan.
       </div>}
-      {params.saved && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.saved === 'stop' ? 'De synchronisatie staat uit.' : 'Instellingen opgeslagen.'}</div>}
+      {params.saved && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.saved === 'stop' ? 'De synchronisatie staat uit.' : params.saved === 'released' ? 'De vastgehouden artikelen zijn vrijgegeven.' : 'Instellingen opgeslagen.'}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -160,7 +160,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked], ['Niet meer in ERP: voorraad → 0', c.missingStockZeroed], ['Niet meer in ERP: gearchiveerd', c.missingArchived], ['Uit ERP-export (oud in database)', c.notInExport]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked], ['Niet meer in ERP: voorraad → 0', c.missingStockZeroed], ['Niet meer in ERP: gearchiveerd', c.missingArchived], ['Niet meer in ERP: vastgehouden', c.missingHeld], ['Uit ERP-export (oud in database)', c.notInExport]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
@@ -168,6 +168,17 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
             })}
           </dl>
           {typeof c.missingBlocked === 'string' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{c.missingBlocked}</p>}
+          {Number(c.missingHeld ?? 0) > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {String(c.missingHeld)} artikelen die niet meer in het ERP staan, worden vastgehouden (verdacht veel tegelijk verdwenen). Ze worden niet op 0 gezet of gearchiveerd. Staan ze terug in het ERP, dan verdwijnt dit vanzelf.
+              {isAdmin && (
+                <form action={releaseMissingAction} className="mt-2 flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik heb de ERP-export gecontroleerd; deze artikelen zijn echt weg</label>
+                  <button className="rounded-lg bg-amber-600 px-3 py-1.5 font-semibold text-white">Vrijgeven</button>
+                </form>
+              )}
+            </div>
+          )}
           {typeof c.createBlocked === 'string' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{c.createBlocked}</p>}
           {Number(c.newDraftsPending ?? 0) > 0 && <p className="mt-3 text-sm text-slate-600">Nog {String(c.newDraftsPending)} nieuwe artikelen volgen in de volgende runs.</p>}
           {Array.isArray(c.newSkipped) && c.newSkipped.length > 0 && <p className="mt-3 text-sm text-slate-600">Niet aangemaakt: {(c.newSkipped as { sku: string; reason: string }[]).slice(0, 20).map(x => `${x.sku} (${x.reason})`).join(', ')}{c.newSkipped.length > 20 ? ' …' : ''}</p>}

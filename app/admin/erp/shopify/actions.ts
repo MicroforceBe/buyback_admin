@@ -79,3 +79,13 @@ export async function removalAction(formData: FormData) {
   if (result.logError) redirect(target({ error: result.logError.slice(0, 400) }));
   redirect(target({ removed: action, ok: String(result.ok), refused: String(result.refused), failed: String(result.failed), redirects: String(result.redirects), scope: result.redirectScope ? '1' : '0' }));
 }
+
+/** Releases SKUs held after a suspicious disappearance, so the stock-0 / archive rule applies to them. */
+export async function releaseMissingAction(formData: FormData) {
+  await requireAccess('erp', 'write', true);
+  if (formData.get('confirm') !== 'on') redirect(back({ error: 'Bevestig het vrijgeven eerst.' }));
+  const { error: updateError } = await supabaseAdmin.from('shopify_sku_missing').update({ held: false, released: true }).eq('held', true);
+  revalidatePath(PATH);
+  if (updateError) redirect(back({ error: 'Vrijgeven mislukt.' }));
+  redirect(back({ saved: 'released' }));
+}
