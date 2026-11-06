@@ -80,7 +80,7 @@ export type Change = {
   newValue: string | null;
 };
 
-export type UnmatchedSku = { sku: string; title: string; productId?: string; inventory: Record<string, number> };
+export type UnmatchedSku = { sku: string; title: string; productId?: string; inventory: Record<string, number>; status?: ProductStatus };
 export type Plan = {
   changes: Change[];
   /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
@@ -247,7 +247,7 @@ export function planSync(input: {
   plan.counts.duplicateSkus = duplicate.size;
 
   const desiredSkus = new Set(input.desired.map(d => d.sku));
-  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId, inventory: { ...c.inventory } });
+  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId, inventory: { ...c.inventory }, status: c.status });
   plan.counts.shopifyOnly = plan.unmatched.shopifyOnly.length;
 
   const unknownLocations = new Set<string>();

@@ -4,7 +4,8 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
 import { MODES, PATH, back, type Mode } from './modes';
-import { runNowAction, saveSettingsAction, stopAction } from './actions';
+import { removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
+import { DELETE_AFTER_DAYS, MAX_PER_ACTION } from '@/lib/shopify/removal';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -40,6 +41,12 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   if (onlyErrors) changesQuery = changesQuery.not('error', 'is', null);
   const { data: changes } = selected ? await changesQuery : { data: [] };
   const mode = (settings?.mode ?? 'off') as Mode;
+  // Products archived via this tool (latest successful action per product is 'archive'), and the log.
+  const { data: removalRows } = await supabaseAdmin.from('shopify_product_removals').select('id,product_id,title,skus,action,result,detail,redirect,actor,created_at').order('created_at', { ascending: false }).limit(2000);
+  const latestOk = new Map<string, { product_id: string; title: string; skus: string[]; action: string; created_at: string }>();
+  for (const r of removalRows ?? []) if (r.result === 'ok' && !latestOk.has(r.product_id)) latestOk.set(r.product_id, r);
+  const archivedList = [...latestOk.values()].filter(r => r.action === 'archive');
+  const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
   const c = (selected?.counts ?? {}) as Record<string, unknown>;
   const view = params.view && Object.hasOwn(LISTS, params.view) ? (params.view as ListKey) : null;
   const q = (params.q ?? '').trim().toLowerCase();
@@ -66,6 +73,10 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
       </div>
 
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
+      {params.removed && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        {{ archive: 'Gearchiveerd', restore: 'Teruggezet als concept', delete: 'Definitief verwijderd' }[params.removed] ?? 'Uitgevoerd'}: {params.ok} · overgeslagen: {params.refused} · mislukt: {params.failed}
+        {params.removed === 'delete' && (params.scope === '1' ? ` · doorverwijzingen: ${params.redirects}` : ' · geen doorverwijzingen (recht write_online_store_navigation ontbreekt nog)')}. Details staan in het logboek onderaan.
+      </div>}
       {params.saved && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.saved === 'stop' ? 'De synchronisatie staat uit.' : 'Instellingen opgeslagen.'}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -141,16 +152,19 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                 <Link href={back({ run: selected.id })} className="text-sky-700 hover:underline">Terug naar wijzigingen</Link>
               </div>
               <p className="mt-1 text-xs text-slate-500">{LISTS[view].help}</p>
+              {(() => { const selectable = view === 'shopifyOnly' && isAdmin; const seenProducts = new Set<string>(); const table = (
               <div className="mt-2 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{view === 'dupTitles' && <><th className="pr-4 text-right">Prijs</th><th className="pr-4">Status</th></>}{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
+                  <thead className="text-xs uppercase text-slate-500"><tr>{selectable && <th className="py-2 pr-2"></th>}<th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{view === 'shopifyOnly' && <th className="pr-4">Status</th>}{view === 'dupTitles' && <><th className="pr-4 text-right">Prijs</th><th className="pr-4">Status</th></>}{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
                   <tbody className="divide-y">
                     {unmatched.map(u => {
                       const url = productUrl(u.productId);
                       return (
                         <tr key={u.sku}>
+                          {selectable && <td className="py-1.5 pr-2">{u.productId && !seenProducts.has(u.productId) && (seenProducts.add(u.productId), <input type="checkbox" name="ids" value={u.productId} aria-label={`Selecteer ${u.sku}`} />)}</td>}
                           <td className="py-1.5 pr-4 font-mono">{u.sku}</td>
                           <td className="pr-4">{u.title || '—'}</td>
+                          {view === 'shopifyOnly' && <td className="pr-4">{u.status === 'ARCHIVED' ? 'gearchiveerd' : u.status === 'DRAFT' ? 'concept' : u.status === 'ACTIVE' ? 'actief' : '—'}</td>}
                           {view === 'dupTitles' && <><td className="pr-4 text-right tabular-nums">{typeof u.priceCents === 'number' ? (u.priceCents / 100).toFixed(2).replace('.', ',') : '—'}</td><td className="pr-4">{u.status ? u.status.toLowerCase() : '—'}</td></>}
                           {stores.map(st => <td key={st} className="pr-4 text-right tabular-nums">{u.inventory?.[st] ?? '—'}</td>)}
                           <td className={`pr-4 text-right font-semibold tabular-nums ${total(u) > 0 ? 'text-green-700' : 'text-slate-400'}`}>{total(u)}</td>
@@ -158,10 +172,28 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                         </tr>
                       );
                     })}
-                    {!unmatched.length && <tr><td colSpan={4 + stores.length + (view === 'dupTitles' ? 2 : 0)} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
+                    {!unmatched.length && <tr><td colSpan={4 + stores.length + (view === 'dupTitles' ? 2 : 0) + (view === 'shopifyOnly' ? 1 : 0) + (selectable ? 1 : 0)} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
                   </tbody>
                 </table>
               </div>
+              );
+              if (!selectable) return table;
+              return (
+                <form action={removalAction} className="mt-2">
+                  <input type="hidden" name="run" value={selected.id} />
+                  {table}
+                  <div className="mt-4 space-y-2 rounded-xl border bg-slate-50 p-4 text-sm">
+                    <p className="font-semibold">Geselecteerde producten (max. {MAX_PER_ACTION})</p>
+                    <p className="text-xs text-slate-600">Vlak voor de actie controleert de tool opnieuw in Shopify en in de laatste ERP-import. Producten waarvan nog een SKU in het ERP staat, worden altijd overgeslagen.</p>
+                    <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad archiveren</label>
+                    <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button name="removal" value="archive" className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Archiveren</button>
+                      <button name="removal" value="restore" className="rounded-lg border px-4 py-2 font-semibold hover:bg-white">Terugzetten als concept</button>
+                    </div>
+                  </div>
+                </form>
+              ); })()}
             </>
           ) : (
             <>
@@ -188,6 +220,65 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           </div>
             </>
           )}
+        </section>
+      )}
+      {isAdmin && (
+        <section className="rounded-2xl border bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Gearchiveerd via deze tool ({archivedList.length})</h2>
+          <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Als het recht voor doorverwijzingen actief is, wordt de oude productpagina doorverwezen naar de collectie.</p>
+          <form action={removalAction} className="mt-4">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-2"></th><th className="pr-4">Titel</th><th className="pr-4">SKU</th><th className="pr-4">Gearchiveerd</th><th>Verwijderen mogelijk</th></tr></thead>
+                <tbody className="divide-y">
+                  {archivedList.map(r => {
+                    const days = daysSince(r.created_at);
+                    const ready = days >= DELETE_AFTER_DAYS;
+                    return (
+                      <tr key={r.product_id}>
+                        <td className="py-1.5 pr-2"><input type="checkbox" name="ids" value={r.product_id} aria-label={`Selecteer ${r.title}`} /></td>
+                        <td className="pr-4">{r.title}</td>
+                        <td className="pr-4 font-mono">{(r.skus ?? []).join(', ') || '—'}</td>
+                        <td className="pr-4">{fmt(r.created_at)}</td>
+                        <td className={ready ? 'text-green-700' : 'text-slate-500'}>{ready ? 'ja' : `over ${DELETE_AFTER_DAYS - days} dagen`}</td>
+                      </tr>
+                    );
+                  })}
+                  {!archivedList.length && <tr><td colSpan={5} className="py-3 text-slate-500">Nog niets gearchiveerd.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {archivedList.length > 0 && (
+              <div className="mt-4 space-y-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm">
+                <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button name="removal" value="restore" className="rounded-lg border bg-white px-4 py-2 font-semibold">Terugzetten als concept</button>
+                  <input name="confirm_text" placeholder="Typ VERWIJDER" className="rounded-lg border px-3 py-2" autoComplete="off" />
+                  <button name="removal" value="delete" className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700">Definitief verwijderen</button>
+                </div>
+              </div>
+            )}
+          </form>
+
+          <h3 className="mt-8 font-semibold">Logboek opruimen (laatste 30)</h3>
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">Wanneer</th><th className="pr-4">Actie</th><th className="pr-4">Titel</th><th className="pr-4">Resultaat</th><th className="pr-4">Door</th><th>Details</th></tr></thead>
+              <tbody className="divide-y">
+                {(removalRows ?? []).slice(0, 30).map(r => (
+                  <tr key={r.id}>
+                    <td className="py-1.5 pr-4">{fmt(r.created_at)}</td>
+                    <td className="pr-4">{{ archive: 'archiveren', restore: 'terugzetten', delete: 'verwijderen' }[r.action as string] ?? r.action}</td>
+                    <td className="pr-4">{r.title}</td>
+                    <td className={`pr-4 ${r.result === 'ok' ? 'text-green-700' : r.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', refused: 'overgeslagen', failed: 'mislukt' }[r.result as string] ?? r.result}</td>
+                    <td className="pr-4">{r.actor}</td>
+                    <td className="text-slate-600">{[r.detail, r.redirect].filter(Boolean).join(' · ') || '—'}</td>
+                  </tr>
+                ))}
+                {!removalRows?.length && <tr><td colSpan={6} className="py-3 text-slate-500">Nog geen acties.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </div>

@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { runShopifySync } from '@/lib/shopify/sync';
+import { runRemoval } from '@/lib/shopify/cleanup';
 import { MODES, PATH, back } from './modes';
 
 export async function saveSettingsAction(formData: FormData) {
@@ -54,4 +55,25 @@ export async function runNowAction() {
   }
   revalidatePath(PATH);
   redirect(target);
+}
+
+/** Archive, restore or delete products that are no longer in the ERP. Admin only; every product is re-checked. */
+export async function removalAction(formData: FormData) {
+  const user = await requireAccess('erp', 'write', true);
+  const action = String(formData.get('removal') ?? '');
+  const ids = formData.getAll('ids').map(String);
+  const run = String(formData.get('run') ?? '');
+  const view = action === 'delete' ? 'archived' : 'shopifyOnly';
+  const target = (params: Record<string, string>) => back({ ...(run ? { run } : {}), view, ...params });
+  if (action !== 'archive' && action !== 'restore' && action !== 'delete') redirect(target({ error: 'Onbekende actie.' }));
+  if (formData.get('confirm') !== 'on') redirect(target({ error: 'Bevestig de actie eerst.' }));
+  if (action === 'delete' && String(formData.get('confirm_text') ?? '').trim() !== 'VERWIJDER') redirect(target({ error: 'Typ VERWIJDER om definitief te verwijderen.' }));
+  let result: Awaited<ReturnType<typeof runRemoval>>;
+  try {
+    result = await runRemoval({ action: action as 'archive' | 'restore' | 'delete', ids, includeStock: formData.get('include_stock') === 'on', actor: String(user.email ?? 'admin') });
+  } catch (error) {
+    redirect(target({ error: error instanceof Error ? error.message.slice(0, 300) : 'Actie mislukt.' }));
+  }
+  revalidatePath(PATH);
+  redirect(target({ removed: action, ok: String(result.ok), refused: String(result.refused), failed: String(result.failed), redirects: String(result.redirects), scope: result.redirectScope ? '1' : '0' }));
 }

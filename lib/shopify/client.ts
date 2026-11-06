@@ -138,3 +138,29 @@ export const METAFIELDS_SET = `mutation SyncMetafields($metafields: [MetafieldsS
 export const PRODUCT_CREATE = `mutation CreateDraftProduct($input: ProductSetInput!) {
   productSet(input: $input, synchronous: true) { product { id } userErrors { code field message } }
 }`;
+
+// ---------- product clean-up (archive / restore / delete) ----------
+
+export const PRODUCTS_INFO = `query ProductsInfo($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Product {
+      id title handle status totalInventory
+      variants(first: 100) { nodes { sku } }
+      collections(first: 1) { nodes { handle } }
+    }
+  }
+}`;
+
+export const PRODUCT_SET_STATUS = `mutation SetProductStatus($product: ProductUpdateInput!) {
+  productUpdate(product: $product) { product { id status } userErrors { field message } }
+}`;
+
+export const PRODUCT_DELETE = `mutation DeleteProduct($id: ID!) {
+  productDelete(input: { id: $id }) { deletedProductId userErrors { field message } }
+}`;
+
+export const URL_REDIRECT_CREATE = `mutation CreateRedirect($path: String!, $target: String!) {
+  urlRedirectCreate(urlRedirect: { path: $path, target: $target }) { urlRedirect { id } userErrors { field message } }
+}`;
+
+export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScopes { handle } } }`;

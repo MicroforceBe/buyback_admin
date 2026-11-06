@@ -44,3 +44,21 @@ Instelling "Nieuwe ERP-artikelen als concept aanmaken" (standaard uit, alleen be
   met prijs, status, voorraad per winkel en het Shopify-product. Ze worden gewoon per SKU gesynchroniseerd.
 - Een nieuw concept waarvan de titel al bestaat in Shopify of op een ander ERP-artikel, krijgt extra de tag `controle-dubbele-titel`.
   Zo zie je bij het afwerken van het concept dat het om een dubbele aanmaak in het ERP kan gaan.
+
+## Opruimen: artikelen die alleen nog in Shopify staan
+In de lijst "Alleen in Shopify" kan een beheerder producten selecteren en:
+- **Archiveren**: direct en omkeerbaar. Het product verdwijnt uit de webshop en de verkoopkanalen.
+- **Terugzetten als concept**: maakt het archiveren ongedaan. Het product krijgt de status draft.
+- **Definitief verwijderen** (sectie "Gearchiveerd via deze tool"): pas 30 dagen na het archiveren, na het intypen van `VERWIJDER`.
+  Als de app het recht `write_online_store_navigation` heeft, wordt `/products/<handle>` doorverwezen naar de eerste collectie van het product
+  (anders naar `/collections/all`).
+
+Beveiligingen:
+- vlak voor elke actie wordt opnieuw gecontroleerd in Shopify en in de laatste ERP-import;
+- een product waarvan nog één SKU in het ERP staat, wordt altijd overgeslagen;
+- producten met voorraad alleen als dat bewust aangevinkt is;
+- maximaal 100 producten per actie, en niets als de ERP-gegevens onvolledig lijken (minder dan 500 artikelen);
+- verwijderen wordt bij een serverfout niet herhaald;
+- elk product komt in het logboek `shopify_product_removals`. De app kan daarin alleen toevoegen, niet wijzigen of wissen.
+
+Vereist `security/sql/shopify-product-removals.sql`.
