@@ -180,7 +180,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null } = {}) {
   const mutations = [];
   return {
     mutations,
@@ -190,7 +190,8 @@ function fakeClient(variants, { failInventory = false } = {}) {
       locations: async () => LOCS,
       graphql: async (query, vars) => {
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars)]);
-        const userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
+        let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
+        if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
         const field = query.match(/\{\s*(\w+)\(/)[1];
         return { [field]: { userErrors } };
       },
@@ -273,6 +274,16 @@ test('variant updates are sent in batches of at most 250', async () => {
   assert.deepEqual(sizes, [250, 1]);
 });
 
+test('a rejected variant only marks that SKU as failed', async () => {
+  const two = [current(), current({ sku: 'SKU2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })];
+  const { db, log } = fakeDb({ mode: 'live', rows: two.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Variant Price': '1,00' })) });
+  const { sync } = await loadModules(db);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient(two, { failVariantIndex: 1 }).client }));
+  assert.equal(result.counts.failedSkus, 1);
+  const errs = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.deepEqual(plain(errs.map(e => [e.filters.find(f => f[1] === 'sku')[2], e.row.error])), [['SKU2', 'Ongeldige prijs']]);
+});
+
 test('the emergency stop halts a live run before the next write', async () => {
   const { db, log } = fakeDb({ mode: 'live', modeAfter: 'off', rows: [csvRow({ 'Variant Price': '399,00', Status: 'Draft' })] });
   const { sync } = await loadModules(db);
@@ -296,7 +307,8 @@ test('admin page guards: mode and manual run are admin-only, the stop button nee
   assert.match(page, /async function saveSettingsAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
   assert.match(page, /async function runNowAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
   assert.match(page, /async function stopAction[\s\S]*?requireAccess\('erp', 'write', false\)/);
-  assert.match(page, /if \(error \|\| data\?\.\[0\]\?\.mode !== 'off'\) redirect\(back\(\{ error: 'Noodstop mislukt/);
+  assert.match(page, /\.eq\('id', true\)\.eq\('version', current\.version\)\.select\('mode'\)/);
+  assert.match(page, /if \(!stopped\) redirect\(back\(\{ error: 'Noodstop mislukt/);
   assert.match(read('app/admin/erp/shopify/page.tsx'), /requirePageAccess\('erp'\)/);
   assert.match(page, /\.eq\('version', version\)/);
 });

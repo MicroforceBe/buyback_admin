@@ -25,6 +25,22 @@ class StoppedByOperator extends Error {}
 type UserError = { field?: string[] | null; message: string };
 const errorText = (errors: UserError[]) => errors.map(e => e.message).join('; ').slice(0, 900);
 
+/**
+ * Splits user errors over the items of a batch by the index in their field path
+ * (e.g. ["variants","3","price"] or ["input","quantities","2","quantity"]). Errors without an index
+ * cannot be attributed and count for the whole batch.
+ */
+function failedItems<T>(items: T[], errors: UserError[]): { item: T; reason: string }[] {
+  const byIndex = new Map<number, UserError[]>();
+  const general: UserError[] = [];
+  for (const e of errors) {
+    const index = (e.field ?? []).map(f => (/^\d+$/.test(f) ? Number(f) : NaN)).find(n => Number.isInteger(n) && n < items.length);
+    if (index === undefined) general.push(e); else byIndex.set(index, [...(byIndex.get(index) ?? []), e]);
+  }
+  if (general.length) return items.map((item, i) => ({ item, reason: errorText([...general, ...(byIndex.get(i) ?? [])]) }));
+  return [...byIndex].map(([i, errs]) => ({ item: items[i], reason: errorText(errs) }));
+}
+
 async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: number }> {
   const desired: DesiredState[] = [];
   let invalid = 0;
@@ -62,7 +78,7 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     for (const variants of chunk(group.variants, MAX_INPUT_ITEMS)) {
       await guard();
       const { productVariantsBulkUpdate } = await client.graphql<{ productVariantsBulkUpdate: { userErrors: UserError[] } }>(VARIANTS_UPDATE, { productId: group.productId, variants });
-      if (productVariantsBulkUpdate.userErrors.length) for (const v of variants) failed.push({ id: v.id, scope: 'variant', reason: errorText(productVariantsBulkUpdate.userErrors) });
+      for (const { item, reason } of failedItems(variants, productVariantsBulkUpdate.userErrors)) failed.push({ id: item.id, scope: 'variant', reason });
     }
   }
   for (const batch of chunk(plan.inventory, 100)) {
@@ -71,12 +87,12 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
       input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
       key: key(),
     });
-    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', reason: errorText(inventorySetQuantities.userErrors) });
+    for (const { item, reason } of failedItems(batch, inventorySetQuantities.userErrors)) failed.push({ id: item.inventoryItemId, scope: 'inventory', reason });
   }
   for (const batch of chunk(plan.metafields, 25)) {
     await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
-    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', reason: errorText(metafieldsSet.userErrors) });
+    for (const { item, reason } of failedItems(batch, metafieldsSet.userErrors)) failed.push({ id: item.ownerId, scope: 'metafield', reason });
   }
   return failed;
 }
