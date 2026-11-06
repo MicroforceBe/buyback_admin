@@ -162,7 +162,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       changes: plan.changes.length, shopifyVariants: state.variants.length,
       duplicateTitleList: duplicateTitles(desired, state.variants).slice(0, MAX_UNMATCHED).map(a => ({ ...a, title: a.title.slice(0, 200) })),
       duplicateTitles: duplicateTitles(desired, state.variants).length,
-      erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), duplicateSkuList: cap(plan.unmatched.duplicate),
+      erpOnlySkus: cap(plan.unmatched.erpOnly), shopifyOnlySkus: cap(plan.unmatched.shopifyOnly), shopifyOnlyArchivedSkus: cap(plan.unmatched.shopifyOnlyArchived), duplicateSkuList: cap(plan.unmatched.duplicate),
     });
 
     // New ERP articles become draft products (only when enabled in the settings).

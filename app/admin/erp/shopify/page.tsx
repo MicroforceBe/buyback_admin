@@ -14,7 +14,8 @@ export const maxDuration = 300;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' }) : '—');
 const LISTS = {
   erpOnly: { label: 'Alleen in ERP', key: 'erpOnlySkus', help: 'Staan in het ERP-bestand maar niet in Shopify. Ze worden alleen als concept aangemaakt als dat in de instellingen aan staat.' },
-  shopifyOnly: { label: 'Alleen in Shopify', key: 'shopifyOnlySkus', help: 'Staan in Shopify maar niet in de ERP-CSV. Ze worden niet aangeraakt.' },
+  shopifyOnly: { label: 'Alleen in Shopify', key: 'shopifyOnlySkus', help: 'Staan in Shopify (actief of concept) maar niet in het ERP-bestand. De synchronisatie raakt ze niet aan; je kunt ze hier archiveren.' },
+  shopifyArchived: { label: 'Alleen in Shopify, gearchiveerd', key: 'shopifyOnlyArchivedSkus', help: 'Gearchiveerde Shopify-producten die niet in het ERP-bestand staan. Ze zijn niet zichtbaar in de webshop; je kunt ze hier terugzetten als concept.' },
   duplicate: { label: 'Dubbele SKU in Shopify', key: 'duplicateSkuList', help: 'Deze SKU staat op meer dan één variant in Shopify en wordt daarom overgeslagen.' },
   dupTitles: { label: 'Dubbele titels in ERP', key: 'duplicateTitleList', help: 'ERP-artikelen met exact dezelfde titel. Ze worden gewoon per SKU gesynchroniseerd; kijk na of het om echt verschillende artikelen gaat of om een dubbele aanmaak in het ERP. Nieuwe concepten met zo’n titel krijgen de tag controle-dubbele-titel.' },
 } as const;
@@ -134,7 +135,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
@@ -158,10 +159,10 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                 <Link href={back({ run: selected.id })} className="text-sky-700 hover:underline">Terug naar wijzigingen</Link>
               </div>
               <p className="mt-1 text-xs text-slate-500">{LISTS[view].help}</p>
-              {(() => { const selectable = view === 'shopifyOnly' && isAdmin; const seenProducts = new Set<string>(); const table = (
+              {(() => { const selectable = (view === 'shopifyOnly' || view === 'shopifyArchived') && isAdmin; const seenProducts = new Set<string>(); const table = (
               <div className="mt-2 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500"><tr>{selectable && <th className="py-2 pr-2"></th>}<th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{view === 'shopifyOnly' && <th className="pr-4">Status</th>}{view === 'dupTitles' && <><th className="pr-4 text-right">Prijs</th><th className="pr-4">Status</th></>}{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
+                  <thead className="text-xs uppercase text-slate-500"><tr>{selectable && <th className="py-2 pr-2"></th>}<th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{(view === 'shopifyOnly' || view === 'shopifyArchived') && <th className="pr-4">Status</th>}{view === 'dupTitles' && <><th className="pr-4 text-right">Prijs</th><th className="pr-4">Status</th></>}{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
                   <tbody className="divide-y">
                     {unmatched.map(u => {
                       const url = productUrl(u.productId);
@@ -170,7 +171,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                           {selectable && <td className="py-1.5 pr-2">{u.productId && !seenProducts.has(u.productId) && (seenProducts.add(u.productId), <input type="checkbox" name="ids" value={u.productId} aria-label={`Selecteer ${u.sku}`} />)}</td>}
                           <td className="py-1.5 pr-4 font-mono">{u.sku}</td>
                           <td className="pr-4">{u.title || '—'}</td>
-                          {view === 'shopifyOnly' && <td className="pr-4">{u.status === 'ARCHIVED' ? 'gearchiveerd' : u.status === 'DRAFT' ? 'concept' : u.status === 'ACTIVE' ? 'actief' : '—'}</td>}
+                          {(view === 'shopifyOnly' || view === 'shopifyArchived') && <td className="pr-4">{u.status === 'ARCHIVED' ? 'gearchiveerd' : u.status === 'DRAFT' ? 'concept' : u.status === 'ACTIVE' ? 'actief' : '—'}</td>}
                           {view === 'dupTitles' && <><td className="pr-4 text-right tabular-nums">{typeof u.priceCents === 'number' ? (u.priceCents / 100).toFixed(2).replace('.', ',') : '—'}</td><td className="pr-4">{u.status ? u.status.toLowerCase() : '—'}</td></>}
                           {stores.map(st => <td key={st} className="pr-4 text-right tabular-nums">{u.inventory?.[st] ?? '—'}</td>)}
                           <td className={`pr-4 text-right font-semibold tabular-nums ${total(u) > 0 ? 'text-green-700' : 'text-slate-400'}`}>{total(u)}</td>
@@ -178,7 +179,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                         </tr>
                       );
                     })}
-                    {!unmatched.length && <tr><td colSpan={4 + stores.length + (view === 'dupTitles' ? 2 : 0) + (view === 'shopifyOnly' ? 1 : 0) + (selectable ? 1 : 0)} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
+                    {!unmatched.length && <tr><td colSpan={4 + stores.length + (view === 'dupTitles' ? 2 : 0) + (view === 'shopifyOnly' || view === 'shopifyArchived' ? 1 : 0) + (selectable ? 1 : 0)} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -187,14 +188,15 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
               return (
                 <form action={removalAction} className="mt-2">
                   <input type="hidden" name="run" value={selected.id} />
+                  <input type="hidden" name="view" value={view} />
                   {table}
                   <div className="mt-4 space-y-2 rounded-xl border bg-slate-50 p-4 text-sm">
                     <p className="font-semibold">Geselecteerde producten (max. {MAX_PER_ACTION})</p>
                     <p className="text-xs text-slate-600">Vlak voor de actie controleert de tool opnieuw in Shopify en in de laatste ERP-import. Producten waarvan nog een SKU in het ERP staat, worden altijd overgeslagen.</p>
-                    <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad archiveren</label>
+                    {view === 'shopifyOnly' && <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad archiveren</label>}
                     <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
                     <div className="flex flex-wrap gap-2">
-                      <button name="removal" value="archive" className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Archiveren</button>
+                      {view === 'shopifyOnly' && <button name="removal" value="archive" className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Archiveren</button>}
                       <button name="removal" value="restore" className="rounded-lg border px-4 py-2 font-semibold hover:bg-white">Terugzetten als concept</button>
                     </div>
                   </div>

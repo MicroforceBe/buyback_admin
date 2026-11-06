@@ -95,6 +95,14 @@ test('nothing is created or deleted: one-sided and duplicate SKUs are only count
   assert.deepEqual(plain(p.unmatched.duplicate.map(u => u.sku)), ['DUP']);
 });
 
+test('archived Shopify-only products are counted separately', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({ desired: [], current: [current({ sku: 'A' }), current({ sku: 'B', status: 'ARCHIVED', variantId: 'gid://shopify/ProductVariant/12' })], locations: LOCS });
+  assert.equal(p.counts.shopifyOnly, 1);
+  assert.equal(p.counts.shopifyOnlyArchived, 1);
+  assert.deepEqual(plain(p.unmatched.shopifyOnlyArchived.map(u => u.sku)), ['B']);
+});
+
 test('stock is only set where the item is stocked; unknown locations are reported', async () => {
   const { plan } = await loadModules();
   const p = plan.planSync({

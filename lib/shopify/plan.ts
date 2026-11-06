@@ -84,7 +84,8 @@ export type UnmatchedSku = { sku: string; title: string; productId?: string; inv
 export type Plan = {
   changes: Change[];
   /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
-  unmatched: { erpOnly: UnmatchedSku[]; shopifyOnly: UnmatchedSku[]; duplicate: UnmatchedSku[] };
+  /** shopifyOnly excludes archived products; those are in shopifyOnlyArchived. */
+  unmatched: { erpOnly: UnmatchedSku[]; shopifyOnly: UnmatchedSku[]; shopifyOnlyArchived: UnmatchedSku[]; duplicate: UnmatchedSku[] };
   /** Desired state of the ERP-only SKUs, for creating them as draft products. */
   newCandidates: DesiredState[];
   productUpdates: { id: string; title?: string; vendor?: string; productType?: string; status?: ProductStatus }[];
@@ -97,6 +98,7 @@ export type Plan = {
     unchanged: number;
     erpOnly: number;
     shopifyOnly: number;
+    shopifyOnlyArchived: number;
     duplicateSkus: number;
     unknownLocations: string[];
     notStocked: number;
@@ -227,8 +229,8 @@ export function planSync(input: {
   invalidRows?: number;
 }): Plan {
   const plan: Plan = {
-    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0 },
+    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -247,8 +249,13 @@ export function planSync(input: {
   plan.counts.duplicateSkus = duplicate.size;
 
   const desiredSkus = new Set(input.desired.map(d => d.sku));
-  for (const [sku, c] of bySku) if (!desiredSkus.has(sku)) plan.unmatched.shopifyOnly.push({ sku, title: c.title, productId: c.productId, inventory: { ...c.inventory }, status: c.status });
+  for (const [sku, c] of bySku) {
+    if (desiredSkus.has(sku)) continue;
+    const entry = { sku, title: c.title, productId: c.productId, inventory: { ...c.inventory }, status: c.status };
+    (c.status === 'ARCHIVED' ? plan.unmatched.shopifyOnlyArchived : plan.unmatched.shopifyOnly).push(entry);
+  }
   plan.counts.shopifyOnly = plan.unmatched.shopifyOnly.length;
+  plan.counts.shopifyOnlyArchived = plan.unmatched.shopifyOnlyArchived.length;
 
   const unknownLocations = new Set<string>();
   const productFields = new Map<string, { sku: string; update: Plan['productUpdates'][number]; desired: DesiredState['product'] }>();
