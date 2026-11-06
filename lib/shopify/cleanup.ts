@@ -27,14 +27,18 @@ async function erpSkus(db: Db): Promise<Set<string>> {
 async function archivedAt(db: Db, ids: string[]): Promise<Map<string, Date>> {
   const map = new Map<string, Date>();
   if (!ids.length) return map;
-  const { data, error } = await db.from('shopify_product_removals').select('product_id,action,created_at')
-    .in('product_id', ids).eq('result', 'ok').order('created_at', { ascending: false });
-  if (error) throw new Error('Logboek kon niet worden gelezen.');
   const seen = new Set<string>();
-  for (const r of data ?? []) {
-    if (seen.has(r.product_id)) continue;
-    seen.add(r.product_id);
-    if (r.action === 'archive') map.set(r.product_id, new Date(r.created_at));
+  // Paginated: Supabase returns at most 1000 rows per request.
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('shopify_product_removals').select('product_id,action,created_at')
+      .in('product_id', ids).eq('result', 'ok').order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, from + 999);
+    if (error) throw new Error('Logboek kon niet worden gelezen.');
+    for (const r of data ?? []) {
+      if (seen.has(r.product_id)) continue;
+      seen.add(r.product_id);
+      if (r.action === 'archive') map.set(r.product_id, new Date(r.created_at));
+    }
+    if (!data || data.length < 1000 || seen.size === ids.length) break;
   }
   return map;
 }

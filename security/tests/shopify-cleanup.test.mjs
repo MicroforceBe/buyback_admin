@@ -103,7 +103,7 @@ function fakeDb({ erpCount = 600, log = [], failInsertAfter = Infinity } = {}) {
         const all = Array.from({ length: erpCount }, (_, i) => ({ sku: 'ERP' + i }));
         return { data: all.slice(range[1], range[2] + 1), error: null };
       }
-      if (table === 'shopify_product_removals') return { data: log, error: null };
+      if (table === 'shopify_product_removals') { const range = q.ops.find(o => o[0] === 'range'); return { data: range ? log.slice(range[1], range[2] + 1) : log, error: null }; }
       return { data: null, error: null };
     };
     const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => Promise.resolve(result()).then(y, n); return (...a) => { q.ops.push([k, ...a]); return b; }; } });
@@ -149,6 +149,15 @@ test('a failing log write stops the run and explains how to recover', async () =
   assert.equal(fake.calls.filter(c => c[0] === 'SetProductStatus').length, 1);
   assert.match(r.logError, /Zet het terug als concept en archiveer opnieuw/);
   assert.match(read('app/admin/erp/shopify/actions.ts'), /if \(result\.logError\) redirect\(target\(\{ error:/);
+});
+
+test('the latest archive per product is found beyond the first 1000 log rows', async () => {
+  const noise = Array.from({ length: 1200 }, (_, i) => ({ product_id: node(2).id, action: i % 2 ? 'archive' : 'restore', created_at: '2026-12-01T00:00:00Z' }));
+  const { db } = fakeDb({ log: [...noise, { product_id: node(1).id, action: 'archive', created_at: '2026-10-01T00:00:00Z' }] });
+  const { cleanup } = await load(db);
+  const fake = fakeClient([node(1, { status: 'ARCHIVED' })]);
+  const r = plain(await cleanup.runRemoval({ action: 'delete', ids: [node(1).id, node(2).id], includeStock: false, actor: 'a' }, { db, client: fake.client, now: () => NOW }));
+  assert.equal(r.ok, 1);
 });
 
 test('nothing happens when the ERP data looks incomplete', async () => {
