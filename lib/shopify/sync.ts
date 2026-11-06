@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, starsOf, type MetafieldValue } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
-import { chunk, desiredFromRow, duplicateTitles, planCreates, planSync, rankSimilar, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -21,6 +21,9 @@ const MAX_CREATES_PER_RUN = 50;
 const MAX_NEW_CANDIDATES = 200;
 // Most similar existing products whose properties are read for a new draft.
 const MAX_REFERENCES = 15;
+const ARCHIVE_MISSING_AFTER_HOURS = 24;
+// More than this many articles disappearing within an hour looks like a broken export: do nothing.
+const MAX_NEWLY_MISSING = 100;
 export const CREATE_FIELD = 'nieuw artikel (draft)';
 const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
 const KEEP_RUNS_DAYS = 30;
@@ -52,19 +55,29 @@ function failedItems<T>(items: T[], errors: UserError[]): { item: T; reason: str
   return [...byIndex].map(([i, errs]) => ({ item: items[i], reason: errorText(errs) }));
 }
 
-async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: number }> {
-  const desired: DesiredState[] = [];
-  let invalid = 0;
+// The ERP import rewrites every row of the export (updated_at = now) every 15 minutes. A row that
+// is clearly older than the newest one was not in the recent exports and no longer counts as ERP.
+// 40 minutes = missed at least two imports, so one failed or half-finished import never counts.
+const NOT_IN_EXPORT_AFTER_MINUTES = 40;
+
+async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: number; notInExport: number }> {
+  const rows: { sku: string; raw_erp_row: unknown; updated_at: string | null }[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from('erp_articles').select('sku,raw_erp_row').eq('missing_from_erp', false).order('sku').range(from, from + 999);
+    const { data, error } = await db.from('erp_articles').select('sku,raw_erp_row,updated_at').eq('missing_from_erp', false).order('sku').range(from, from + 999);
     if (error) throw new Error('ERP-artikelen konden niet worden geladen.');
-    for (const row of data ?? []) {
-      const d = row.raw_erp_row && typeof row.raw_erp_row === 'object' ? desiredFromRow(row.raw_erp_row as Record<string, unknown>) : null;
-      if (d && d.sku === row.sku) desired.push(d); else invalid++;
-    }
+    rows.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
-  return { desired, invalid };
+  const newest = Math.max(0, ...rows.map(r => (r.updated_at ? Date.parse(r.updated_at) : 0)).filter(Number.isFinite));
+  const cutoff = newest - NOT_IN_EXPORT_AFTER_MINUTES * 60_000;
+  const desired: DesiredState[] = [];
+  let invalid = 0, notInExport = 0;
+  for (const row of rows) {
+    if (newest && row.updated_at && Date.parse(row.updated_at) < cutoff) { notInExport++; continue; }
+    const d = row.raw_erp_row && typeof row.raw_erp_row === 'object' ? desiredFromRow(row.raw_erp_row as Record<string, unknown>) : null;
+    if (d && d.sku === row.sku) desired.push(d); else invalid++;
+  }
+  return { desired, invalid, notInExport };
 }
 
 type Scope = 'product' | 'variant' | 'inventory' | 'metafield';
@@ -77,7 +90,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[]): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -85,6 +98,7 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     await guard();
     const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_UPDATE, { product: update });
     if (productUpdate.userErrors.length) failed.push({ id: update.id, scope: 'product', reason: errorText(productUpdate.userErrors) });
+    else await afterProductUpdate(update.id);
   }
   for (const group of plan.variantUpdates) {
     for (const variants of chunk(group.variants, MAX_INPUT_ITEMS)) {
@@ -116,6 +130,49 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
   return failed;
 }
 
+type MissingInfo = { since: Date; held: boolean; released: boolean };
+
+/**
+ * Records since when each Shopify-only SKU is missing from the ERP and forgets SKUs that are back.
+ * When more than MAX_NEWLY_MISSING SKUs disappear within an hour, those SKUs are put on hold: they
+ * are never zeroed or archived until an admin releases them or they return to the ERP.
+ */
+async function trackMissing(db: Db, missing: CurrentState[]): Promise<{ info: Map<string, MissingInfo>; heldNow: number }> {
+  const info = new Map<string, MissingInfo>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('shopify_sku_missing').select('sku,first_missing_at,held,released').order('sku').range(from, from + 999);
+    if (error) throw new Error('Ontbrekende artikelen konden niet worden geladen.');
+    for (const r of data ?? []) info.set(r.sku as string, { since: new Date(r.first_missing_at as string), held: r.held === true, released: r.released === true });
+    if (!data || data.length < 1000) break;
+  }
+  const now = new Date();
+  const current = new Set(missing.map(v => v.sku));
+  const fresh = missing.filter(v => !info.has(v.sku)).map(v => ({ sku: v.sku, product_id: v.productId, first_missing_at: now.toISOString() }));
+  for (const batch of chunk(fresh, 500)) {
+    const { error: e } = await db.from('shopify_sku_missing').upsert(batch, { onConflict: 'sku', ignoreDuplicates: true });
+    if (e) throw new Error('Ontbrekende artikelen konden niet worden opgeslagen.');
+    for (const r of batch) info.set(r.sku, { since: now, held: false, released: false });
+  }
+  const back = [...info.keys()].filter(sku => !current.has(sku));
+  for (const batch of chunk(back, 200)) {
+    const { error: e } = await db.from('shopify_sku_missing').delete().in('sku', batch);
+    if (e) throw new Error('Ontbrekende artikelen konden niet worden bijgewerkt.');
+    for (const sku of batch) info.delete(sku);
+  }
+  // Suspicious batch: everything that disappeared in the last hour and is neither held nor released.
+  const recent = [...info.entries()].filter(([, i]) => !i.held && !i.released && now.getTime() - i.since.getTime() < 3_600_000).map(([sku]) => sku);
+  let heldNow = 0;
+  if (recent.length > MAX_NEWLY_MISSING) {
+    for (const batch of chunk(recent, 200)) {
+      const { error: e } = await db.from('shopify_sku_missing').update({ held: true }).in('sku', batch);
+      if (e) throw new Error('Ontbrekende artikelen konden niet worden vastgehouden.');
+    }
+    for (const sku of recent) info.get(sku)!.held = true;
+    heldNow = recent.length;
+  }
+  return { info, heldNow };
+}
+
 /**
  * Runs one sync. Safe to call from cron and from the admin page: a second concurrent run is
  * refused by the database, and nothing is written to Shopify unless the mode is 'live'.
@@ -124,7 +181,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
   const db = deps.db ?? supabaseAdmin;
   const key = deps.idempotencyKey ?? randomUUID;
 
-  const { data: settings, error: settingsError } = await db.from('shopify_sync_settings').select('mode,max_changes,create_drafts').eq('id', true).maybeSingle();
+  const { data: settings, error: settingsError } = await db.from('shopify_sync_settings').select('mode,max_changes,create_drafts,handle_missing').eq('id', true).maybeSingle();
   if (settingsError || !settings) throw new Error('Shopify-instellingen konden niet worden geladen.');
   const mode = settings.mode as SyncMode;
   if (mode === 'off') return { status: 'skipped', reason: 'off' };
@@ -159,7 +216,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
   const counts: Record<string, unknown> = {};
   let writing = false;
   try {
-    const { desired, invalid } = await loadDesired(db);
+    const { desired, invalid, notInExport } = await loadDesired(db);
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
     const locations = { ...state.locations, ...apiLocations };
@@ -210,6 +267,28 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
         counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
       }
     }
+
+    // Articles no longer in the ERP: tracked every run; with the setting on, their stock goes to 0
+    // right away and the product is archived after 24 hours.
+    const missingCurrent = plan.unmatched.shopifyOnly.map(u => state.variants.find(v => v.sku === u.sku)!).filter(Boolean);
+    const { info: missingInfo, heldNow } = await trackMissing(db, missingCurrent);
+    counts.notInExport = notInExport;
+    counts.missingHeld = [...missingInfo.values()].filter(i => i.held).length;
+    if (heldNow) counts.missingBlocked = `${heldNow} artikelen zijn binnen het uur uit het ERP verdwenen; dat is verdacht veel (maximum ${MAX_NEWLY_MISSING}). Ze worden vastgehouden: voorraad en status blijven ongewijzigd tot je ze vrijgeeft of ze terug in het ERP staan.`;
+    let missingArchives: { productId: string; title: string; skus: string[] }[] = [];
+    if (settings.handle_missing === true) {
+      const heldProducts = new Set(missingCurrent.filter(v => missingInfo.get(v.sku)?.held === true).map(v => v.productId));
+      const firstMissing = new Map([...missingInfo.entries()].map(([sku, i]) => [sku, i.since]));
+      // Held SKUs, and every product with a held variant, are left alone.
+      const m = planMissing({ missing: missingCurrent.filter(v => !heldProducts.has(v.productId)), all: state.variants, erpSkus: new Set(desired.map(d => d.sku)), firstMissing, now: new Date(), locations, archiveAfterHours: ARCHIVE_MISSING_AFTER_HOURS });
+      plan.inventory.push(...m.inventory);
+      plan.productUpdates.push(...m.archive.map(a => ({ id: a.productId, status: 'ARCHIVED' as const })));
+      plan.changes.push(...m.changes);
+      missingArchives = m.archive;
+      counts.missingStockZeroed = m.inventory.length;
+      counts.missingArchived = m.archive.length;
+      counts.missingKept = m.kept;
+    }
     counts.changes = plan.changes.length;
 
     const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
@@ -235,7 +314,16 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       return !error && data?.mode === 'live';
     };
     writing = true;
-    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates);
+    // Archived because no longer in the ERP: logged right away like a manual archive, so the 30-day
+    // delete flow applies. If logging fails the run stops (with a recovery hint) before more writes.
+    const archiveById = new Map(missingArchives.map(a => [a.productId, a]));
+    const logArchive = async (productId: string) => {
+      const a = archiveById.get(productId);
+      if (!a) return;
+      const { error } = await db.from('shopify_product_removals').insert({ product_id: a.productId, title: a.title.slice(0, 255), skus: a.skus, action: 'archive', result: 'ok', detail: 'automatisch: niet meer in het ERP', actor: 'synchronisatie' });
+      if (error) throw new Error(`"${a.title}" is gearchiveerd maar kon niet in het opruimlogboek. Zet het terug als concept en archiveer het opnieuw via Alleen in Shopify.`);
+    };
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, logArchive);
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });

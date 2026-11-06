@@ -166,16 +166,18 @@ test('bulk export refuses a non-https download link', async () => {
 });
 
 // ---------- sync run ----------
-function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null, createDrafts = false } = {}) {
+function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null, createDrafts = false, handleMissing = false, missing = [], staleSkus = [], failRemovalLog = false } = {}) {
   const log = [];
   let settingsReads = 0;
   function from(table) {
     const q = { table, ops: [] };
     const result = () => {
-      const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
+      const write = q.ops.find(o => ['insert', 'upsert', 'update', 'delete'].includes(o[0]));
       if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not', 'neq'].includes(o[0])) });
-      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges, create_drafts: createDrafts }, error: null }; }
-      if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r })), error: null };
+      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges, create_drafts: createDrafts, handle_missing: handleMissing }, error: null }; }
+      if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r, updated_at: staleSkus.includes(r['Variant SKU [ID]']) ? '2026-01-01T00:00:00Z' : new Date().toISOString() })), error: null };
+      if (table === 'shopify_sku_missing' && !write) return { data: missing, error: null };
+      if (table === 'shopify_product_removals' && write?.[0] === 'insert' && failRemovalLog) return { data: null, error: { message: 'db' } };
       if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
       return { data: null, error: null };
     };
@@ -466,6 +468,88 @@ test('a new draft gets the copied category tags, a review tag and its own main_s
   const r = plain(plan.planCreates([d], LOCS, { existing: [{ sku: '211000037999', title: 'iPhone 13 Mini 128GB Red Refurbished 4*', tags: ['cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000037999'] }] }));
   assert.deepEqual(r.creates[0].input.tags, ['erp-nieuw', 'controle-categorie', 'cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000040892']);
   assert.equal(r.creates[0].categoryFrom, '211000037999');
+});
+
+test('an article no longer in the ERP gets stock 0 first; after 24 hours without stock its product is archived', async () => {
+  const mk = stock => current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': stock, 'Microforce Antwerpen': 0 } });
+  for (const [hours, stock, zeroed, archived] of [[2, 1, true, false], [25, 1, true, false], [25, 0, false, true]]) {
+    const { db, log } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - hours * 3_600_000).toISOString() }] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current(), mk(stock)]);
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const inv = fake.mutations.find(m => m[0] === 'SyncInventory');
+    assert.equal(!!inv, zeroed);
+    if (zeroed) assert.deepEqual(inv[1].input.quantities.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
+    const productUpdates = fake.mutations.filter(m => m[0] === 'SyncProduct').map(m => m[1].product);
+    assert.deepEqual(productUpdates, archived ? [{ id: 'gid://shopify/Product/7', status: 'ARCHIVED' }] : []);
+    const removalLog = log.find(l => l.table === 'shopify_product_removals' && l.op === 'insert');
+    assert.equal(!!removalLog, archived);
+    if (archived) assert.equal(plain(removalLog.row).actor, 'synchronisatie');
+  }
+});
+
+test('missing articles are only tracked, not changed, while the setting is off; erp-negeren is respected', async () => {
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 3 } });
+  const off = fakeDb({ mode: 'live' });
+  let { sync } = await loadModules(off.db);
+  let fake = fakeClient([current(), gone]);
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+  assert.equal(fake.mutations.length, 0);
+  assert.ok(off.log.some(l => l.table === 'shopify_sku_missing' && l.op === 'upsert'));
+  const kept = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: '2026-01-01T00:00:00Z' }] });
+  ({ sync } = await loadModules(kept.db));
+  fake = fakeClient([current(), { ...gone, tags: ['erp-negeren'] }]);
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(fake.mutations.length, 0);
+  assert.equal(r.counts.missingKept, 1);
+});
+
+test('a product is not archived while another of its variants is still in the ERP', async () => {
+  const { plan } = await loadModules();
+  const a = current({ sku: 'A', productId: 'P', inventory: {} });
+  const b = current({ sku: 'B', productId: 'P', variantId: 'v2', inventory: {} });
+  const m = plain(plan.planMissing({ missing: [b], all: [a, b], erpSkus: new Set(['A']), firstMissing: new Map([['B', new Date('2026-01-01')]]), now: new Date('2026-02-01'), locations: LOCS, archiveAfterHours: 24 }));
+  assert.equal(m.archive.length, 0);
+});
+
+test('rows not refreshed by the recent ERP imports no longer count as ERP articles', async () => {
+  const { db } = fakeDb({ rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'OLD' })], staleSkus: ['OLD'] });
+  const { sync } = await loadModules(db);
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current(), current({ sku: 'OLD', variantId: 'v9' })]).client }));
+  assert.equal(r.counts.notInExport, 1);
+  assert.equal(r.counts.shopifyOnly, 1);
+});
+
+test('more than 100 articles disappearing at once are held, also after the first hour', async () => {
+  const many = Array.from({ length: 101 }, (_, i) => current({ sku: 'G' + i, productId: 'gid://shopify/Product/' + (100 + i), variantId: 'v' + i, inventoryItemId: 'i' + i, inventory: { 'Microforce Gentbrugge': 1 } }));
+  const first = fakeDb({ mode: 'live', handleMissing: true });
+  let { sync } = await loadModules(first.db);
+  let fake = fakeClient([current(), ...many]);
+  let r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.match(r.counts.missingBlocked, /verdacht veel/);
+  assert.equal(fake.mutations.length, 0);
+  assert.ok(first.log.some(l => l.table === 'shopify_sku_missing' && l.op === 'update' && l.row.held === true));
+  // Two hours later the batch is still on hold.
+  const later = fakeDb({ mode: 'live', handleMissing: true, missing: many.map(v => ({ sku: v.sku, first_missing_at: new Date(Date.now() - 2 * 3_600_000).toISOString(), held: true })) });
+  ({ sync } = await loadModules(later.db));
+  fake = fakeClient([current(), ...many]);
+  r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(fake.mutations.length, 0);
+  assert.equal(r.counts.missingHeld, 101);
+});
+
+test('releasing held articles is admin-only and needs confirmation', () => {
+  const actions = read('app/admin/erp/shopify/actions.ts');
+  assert.match(actions, /export async function releaseMissingAction\(formData: FormData\) \{\n  await requireAccess\('erp', 'write', true\);\n  if \(formData\.get\('confirm'\) !== 'on'\)/);
+});
+
+test('an automatic archive is logged right after it succeeds; a log failure stops the run', async () => {
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 0 } });
+  const { db } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: '2026-01-01T00:00:00Z' }], failRemovalLog: true });
+  const { sync } = await loadModules(db);
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current(), gone]).client }));
+  assert.equal(r.status, 'failed');
+  assert.match(r.error, /kon niet in het opruimlogboek/);
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {

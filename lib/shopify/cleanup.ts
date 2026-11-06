@@ -12,14 +12,21 @@ export type RemovalResult = { action: RemovalAction; ok: number; refused: number
 // A nearly empty ERP table means a broken import: never archive or delete on that basis.
 const MIN_ERP_ARTICLES = 500;
 
+// Same rule as the sync: a row clearly older than the newest import is no longer in the ERP export.
+const NOT_IN_EXPORT_AFTER_MINUTES = 40;
+
 async function erpSkus(db: Db): Promise<Set<string>> {
-  const skus = new Set<string>();
+  const rows: { sku: string | null; updated_at: string | null }[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from('erp_articles').select('sku').eq('missing_from_erp', false).order('sku').range(from, from + 999);
+    const { data, error } = await db.from('erp_articles').select('sku,updated_at').eq('missing_from_erp', false).order('sku').range(from, from + 999);
     if (error) throw new Error('ERP-artikelen konden niet worden geladen.');
-    for (const r of data ?? []) if (r.sku) skus.add(String(r.sku).trim());
+    rows.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
+  const newest = Math.max(0, ...rows.map(r => (r.updated_at ? Date.parse(r.updated_at) : 0)).filter(Number.isFinite));
+  const cutoff = newest - NOT_IN_EXPORT_AFTER_MINUTES * 60_000;
+  const skus = new Set<string>();
+  for (const r of rows) if (r.sku && !(newest && r.updated_at && Date.parse(r.updated_at) < cutoff)) skus.add(String(r.sku).trim());
   return skus;
 }
 

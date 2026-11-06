@@ -15,9 +15,10 @@ export async function saveSettingsAction(formData: FormData) {
   const maxChanges = Number(formData.get('max_changes'));
   const version = Number(formData.get('version'));
   const createDrafts = formData.get('create_drafts') === 'on';
+  const handleMissing = formData.get('handle_missing') === 'on';
   if (!Object.hasOwn(MODES, mode) || !Number.isInteger(maxChanges) || maxChanges < 1 || maxChanges > 100000) redirect(back({ error: 'Ongeldige instellingen.' }));
   const { data, error } = await supabaseAdmin.from('shopify_sync_settings')
-    .update({ mode, max_changes: maxChanges, create_drafts: createDrafts, version: version + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') })
+    .update({ mode, max_changes: maxChanges, create_drafts: createDrafts, handle_missing: handleMissing, version: version + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') })
     .eq('id', true).eq('version', version).select('id');
   if (error) redirect(back({ error: 'Opslaan mislukt.' }));
   if (!data?.length) redirect(back({ error: 'Iemand anders wijzigde de instellingen intussen. Controleer en probeer opnieuw.' }));
@@ -77,4 +78,14 @@ export async function removalAction(formData: FormData) {
   revalidatePath(PATH);
   if (result.logError) redirect(target({ error: result.logError.slice(0, 400) }));
   redirect(target({ removed: action, ok: String(result.ok), refused: String(result.refused), failed: String(result.failed), redirects: String(result.redirects), scope: result.redirectScope ? '1' : '0' }));
+}
+
+/** Releases SKUs held after a suspicious disappearance, so the stock-0 / archive rule applies to them. */
+export async function releaseMissingAction(formData: FormData) {
+  await requireAccess('erp', 'write', true);
+  if (formData.get('confirm') !== 'on') redirect(back({ error: 'Bevestig het vrijgeven eerst.' }));
+  const { error: updateError } = await supabaseAdmin.from('shopify_sku_missing').update({ held: false, released: true }).eq('held', true);
+  revalidatePath(PATH);
+  if (updateError) redirect(back({ error: 'Vrijgeven mislukt.' }));
+  redirect(back({ saved: 'released' }));
 }
