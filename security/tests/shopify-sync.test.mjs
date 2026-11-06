@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -188,7 +188,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false, failVariantIndex = null } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {} } = {}) {
   const mutations = [];
   return {
     mutations,
@@ -197,11 +197,13 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null }
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
+        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: refMetafields[id] ?? [] } })) }; }
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
         if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
         const field = query.match(/\{\s*(\w+)\(/)[1];
         if (field === 'productSet') return { productSet: { product: { id: 'gid://shopify/Product/999' }, userErrors } };
+        if (field === 'nodes') return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: [] } })) };
         return { [field]: { userErrors } };
       },
     },
@@ -329,7 +331,7 @@ test('new ERP articles are planned as single-variant draft products tagged erp-n
   assert.equal(r.creates.length, 1);
   const input = r.creates[0].input;
   assert.equal(input.status, 'DRAFT');
-  assert.deepEqual(input.tags, ['erp-nieuw']);
+  assert.deepEqual(input.tags, ['erp-nieuw', 'geen-categorie', 'main_sku_NEW1']);
   assert.equal(input.title, 'iPhone 13 128GB');
   assert.deepEqual(input.variants[0].optionValues, [{ optionName: 'Title', name: 'Default Title' }]);
   assert.equal(input.variants[0].sku, 'NEW1');
@@ -371,7 +373,7 @@ test('shadow mode only records planned drafts; live mode creates them without se
     assert.equal(result.status, 'succeeded');
     assert.equal(result.counts.newDrafts, 1);
     const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
-    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB']]);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld']]);
     if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
     else {
       assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
@@ -429,7 +431,7 @@ test('a new draft whose title already exists is still created but tagged for rev
   const other = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW2', Title: 'Ander toestel' }));
   const twin = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'NEW3', Title: 'Tweeling' }));
   const r = plain(plan.planCreates([dup, other, twin], LOCS, { shopifyTitles: ['iPhone 13  128GB'], erpTitles: ['iPhone 13 128GB', 'Ander toestel', 'Tweeling', 'tweeling'] }));
-  assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags]), [['NEW1', ['erp-nieuw', 'controle-dubbele-titel']], ['NEW2', ['erp-nieuw']], ['NEW3', ['erp-nieuw', 'controle-dubbele-titel']]]);
+  assert.deepEqual(r.creates.map(c => [c.sku, c.input.tags.includes('controle-dubbele-titel')]), [['NEW1', true], ['NEW2', false], ['NEW3', true]]);
 });
 
 test('quiet runs are pruned after 24 hours, other runs after 30 days', async () => {
@@ -442,6 +444,28 @@ test('quiet runs are pruned after 24 hours, other runs after 30 days', async () 
   assert.deepEqual(quiet.filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]]), [['status', 'succeeded'], ['counts->>changes', '0']]);
   const hours = (Date.now() - new Date(quiet.filters.find(f => f[0] === 'lt')[2]).getTime()) / 3_600_000;
   assert.ok(hours > 23.9 && hours < 24.1);
+});
+
+test('category tags are copied from the most similar product in the same SKU family', async () => {
+  const { plan } = await loadModules();
+  const existing = [
+    { sku: '211000037140', title: 'iPhone 13 128GB Blue Refurbished 4*', tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13', 'cat_microforce', 'main_sku_211000037140', 'erp-nieuw'] },
+    { sku: '211000037999', title: 'iPhone 13 Mini 128GB Red Refurbished 4*', tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13 Mini', 'cat_microforce'] },
+    { sku: '207000037217', title: 'iPhone 13 Mini 128GB Red sleeve', tags: ['cat_Accessoires'] },
+    { sku: '211000030000', title: 'iPhone 13 Mini kapot', tags: ['cat_'] },
+  ];
+  const s = plain(plan.suggestCategoryTags('211000040892', 'iPhone 13 Mini 128GB Red Refurbished 5*', existing));
+  assert.deepEqual(s, { tags: ['attribute_set_code_Refurbished iPhones', 'cat_iPhone', 'cat_iPhone 13 Mini', 'cat_microforce'], fromSku: '211000037999' });
+  assert.equal(plan.suggestCategoryTags('211000040000', 'Samsung A55 5G', existing), null);
+  assert.equal(plan.suggestCategoryTags('216000040000', 'iPhone 13 Mini 128GB', existing), null);
+});
+
+test('a new draft gets the copied category tags, a review tag and its own main_sku tag', async () => {
+  const { plan } = await loadModules();
+  const d = plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': '211000040892', Title: 'iPhone 13 Mini 128GB Red Refurbished 5*' }));
+  const r = plain(plan.planCreates([d], LOCS, { existing: [{ sku: '211000037999', title: 'iPhone 13 Mini 128GB Red Refurbished 4*', tags: ['cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000037999'] }] }));
+  assert.deepEqual(r.creates[0].input.tags, ['erp-nieuw', 'controle-categorie', 'cat_iPhone', 'cat_iPhone 13 Mini', 'main_sku_211000040892']);
+  assert.equal(r.creates[0].categoryFrom, '211000037999');
 });
 
 test('cron route requires the cron secret and the job runs after the ERP import', () => {
@@ -464,4 +488,90 @@ test('admin page guards: mode and manual run are admin-only, the stop button nee
 
 test('the ERP import keeps the complete CSV row for the Shopify sync', () => {
   assert.match(read('lib/erpSync.ts'), /raw_erp_row: row,/);
+});
+
+// ---------- properties of new drafts ----------
+async function loadEnrich() {
+  const context = vm.createContext({ Set, Map, Object, Array, String, RegExp, Number, JSON });
+  const code = ts.transpileModule(read('lib/shopify/enrich.ts'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+  const m = new vm.SourceTextModule(code, { context });
+  await m.link(() => { throw new Error('no imports'); });
+  await m.evaluate();
+  return m.namespace;
+}
+const mf = (k, value, type = 'single_line_text_field') => { const [namespace, key] = k.split('.'); return { namespace, key, type, value }; };
+
+test('title parsing: stars, capacities and colour codes', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.starsOf('iPhone 16 256GB Black Refurbished 5* M'), '5');
+  assert.equal(e.capacitiesOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG'), '1tb,32gb');
+  assert.equal(e.capacitiesOf('HP ZBook Power G9 I7 32GB 512SSD 15"'), '32gb,512gb');
+  assert.equal(e.sameColour('MacBook Pro 14" M1-Pro 16GB 512SSD SG Refurbished 4*', 'Space Grey'), true);
+  assert.equal(e.sameColour('iPhone 13 Mini 128GB Red Refurbished 5*', 'Blue'), false);
+});
+
+test('a new draft gets condition from its stars and other properties only from matching references', async () => {
+  const e = await loadEnrich();
+  const refs = [
+    { sku: 'A', title: 'MacBook Pro 16" L21 M1 Pro 32GB 1TB SSD SL Refurbished 4*', lead: 6, metafields: [
+      mf('magento.display_diagonal', '40,64 cm (16")'), mf('magento.processor_family', 'Apple M1 Pro'), mf('magento.conditie', '4* Zeer Goed'),
+      mf('magento.colour_of_product', 'Silver'), mf('magento.internal_memory', '32 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 4 sterren', 'multi_line_text_field')] },
+    { sku: 'B', title: 'MacBook Pro 16" M19 I9 32GB 1TB SSD SG Refurbished 5*', lead: 3, metafields: [
+      mf('magento.colour_of_product', 'Space Grey'), mf('custom.color_swatch', 'gid://shopify/Metaobject/1', 'metaobject_reference'),
+      mf('magento.internal_memory', '32 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 5 sterren', 'multi_line_text_field'), mf('magento.processor_family', 'Intel Core i9')] },
+    { sku: 'C', title: 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SL Refurbished 4*', lead: 7, metafields: [
+      mf('magento.processor_family', 'Apple M1 Max'), mf('magento.display_diagonal', '40,64 cm (16")'), mf('magento.internal_memory', '64 GB'),
+      mf('custom.dealer_price', '1480.0', 'number_decimal'), mf('magento.manufacturer', 'APPLE'), mf('judgeme.badge', '<div>', 'string'), mf('global.title_tag', 'x', 'string')] },
+    { sku: 'D', title: 'MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SL Refurbished 4*', lead: 7, metafields: [
+      mf('magento.internal_memory', '32 GB'), mf('magento.solid_state_drive_capacity', '1 TB')] },
+  ];
+  const r = e.enrichMetafields('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', [refs[2], refs[3], refs[0], refs[1]]);
+  const got = Object.fromEntries(r.metafields.map(m => [m.namespace + '.' + m.key, m.value]));
+  assert.deepEqual(got, {
+    'magento.conditie': '5* Als Nieuw',
+    'magento.colour_of_product': 'Space Grey', 'custom.color_swatch': 'gid://shopify/Metaobject/1',
+    'magento.internal_memory': '32 GB', 'magento.solid_state_drive_capacity': '1 TB',
+    'custom.wat_mag_je_verwachten_': 'tekst 5 sterren',
+    'magento.processor_family': 'Apple M1 Max', 'magento.display_diagonal': '40,64 cm (16")',
+  });
+  assert.equal(r.sources['magento.processor_family'], 'C');
+  assert.equal(r.sources['magento.internal_memory'], 'D');
+  assert.equal(r.sources['magento.colour_of_product'], 'B');
+  assert.equal(r.sources['magento.conditie'], 'titel');
+});
+
+test('a different model never gives its hardware or memory, even with equal capacities', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*'), 'macbook pro 16 l21 m1 max');
+  assert.equal(e.modelOf('iPhone 13 Mini 128GB Red Refurbished 5*'), 'iphone 13 mini');
+  const r = e.enrichMetafields('iPhone 13 Mini 128GB Red Refurbished 5*', [
+    { sku: 'P', title: 'iPhone 13 Pro 128GB Graphite Refurbished 5*', lead: 2, metafields: [mf('magento.internal_memory', '6 GB'), mf('magento.internal_storage_capacity', '128 GB'), mf('magento.backcamera', '12 MP x3')] },
+  ]);
+  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+});
+
+test('the most specific colour wins: Rose Gold never gets Gold', async () => {
+  const e = await loadEnrich();
+  const gold = { sku: 'G', title: 'iPhone 6s 64GB Gold Refurbished 5*', lead: 3, metafields: [mf('magento.colour_of_product', 'Gold')] };
+  const rose = { sku: 'R', title: 'iPhone 6s 32GB Rose Gold Refurbished 4*', lead: 2, metafields: [mf('magento.colour_of_product', 'Rose Gold')] };
+  const t = 'iPhone 6s 64GB Rose Gold Refurbished 5*';
+  assert.equal(plain(e.enrichMetafields(t, [gold, rose]).metafields).find(m => m.key === 'colour_of_product').value, 'Rose Gold');
+  assert.equal(plain(e.enrichMetafields(t, [gold]).metafields).find(m => m.key === 'colour_of_product'), undefined);
+});
+
+test('a reference from another model line gives no model properties', async () => {
+  const e = await loadEnrich();
+  const r = e.enrichMetafields('HP ZBook Power G9 I7 32GB 512SSD Refurbished 4*', [{ sku: 'X', title: 'HP ZBook Fury 17 G8', lead: 2, metafields: [mf('magento.processor_family', 'Intel Core i7')] }]);
+  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+});
+
+test('live draft creation sends the filled properties with the product', async () => {
+  const { db } = fakeDb({ mode: 'live', createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'SKU1NEW', Title: 'iPhone 13 128GB Blue Refurbished 4*' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ title: 'iPhone 13 128GB Blue Refurbished 5*' })], { refMetafields: { 'gid://shopify/Product/1': [mf('magento.backcamera', '12 MP'), mf('magento.colour_of_product', 'Blue')] } });
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+  const created = fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`);
+  assert.ok(created.includes('magento.conditie=4* Zeer Goed'));
+  assert.ok(created.includes('magento.backcamera=12 MP'));
+  assert.ok(created.includes('magento.colour_of_product=Blue'));
 });

@@ -62,3 +62,29 @@ Beveiligingen:
 - elk product komt in het logboek `shopify_product_removals`. De app kan daarin alleen toevoegen, niet wijzigen of wissen.
 
 Vereist `security/sql/shopify-product-removals.sql`.
+
+## Categorie van nieuwe concepten
+Het ERP-bestand heeft geen tags. Een nieuw concept neemt daarom de `cat_…`- en `attribute_set_code_…`-tags over van het meest
+gelijkende bestaande Shopify-product. Dat product moet aan twee voorwaarden voldoen:
+- dezelfde SKU-familie (de eerste 3 cijfers, bv. 207 = MacBook, 211 = iPhone, 212 = laptops);
+- de titel begint met minstens twee dezelfde woorden. De langste gemeenschappelijke start telt het zwaarst, daarna de woordoverlap.
+
+Het concept krijgt ook `main_sku_<sku>` en de tag `controle-categorie`. Is er geen geschikt product, dan krijgt het `geen-categorie`.
+
+## Eigenschappen van nieuwe concepten
+Een nieuw concept krijgt zijn eigenschappen (metavelden) uit de titel en uit de 15 meest gelijkende bestaande producten
+van dezelfde SKU-familie (`lib/shopify/enrich.ts`):
+- **Uiterlijk** (`magento.conditie`) volgt uit de sterren in de titel: 5* = "5* Als Nieuw", 4* = "4* Zeer Goed", 3* = "3* Goed".
+- **Wat mag je verwachten** komt van een product uit dezelfde familie met evenveel sterren.
+- **Kleur** (kleur, kleurstaal) komt alleen van een product met dezelfde kleur in de titel. SG telt als Space Grey, SL als Silver.
+- **Model** = de woorden van de titel vóór de eerste capaciteit, bv. "MacBook Pro 16 L21 M1 Max" of "iPhone 13 Mini".
+- **Modeleigenschappen** (scherm, processor, camera, garantie, ...) komen alleen van een product met exact hetzelfde model.
+- **Geheugen en opslag** komen alleen van een product met hetzelfde model én dezelfde capaciteiten (bv. 32GB + 1TB).
+- **Nooit gekopieerd:**
+  - velden die het ERP synchroniseert;
+  - voorraad- en dealerprijsvelden;
+  - app-gegevens (reviews, SEO-tags, Google Shopping);
+  - oude velden zonder type.
+
+Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld zijn. Het concept behoudt de tag
+`controle-categorie`, zodat iemand het nakijkt voor het geactiveerd wordt.
