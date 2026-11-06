@@ -138,3 +138,34 @@ export const METAFIELDS_SET = `mutation SyncMetafields($metafields: [MetafieldsS
 export const PRODUCT_CREATE = `mutation CreateDraftProduct($input: ProductSetInput!) {
   productSet(input: $input, synchronous: true) { product { id } userErrors { code field message } }
 }`;
+
+// ---------- product clean-up (archive / restore / delete) ----------
+
+// One product per request: stock is read per variant and location (a net total can hide +3/-3).
+export const PRODUCT_INFO = `query ProductInfo($id: ID!) {
+  product(id: $id) {
+    id title handle status
+    collections(first: 1) { nodes { handle } }
+    variants(first: 50) {
+      pageInfo { hasNextPage }
+      nodes {
+        sku
+        inventoryItem { inventoryLevels(first: 10) { pageInfo { hasNextPage } nodes { quantities(names: ["available"]) { quantity } } } }
+      }
+    }
+  }
+}`;
+
+export const PRODUCT_SET_STATUS = `mutation SetProductStatus($product: ProductUpdateInput!) {
+  productUpdate(product: $product) { product { id status } userErrors { field message } }
+}`;
+
+export const PRODUCT_DELETE = `mutation DeleteProduct($id: ID!) {
+  productDelete(input: { id: $id }) { deletedProductId userErrors { field message } }
+}`;
+
+export const URL_REDIRECT_CREATE = `mutation CreateRedirect($path: String!, $target: String!) {
+  urlRedirectCreate(urlRedirect: { path: $path, target: $target }) { urlRedirect { id } userErrors { field message } }
+}`;
+
+export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScopes { handle } } }`;
