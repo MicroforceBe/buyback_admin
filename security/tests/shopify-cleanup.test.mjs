@@ -27,7 +27,7 @@ async function load(db = null) {
   return { removal: (await mod('lib/shopify/removal.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null };
 }
 
-const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, skus: ['OLD' + n], allVariantsChecked: true, collectionHandle: null, ...over });
+const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', positiveStock: 0, skus: ['OLD' + n], allVariantsChecked: true, collectionHandle: null, ...over });
 const NOW = new Date('2026-12-31T12:00:00Z');
 
 test('a product is never archived or deleted while one of its SKUs is still in the ERP', async () => {
@@ -60,7 +60,7 @@ test('a deletion stays recorded as successful when the redirect request throws',
 
 test('stock blocks archiving unless explicitly included', async () => {
   const { removal } = await load();
-  const args = { action: 'archive', requestedIds: [P(1).id], products: [P(1, { totalInventory: 3 })], erpSkus: new Set(), archivedAt: new Map(), now: NOW };
+  const args = { action: 'archive', requestedIds: [P(1).id], products: [P(1, { positiveStock: 3 })], erpSkus: new Set(), archivedAt: new Map(), now: NOW };
   assert.equal(removal.checkRemoval({ ...args, includeStock: false }).ok.length, 0);
   assert.equal(removal.checkRemoval({ ...args, includeStock: true }).ok.length, 1);
 });
@@ -77,7 +77,7 @@ test('delete requires archive by this tool at least 30 days ago', async () => {
 
 test('current stock also blocks deletion unless explicitly allowed', async () => {
   const { removal } = await load();
-  const args = { action: 'delete', requestedIds: [P(1).id], products: [P(1, { status: 'ARCHIVED', totalInventory: 2 })], erpSkus: new Set(), archivedAt: new Map([[P(1).id, new Date('2026-11-01T00:00:00Z')]]), now: NOW };
+  const args = { action: 'delete', requestedIds: [P(1).id], products: [P(1, { status: 'ARCHIVED', positiveStock: 2 })], erpSkus: new Set(), archivedAt: new Map([[P(1).id, new Date('2026-11-01T00:00:00Z')]]), now: NOW };
   assert.match(removal.checkRemoval({ ...args, includeStock: false }).refused[0].reason, /voorraad \(2\)/);
   assert.equal(removal.checkRemoval({ ...args, includeStock: true }).ok.length, 1);
 });
@@ -119,7 +119,7 @@ function fakeClient(nodes, { scopes = [] } = {}) {
       graphql: async (query, vars, options) => {
         const name = query.match(/(?:query|mutation) (\w+)/)[1];
         calls.push([name, plain(vars ?? {}), options && plain(options)]);
-        if (name === 'ProductsInfo') return { nodes };
+        if (name === 'ProductInfo') return { product: nodes.find(n => n.id === vars.id) ?? null };
         if (name === 'AppScopes') return { currentAppInstallation: { accessScopes: scopes.map(handle => ({ handle })) } };
         if (name === 'SetProductStatus') return { productUpdate: { userErrors: [] } };
         if (name === 'DeleteProduct') return { productDelete: { deletedProductId: vars.id, userErrors: [] } };
@@ -129,12 +129,13 @@ function fakeClient(nodes, { scopes = [] } = {}) {
     },
   };
 }
-const node = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, variants: { nodes: [{ sku: 'OLD' + n }], pageInfo: { hasNextPage: false } }, collections: { nodes: [{ handle: 'iphones' }] }, ...over });
+const levels = qs => ({ inventoryLevels: { pageInfo: { hasNextPage: false }, nodes: qs.map(q => ({ quantities: [{ quantity: q }] })) } });
+const node = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', variants: { nodes: [{ sku: 'OLD' + n, inventoryItem: levels([0, 0]) }], pageInfo: { hasNextPage: false } }, collections: { nodes: [{ handle: 'iphones' }] }, ...over });
 
 test('archive re-checks Shopify and the ERP, writes ARCHIVED and logs every product', async () => {
   const { db, writes } = fakeDb();
   const { cleanup } = await load(db);
-  const fake = fakeClient([node(1), node(2, { variants: { nodes: [{ sku: 'ERP5' }], pageInfo: { hasNextPage: false } } })]);
+  const fake = fakeClient([node(1), node(2, { variants: { nodes: [{ sku: 'ERP5', inventoryItem: levels([0]) }], pageInfo: { hasNextPage: false } } })]);
   const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id, node(2).id, 'not-a-gid'], includeStock: false, actor: 'admin@example.invalid' }, { db, client: fake.client }));
   assert.deepEqual(r, { action: 'archive', ok: 1, refused: 1, failed: 0, redirects: 0, redirectScope: false });
   assert.deepEqual(fake.calls.filter(c => c[0] === 'SetProductStatus').map(c => c[1].product), [{ id: node(1).id, status: 'ARCHIVED' }]);
@@ -158,6 +159,16 @@ test('the latest archive per product is found beyond the first 1000 log rows', a
   const fake = fakeClient([node(1, { status: 'ARCHIVED' })]);
   const r = plain(await cleanup.runRemoval({ action: 'delete', ids: [node(1).id, node(2).id], includeStock: false, actor: 'a' }, { db, client: fake.client, now: () => NOW }));
   assert.equal(r.ok, 1);
+});
+
+test('positive stock on one location is not hidden by negative stock elsewhere', async () => {
+  const { db } = fakeDb();
+  const { cleanup } = await load(db);
+  const fake = fakeClient([node(1, { variants: { nodes: [{ sku: 'OLD1', inventoryItem: levels([3, -3]) }], pageInfo: { hasNextPage: false } } })]);
+  const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.ok, 0);
+  assert.equal(r.refused, 1);
+  assert.equal(fake.calls.filter(c => c[0] === 'SetProductStatus').length, 0);
 });
 
 test('nothing happens when the ERP data looks incomplete', async () => {

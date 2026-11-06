@@ -9,7 +9,8 @@ export type ShopifyProductInfo = {
   title: string;
   handle: string;
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
-  totalInventory: number;
+  /** Sum of the positive available quantities over all variants and locations (negatives never offset). */
+  positiveStock: number;
   skus: string[];
   /** False when Shopify returned only part of the variants: the product is then never touched. */
   allVariantsChecked: boolean;
@@ -43,7 +44,7 @@ export function checkRemoval(input: {
     if (inErp.length) { refused.push({ id, title: p.title, reason: `SKU ${inErp.join(', ')} staat nog in het ERP` }); continue; }
     if (input.action === 'archive' && p.status === 'ARCHIVED') { refused.push({ id, title: p.title, reason: 'al gearchiveerd' }); continue; }
     // Current stock (rechecked now) blocks archiving and deleting unless explicitly allowed.
-    if (input.action !== 'restore' && p.totalInventory > 0 && !input.includeStock) { refused.push({ id, title: p.title, reason: `heeft nog voorraad (${p.totalInventory})` }); continue; }
+    if (input.action !== 'restore' && p.positiveStock > 0 && !input.includeStock) { refused.push({ id, title: p.title, reason: `heeft nog voorraad (${p.positiveStock})` }); continue; }
     if (input.action === 'restore' && p.status !== 'ARCHIVED') { refused.push({ id, title: p.title, reason: 'niet gearchiveerd' }); continue; }
     if (input.action === 'delete') {
       if (p.status !== 'ARCHIVED') { refused.push({ id, title: p.title, reason: 'eerst archiveren' }); continue; }

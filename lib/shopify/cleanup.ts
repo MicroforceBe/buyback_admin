@@ -2,7 +2,7 @@ import 'server-only';
 // Archives, restores or deletes Shopify products that are no longer in the ERP, with fresh checks at
 // the moment of the action and a log line per product.
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { APP_SCOPES, createShopifyClient, PRODUCT_DELETE, PRODUCT_SET_STATUS, PRODUCTS_INFO, shopifyConfig, URL_REDIRECT_CREATE, type ShopifyClient } from '@/lib/shopify/client';
+import { APP_SCOPES, createShopifyClient, PRODUCT_DELETE, PRODUCT_INFO, PRODUCT_SET_STATUS, shopifyConfig, URL_REDIRECT_CREATE, type ShopifyClient } from '@/lib/shopify/client';
 import { checkRemoval, redirectTarget, type RemovalAction, type ShopifyProductInfo } from '@/lib/shopify/removal';
 
 type Db = typeof supabaseAdmin;
@@ -53,11 +53,23 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
   const skus = await erpSkus(db);
   if (skus.size < MIN_ERP_ARTICLES) throw new Error(`De ERP-gegevens lijken onvolledig (${skus.size} artikelen); er wordt niets gewijzigd.`);
 
-  const { nodes } = await client.graphql<{ nodes: (null | { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; totalInventory: number; variants: { nodes: { sku: string | null }[]; pageInfo?: { hasNextPage: boolean } }; collections: { nodes: { handle: string }[] } })[] }>(PRODUCTS_INFO, { ids: ids.slice(0, 100) });
-  const products: ShopifyProductInfo[] = nodes.filter((n): n is NonNullable<typeof n> => !!n && typeof n.id === 'string').map(n => ({
-    id: n.id, title: n.title, handle: n.handle, status: n.status, totalInventory: n.totalInventory ?? 0,
-    skus: n.variants.nodes.map(v => (v.sku ?? '').trim()).filter(Boolean), allVariantsChecked: n.variants.pageInfo?.hasNextPage === false, collectionHandle: n.collections.nodes[0]?.handle ?? null,
-  }));
+  type Level = { quantities: { quantity: number }[] };
+  type ProductNode = { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; collections: { nodes: { handle: string }[] };
+    variants: { pageInfo: { hasNextPage: boolean }; nodes: { sku: string | null; inventoryItem: { inventoryLevels: { pageInfo: { hasNextPage: boolean }; nodes: Level[] } } | null }[] } };
+  const products: ShopifyProductInfo[] = [];
+  for (const id of ids.slice(0, 100)) {
+    const { product: n } = await client.graphql<{ product: ProductNode | null }>(PRODUCT_INFO, { id });
+    if (!n) continue;
+    const levels = n.variants.nodes.map(v => v.inventoryItem?.inventoryLevels);
+    const quantities = levels.flatMap(l => l?.nodes ?? []).flatMap(l => l.quantities.map(q => q.quantity));
+    products.push({
+      id: n.id, title: n.title, handle: n.handle, status: n.status,
+      positiveStock: quantities.filter(q => q > 0).reduce((a, b) => a + b, 0),
+      skus: n.variants.nodes.map(v => (v.sku ?? '').trim()).filter(Boolean),
+      allVariantsChecked: !n.variants.pageInfo.hasNextPage && levels.every(l => l && !l.pageInfo.hasNextPage),
+      collectionHandle: n.collections.nodes[0]?.handle ?? null,
+    });
+  }
 
   const check = checkRemoval({ action: input.action, requestedIds: ids, products, erpSkus: skus, includeStock: input.includeStock, archivedAt: await archivedAt(db, ids), now: deps.now?.() ?? new Date() });
 
