@@ -1,0 +1,332 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+const plain = v => JSON.parse(JSON.stringify(v));
+const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
+
+async function loadModules(db = null) {
+  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
+  const modules = new Map();
+  const internal = { '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  let n = 0;
+  async function load(path) {
+    if (modules.has(path)) return modules.get(path);
+    const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    const m = new vm.SourceTextModule(code, { context, identifier: path });
+    modules.set(path, m);
+    await m.link(async spec => {
+      if (internal[spec]) return load(internal[spec]);
+      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'key-' + ++n }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
+      assert.ok(e, 'unexpected import ' + spec);
+      return new vm.SyntheticModule(Object.keys(e), function () { for (const [k, v] of Object.entries(e)) this.setExport(k, v); }, { context });
+    });
+    if (m.status === 'linked') await m.evaluate();
+    return m;
+  }
+  const ns = async p => (await load(p)).namespace;
+  return { plan: await ns('lib/shopify/plan.ts'), state: await ns('lib/shopify/state.ts'), client: await ns('lib/shopify/client.ts'), sync: db ? await ns('lib/shopify/sync.ts') : null };
+}
+
+const csvRow = (over = {}) => ({
+  'Variant SKU [ID]': 'SKU1', Title: 'iPhone 13 128GB', Vendor: 'Apple', Type: 'Smartphone', Status: 'Active',
+  'Variant Price': '499,00', 'Variant Compare At Price': '', 'Variant Taxable': 'TRUE',
+  'Inventory Available: Microforce Gentbrugge': '2', 'Inventory Available: Microforce Antwerpen': '0',
+  'Metafield: custom.refurbished_product': 'TRUE', 'Metafield: magento.tax_bebat [number_decimal]': '0.00', ...over,
+});
+const current = (over = {}) => ({
+  sku: 'SKU1', productId: 'gid://shopify/Product/1', variantId: 'gid://shopify/ProductVariant/11', inventoryItemId: 'gid://shopify/InventoryItem/111',
+  title: 'iPhone 13 128GB', vendor: 'Apple', productType: 'Smartphone', status: 'ACTIVE', priceCents: 49900, compareAtCents: null, taxable: true,
+  inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' }, ...over,
+});
+const LOCS = { 'Microforce Gentbrugge': 'gid://shopify/Location/1', 'Microforce Antwerpen': 'gid://shopify/Location/2' };
+
+test('money, booleans and decimals are parsed the way the ERP writes them', async () => {
+  const { plan } = await loadModules();
+  assert.equal(plan.parseMoneyCents('19,95'), 1995);
+  assert.equal(plan.parseMoneyCents('1.299,00'), 129900);
+  assert.equal(plan.parseMoneyCents('1299.5'), 129950);
+  assert.equal(plan.parseMoneyCents(''), null);
+  assert.equal(plan.parseBool('TRUE'), true);
+  assert.equal(plan.parseBool('false'), false);
+  assert.equal(plan.normalizeMetafield('number_decimal', '0.00'), '0');
+  assert.equal(plan.normalizeMetafield('number_decimal', '3,5'), plan.normalizeMetafield('number_decimal', '3.50'));
+});
+
+test('an identical ERP row and Shopify variant plan no changes', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({ desired: [plan.desiredFromRow(csvRow())], current: [current()], locations: LOCS });
+  assert.equal(p.changes.length, 0);
+  assert.equal(p.counts.unchanged, 1);
+});
+
+test('titles keep inner double spaces from the ERP, so they match Shopify', async () => {
+  const { plan } = await loadModules();
+  const t = 'Office Home & Business 2024  PC/MAC';
+  const p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ Title: ' ' + t + ' ' }))], current: [current({ title: t })], locations: LOCS });
+  assert.equal(p.changes.length, 0);
+});
+
+test('price, stock, status and metafield differences become batched mutations', async () => {
+  const { plan } = await loadModules();
+  const desired = plan.desiredFromRow(csvRow({ 'Variant Price': '449,00', 'Variant Compare At Price': '499,00', Status: 'Draft', 'Inventory Available: Microforce Antwerpen': '3', 'Metafield: custom.refurbished_product': 'FALSE' }));
+  const p = plain(plan.planSync({ desired: [desired], current: [current()], locations: LOCS }));
+  assert.deepEqual(p.productUpdates, [{ id: 'gid://shopify/Product/1', status: 'DRAFT' }]);
+  assert.deepEqual(p.variantUpdates, [{ productId: 'gid://shopify/Product/1', variants: [{ id: 'gid://shopify/ProductVariant/11', price: '449.00', compareAtPrice: '499.00' }] }]);
+  assert.deepEqual(p.inventory, [{ inventoryItemId: 'gid://shopify/InventoryItem/111', locationId: 'gid://shopify/Location/2', quantity: 3 }]);
+  assert.equal(p.metafields.length, 1);
+  assert.equal(p.metafields[0].value, 'false');
+});
+
+test('nothing is created or deleted: one-sided and duplicate SKUs are only counted', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({
+    desired: [plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'ONLY-ERP' })), plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'DUP', 'Variant Price': '1,00' }))],
+    current: [current({ sku: 'ONLY-SHOP' }), current({ sku: 'DUP' }), current({ sku: 'DUP', variantId: 'gid://shopify/ProductVariant/12' })],
+    locations: LOCS,
+  });
+  assert.equal(p.changes.length, 0);
+  assert.equal(p.counts.erpOnly, 1);
+  assert.equal(p.counts.shopifyOnly, 1);
+  assert.equal(p.counts.duplicateSkus, 1);
+  assert.deepEqual(plain(p.unmatched.erpOnly.map(u => [u.sku, u.inventory])), [['ONLY-ERP', { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }]]);
+  assert.deepEqual(plain(p.unmatched.shopifyOnly), [{ sku: 'ONLY-SHOP', title: 'iPhone 13 128GB', productId: 'gid://shopify/Product/1', inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 } }]);
+  assert.deepEqual(plain(p.unmatched.duplicate.map(u => u.sku)), ['DUP']);
+});
+
+test('stock is only set where the item is stocked; unknown locations are reported', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({
+    desired: [plan.desiredFromRow(csvRow({ 'Inventory Available: Microforce Oudenaarde': '4', 'Inventory Available: Microforce Antwerpen': '5' }))],
+    current: [current({ inventory: { 'Microforce Gentbrugge': 2 } })],
+    locations: LOCS,
+  });
+  assert.equal(p.inventory.length, 0);
+  assert.equal(p.counts.notStocked, 1);
+  assert.deepEqual(plain(p.counts.unknownLocations), ['Microforce Oudenaarde']);
+});
+
+test('the bulk export is parsed with inventory levels attached to their variant', async () => {
+  const { state } = await loadModules();
+  const jsonl = [
+    JSON.stringify({ id: 'gid://shopify/ProductVariant/11', sku: 'SKU1', price: '499.00', compareAtPrice: null, taxable: true, inventoryItem: { id: 'gid://shopify/InventoryItem/111' }, product: { id: 'gid://shopify/Product/1', title: 'T', vendor: 'Apple', productType: 'X', status: 'ACTIVE', mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: null } }),
+    JSON.stringify({ __parentId: 'gid://shopify/ProductVariant/11', location: { id: 'gid://shopify/Location/1', name: 'Microforce Gentbrugge' }, quantities: [{ name: 'available', quantity: 7 }] }),
+  ].join('\n');
+  const parsed = plain(state.parseBulkVariants(jsonl));
+  assert.equal(parsed.variants.length, 1);
+  assert.equal(parsed.variants[0].priceCents, 49900);
+  assert.deepEqual(parsed.variants[0].inventory, { 'Microforce Gentbrugge': 7 });
+  assert.equal(parsed.variants[0].metafields['custom.refurbished_product'], 'true');
+  assert.deepEqual(parsed.locations, { 'Microforce Gentbrugge': 'gid://shopify/Location/1' });
+});
+
+test('configuration only accepts a myshopify.com domain and both credentials', async () => {
+  const { client } = await loadModules();
+  assert.equal(client.shopifyConfig({}), null);
+  assert.throws(() => client.shopifyConfig({ SHOPIFY_STORE_DOMAIN: 'evil.example.com', SHOPIFY_CLIENT_ID: 'a', SHOPIFY_CLIENT_SECRET: 'b' }), /myshopify/);
+  assert.throws(() => client.shopifyConfig({ SHOPIFY_STORE_DOMAIN: 'shop.myshopify.com', SHOPIFY_CLIENT_ID: 'a' }), /verplicht/);
+  assert.deepEqual(plain(client.shopifyConfig({ SHOPIFY_STORE_DOMAIN: ' Shop.myshopify.com ', SHOPIFY_CLIENT_ID: 'a', SHOPIFY_CLIENT_SECRET: 'b' })), { domain: 'shop.myshopify.com', clientId: 'a', clientSecret: 'b' });
+});
+
+test('client reuses its token, retries server errors and refreshes on 401', async () => {
+  const { client } = await loadModules();
+  const calls = [];
+  const replies = [{ status: 500 }, { status: 401 }, { status: 200, body: { data: { ok: 1 } } }];
+  let tokens = 0;
+  const fetch = async (url, init) => {
+    calls.push([String(url), init?.headers?.['X-Shopify-Access-Token']]);
+    if (String(url).endsWith('/oauth/access_token')) { tokens++; return { ok: true, status: 200, json: async () => ({ access_token: 'tok' + tokens, expires_in: 86399 }) }; }
+    const r = replies.shift();
+    return { ok: r.status === 200, status: r.status, json: async () => r.body };
+  };
+  const c = client.createShopifyClient({ domain: 'shop.myshopify.com', clientId: 'a', clientSecret: 'b' }, { fetch, sleep: async () => {}, now: () => 0 });
+  assert.deepEqual(plain(await c.graphql('{ ok }')), { ok: 1 });
+  assert.equal(tokens, 2);
+  assert.ok(calls.every(([url]) => url.startsWith('https://shop.myshopify.com/admin/')));
+  assert.ok(calls.some(([url]) => url.includes('/api/2026-10/graphql.json')));
+});
+
+test('bulk export refuses a non-https download link', async () => {
+  const { client } = await loadModules();
+  const replies = [{ bulkOperationRunQuery: { bulkOperation: { id: 'b1' }, userErrors: [] } }, { bulkOperation: { status: 'COMPLETED', errorCode: null, url: 'http://insecure.example/x' } }];
+  const fetch = async url => String(url).endsWith('/oauth/access_token')
+    ? { ok: true, status: 200, json: async () => ({ access_token: 't', expires_in: 86399 }) }
+    : { ok: true, status: 200, json: async () => ({ data: replies.shift() }) };
+  const c = client.createShopifyClient({ domain: 'shop.myshopify.com', clientId: 'a', clientSecret: 'b' }, { fetch, sleep: async () => {}, now: () => 0 });
+  await assert.rejects(c.bulkQuery('{ x }'), /Onveilige/);
+});
+
+// ---------- sync run ----------
+function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running = false, modeAfter = null } = {}) {
+  const log = [];
+  let settingsReads = 0;
+  function from(table) {
+    const q = { table, ops: [] };
+    const result = () => {
+      const write = q.ops.find(o => ['insert', 'update', 'delete'].includes(o[0]));
+      if (write) log.push({ table, op: write[0], row: write[1], filters: q.ops.filter(o => ['eq', 'lt', 'not'].includes(o[0])) });
+      if (table === 'shopify_sync_settings') { settingsReads++; return { data: { mode: settingsReads > 1 && modeAfter ? modeAfter : mode, max_changes: maxChanges }, error: null }; }
+      if (table === 'erp_articles') return { data: rows.map(r => ({ sku: r['Variant SKU [ID]'], raw_erp_row: r })), error: null };
+      if (table === 'shopify_sync_runs' && write?.[0] === 'insert') return running ? { data: null, error: { code: '23505' } } : { data: { id: 'run-1' }, error: null };
+      return { data: null, error: null };
+    };
+    const builder = new Proxy({}, { get(_, k) {
+      if (k === 'then') return (yes, no) => Promise.resolve(result()).then(yes, no);
+      if (k === 'single' || k === 'maybeSingle') return async () => result();
+      return (...args) => { q.ops.push([k, ...args]); return builder; };
+    } });
+    return builder;
+  }
+  return { db: { from }, log };
+}
+function fakeClient(variants, { failInventory = false, failVariantIndex = null } = {}) {
+  const mutations = [];
+  return {
+    mutations,
+    client: {
+      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' } } })
+        + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
+      locations: async () => LOCS,
+      graphql: async (query, vars) => {
+        mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars)]);
+        let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
+        if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
+        const field = query.match(/\{\s*(\w+)\(/)[1];
+        return { [field]: { userErrors } };
+      },
+    },
+  };
+}
+
+test('mode off does nothing at all', async () => {
+  const { db, log } = fakeDb({ mode: 'off' });
+  const { sync } = await loadModules(db);
+  const result = await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current()]).client });
+  assert.deepEqual(plain(result), { status: 'skipped', reason: 'off' });
+  assert.equal(log.length, 0);
+});
+
+test('missing configuration skips without creating a run', async () => {
+  const { db, log } = fakeDb();
+  const { sync } = await loadModules(db);
+  assert.deepEqual(plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: null })), { status: 'skipped', reason: 'not_configured' });
+  assert.ok(!log.some(l => l.op === 'insert'));
+});
+
+test('a second concurrent run is refused by the database', async () => {
+  const { db } = fakeDb({ running: true });
+  const { sync } = await loadModules(db);
+  assert.deepEqual(plain(await sync.runShopifySync({ trigger: 'manual', actor: 'x' }, { client: fakeClient([current()]).client })), { status: 'skipped', reason: 'running' });
+});
+
+test('shadow mode records the changes but never writes to Shopify', async () => {
+  const { db, log } = fakeDb({ rows: [csvRow({ 'Variant Price': '399,00' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.mode, 'shadow');
+  assert.equal(fake.mutations.length, 0);
+  const recorded = log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert');
+  assert.deepEqual(plain(result.counts.shopifyOnlySkus), []);
+  assert.deepEqual(plain(result.counts.erpOnlySkus), []);
+  assert.deepEqual(plain(recorded.row).map(r => [r.sku, r.field, r.old_value, r.new_value]), [['SKU1', 'price', '499.00', '399.00']]);
+});
+
+test('live mode stops at the safety brake without writing anything', async () => {
+  const { db, log } = fakeDb({ mode: 'live', maxChanges: 1, rows: [csvRow({ 'Variant Price': '399,00', Status: 'Draft' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'stopped');
+  assert.match(result.error, /Noodrem/);
+  assert.equal(fake.mutations.length, 0);
+  assert.ok(log.some(l => l.table === 'shopify_sync_runs' && l.op === 'update' && l.row.status === 'stopped'));
+});
+
+test('live mode writes the changes and records per-SKU errors', async () => {
+  const { db, log } = fakeDb({ mode: 'live', rows: [csvRow({ 'Variant Price': '399,00', 'Inventory Available: Microforce Antwerpen': '1' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()], { failInventory: true });
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client, idempotencyKey: () => 'k1' }));
+  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncVariants', 'SyncInventory']);
+  const inv = fake.mutations[1][1];
+  assert.equal(inv.key, 'k1');
+  assert.equal(inv.input.quantities[0].changeFromQuantity, null);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.counts.failedSkus, 1);
+  const errorUpdates = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.equal(errorUpdates.length, 1);
+  assert.equal(errorUpdates[0].row.error, 'Niet toegestaan');
+  // Only the inventory change of SKU1 is marked failed; its successful price change stays applied.
+  assert.deepEqual(plain(errorUpdates[0].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'inventory'], ['field', 'Microforce Antwerpen']]);
+});
+
+test('variant updates are sent in batches of at most 250', async () => {
+  const many = Array.from({ length: 251 }, (_, i) => current({ sku: 'V' + i, variantId: 'gid://shopify/ProductVariant/' + (1000 + i), inventoryItemId: 'gid://shopify/InventoryItem/' + (5000 + i) }));
+  const { db } = fakeDb({ mode: 'live', rows: many.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Variant Price': '1,00' })) });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient(many);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  const sizes = fake.mutations.filter(m => m[0] === 'SyncVariants').map(m => m[1].variants.length);
+  assert.deepEqual(sizes, [250, 1]);
+});
+
+test('a rejected variant only marks that SKU as failed', async () => {
+  const two = [current(), current({ sku: 'SKU2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })];
+  const { db, log } = fakeDb({ mode: 'live', rows: two.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Variant Price': '1,00' })) });
+  const { sync } = await loadModules(db);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient(two, { failVariantIndex: 1 }).client }));
+  assert.equal(result.counts.failedSkus, 1);
+  const errs = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.deepEqual(plain(errs.map(e => [e.filters.find(f => f[1] === 'sku')[2], e.row.error])), [['SKU2', 'Ongeldige prijs']]);
+});
+
+test('a rejected metafield batch marks every metafield change in it as failed (atomic mutation)', async () => {
+  const two = [current(), current({ sku: 'SKU2', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })];
+  const { db, log } = fakeDb({ mode: 'live', rows: two.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Metafield: custom.refurbished_product': 'FALSE' })) });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient(two);
+  const original = fake.client.graphql;
+  fake.client.graphql = async (q, v) => q.includes('metafieldsSet') ? { metafieldsSet: { userErrors: [{ field: ['metafields', '1', 'value'], message: 'Ongeldig' }] } } : original(q, v);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.counts.failedSkus, 2);
+  const errs = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.deepEqual(plain(errs.map(e => e.filters.find(f => f[1] === 'sku')[2]).sort()), ['SKU1', 'SKU2']);
+  assert.ok(errs.every(e => e.filters.some(f => f[1] === 'field' && f[2] === 'custom.refurbished_product')));
+});
+
+test('the emergency stop halts a live run before the next write', async () => {
+  const { db, log } = fakeDb({ mode: 'live', modeAfter: 'off', rows: [csvRow({ 'Variant Price': '399,00', Status: 'Draft' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'stopped');
+  assert.match(result.error, /Noodstop/);
+  assert.equal(fake.mutations.length, 0);
+  assert.ok(!log.some(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.applied === true));
+});
+
+test('cron route requires the cron secret and the job runs after the ERP import', () => {
+  const route = read('app/api/shopify-sync/route.ts');
+  assert.match(route, /bearerMatches\(request\.headers\.get\('authorization'\), process\.env\.CRON_SECRET\)/);
+  const crons = JSON.parse(read('vercel.json')).crons;
+  assert.deepEqual(crons.find(c => c.path === '/api/shopify-sync'), { path: '/api/shopify-sync', schedule: '5-59/15 * * * *' });
+});
+
+test('admin page guards: mode and manual run are admin-only, the stop button needs ERP write', () => {
+  const page = read('app/admin/erp/shopify/actions.ts');
+  assert.match(page, /async function saveSettingsAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
+  assert.match(page, /async function runNowAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
+  assert.match(page, /async function stopAction[\s\S]*?requireAccess\('erp', 'write', false\)/);
+  assert.match(page, /\.eq\('id', true\)\.eq\('version', current\.version\)\.select\('mode'\)/);
+  assert.match(page, /if \(!stopped\) redirect\(back\(\{ error: 'Noodstop mislukt/);
+  assert.match(read('app/admin/erp/shopify/page.tsx'), /requirePageAccess\('erp'\)/);
+  assert.match(page, /\.eq\('version', version\)/);
+});
+
+test('the ERP import keeps the complete CSV row for the Shopify sync', () => {
+  assert.match(read('lib/erpSync.ts'), /raw_erp_row: row,/);
+});
