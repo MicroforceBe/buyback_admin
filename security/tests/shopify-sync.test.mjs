@@ -550,6 +550,15 @@ test('a different model never gives its hardware or memory, even with equal capa
   assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
 });
 
+test('the most specific colour wins: Rose Gold never gets Gold', async () => {
+  const e = await loadEnrich();
+  const gold = { sku: 'G', title: 'iPhone 6s 64GB Gold Refurbished 5*', lead: 3, metafields: [mf('magento.colour_of_product', 'Gold')] };
+  const rose = { sku: 'R', title: 'iPhone 6s 32GB Rose Gold Refurbished 4*', lead: 2, metafields: [mf('magento.colour_of_product', 'Rose Gold')] };
+  const t = 'iPhone 6s 64GB Rose Gold Refurbished 5*';
+  assert.equal(plain(e.enrichMetafields(t, [gold, rose]).metafields).find(m => m.key === 'colour_of_product').value, 'Rose Gold');
+  assert.equal(plain(e.enrichMetafields(t, [gold]).metafields).find(m => m.key === 'colour_of_product'), undefined);
+});
+
 test('a reference from another model line gives no model properties', async () => {
   const e = await loadEnrich();
   const r = e.enrichMetafields('HP ZBook Power G9 I7 32GB 512SSD Refurbished 4*', [{ sku: 'X', title: 'HP ZBook Fury 17 G8', lead: 2, metafields: [mf('magento.processor_family', 'Intel Core i7')] }]);

@@ -26,6 +26,11 @@ const BY_STARS = new Set(['custom.wat_mag_je_verwachten_']);
 const CONDITION_FIELD = 'magento.conditie';
 
 const id = (m: { namespace: string; key: string }) => `${m.namespace}.${m.key}`;
+// Multi-word colours, so a title with "Rose Gold" is never matched to a "Gold" reference even when
+// no Rose Gold reference is available. Colours of the reference products are added at run time.
+const KNOWN_COLOURS = ['rose gold', 'space grey', 'space gray', 'space black', 'pacific blue', 'sierra blue', 'alpine green', 'midnight green',
+  'deep purple', 'jet black', 'light gold', 'sky blue', 'mist blue', 'deep blue', 'cosmic orange', 'cloud white',
+  'natural titanium', 'black titanium', 'white titanium', 'blue titanium', 'desert titanium', 'product red'];
 const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
 
 export function starsOf(title: string): string | null {
@@ -88,7 +93,12 @@ export function enrichMetafields(title: string, refs: Reference[]): { metafields
   const capacities = capacitiesOf(title);
   const model = modelOf(title);
   const sameModel = refs.filter(r => model !== '' && modelOf(r.title) === model);
-  const colourRef = refs.find(r => r.metafields.some(m => id(m) === 'magento.colour_of_product' && sameColour(title, m.value)));
+  // The title's colour is the most specific known colour it contains ("Rose Gold" beats "Gold");
+  // only a reference with exactly that colour gives the colour fields.
+  const colourOf = (r: Reference) => r.metafields.find(m => id(m) === 'magento.colour_of_product')?.value.trim().toLowerCase() ?? '';
+  const titleColour = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])].filter(c => sameColour(title, c))
+    .sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
+  const colourRef = titleColour ? refs.find(r => colourOf(r) === titleColour) : undefined;
   const capacityRef = capacities ? sameModel.find(r => capacitiesOf(r.title) === capacities) : undefined;
   const starsRef = stars ? refs.find(r => starsOf(r.title) === stars) : undefined;
   const modelRef = sameModel[0];
