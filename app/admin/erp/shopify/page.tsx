@@ -15,6 +15,7 @@ const LISTS = {
   erpOnly: { label: 'Alleen in ERP', key: 'erpOnlySkus', help: 'Staan in het ERP-bestand maar niet in Shopify. Ze worden alleen als concept aangemaakt als dat in de instellingen aan staat.' },
   shopifyOnly: { label: 'Alleen in Shopify', key: 'shopifyOnlySkus', help: 'Staan in Shopify maar niet in de ERP-CSV. Ze worden niet aangeraakt.' },
   duplicate: { label: 'Dubbele SKU in Shopify', key: 'duplicateSkuList', help: 'Deze SKU staat op meer dan één variant in Shopify en wordt daarom overgeslagen.' },
+  dupTitles: { label: 'Dubbele titels in ERP', key: 'duplicateTitleList', help: 'ERP-artikelen met exact dezelfde titel. Ze worden gewoon per SKU gesynchroniseerd; kijk na of het om echt verschillende artikelen gaat of om een dubbele aanmaak in het ERP. Nieuwe concepten met zo’n titel krijgen de tag controle-dubbele-titel.' },
 } as const;
 type ListKey = keyof typeof LISTS;
 const STATUS: Record<string, string> = { running: 'bezig', succeeded: 'geslaagd', failed: 'mislukt', stopped: 'noodrem' };
@@ -42,7 +43,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   const c = (selected?.counts ?? {}) as Record<string, unknown>;
   const view = params.view && Object.hasOwn(LISTS, params.view) ? (params.view as ListKey) : null;
   const q = (params.q ?? '').trim().toLowerCase();
-  const allUnmatched = view && Array.isArray(c[LISTS[view].key]) ? (c[LISTS[view].key] as { sku: string; title: string; productId?: string; inventory?: Record<string, number> }[]) : [];
+  const allUnmatched = view && Array.isArray(c[LISTS[view].key]) ? (c[LISTS[view].key] as { sku: string; title: string; productId?: string; inventory?: Record<string, number>; priceCents?: number | null; status?: string | null }[]) : [];
   const unmatched = q ? allUnmatched.filter(u => u.sku.toLowerCase().includes(q) || u.title.toLowerCase().includes(q)) : allUnmatched;
   // One column per store (location), shortened: "Microforce Gentbrugge" -> "Gentbrugge".
   const stores = [...new Set(allUnmatched.flatMap(u => Object.keys(u.inventory ?? {})))].sort();
@@ -116,7 +117,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
@@ -142,7 +143,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
               <p className="mt-1 text-xs text-slate-500">{LISTS[view].help}</p>
               <div className="mt-2 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
+                  <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">SKU</th><th className="pr-4">Titel</th>{view === 'dupTitles' && <><th className="pr-4 text-right">Prijs</th><th className="pr-4">Status</th></>}{stores.map(st => <th key={st} className="pr-4 text-right">{storeLabel(st)}</th>)}<th className="pr-4 text-right">Totaal</th><th>{view === 'erpOnly' ? '' : 'Shopify'}</th></tr></thead>
                   <tbody className="divide-y">
                     {unmatched.map(u => {
                       const url = productUrl(u.productId);
@@ -150,13 +151,14 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                         <tr key={u.sku}>
                           <td className="py-1.5 pr-4 font-mono">{u.sku}</td>
                           <td className="pr-4">{u.title || '—'}</td>
+                          {view === 'dupTitles' && <><td className="pr-4 text-right tabular-nums">{typeof u.priceCents === 'number' ? (u.priceCents / 100).toFixed(2).replace('.', ',') : '—'}</td><td className="pr-4">{u.status ? u.status.toLowerCase() : '—'}</td></>}
                           {stores.map(st => <td key={st} className="pr-4 text-right tabular-nums">{u.inventory?.[st] ?? '—'}</td>)}
                           <td className={`pr-4 text-right font-semibold tabular-nums ${total(u) > 0 ? 'text-green-700' : 'text-slate-400'}`}>{total(u)}</td>
                           <td>{url && <a href={url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">openen</a>}</td>
                         </tr>
                       );
                     })}
-                    {!unmatched.length && <tr><td colSpan={4 + stores.length} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
+                    {!unmatched.length && <tr><td colSpan={4 + stores.length + (view === 'dupTitles' ? 2 : 0)} className="py-3 text-slate-500">{!Array.isArray(c[LISTS[view].key]) ? 'Deze run is van vóór de lijsten; voer een nieuwe run uit.' : allUnmatched.length ? 'Geen resultaten voor deze zoekopdracht.' : 'Geen artikelen.'}</td></tr>}
                   </tbody>
                 </table>
               </div>
