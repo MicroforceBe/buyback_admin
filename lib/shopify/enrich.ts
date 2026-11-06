@@ -5,9 +5,9 @@
 //  - Uiterlijk (magento.conditie) comes from the stars in the title ("5*" -> "5* Als Nieuw").
 //  - "Wat mag je verwachten" is copied from a product in the same SKU family with the same stars.
 //  - Colour fields only from a reference with the same colour in its title (SG = Space Grey, ...).
-//  - Memory/storage fields only from a reference with the same capacities in its title.
-//  - Other model properties (screen, processor, camera, ...) from the best reference, and only when
-//    its title starts with at least 3 of the same words (same model).
+//  - Model = the title words before the first capacity ("MacBook Pro 16 L21 M1 Max", "iPhone 13 Mini").
+//    Model properties (screen, processor, camera, ...) only from a reference with exactly the same model.
+//  - Memory/storage fields only from a reference with the same model and the same capacities.
 //  - Never copied: fields the ERP syncs, stock/price fields and app data (reviews, SEO, ...).
 
 export type MetafieldValue = { namespace: string; key: string; type: string; value: string };
@@ -24,7 +24,6 @@ const COLOUR = new Set(['magento.colour_of_product', 'custom.color_swatch', 'sho
 const CAPACITY = new Set(['magento.internal_memory', 'magento.internal_storage_capacity', 'magento.solid_state_drive_capacity', 'magento.discrete_graphics_adapter_mem']);
 const BY_STARS = new Set(['custom.wat_mag_je_verwachten_']);
 const CONDITION_FIELD = 'magento.conditie';
-const MIN_LEAD_FOR_MODEL = 3;
 
 const id = (m: { namespace: string; key: string }) => `${m.namespace}.${m.key}`;
 const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
@@ -38,6 +37,20 @@ export function starsOf(title: string): string | null {
 export function capacitiesOf(title: string): string {
   const s = title.toLowerCase().replace(/tb\s*ssd/g, 'tb').replace(/(\d+)\s*ssd/g, '$1gb');
   return [...new Set([...s.matchAll(/(\d+)\s*(gb|tb)\b/g)].map(m => m[1] + m[2]))].sort().join(',');
+}
+
+const CAPACITY_TOKEN = /^\d+(gb|tb|ssd|tbssd)$/;
+const NON_MODEL = new Set(['refurbished', 'refurb', 'nieuw', 'new', 'm', 'qwerty', 'azerty']);
+
+/**
+ * The model part of a title: the words before the first capacity token, or, without capacities,
+ * all words except stars, colour codes and condition words. Lower case, quotes removed.
+ */
+export function modelOf(title: string): string {
+  const words = title.toLowerCase().replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
+  const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
+  if (cut > 0) return words.slice(0, cut).join(' ');
+  return words.filter(w => !/^\d\*?$/.test(w) && !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
 }
 
 function titleWords(title: string): Set<string> {
@@ -73,10 +86,12 @@ export function enrichMetafields(title: string, refs: Reference[]): { metafields
   if (stars && CONDITION[stars]) set({ namespace: 'magento', key: 'conditie', type: 'single_line_text_field', value: CONDITION[stars] }, 'titel');
 
   const capacities = capacitiesOf(title);
+  const model = modelOf(title);
+  const sameModel = refs.filter(r => model !== '' && modelOf(r.title) === model);
   const colourRef = refs.find(r => r.metafields.some(m => id(m) === 'magento.colour_of_product' && sameColour(title, m.value)));
-  const capacityRef = capacities ? refs.find(r => capacitiesOf(r.title) === capacities) : undefined;
+  const capacityRef = capacities ? sameModel.find(r => capacitiesOf(r.title) === capacities) : undefined;
   const starsRef = stars ? refs.find(r => starsOf(r.title) === stars) : undefined;
-  const modelRef = refs[0] && refs[0].lead >= MIN_LEAD_FOR_MODEL ? refs[0] : undefined;
+  const modelRef = sameModel[0];
 
   for (const m of colourRef?.metafields ?? []) if (COLOUR.has(id(m)) && usable(m)) set(m, colourRef!.sku);
   for (const m of capacityRef?.metafields ?? []) if (CAPACITY.has(id(m)) && usable(m)) set(m, capacityRef!.sku);

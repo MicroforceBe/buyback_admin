@@ -77,9 +77,9 @@ van dezelfde SKU-familie (`lib/shopify/enrich.ts`):
 - **Uiterlijk** (`magento.conditie`) volgt uit de sterren in de titel: 5* = "5* Als Nieuw", 4* = "4* Zeer Goed", 3* = "3* Goed".
 - **Wat mag je verwachten** komt van een product uit dezelfde familie met evenveel sterren.
 - **Kleur** (kleur, kleurstaal) komt alleen van een product met dezelfde kleur in de titel. SG telt als Space Grey, SL als Silver.
-- **Geheugen en opslag** komen alleen van een product met dezelfde capaciteiten in de titel (bv. 32GB + 1TB).
-- **Overige modeleigenschappen** (scherm, processor, camera, garantie, ...) komen van het meest gelijkende product,
-  en alleen als minstens 3 beginwoorden van de titel gelijk zijn.
+- **Model** = de woorden van de titel vóór de eerste capaciteit, bv. "MacBook Pro 16 L21 M1 Max" of "iPhone 13 Mini".
+- **Modeleigenschappen** (scherm, processor, camera, garantie, ...) komen alleen van een product met exact hetzelfde model.
+- **Geheugen en opslag** komen alleen van een product met hetzelfde model én dezelfde capaciteiten (bv. 32GB + 1TB).
 - **Nooit gekopieerd:**
   - velden die het ERP synchroniseert;
   - voorraad- en dealerprijsvelden;

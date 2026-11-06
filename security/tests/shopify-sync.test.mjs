@@ -513,29 +513,44 @@ test('title parsing: stars, capacities and colour codes', async () => {
 test('a new draft gets condition from its stars and other properties only from matching references', async () => {
   const e = await loadEnrich();
   const refs = [
-    { sku: 'A', title: 'MacBook Pro 16" L21 M1 Pro 16GB 512SSD SL Refurbished 4*', lead: 6, metafields: [
+    { sku: 'A', title: 'MacBook Pro 16" L21 M1 Pro 32GB 1TB SSD SL Refurbished 4*', lead: 6, metafields: [
       mf('magento.display_diagonal', '40,64 cm (16")'), mf('magento.processor_family', 'Apple M1 Pro'), mf('magento.conditie', '4* Zeer Goed'),
-      mf('magento.colour_of_product', 'Silver'), mf('magento.internal_memory', '16 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 4 sterren', 'multi_line_text_field'),
-      mf('custom.dealer_price', '1480.0', 'number_decimal'), mf('magento.manufacturer', 'APPLE'), mf('judgeme.badge', '<div>', 'string'), mf('global.title_tag', 'x', 'string')] },
+      mf('magento.colour_of_product', 'Silver'), mf('magento.internal_memory', '32 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 4 sterren', 'multi_line_text_field')] },
     { sku: 'B', title: 'MacBook Pro 16" M19 I9 32GB 1TB SSD SG Refurbished 5*', lead: 3, metafields: [
       mf('magento.colour_of_product', 'Space Grey'), mf('custom.color_swatch', 'gid://shopify/Metaobject/1', 'metaobject_reference'),
-      mf('magento.internal_memory', '32 GB'), mf('magento.solid_state_drive_capacity', '1 TB'), mf('custom.wat_mag_je_verwachten_', 'tekst 5 sterren', 'multi_line_text_field'), mf('magento.processor_family', 'Intel Core i9')] },
+      mf('magento.internal_memory', '32 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 5 sterren', 'multi_line_text_field'), mf('magento.processor_family', 'Intel Core i9')] },
+    { sku: 'C', title: 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SL Refurbished 4*', lead: 7, metafields: [
+      mf('magento.processor_family', 'Apple M1 Max'), mf('magento.display_diagonal', '40,64 cm (16")'), mf('magento.internal_memory', '64 GB'),
+      mf('custom.dealer_price', '1480.0', 'number_decimal'), mf('magento.manufacturer', 'APPLE'), mf('judgeme.badge', '<div>', 'string'), mf('global.title_tag', 'x', 'string')] },
+    { sku: 'D', title: 'MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SL Refurbished 4*', lead: 7, metafields: [
+      mf('magento.internal_memory', '32 GB'), mf('magento.solid_state_drive_capacity', '1 TB')] },
   ];
-  const r = e.enrichMetafields('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', refs);
+  const r = e.enrichMetafields('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', [refs[2], refs[3], refs[0], refs[1]]);
   const got = Object.fromEntries(r.metafields.map(m => [m.namespace + '.' + m.key, m.value]));
   assert.deepEqual(got, {
     'magento.conditie': '5* Als Nieuw',
     'magento.colour_of_product': 'Space Grey', 'custom.color_swatch': 'gid://shopify/Metaobject/1',
     'magento.internal_memory': '32 GB', 'magento.solid_state_drive_capacity': '1 TB',
     'custom.wat_mag_je_verwachten_': 'tekst 5 sterren',
-    'magento.display_diagonal': '40,64 cm (16")', 'magento.processor_family': 'Apple M1 Pro',
+    'magento.processor_family': 'Apple M1 Max', 'magento.display_diagonal': '40,64 cm (16")',
   });
-  assert.equal(r.sources['magento.processor_family'], 'A');
+  assert.equal(r.sources['magento.processor_family'], 'C');
+  assert.equal(r.sources['magento.internal_memory'], 'D');
   assert.equal(r.sources['magento.colour_of_product'], 'B');
   assert.equal(r.sources['magento.conditie'], 'titel');
 });
 
-test('model properties need a reference with at least three leading words in common', async () => {
+test('a different model never gives its hardware or memory, even with equal capacities', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*'), 'macbook pro 16 l21 m1 max');
+  assert.equal(e.modelOf('iPhone 13 Mini 128GB Red Refurbished 5*'), 'iphone 13 mini');
+  const r = e.enrichMetafields('iPhone 13 Mini 128GB Red Refurbished 5*', [
+    { sku: 'P', title: 'iPhone 13 Pro 128GB Graphite Refurbished 5*', lead: 2, metafields: [mf('magento.internal_memory', '6 GB'), mf('magento.internal_storage_capacity', '128 GB'), mf('magento.backcamera', '12 MP x3')] },
+  ]);
+  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+});
+
+test('a reference from another model line gives no model properties', async () => {
   const e = await loadEnrich();
   const r = e.enrichMetafields('HP ZBook Power G9 I7 32GB 512SSD Refurbished 4*', [{ sku: 'X', title: 'HP ZBook Fury 17 G8', lead: 2, metafields: [mf('magento.processor_family', 'Intel Core i7')] }]);
   assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
