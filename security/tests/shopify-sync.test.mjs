@@ -470,16 +470,16 @@ test('a new draft gets the copied category tags, a review tag and its own main_s
   assert.equal(r.creates[0].categoryFrom, '211000037999');
 });
 
-test('an article missing for less than 24 hours gets stock 0; after 24 hours its product is archived', async () => {
-  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 1, 'Microforce Antwerpen': 0 } });
-  for (const [hours, archived] of [[2, false], [25, true]]) {
+test('an article no longer in the ERP gets stock 0 first; after 24 hours without stock its product is archived', async () => {
+  const mk = stock => current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': stock, 'Microforce Antwerpen': 0 } });
+  for (const [hours, stock, zeroed, archived] of [[2, 1, true, false], [25, 1, true, false], [25, 0, false, true]]) {
     const { db, log } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - hours * 3_600_000).toISOString() }] });
     const { sync } = await loadModules(db);
-    const fake = fakeClient([current(), gone]);
-    const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
-    const inv = fake.mutations.find(m => m[0] === 'SyncInventory')[1].input.quantities;
-    assert.deepEqual(inv.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
-    assert.equal(result.counts.missingStockZeroed, 1);
+    const fake = fakeClient([current(), mk(stock)]);
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const inv = fake.mutations.find(m => m[0] === 'SyncInventory');
+    assert.equal(!!inv, zeroed);
+    if (zeroed) assert.deepEqual(inv[1].input.quantities.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
     const productUpdates = fake.mutations.filter(m => m[0] === 'SyncProduct').map(m => m[1].product);
     assert.deepEqual(productUpdates, archived ? [{ id: 'gid://shopify/Product/7', status: 'ARCHIVED' }] : []);
     const removalLog = log.find(l => l.table === 'shopify_product_removals' && l.op === 'insert');
@@ -544,7 +544,7 @@ test('releasing held articles is admin-only and needs confirmation', () => {
 });
 
 test('an automatic archive is logged right after it succeeds; a log failure stops the run', async () => {
-  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: {} });
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 0 } });
   const { db } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: '2026-01-01T00:00:00Z' }], failRemovalLog: true });
   const { sync } = await loadModules(db);
   const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fakeClient([current(), gone]).client }));

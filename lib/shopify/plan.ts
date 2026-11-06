@@ -466,7 +466,7 @@ export const KEEP_TAG = 'erp-negeren';
 /**
  * Articles that are no longer in the ERP but still in Shopify (active or draft): stock to 0 at every
  * location right away, and archive the product once all its variants have been missing for
- * archiveAfterHours. Products with the tag erp-negeren are left alone.
+ * archiveAfterHours and no longer have stock. Products with the tag erp-negeren are left alone.
  */
 export function planMissing(input: {
   missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
@@ -491,7 +491,10 @@ export function planMissing(input: {
     if (seenProducts.has(v.productId)) continue;
     seenProducts.add(v.productId);
     const variants = byProduct.get(v.productId) ?? [v];
-    const allGoneLongEnough = variants.every(x => !input.erpSkus.has(x.sku) && (input.now.getTime() - (input.firstMissing.get(x.sku)?.getTime() ?? input.now.getTime())) >= input.archiveAfterHours * 3_600_000);
+    // Archive only once the stock is already 0 everywhere (set by an earlier run), so a product is
+    // never archived while it still has stock, even if a stock write fails in this run.
+    const allGoneLongEnough = variants.every(x => !input.erpSkus.has(x.sku) && Object.values(x.inventory).every(q => q <= 0)
+      && (input.now.getTime() - (input.firstMissing.get(x.sku)?.getTime() ?? input.now.getTime())) >= input.archiveAfterHours * 3_600_000);
     if (allGoneLongEnough) {
       archive.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
       changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'ARCHIVED' });

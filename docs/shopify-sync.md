@@ -95,7 +95,7 @@ Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld
 - **Opvolging:** de synchronisatie houdt per Shopify-SKU bij sinds wanneer die niet meer in het ERP staat (`shopify_sku_missing`).
 - **Instelling "voorraad 0 en archiveren"** (standaard uit, alleen beheerders):
   - de voorraad gaat meteen naar 0 op alle locaties;
-  - na 24 uur wordt het product gearchiveerd, en alleen als geen enkele variant nog in het ERP staat;
+  - na 24 uur wordt het product gearchiveerd, alleen als geen enkele variant nog in het ERP staat en de voorraad overal al 0 is;
   - het archiveren wordt meteen in het opruimlogboek gezet, zodat definitief verwijderen na 30 dagen mogelijk is;
     lukt dat niet, dan stopt de run met een melding.
 - **Uitzonderingen:**
