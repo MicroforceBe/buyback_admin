@@ -42,9 +42,15 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   const { data: changes } = selected ? await changesQuery : { data: [] };
   const mode = (settings?.mode ?? 'off') as Mode;
   // Products archived via this tool (latest successful action per product is 'archive'), and the log.
-  const { data: removalRows } = await supabaseAdmin.from('shopify_product_removals').select('id,product_id,title,skus,action,result,detail,redirect,actor,created_at').order('created_at', { ascending: false }).limit(2000);
+  // The complete history of successful actions (paginated), independent of the short log below.
   const latestOk = new Map<string, { product_id: string; title: string; skus: string[]; action: string; created_at: string }>();
-  for (const r of removalRows ?? []) if (r.result === 'ok' && !latestOk.has(r.product_id)) latestOk.set(r.product_id, r);
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabaseAdmin.from('shopify_product_removals').select('product_id,title,skus,action,created_at')
+      .eq('result', 'ok').order('created_at', { ascending: false }).order('id', { ascending: false }).range(from, from + 999);
+    for (const r of data ?? []) if (!latestOk.has(r.product_id)) latestOk.set(r.product_id, r);
+    if (!data || data.length < 1000) break;
+  }
+  const { data: removalRows } = await supabaseAdmin.from('shopify_product_removals').select('id,product_id,title,skus,action,result,detail,redirect,actor,created_at').order('created_at', { ascending: false }).limit(30);
   const archivedList = [...latestOk.values()].filter(r => r.action === 'archive');
   const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
   const c = (selected?.counts ?? {}) as Record<string, unknown>;
@@ -265,7 +271,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
             <table className="min-w-full text-left text-sm">
               <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">Wanneer</th><th className="pr-4">Actie</th><th className="pr-4">Titel</th><th className="pr-4">Resultaat</th><th className="pr-4">Door</th><th>Details</th></tr></thead>
               <tbody className="divide-y">
-                {(removalRows ?? []).slice(0, 30).map(r => (
+                {(removalRows ?? []).map(r => (
                   <tr key={r.id}>
                     <td className="py-1.5 pr-4">{fmt(r.created_at)}</td>
                     <td className="pr-4">{{ archive: 'archiveren', restore: 'terugzetten', delete: 'verwijderen' }[r.action as string] ?? r.action}</td>

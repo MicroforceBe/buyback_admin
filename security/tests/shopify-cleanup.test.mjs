@@ -27,7 +27,7 @@ async function load(db = null) {
   return { removal: (await mod('lib/shopify/removal.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null };
 }
 
-const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, skus: ['OLD' + n], collectionHandle: null, ...over });
+const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, skus: ['OLD' + n], allVariantsChecked: true, collectionHandle: null, ...over });
 const NOW = new Date('2026-12-31T12:00:00Z');
 
 test('a product is never archived or deleted while one of its SKUs is still in the ERP', async () => {
@@ -35,6 +35,27 @@ test('a product is never archived or deleted while one of its SKUs is still in t
   const r = plain(removal.checkRemoval({ action: 'archive', requestedIds: [P(1).id, P(2).id], products: [P(1, { skus: ['OLD1', 'LIVE'] }), P(2)], erpSkus: new Set(['LIVE']), includeStock: false, archivedAt: new Map(), now: NOW }));
   assert.deepEqual(r.ok.map(p => p.id), [P(2).id]);
   assert.match(r.refused[0].reason, /LIVE staat nog in het ERP/);
+});
+
+test('a product with unchecked variants (more than one page) is never touched', async () => {
+  const { removal } = await load();
+  const r = removal.checkRemoval({ action: 'archive', requestedIds: [P(1).id], products: [P(1, { allVariantsChecked: false })], erpSkus: new Set(), includeStock: false, archivedAt: new Map(), now: NOW });
+  assert.equal(r.ok.length, 0);
+  assert.match(r.refused[0].reason, /te veel varianten/);
+});
+
+test('a deletion stays recorded as successful when the redirect request throws', async () => {
+  const { db, writes } = fakeDb({ log: [{ product_id: node(1).id, action: 'archive', created_at: '2026-10-01T00:00:00Z' }] });
+  const { cleanup } = await load(db);
+  const fake = fakeClient([node(1, { status: 'ARCHIVED' })], { scopes: ['write_online_store_navigation'] });
+  const original = fake.client.graphql;
+  fake.client.graphql = async (q, v, o) => (q.includes('urlRedirectCreate') ? Promise.reject(new Error('netwerk')) : original(q, v, o));
+  const r = plain(await cleanup.runRemoval({ action: 'delete', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client, now: () => NOW }));
+  assert.equal(r.ok, 1);
+  assert.equal(r.failed, 0);
+  const row = plain(writes[0].rows)[0];
+  assert.equal(row.result, 'ok');
+  assert.match(row.detail, /doorverwijzing mislukt: netwerk/);
 });
 
 test('stock blocks archiving unless explicitly included', async () => {
@@ -100,12 +121,12 @@ function fakeClient(nodes, { scopes = [] } = {}) {
     },
   };
 }
-const node = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, variants: { nodes: [{ sku: 'OLD' + n }] }, collections: { nodes: [{ handle: 'iphones' }] }, ...over });
+const node = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', totalInventory: 0, variants: { nodes: [{ sku: 'OLD' + n }], pageInfo: { hasNextPage: false } }, collections: { nodes: [{ handle: 'iphones' }] }, ...over });
 
 test('archive re-checks Shopify and the ERP, writes ARCHIVED and logs every product', async () => {
   const { db, writes } = fakeDb();
   const { cleanup } = await load(db);
-  const fake = fakeClient([node(1), node(2, { variants: { nodes: [{ sku: 'ERP5' }] } })]);
+  const fake = fakeClient([node(1), node(2, { variants: { nodes: [{ sku: 'ERP5' }], pageInfo: { hasNextPage: false } } })]);
   const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id, node(2).id, 'not-a-gid'], includeStock: false, actor: 'admin@example.invalid' }, { db, client: fake.client }));
   assert.deepEqual(r, { action: 'archive', ok: 1, refused: 1, failed: 0, redirects: 0, redirectScope: false });
   assert.deepEqual(fake.calls.filter(c => c[0] === 'SetProductStatus').map(c => c[1].product), [{ id: node(1).id, status: 'ARCHIVED' }]);
@@ -146,6 +167,11 @@ test('admin-only server action with confirmation; delete needs the typed word', 
   assert.match(actions, /export async function removalAction\(formData: FormData\) \{\n  const user = await requireAccess\('erp', 'write', true\);/);
   assert.match(actions, /formData\.get\('confirm'\) !== 'on'/);
   assert.match(actions, /confirm_text'\) \?\? ''\)\.trim\(\) !== 'VERWIJDER'/);
+});
+
+test('the archived list reads the complete history of successful actions, not the short log', () => {
+  const page = read('app/admin/erp/shopify/page.tsx');
+  assert.match(page, /\.eq\('result', 'ok'\)\.order\('created_at', \{ ascending: false \}\)\.order\('id', \{ ascending: false \}\)\.range\(from, from \+ 999\)/);
 });
 
 test('the removal log is append-only for the application', () => {

@@ -49,10 +49,10 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
   const skus = await erpSkus(db);
   if (skus.size < MIN_ERP_ARTICLES) throw new Error(`De ERP-gegevens lijken onvolledig (${skus.size} artikelen); er wordt niets gewijzigd.`);
 
-  const { nodes } = await client.graphql<{ nodes: (null | { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; totalInventory: number; variants: { nodes: { sku: string | null }[] }; collections: { nodes: { handle: string }[] } })[] }>(PRODUCTS_INFO, { ids: ids.slice(0, 100) });
+  const { nodes } = await client.graphql<{ nodes: (null | { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; totalInventory: number; variants: { nodes: { sku: string | null }[]; pageInfo?: { hasNextPage: boolean } }; collections: { nodes: { handle: string }[] } })[] }>(PRODUCTS_INFO, { ids: ids.slice(0, 100) });
   const products: ShopifyProductInfo[] = nodes.filter((n): n is NonNullable<typeof n> => !!n && typeof n.id === 'string').map(n => ({
     id: n.id, title: n.title, handle: n.handle, status: n.status, totalInventory: n.totalInventory ?? 0,
-    skus: n.variants.nodes.map(v => (v.sku ?? '').trim()).filter(Boolean), collectionHandle: n.collections.nodes[0]?.handle ?? null,
+    skus: n.variants.nodes.map(v => (v.sku ?? '').trim()).filter(Boolean), allVariantsChecked: n.variants.pageInfo?.hasNextPage === false, collectionHandle: n.collections.nodes[0]?.handle ?? null,
   }));
 
   const check = checkRemoval({ action: input.action, requestedIds: ids, products, erpSkus: skus, includeStock: input.includeStock, archivedAt: await archivedAt(db, ids), now: deps.now?.() ?? new Date() });
@@ -76,10 +76,15 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
         let redirect: string | null = null;
         let note: string | null = redirectScope ? null : 'geen doorverwijzing: recht write_online_store_navigation ontbreekt';
         if (redirectScope) {
+          // The product is already gone: a redirect problem never turns the deletion into a failure.
           const target = redirectTarget(p);
-          const { urlRedirectCreate } = await client.graphql<{ urlRedirectCreate: { userErrors: UserError[] } }>(URL_REDIRECT_CREATE, { path: `/products/${p.handle}`, target });
-          if (urlRedirectCreate.userErrors.length) note = 'doorverwijzing mislukt: ' + urlRedirectCreate.userErrors.map(e => e.message).join('; ');
-          else { redirect = `/products/${p.handle} → ${target}`; redirects++; }
+          try {
+            const { urlRedirectCreate } = await client.graphql<{ urlRedirectCreate: { userErrors: UserError[] } }>(URL_REDIRECT_CREATE, { path: `/products/${p.handle}`, target });
+            if (urlRedirectCreate.userErrors.length) note = 'doorverwijzing mislukt: ' + urlRedirectCreate.userErrors.map(e => e.message).join('; ');
+            else { redirect = `/products/${p.handle} → ${target}`; redirects++; }
+          } catch (error) {
+            note = 'doorverwijzing mislukt: ' + (error instanceof Error ? error.message : 'onbekende fout');
+          }
         }
         log.push({ ...base, result: 'ok', redirect, detail: note });
       } else {

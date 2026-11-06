@@ -145,7 +145,7 @@ export const PRODUCTS_INFO = `query ProductsInfo($ids: [ID!]!) {
   nodes(ids: $ids) {
     ... on Product {
       id title handle status totalInventory
-      variants(first: 100) { nodes { sku } }
+      variants(first: 100) { nodes { sku } pageInfo { hasNextPage } }
       collections(first: 1) { nodes { handle } }
     }
   }

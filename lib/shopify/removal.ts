@@ -11,6 +11,8 @@ export type ShopifyProductInfo = {
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
   totalInventory: number;
   skus: string[];
+  /** False when Shopify returned only part of the variants: the product is then never touched. */
+  allVariantsChecked: boolean;
   collectionHandle: string | null;
 };
 
@@ -36,6 +38,7 @@ export function checkRemoval(input: {
   for (const id of ids) {
     const p = byId.get(id);
     if (!p) { refused.push({ id, title: id, reason: 'niet (meer) gevonden in Shopify' }); continue; }
+    if (!p.allVariantsChecked) { refused.push({ id, title: p.title, reason: 'te veel varianten om volledig te controleren' }); continue; }
     const inErp = p.skus.filter(sku => sku && input.erpSkus.has(sku));
     if (inErp.length) { refused.push({ id, title: p.title, reason: `SKU ${inErp.join(', ')} staat nog in het ERP` }); continue; }
     if (input.action === 'archive') {
