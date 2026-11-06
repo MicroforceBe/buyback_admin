@@ -70,3 +70,21 @@ gelijkende bestaande Shopify-product. Dat product moet aan twee voorwaarden vold
 - de titel begint met minstens twee dezelfde woorden. De langste gemeenschappelijke start telt het zwaarst, daarna de woordoverlap.
 
 Het concept krijgt ook `main_sku_<sku>` en de tag `controle-categorie`. Is er geen geschikt product, dan krijgt het `geen-categorie`.
+
+## Eigenschappen van nieuwe concepten
+Een nieuw concept krijgt zijn eigenschappen (metavelden) uit de titel en uit de 15 meest gelijkende bestaande producten
+van dezelfde SKU-familie (`lib/shopify/enrich.ts`):
+- **Uiterlijk** (`magento.conditie`) volgt uit de sterren in de titel: 5* = "5* Als Nieuw", 4* = "4* Zeer Goed", 3* = "3* Goed".
+- **Wat mag je verwachten** komt van een product uit dezelfde familie met evenveel sterren.
+- **Kleur** (kleur, kleurstaal) komt alleen van een product met dezelfde kleur in de titel. SG telt als Space Grey, SL als Silver.
+- **Geheugen en opslag** komen alleen van een product met dezelfde capaciteiten in de titel (bv. 32GB + 1TB).
+- **Overige modeleigenschappen** (scherm, processor, camera, garantie, ...) komen van het meest gelijkende product,
+  en alleen als minstens 3 beginwoorden van de titel gelijk zijn.
+- **Nooit gekopieerd:**
+  - velden die het ERP synchroniseert;
+  - voorraad- en dealerprijsvelden;
+  - app-gegevens (reviews, SEO-tags, Google Shopping);
+  - oude velden zonder type.
+
+Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld zijn. Het concept behoudt de tag
+`controle-categorie`, zodat iemand het nakijkt voor het geactiveerd wordt.

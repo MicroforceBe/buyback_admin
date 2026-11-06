@@ -3,9 +3,10 @@ import 'server-only';
 // and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { enrichMetafields, starsOf, type MetafieldValue } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
-import { chunk, desiredFromRow, duplicateTitles, planCreates, planSync, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, planCreates, planSync, rankSimilar, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -18,6 +19,8 @@ const MAX_UNMATCHED = 2000;
 // when the number of new SKUs looks like a broken export (e.g. changed SKU format).
 const MAX_CREATES_PER_RUN = 50;
 const MAX_NEW_CANDIDATES = 200;
+// Most similar existing products whose properties are read for a new draft.
+const MAX_REFERENCES = 15;
 export const CREATE_FIELD = 'nieuw artikel (draft)';
 const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
 const KEEP_RUNS_DAYS = 30;
@@ -182,7 +185,28 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
         counts.newDuplicateTitles = creates.filter(c => c.input.tags.includes('controle-dubbele-titel')).length;
         counts.newDraftsPending = planned.creates.length - creates.length;
         counts.newSkipped = planned.skipped.slice(0, MAX_UNMATCHED);
-        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'}`.slice(0, 1000) });
+        // Properties of the new drafts from their title and the most similar existing products.
+        const products = state.variants.map(v => ({ sku: v.sku, title: v.title, productId: v.productId }));
+        const metafieldCache = new Map<string, MetafieldValue[]>();
+        const enrichedCount = new Map<string, number>();
+        for (const c of creates) {
+          const ranked = rankSimilar(c.sku, c.input.title, products);
+          const stars = starsOf(c.input.title);
+          const picked = ranked.slice(0, MAX_REFERENCES);
+          const sameStars = ranked.find(r => starsOf(r.title) === stars);
+          if (sameStars && !picked.includes(sameStars)) picked.push(sameStars);
+          const missing = [...new Set(picked.map(r => r.productId))].filter(id => !metafieldCache.has(id));
+          if (missing.length) {
+            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids: missing });
+            for (const n of nodes) if (n?.id) metafieldCache.set(n.id, n.metafields.nodes);
+          }
+          const { metafields } = enrichMetafields(c.input.title, picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [] })));
+          const fromErp = new Set(c.input.metafields.map(m => `${m.namespace}.${m.key}`));
+          const extra = metafields.filter(m => !fromErp.has(`${m.namespace}.${m.key}`));
+          c.input.metafields.push(...extra);
+          enrichedCount.set(c.sku, extra.length);
+        }
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld`.slice(0, 1000) });
         counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
       }
     }

@@ -169,3 +169,8 @@ export const URL_REDIRECT_CREATE = `mutation CreateRedirect($path: String!, $tar
 }`;
 
 export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScopes { handle } } }`;
+
+// Metafields of reference products, used to fill the properties of a new draft.
+export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
+  nodes(ids: $ids) { ... on Product { id metafields(first: 100) { nodes { namespace key type value } } } }
+}`;

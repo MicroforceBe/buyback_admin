@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -188,7 +188,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false, failVariantIndex = null } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {} } = {}) {
   const mutations = [];
   return {
     mutations,
@@ -197,11 +197,13 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null }
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
+        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: refMetafields[id] ?? [] } })) }; }
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
         if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
         const field = query.match(/\{\s*(\w+)\(/)[1];
         if (field === 'productSet') return { productSet: { product: { id: 'gid://shopify/Product/999' }, userErrors } };
+        if (field === 'nodes') return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: [] } })) };
         return { [field]: { userErrors } };
       },
     },
@@ -371,7 +373,7 @@ test('shadow mode only records planned drafts; live mode creates them without se
     assert.equal(result.status, 'succeeded');
     assert.equal(result.counts.newDrafts, 1);
     const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
-    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB — geen categorie gevonden']]);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld']]);
     if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
     else {
       assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
@@ -486,4 +488,66 @@ test('admin page guards: mode and manual run are admin-only, the stop button nee
 
 test('the ERP import keeps the complete CSV row for the Shopify sync', () => {
   assert.match(read('lib/erpSync.ts'), /raw_erp_row: row,/);
+});
+
+// ---------- properties of new drafts ----------
+async function loadEnrich() {
+  const context = vm.createContext({ Set, Map, Object, Array, String, RegExp, Number, JSON });
+  const code = ts.transpileModule(read('lib/shopify/enrich.ts'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+  const m = new vm.SourceTextModule(code, { context });
+  await m.link(() => { throw new Error('no imports'); });
+  await m.evaluate();
+  return m.namespace;
+}
+const mf = (k, value, type = 'single_line_text_field') => { const [namespace, key] = k.split('.'); return { namespace, key, type, value }; };
+
+test('title parsing: stars, capacities and colour codes', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.starsOf('iPhone 16 256GB Black Refurbished 5* M'), '5');
+  assert.equal(e.capacitiesOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG'), '1tb,32gb');
+  assert.equal(e.capacitiesOf('HP ZBook Power G9 I7 32GB 512SSD 15"'), '32gb,512gb');
+  assert.equal(e.sameColour('MacBook Pro 14" M1-Pro 16GB 512SSD SG Refurbished 4*', 'Space Grey'), true);
+  assert.equal(e.sameColour('iPhone 13 Mini 128GB Red Refurbished 5*', 'Blue'), false);
+});
+
+test('a new draft gets condition from its stars and other properties only from matching references', async () => {
+  const e = await loadEnrich();
+  const refs = [
+    { sku: 'A', title: 'MacBook Pro 16" L21 M1 Pro 16GB 512SSD SL Refurbished 4*', lead: 6, metafields: [
+      mf('magento.display_diagonal', '40,64 cm (16")'), mf('magento.processor_family', 'Apple M1 Pro'), mf('magento.conditie', '4* Zeer Goed'),
+      mf('magento.colour_of_product', 'Silver'), mf('magento.internal_memory', '16 GB'), mf('custom.wat_mag_je_verwachten_', 'tekst 4 sterren', 'multi_line_text_field'),
+      mf('custom.dealer_price', '1480.0', 'number_decimal'), mf('magento.manufacturer', 'APPLE'), mf('judgeme.badge', '<div>', 'string'), mf('global.title_tag', 'x', 'string')] },
+    { sku: 'B', title: 'MacBook Pro 16" M19 I9 32GB 1TB SSD SG Refurbished 5*', lead: 3, metafields: [
+      mf('magento.colour_of_product', 'Space Grey'), mf('custom.color_swatch', 'gid://shopify/Metaobject/1', 'metaobject_reference'),
+      mf('magento.internal_memory', '32 GB'), mf('magento.solid_state_drive_capacity', '1 TB'), mf('custom.wat_mag_je_verwachten_', 'tekst 5 sterren', 'multi_line_text_field'), mf('magento.processor_family', 'Intel Core i9')] },
+  ];
+  const r = e.enrichMetafields('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*', refs);
+  const got = Object.fromEntries(r.metafields.map(m => [m.namespace + '.' + m.key, m.value]));
+  assert.deepEqual(got, {
+    'magento.conditie': '5* Als Nieuw',
+    'magento.colour_of_product': 'Space Grey', 'custom.color_swatch': 'gid://shopify/Metaobject/1',
+    'magento.internal_memory': '32 GB', 'magento.solid_state_drive_capacity': '1 TB',
+    'custom.wat_mag_je_verwachten_': 'tekst 5 sterren',
+    'magento.display_diagonal': '40,64 cm (16")', 'magento.processor_family': 'Apple M1 Pro',
+  });
+  assert.equal(r.sources['magento.processor_family'], 'A');
+  assert.equal(r.sources['magento.colour_of_product'], 'B');
+  assert.equal(r.sources['magento.conditie'], 'titel');
+});
+
+test('model properties need a reference with at least three leading words in common', async () => {
+  const e = await loadEnrich();
+  const r = e.enrichMetafields('HP ZBook Power G9 I7 32GB 512SSD Refurbished 4*', [{ sku: 'X', title: 'HP ZBook Fury 17 G8', lead: 2, metafields: [mf('magento.processor_family', 'Intel Core i7')] }]);
+  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+});
+
+test('live draft creation sends the filled properties with the product', async () => {
+  const { db } = fakeDb({ mode: 'live', createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'SKU1NEW', Title: 'iPhone 13 128GB Blue Refurbished 4*' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ title: 'iPhone 13 128GB Blue Refurbished 5*' })], { refMetafields: { 'gid://shopify/Product/1': [mf('magento.backcamera', '12 MP'), mf('magento.colour_of_product', 'Blue')] } });
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+  const created = fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input.metafields.map(m => `${m.namespace}.${m.key}=${m.value}`);
+  assert.ok(created.includes('magento.conditie=4* Zeer Goed'));
+  assert.ok(created.includes('magento.backcamera=12 MP'));
+  assert.ok(created.includes('magento.colour_of_product=Blue'));
 });

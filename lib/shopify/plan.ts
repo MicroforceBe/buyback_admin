@@ -379,24 +379,34 @@ const isCategoryTag = (tag: string) => (tag.startsWith('cat_') && tag.length > 4
  * family (first 3 digits, e.g. 207 = MacBook) and the longest common start of the title (the model
  * is at the start), then the largest word overlap. Requires at least two leading words in common.
  */
-export function suggestCategoryTags(sku: string, title: string, existing: { sku: string; title: string; tags: string[] }[]): { tags: string[]; fromSku: string } | null {
+/** Existing products of the same SKU family, most similar title first (at least 2 leading words in common). */
+export function rankSimilar<T extends { sku: string; title: string }>(sku: string, title: string, existing: T[]): (T & { lead: number; score: number })[] {
   const family = skuFamily(sku);
   const words = titleTokens(title);
-  let best: { score: number; tags: string[]; fromSku: string } | null = null;
+  const ranked: (T & { lead: number; score: number })[] = [];
   for (const e of existing) {
     if (e.sku === sku || skuFamily(e.sku) !== family) continue;
-    const tags = e.tags.filter(isCategoryTag);
-    if (!tags.some(t => t.startsWith('cat_'))) continue;
     const other = titleTokens(e.title);
     let lead = 0;
     while (lead < words.length && lead < other.length && words[lead] === other[lead]) lead++;
     if (lead < 2) continue;
     const a = new Set(words), b = new Set(other);
     const overlap = [...a].filter(w => b.has(w)).length / new Set([...a, ...b]).size;
-    const score = lead * 10 + overlap;
-    if (!best || score > best.score) best = { score, tags, fromSku: e.sku };
+    ranked.push({ ...e, lead, score: lead * 10 + overlap });
   }
-  return best ? { tags: [...new Set(best.tags)].sort(), fromSku: best.fromSku } : null;
+  return ranked.sort((x, y) => y.score - x.score);
+}
+
+/**
+ * Category tags for a new product, copied from the most similar existing Shopify product (see
+ * rankSimilar) that has at least one category tag.
+ */
+export function suggestCategoryTags(sku: string, title: string, existing: { sku: string; title: string; tags: string[] }[]): { tags: string[]; fromSku: string } | null {
+  for (const e of rankSimilar(sku, title, existing)) {
+    const tags = e.tags.filter(isCategoryTag);
+    if (tags.some(t => t.startsWith('cat_'))) return { tags: [...new Set(tags)].sort(), fromSku: e.sku };
+  }
+  return null;
 }
 
 export function planCreates(candidates: DesiredState[], locations: Record<string, string>, context: { shopifyTitles?: string[]; erpTitles?: string[]; existing?: { sku: string; title: string; tags: string[] }[] } = {}): { creates: { sku: string; input: ProductSetInput; categoryFrom: string | null }[]; skipped: { sku: string; reason: string }[] } {
