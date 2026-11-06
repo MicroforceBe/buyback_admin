@@ -4,7 +4,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
-import { enrichMetafields, starsOf, type MetafieldValue } from '@/lib/shopify/enrich';
+import { enrichMetafields, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { chunk, desiredFromRow, duplicateTitles, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
@@ -245,6 +245,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
         // Properties of the new drafts from their title and the most similar existing products.
         const products = state.variants.map(v => ({ sku: v.sku, title: v.title, productId: v.productId }));
         const metafieldCache = new Map<string, MetafieldValue[]>();
+        const imageCache = new Map<string, RefImage[]>();
+        const imageCount = new Map<string, number>();
         const enrichedCount = new Map<string, number>();
         for (const c of creates) {
           const ranked = rankSimilar(c.sku, c.input.title, products);
@@ -254,16 +256,24 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
           if (sameStars && !picked.includes(sameStars)) picked.push(sameStars);
           const missing = [...new Set(picked.map(r => r.productId))].filter(id => !metafieldCache.has(id));
           if (missing.length) {
-            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids: missing });
-            for (const n of nodes) if (n?.id) metafieldCache.set(n.id, n.metafields.nodes);
+            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] }; media?: { nodes: ({ image?: RefImage | null } | null)[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids: missing });
+            for (const n of nodes) if (n?.id) {
+              metafieldCache.set(n.id, n.metafields.nodes);
+              imageCache.set(n.id, (n.media?.nodes ?? []).flatMap(m => (m?.image?.url ? [m.image] : [])));
+            }
           }
-          const { metafields } = enrichMetafields(c.input.title, picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [] })));
+          const refs = picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [], images: imageCache.get(r.productId) ?? [] }));
+          const { metafields } = enrichMetafields(c.input.title, refs);
+          // Photos only from the same model and colour, and only of marketing quality.
+          const images = pickImages(c.input.title, refs);
+          if (images) c.input.files = images.files; else c.input.tags.push('geen-afbeelding');
+          imageCount.set(c.sku, images?.files.length ?? 0);
           const fromErp = new Set(c.input.metafields.map(m => `${m.namespace}.${m.key}`));
           const extra = metafields.filter(m => !fromErp.has(`${m.namespace}.${m.key}`));
           c.input.metafields.push(...extra);
           enrichedCount.set(c.sku, extra.length);
         }
-        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld`.slice(0, 1000) });
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld — ${imageCount.get(c.sku) ?? 0} foto's`.slice(0, 1000) });
         counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
       }
     }

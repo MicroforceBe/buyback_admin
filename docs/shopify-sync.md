@@ -104,3 +104,11 @@ Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld
     gearchiveerd, tot een beheerder ze vrijgeeft (knop op de pagina) of ze terug in het ERP staan;
   - de noodrem en de noodstop gelden ook hier.
 - Vereist `security/sql/shopify-sync-missing.sql`.
+
+## Foto's van nieuwe concepten
+Er worden alleen foto's gebruikt die al in de eigen Shopify-winkel staan. Foto's van het internet worden nooit gebruikt.
+- **Bron:** alleen een product met exact hetzelfde model én dezelfde kleur. Is er meer dan één, dan het product met de meeste goede foto's (max. 10).
+- **Kwaliteit voor marketing:** de langste zijde minstens 1000 px, de kortste minstens 500 px, en geen strook (max. 3:1).
+  Kleinere of vreemde formaten worden niet overgenomen.
+- **Alt-tekst:** de alt-tekst van het bronproduct, met de nieuwe titel. De SEO-tekst "kopen bij Microforce …" blijft behouden.
+- **Geen geschikte foto:** het concept krijgt de tag `geen-afbeelding`.

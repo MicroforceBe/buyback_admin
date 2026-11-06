@@ -190,7 +190,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {} } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {}, refImages = {} } = {}) {
   const mutations = [];
   return {
     mutations,
@@ -199,7 +199,7 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null, 
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
-        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: refMetafields[id] ?? [] } })) }; }
+        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: refMetafields[id] ?? [] }, media: { nodes: (refImages[id] ?? []).map(image => ({ image })) } })) }; }
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
         if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
@@ -375,7 +375,7 @@ test('shadow mode only records planned drafts; live mode creates them without se
     assert.equal(result.status, 'succeeded');
     assert.equal(result.counts.newDrafts, 1);
     const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
-    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', 'iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld']]);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', "iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld — 0 foto's"]]);
     if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
     else {
       assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
@@ -658,4 +658,44 @@ test('live draft creation sends the filled properties with the product', async (
   assert.ok(created.includes('magento.conditie=4* Zeer Goed'));
   assert.ok(created.includes('magento.backcamera=12 MP'));
   assert.ok(created.includes('magento.colour_of_product=Blue'));
+});
+
+// ---------- photos of new drafts ----------
+const img = (w, h, n = 1) => ({ url: `https://cdn.shopify.com/files/p${n}-${w}x${h}.jpg`, width: w, height: h, altText: 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SG Refurbished 4* - simple kopen bij Microforce | Apple-specialist' });
+
+test('image quality: at least 1000 px long side, 500 px short side, no strips', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.goodImage(img(1280, 782)), true);
+  assert.equal(e.goodImage(img(800, 800)), false);
+  assert.equal(e.goodImage(img(1200, 300)), false);
+  assert.equal(e.goodImage(img(24, 1368)), false);
+  assert.equal(e.goodImage({ url: 'x', width: null, height: null, altText: null }), false);
+});
+
+test('photos come only from the same model and colour, only the good ones, with the new title in the alt text', async () => {
+  const e = await loadEnrich();
+  const title = 'MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*';
+  const refs = [
+    { sku: 'PRO', title: 'MacBook Pro 16" L21 M1 Pro 32GB 1TB SSD SG Refurbished 5*', lead: 6, metafields: [mf('magento.colour_of_product', 'Space Grey')], images: [img(2000, 2000, 9)] },
+    { sku: 'SILVER', title: 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SL Refurbished 4*', lead: 7, metafields: [mf('magento.colour_of_product', 'Silver')], images: [img(2000, 2000, 8)] },
+    { sku: 'GREY', title: 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SG Refurbished 4*', lead: 7, metafields: [mf('magento.colour_of_product', 'Space Grey')], images: [img(1280, 782, 1), img(400, 300, 2), img(1280, 784, 3)] },
+  ];
+  const r = plain(e.pickImages(title, refs));
+  assert.equal(r.fromSku, 'GREY');
+  assert.deepEqual(r.files.map(f => f.originalSource), [img(1280, 782, 1).url, img(1280, 784, 3).url]);
+  assert.match(r.files[0].alt, /^MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5\* - simple kopen bij Microforce/);
+  assert.equal(r.files[0].contentType, 'IMAGE');
+  assert.equal(e.pickImages(title, [refs[0], refs[1], { ...refs[2], images: [img(500, 500)] }]), null);
+});
+
+test('a new draft without usable photos gets the tag geen-afbeelding; with photos they are sent along', async () => {
+  for (const [images, expectFiles] of [[[img(400, 400)], false], [[img(1600, 1200)], true]]) {
+    const { db } = fakeDb({ mode: 'live', createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'SKU1NEW', Title: 'iPhone 13 128GB Blue Refurbished 4*' })] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current({ title: 'iPhone 13 128GB Blue Refurbished 5*' })], { refMetafields: { 'gid://shopify/Product/1': [mf('magento.colour_of_product', 'Blue')] }, refImages: { 'gid://shopify/Product/1': images } });
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const input = fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input;
+    assert.equal(Array.isArray(input.files) && input.files.length === 1, expectFiles);
+    assert.equal(input.tags.includes('geen-afbeelding'), !expectFiles);
+  }
 });

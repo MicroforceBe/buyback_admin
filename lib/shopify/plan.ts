@@ -350,6 +350,7 @@ export function planSync(input: {
 }
 
 export type ProductSetInput = {
+  files?: { originalSource: string; contentType: 'IMAGE'; alt: string; duplicateResolutionMode: 'APPEND_UUID' }[];
   title: string; vendor?: string; productType?: string; status: 'DRAFT'; tags: string[];
   productOptions: { name: string; values: { name: string }[] }[];
   metafields: { namespace: string; key: string; type: string; value: string }[];
@@ -369,6 +370,7 @@ export type ProductSetInput = {
  */
 export const CATEGORY_REVIEW_TAG = 'controle-categorie';
 export const NO_CATEGORY_TAG = 'geen-categorie';
+export const NO_IMAGE_TAG = 'geen-afbeelding';
 
 const titleTokens = (t: string) => t.toLowerCase().replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
 const skuFamily = (sku: string) => sku.trim().padStart(12, '0').slice(0, 3);
