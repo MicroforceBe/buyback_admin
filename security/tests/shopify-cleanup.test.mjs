@@ -90,13 +90,14 @@ test('more than 100 products at once are all refused', async () => {
   assert.equal(r.refused.length, 101);
 });
 
-function fakeDb({ erpCount = 600, log = [] } = {}) {
+function fakeDb({ erpCount = 600, log = [], failInsertAfter = Infinity } = {}) {
+  let inserts = 0;
   const writes = [];
   const from = table => {
     const q = { ops: [] };
     const result = () => {
       const ins = q.ops.find(o => o[0] === 'insert');
-      if (ins) { writes.push({ table, rows: ins[1] }); return { error: null }; }
+      if (ins) { if (++inserts > failInsertAfter) return { error: { message: 'db' } }; writes.push({ table, rows: ins[1] }); return { error: null }; }
       if (table === 'erp_articles') {
         const range = q.ops.find(o => o[0] === 'range');
         const all = Array.from({ length: erpCount }, (_, i) => ({ sku: 'ERP' + i }));
@@ -137,7 +138,17 @@ test('archive re-checks Shopify and the ERP, writes ARCHIVED and logs every prod
   const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id, node(2).id, 'not-a-gid'], includeStock: false, actor: 'admin@example.invalid' }, { db, client: fake.client }));
   assert.deepEqual(r, { action: 'archive', ok: 1, refused: 1, failed: 0, redirects: 0, redirectScope: false });
   assert.deepEqual(fake.calls.filter(c => c[0] === 'SetProductStatus').map(c => c[1].product), [{ id: node(1).id, status: 'ARCHIVED' }]);
-  assert.deepEqual(plain(writes[0].rows).map(x => [x.product_id, x.result]).sort(), [[node(1).id, 'ok'], [node(2).id, 'refused']].sort());
+  assert.deepEqual(plain(writes.flatMap(w => w.rows)).map(x => [x.product_id, x.result]).sort(), [[node(1).id, 'ok'], [node(2).id, 'refused']].sort());
+});
+
+test('a failing log write stops the run and explains how to recover', async () => {
+  const { db } = fakeDb({ failInsertAfter: 0 });
+  const { cleanup } = await load(db);
+  const fake = fakeClient([node(1), node(2)]);
+  const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id, node(2).id], includeStock: false, actor: 'a' }, { db, client: fake.client }));
+  assert.equal(fake.calls.filter(c => c[0] === 'SetProductStatus').length, 1);
+  assert.match(r.logError, /Zet het terug als concept en archiveer opnieuw/);
+  assert.match(read('app/admin/erp/shopify/actions.ts'), /if \(result\.logError\) redirect\(target\(\{ error:/);
 });
 
 test('nothing happens when the ERP data looks incomplete', async () => {

@@ -7,7 +7,7 @@ import { checkRemoval, redirectTarget, type RemovalAction, type ShopifyProductIn
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
-export type RemovalResult = { action: RemovalAction; ok: number; refused: number; failed: number; redirects: number; redirectScope: boolean };
+export type RemovalResult = { action: RemovalAction; ok: number; refused: number; failed: number; redirects: number; redirectScope: boolean; logError?: string };
 
 // A nearly empty ERP table means a broken import: never archive or delete on that basis.
 const MIN_ERP_ARTICLES = 500;
@@ -65,9 +65,18 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
     } catch { redirectScope = false; }
   }
 
+  // The log is functional state (it drives the 30-day delete flow), so every outcome is stored right
+  // after its Shopify call; if storing fails, the run stops and the operator gets a recovery hint.
+  const persist = async (rows: Record<string, unknown>[]) => {
+    if (!rows.length) return true;
+    const { error } = await db.from('shopify_product_removals').insert(rows);
+    return !error;
+  };
   const log: Record<string, unknown>[] = check.refused.map(r => ({ product_id: r.id, title: r.title.slice(0, 255), skus: products.find(p => p.id === r.id)?.skus ?? [], action: input.action, result: 'refused', detail: r.reason.slice(0, 1000), actor: input.actor }));
   let ok = 0, failed = 0, redirects = 0;
+  if (!(await persist(log))) return { action: input.action, ok: 0, refused: check.refused.length, failed: 0, redirects: 0, redirectScope, logError: 'Het logboek kon niet worden bijgewerkt; er is niets gewijzigd in Shopify.' };
   for (const p of check.ok) {
+    let row: Record<string, unknown>;
     const base = { product_id: p.id, title: p.title.slice(0, 255), skus: p.skus, action: input.action, actor: input.actor, previous_status: p.status };
     try {
       if (input.action === 'delete') {
@@ -86,23 +95,26 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
             note = 'doorverwijzing mislukt: ' + (error instanceof Error ? error.message : 'onbekende fout');
           }
         }
-        log.push({ ...base, result: 'ok', redirect, detail: note });
+        row = { ...base, result: 'ok', redirect, detail: note };
       } else {
         // Restore puts the product back as draft: the ERP or a person decides when it goes live again.
         const status = input.action === 'archive' ? 'ARCHIVED' : 'DRAFT';
         const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_SET_STATUS, { product: { id: p.id, status } });
         if (productUpdate.userErrors.length) throw new Error(productUpdate.userErrors.map(e => e.message).join('; '));
-        log.push({ ...base, result: 'ok' });
+        row = { ...base, result: 'ok' };
       }
       ok++;
     } catch (error) {
       failed++;
-      log.push({ ...base, result: 'failed', detail: (error instanceof Error ? error.message : 'onbekende fout').slice(0, 1000) });
+      row = { ...base, result: 'failed', detail: (error instanceof Error ? error.message : 'onbekende fout').slice(0, 1000) };
     }
-  }
-  if (log.length) {
-    const { error } = await db.from('shopify_product_removals').insert(log);
-    if (error) console.error('[SHOPIFY CLEANUP] log failed');
+    if (!(await persist([row]))) {
+      const hint = input.action === 'archive'
+        ? `"${p.title}" is wel gearchiveerd in Shopify maar staat niet in het logboek. Zet het terug als concept en archiveer opnieuw.`
+        : input.action === 'delete' ? `"${p.title}" is ${row.result === 'ok' ? 'wel verwijderd' : 'niet verwijderd'} in Shopify maar het logboek kon niet worden bijgewerkt.`
+        : `"${p.title}" is ${row.result === 'ok' ? 'wel teruggezet' : 'niet teruggezet'} maar het logboek kon niet worden bijgewerkt.`;
+      return { action: input.action, ok, refused: check.refused.length, failed, redirects, redirectScope, logError: `Logboekfout, de actie is gestopt. ${hint}` };
+    }
   }
   return { action: input.action, ok, refused: check.refused.length, failed, redirects, redirectScope };
 }

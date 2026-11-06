@@ -75,5 +75,6 @@ export async function removalAction(formData: FormData) {
     redirect(target({ error: error instanceof Error ? error.message.slice(0, 300) : 'Actie mislukt.' }));
   }
   revalidatePath(PATH);
+  if (result.logError) redirect(target({ error: result.logError.slice(0, 400) }));
   redirect(target({ removed: action, ok: String(result.ok), refused: String(result.refused), failed: String(result.failed), redirects: String(result.redirects), scope: result.redirectScope ? '1' : '0' }));
 }
