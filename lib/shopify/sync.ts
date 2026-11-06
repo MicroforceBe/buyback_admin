@@ -21,6 +21,8 @@ const MAX_NEW_CANDIDATES = 200;
 export const CREATE_FIELD = 'nieuw artikel (draft)';
 const STALE_RUN_MINUTES = 10; // maxDuration is 5 minutes
 const KEEP_RUNS_DAYS = 30;
+// Runs that changed nothing and had no problem are only useful for a day.
+const KEEP_QUIET_RUNS_HOURS = 24;
 
 type Db = typeof supabaseAdmin;
 type Deps = { db?: Db; client?: ShopifyClient | null; idempotencyKey?: () => string };
@@ -145,6 +147,9 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
   const finish = async (status: 'succeeded' | 'failed' | 'stopped', counts: Record<string, unknown>, error?: string): Promise<SyncResult> => {
     await db.from('shopify_sync_runs').update({ status, counts, error: error ?? null, finished_at: new Date().toISOString() }).eq('id', runId);
     await db.from('shopify_sync_runs').delete().lt('started_at', new Date(Date.now() - KEEP_RUNS_DAYS * 86_400_000).toISOString());
+    // Quiet runs (succeeded, 0 changes) after 24 hours; runs with changes, errors, brake or stop stay 30 days.
+    await db.from('shopify_sync_runs').delete().eq('status', 'succeeded').eq('counts->>changes', '0').neq('id', runId)
+      .lt('started_at', new Date(Date.now() - KEEP_QUIET_RUNS_HOURS * 3_600_000).toISOString());
     return { status, runId, mode, counts, ...(error ? { error } : {}) };
   };
 

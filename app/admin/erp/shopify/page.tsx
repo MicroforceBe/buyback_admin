@@ -31,7 +31,13 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
 
   const [{ data: settings }, { data: runs }] = await Promise.all([
     supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,create_drafts,version,updated_at,updated_by').eq('id', true).single(),
-    supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,started_by').order('started_at', { ascending: false }).limit(20),
+    (() => {
+      let q = supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,started_by,changes:counts->>changes')
+        .order('started_at', { ascending: false }).limit(params.runs === 'all' ? 100 : 10);
+      // "Only with changes or problems": anything that is not a succeeded run with 0 changes.
+      if (params.only === 'changes') q = q.or('status.neq.succeeded,counts->>changes.neq.0');
+      return q;
+    })(),
   ]);
   const selectedId = params.run ?? runs?.[0]?.id;
   const { data: selected } = selectedId
@@ -118,15 +124,28 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
             <h2 className="text-lg font-semibold">Recente runs</h2>
             {isAdmin && mode !== 'off' && <form action={runNowAction}><button className="rounded-lg border px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Nu uitvoeren</button></form>}
           </div>
-          <ul className="mt-4 divide-y text-sm">
-            {(runs ?? []).map(r => (
-              <li key={r.id} className={`flex items-center justify-between py-2 ${r.id === selectedId ? 'font-semibold' : ''}`}>
-                <Link href={back({ run: r.id })} className="hover:underline">{fmt(r.started_at)} · {r.trigger === 'cron' ? 'automatisch' : `handmatig (${r.started_by})`} · {r.mode === 'live' ? 'live' : 'schaduw'}</Link>
-                <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CLASS[r.status] ?? ''}`}>{STATUS[r.status] ?? r.status}</span>
-              </li>
-            ))}
-            {!runs?.length && <li className="py-2 text-slate-500">Nog geen runs.</li>}
+          <div className="mt-3 flex flex-wrap gap-3 text-xs">
+            <Link href={back({ ...(params.runs ? { runs: params.runs } : {}), ...(params.only === 'changes' ? {} : { only: 'changes' }) })} className="text-sky-700 hover:underline">{params.only === 'changes' ? 'Alle runs tonen' : 'Alleen met wijzigingen of fouten'}</Link>
+            <span className="text-slate-400">Runs zonder wijzigingen worden na 24 uur gewist, andere na 30 dagen.</span>
+          </div>
+          <ul className="mt-2 divide-y text-sm">
+            {(runs ?? []).map(r => {
+              const n = r.changes === null || r.changes === undefined ? null : Number(r.changes);
+              return (
+                <li key={r.id} className={`flex items-center justify-between gap-3 py-1.5 ${r.id === selectedId ? 'font-semibold' : ''}`}>
+                  <Link href={back({ run: r.id, ...(params.only ? { only: params.only } : {}), ...(params.runs ? { runs: params.runs } : {}) })} className="truncate hover:underline">
+                    {fmt(r.started_at)} · {r.trigger === 'cron' ? 'auto' : 'handmatig'} · {r.mode === 'live' ? 'live' : 'schaduw'}
+                  </Link>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {n !== null && <span className={`text-xs tabular-nums ${n > 0 ? 'text-slate-700' : 'text-slate-400'}`}>{n} wijz.</span>}
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CLASS[r.status] ?? ''}`}>{STATUS[r.status] ?? r.status}</span>
+                  </span>
+                </li>
+              );
+            })}
+            {!runs?.length && <li className="py-2 text-slate-500">{params.only === 'changes' ? 'Geen runs met wijzigingen of fouten.' : 'Nog geen runs.'}</li>}
           </ul>
+          {params.runs !== 'all' && (runs?.length ?? 0) >= 10 && <Link href={back({ runs: 'all', ...(params.only ? { only: params.only } : {}) })} className="mt-2 inline-block text-xs text-sky-700 hover:underline">Meer tonen</Link>}
         </section>
       </div>
 
