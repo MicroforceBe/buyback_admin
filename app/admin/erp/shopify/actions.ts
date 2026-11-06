@@ -63,7 +63,7 @@ export async function removalAction(formData: FormData) {
   const action = String(formData.get('removal') ?? '');
   const ids = formData.getAll('ids').map(String);
   const run = String(formData.get('run') ?? '');
-  const view = action === 'delete' ? 'archived' : 'shopifyOnly';
+  const view = String(formData.get('view') ?? '') === 'shopifyArchived' ? 'shopifyArchived' : 'shopifyOnly';
   const target = (params: Record<string, string>) => back({ ...(run ? { run } : {}), view, ...params });
   if (action !== 'archive' && action !== 'restore' && action !== 'delete') redirect(target({ error: 'Onbekende actie.' }));
   if (formData.get('confirm') !== 'on') redirect(target({ error: 'Bevestig de actie eerst.' }));
