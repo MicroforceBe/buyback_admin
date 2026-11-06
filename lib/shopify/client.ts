@@ -172,5 +172,5 @@ export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScop
 
 // Metafields of reference products, used to fill the properties of a new draft.
 export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
-  nodes(ids: $ids) { ... on Product { id metafields(first: 100) { nodes { namespace key type value } } } }
+  nodes(ids: $ids) { ... on Product { id metafields(first: 100) { nodes { namespace key type value } } media(first: 20) { nodes { ... on MediaImage { image { url width height altText } } } } } }
 }`;

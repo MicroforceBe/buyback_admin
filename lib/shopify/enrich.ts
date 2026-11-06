@@ -11,7 +11,51 @@
 //  - Never copied: fields the ERP syncs, stock/price fields and app data (reviews, SEO, ...).
 
 export type MetafieldValue = { namespace: string; key: string; type: string; value: string };
-export type Reference = { sku: string; title: string; lead: number; metafields: MetafieldValue[] };
+export type RefImage = { url: string; width: number | null; height: number | null; altText: string | null };
+export type Reference = { sku: string; title: string; lead: number; metafields: MetafieldValue[]; images?: RefImage[] };
+
+// Marketing quality: longest side at least 1000 px, shortest at least 500 px, not a strip (max 3:1).
+export const MIN_LONG_SIDE = 1000;
+export const MIN_SHORT_SIDE = 500;
+export const MAX_ASPECT = 3;
+export const MAX_IMAGES = 10;
+
+export function goodImage(i: RefImage): boolean {
+  if (!i.url || !i.width || !i.height) return false;
+  const long = Math.max(i.width, i.height), short = Math.min(i.width, i.height);
+  return long >= MIN_LONG_SIDE && short >= MIN_SHORT_SIDE && long / short <= MAX_ASPECT;
+}
+
+/** Alt text for a copied image: the reference's alt with the new title, keeping the shop's SEO suffix. */
+export function altFor(newTitle: string, refTitle: string, alt: string | null): string {
+  if (alt && alt.includes(refTitle)) return alt.split(refTitle).join(newTitle).slice(0, 512);
+  const i = alt ? alt.indexOf('kopen bij') : -1;
+  return (i >= 0 ? `${newTitle} - ${alt!.slice(i)}` : newTitle).slice(0, 512);
+}
+
+/**
+ * Images for a new draft: only from an existing product of exactly the same model and colour, and
+ * only images of marketing quality. The reference with the most good images wins. Null if none.
+ */
+export function pickImages(title: string, refs: Reference[]): { files: { originalSource: string; contentType: 'IMAGE'; alt: string; duplicateResolutionMode: 'APPEND_UUID' }[]; fromSku: string } | null {
+  const model = modelOf(title);
+  if (!model) return null;
+  const colourOf = (r: Reference) => r.metafields.find(m => `${m.namespace}.${m.key}` === 'magento.colour_of_product')?.value.trim().toLowerCase() ?? '';
+  const titleColour = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])].filter(c => sameColour(title, c))
+    .sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
+  if (!titleColour) return null;
+  let best: { ref: Reference; good: RefImage[] } | null = null;
+  for (const r of refs) {
+    if (modelOf(r.title) !== model || colourOf(r) !== titleColour) continue;
+    const good = (r.images ?? []).filter(goodImage);
+    if (good.length && (!best || good.length > best.good.length)) best = { ref: r, good };
+  }
+  if (!best) return null;
+  return {
+    fromSku: best.ref.sku,
+    files: best.good.slice(0, MAX_IMAGES).map(i => ({ originalSource: i.url, contentType: 'IMAGE' as const, alt: altFor(title, best!.ref.title, i.altText), duplicateResolutionMode: 'APPEND_UUID' as const })),
+  };
+}
 
 export const CONDITION: Record<string, string> = { '5': '5* Als Nieuw', '4': '4* Zeer Goed', '3': '3* Goed' };
 
@@ -52,10 +96,32 @@ const NON_MODEL = new Set(['refurbished', 'refurb', 'nieuw', 'new', 'm', 'qwerty
  * all words except stars, colour codes and condition words. Lower case, quotes removed.
  */
 export function modelOf(title: string): string {
-  const words = title.toLowerCase().replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
+  // Remove condition stars before punctuation is stripped; keep numeric model generations.
+  const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+-]+/g, ' ').trim().split(' ').filter(Boolean);
   const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
   if (cut > 0) return words.slice(0, cut).join(' ');
-  return words.filter(w => !/^\d\*?$/.test(w) && !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
+  return words.filter(w => !COLOUR_ALIASES[w] && !NON_MODEL.has(w)).join(' ');
+}
+
+/** The descriptive words after the model (usually the colour), for choosing photo candidates. */
+export function descriptiveWords(title: string): Set<string> {
+  const model = new Set(modelOf(title).split(' '));
+  const out = new Set<string>();
+  for (const w of titleWords(title)) if (!model.has(w) && !CAPACITY_TOKEN.test(w) && !/^\d+$/.test(w) && !NON_MODEL.has(w)) out.add(w);
+  return out;
+}
+
+/**
+ * Photo candidates, independent of the metafield cut-off: products of exactly the same model,
+ * those sharing descriptive (colour) words first.
+ */
+export function photoCandidates<T extends { title: string }>(title: string, ranked: T[], max = 10): T[] {
+  const model = modelOf(title);
+  if (!model) return [];
+  const words = descriptiveWords(title);
+  const same = ranked.filter(r => modelOf(r.title) === model);
+  const shares = (r: T) => [...descriptiveWords(r.title)].some(w => words.has(w));
+  return [...same.filter(shares), ...same.filter(r => !shares(r))].slice(0, max);
 }
 
 function titleWords(title: string): Set<string> {
