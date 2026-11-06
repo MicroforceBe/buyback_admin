@@ -460,6 +460,46 @@ export function planCreates(candidates: DesiredState[], locations: Record<string
   return { creates, skipped };
 }
 
+/** Tag to keep a Shopify-only product as it is (no stock 0, no archive). */
+export const KEEP_TAG = 'erp-negeren';
+
+/**
+ * Articles that are no longer in the ERP but still in Shopify (active or draft): stock to 0 at every
+ * location right away, and archive the product once all its variants have been missing for
+ * archiveAfterHours. Products with the tag erp-negeren are left alone.
+ */
+export function planMissing(input: {
+  missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
+  locations: Record<string, string>; archiveAfterHours: number;
+}): { inventory: Plan['inventory']; archive: { productId: string; title: string; skus: string[] }[]; changes: Change[]; kept: number } {
+  const inventory: Plan['inventory'] = [];
+  const changes: Change[] = [];
+  const archive: { productId: string; title: string; skus: string[] }[] = [];
+  let kept = 0;
+  const byProduct = new Map<string, CurrentState[]>();
+  for (const v of input.all) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
+  const seenProducts = new Set<string>();
+  for (const v of input.missing) {
+    if (v.status === 'ARCHIVED') continue;
+    if (v.tags.includes(KEEP_TAG)) { kept++; continue; }
+    for (const [location, quantity] of Object.entries(v.inventory)) {
+      const locationId = input.locations[location];
+      if (!locationId || quantity <= 0) continue;
+      inventory.push({ inventoryItemId: v.inventoryItemId, locationId, quantity: 0 });
+      changes.push({ sku: v.sku, scope: 'inventory', field: location, oldValue: String(quantity), newValue: '0' });
+    }
+    if (seenProducts.has(v.productId)) continue;
+    seenProducts.add(v.productId);
+    const variants = byProduct.get(v.productId) ?? [v];
+    const allGoneLongEnough = variants.every(x => !input.erpSkus.has(x.sku) && (input.now.getTime() - (input.firstMissing.get(x.sku)?.getTime() ?? input.now.getTime())) >= input.archiveAfterHours * 3_600_000);
+    if (allGoneLongEnough) {
+      archive.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
+      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'ARCHIVED' });
+    }
+  }
+  return { inventory, archive, changes, kept };
+}
+
 export function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));

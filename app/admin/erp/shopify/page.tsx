@@ -30,7 +30,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   const configured = (() => { try { return shopifyConfig() !== null; } catch { return false; } })();
 
   const [{ data: settings }, { data: runs }] = await Promise.all([
-    supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,create_drafts,version,updated_at,updated_by').eq('id', true).single(),
+    supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,create_drafts,handle_missing,version,updated_at,updated_by').eq('id', true).single(),
     (() => {
       let q = supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,started_by,changes:counts->>changes')
         .order('started_at', { ascending: false }).limit(params.runs === 'all' ? 100 : 10);
@@ -113,6 +113,12 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                   <span className="mt-1 block text-xs text-slate-500">Maximaal 50 per run, met de tag <code>erp-nieuw</code>. Zolang die tag op het product staat, verandert de synchronisatie de status niet; verwijder de tag als foto’s en beschrijving klaar zijn. Bij meer dan 200 nieuwe artikelen tegelijk wordt niets aangemaakt (vermoedelijk een fout in het ERP-bestand).</span>
                 </span>
               </label>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" name="handle_missing" defaultChecked={settings?.handle_missing === true} className="mt-1" />
+                <span>Artikelen die niet meer in het ERP staan: <b>voorraad meteen op 0</b> en na 24 uur <b>archiveren</b>
+                  <span className="mt-1 block text-xs text-slate-500">Geldt voor actieve producten en concepten in Shopify waarvan de SKU niet in de recente ERP-exports staat. Een product met meerdere varianten wordt pas gearchiveerd als geen enkele variant nog in het ERP staat. Producten met de tag <code>erp-negeren</code> blijven ongemoeid. Verdwijnen er meer dan 100 artikelen binnen het uur, dan gebeurt er niets (vermoedelijk een fout in de export). Gearchiveerde producten kun je na 30 dagen definitief verwijderen.</span>
+                </span>
+              </label>
               <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Opslaan</button>
             </form>
           ) : <p className="mt-4 text-sm text-slate-600">Alleen beheerders wijzigen de modus. Noodrem: {settings?.max_changes} wijzigingen. Nieuwe artikelen als concept: {settings?.create_drafts ? 'aan' : 'uit'}.</p>}
@@ -154,13 +160,14 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked], ['Niet meer in ERP: voorraad → 0', c.missingStockZeroed], ['Niet meer in ERP: gearchiveerd', c.missingArchived], ['Uit ERP-export (oud in database)', c.notInExport]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
               return <Link key={label} href={back({ run: selected.id, ...(target ? { view: target } : {}) })} className={`rounded-xl border p-3 hover:border-sky-400 ${active ? 'border-sky-500 bg-sky-50 ring-1 ring-sky-500' : ''}`}>{body}<span className="text-xs text-sky-700">{active ? 'getoond' : 'toon lijst'}</span></Link>;
             })}
           </dl>
+          {typeof c.missingBlocked === 'string' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{c.missingBlocked}</p>}
           {typeof c.createBlocked === 'string' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{c.createBlocked}</p>}
           {Number(c.newDraftsPending ?? 0) > 0 && <p className="mt-3 text-sm text-slate-600">Nog {String(c.newDraftsPending)} nieuwe artikelen volgen in de volgende runs.</p>}
           {Array.isArray(c.newSkipped) && c.newSkipped.length > 0 && <p className="mt-3 text-sm text-slate-600">Niet aangemaakt: {(c.newSkipped as { sku: string; reason: string }[]).slice(0, 20).map(x => `${x.sku} (${x.reason})`).join(', ')}{c.newSkipped.length > 20 ? ' …' : ''}</p>}

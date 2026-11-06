@@ -88,3 +88,17 @@ van dezelfde SKU-familie (`lib/shopify/enrich.ts`):
 
 Bij de wijziging "nieuw artikel (draft)" staat hoeveel eigenschappen er ingevuld zijn. Het concept behoudt de tag
 `controle-categorie`, zodat iemand het nakijkt voor het geactiveerd wordt.
+
+## Artikelen die niet meer in het ERP staan
+- **Recente export:** een artikel telt alleen als ERP-artikel als het in de recente exports stond. De rij moet bijgewerkt zijn
+  door de laatste ERP-imports, met een marge van 40 minuten (twee imports). Dat geldt ook als de rij nog in `erp_articles` staat.
+- **Opvolging:** de synchronisatie houdt per Shopify-SKU bij sinds wanneer die niet meer in het ERP staat (`shopify_sku_missing`).
+- **Instelling "voorraad 0 en archiveren"** (standaard uit, alleen beheerders):
+  - de voorraad gaat meteen naar 0 op alle locaties;
+  - na 24 uur wordt het product gearchiveerd, en alleen als geen enkele variant nog in het ERP staat;
+  - het archiveren komt in het opruimlogboek, zodat definitief verwijderen na 30 dagen mogelijk is.
+- **Uitzonderingen:**
+  - de tag `erp-negeren` houdt een product buiten deze regel;
+  - verdwijnen er meer dan 100 artikelen binnen het uur, dan gebeurt er niets;
+  - de noodrem en de noodstop gelden ook hier.
+- Vereist `security/sql/shopify-sync-missing.sql`.
