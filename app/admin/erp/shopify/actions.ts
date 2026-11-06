@@ -26,9 +26,12 @@ export async function saveSettingsAction(formData: FormData) {
 export async function stopAction() {
   const user = await requireAccess('erp', 'write', false);
   const { data: current } = await supabaseAdmin.from('shopify_sync_settings').select('version').eq('id', true).single();
-  await supabaseAdmin.from('shopify_sync_settings')
-    .update({ mode: 'off', version: (current?.version ?? 0) + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') }).eq('id', true);
+  // The stop is unconditional (no version check), but it is only reported once the row really says 'off'.
+  const { data, error } = await supabaseAdmin.from('shopify_sync_settings')
+    .update({ mode: 'off', version: (current?.version ?? 0) + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') })
+    .eq('id', true).select('mode');
   revalidatePath(PATH);
+  if (error || data?.[0]?.mode !== 'off') redirect(back({ error: 'Noodstop mislukt: de synchronisatie staat mogelijk nog aan. Probeer opnieuw of zet de modus op Uit.' }));
   redirect(back({ saved: 'stop' }));
 }
 

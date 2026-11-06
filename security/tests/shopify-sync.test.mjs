@@ -255,9 +255,22 @@ test('live mode writes the changes and records per-SKU errors', async () => {
   assert.equal(inv.input.quantities[0].changeFromQuantity, null);
   assert.equal(result.status, 'failed');
   assert.equal(result.counts.failedSkus, 1);
-  const errorUpdate = log.find(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
-  assert.equal(errorUpdate.row.error, 'Niet toegestaan');
-  assert.ok(errorUpdate.filters.some(f => f[1] === 'sku' && f[2] === 'SKU1'));
+  const errorUpdates = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
+  assert.equal(errorUpdates.length, 1);
+  assert.equal(errorUpdates[0].row.error, 'Niet toegestaan');
+  // Only the inventory change of SKU1 is marked failed; its successful price change stays applied.
+  assert.deepEqual(plain(errorUpdates[0].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'inventory']]);
+});
+
+test('variant updates are sent in batches of at most 250', async () => {
+  const many = Array.from({ length: 251 }, (_, i) => current({ sku: 'V' + i, variantId: 'gid://shopify/ProductVariant/' + (1000 + i), inventoryItemId: 'gid://shopify/InventoryItem/' + (5000 + i) }));
+  const { db } = fakeDb({ mode: 'live', rows: many.map(v => csvRow({ 'Variant SKU [ID]': v.sku, 'Variant Price': '1,00' })) });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient(many);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  const sizes = fake.mutations.filter(m => m[0] === 'SyncVariants').map(m => m[1].variants.length);
+  assert.deepEqual(sizes, [250, 1]);
 });
 
 test('the emergency stop halts a live run before the next write', async () => {
@@ -283,6 +296,7 @@ test('admin page guards: mode and manual run are admin-only, the stop button nee
   assert.match(page, /async function saveSettingsAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
   assert.match(page, /async function runNowAction[\s\S]*?requireAccess\('erp', 'write', true\)/);
   assert.match(page, /async function stopAction[\s\S]*?requireAccess\('erp', 'write', false\)/);
+  assert.match(page, /if \(error \|\| data\?\.\[0\]\?\.mode !== 'off'\) redirect\(back\(\{ error: 'Noodstop mislukt/);
   assert.match(read('app/admin/erp/shopify/page.tsx'), /requirePageAccess\('erp'\)/);
   assert.match(page, /\.eq\('version', version\)/);
 });

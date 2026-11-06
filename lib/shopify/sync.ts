@@ -20,6 +20,8 @@ const KEEP_RUNS_DAYS = 30;
 type Db = typeof supabaseAdmin;
 type Deps = { db?: Db; client?: ShopifyClient | null; idempotencyKey?: () => string };
 
+class StoppedByOperator extends Error {}
+
 type UserError = { field?: string[] | null; message: string };
 const errorText = (errors: UserError[]) => errors.map(e => e.message).join('; ').slice(0, 900);
 
@@ -38,22 +40,30 @@ async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: 
   return { desired, invalid };
 }
 
-/** Writes the plan to Shopify in batches. Returns the Shopify ids (product, variant, inventory item or owner) whose write failed, with the reason. */
-class StoppedByOperator extends Error {}
+type Scope = 'product' | 'variant' | 'inventory' | 'metafield';
+type Failure = { id: string; scope: Scope; reason: string };
+// Shopify accepts at most 250 items per input array.
+const MAX_INPUT_ITEMS = 250;
 
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>): Promise<Map<string, string>> {
-  const failed = new Map<string, string>();
+/**
+ * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
+ * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
+ */
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>): Promise<Failure[]> {
+  const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
   for (const update of plan.productUpdates) {
     await guard();
     const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_UPDATE, { product: update });
-    if (productUpdate.userErrors.length) failed.set(update.id, errorText(productUpdate.userErrors));
+    if (productUpdate.userErrors.length) failed.push({ id: update.id, scope: 'product', reason: errorText(productUpdate.userErrors) });
   }
   for (const group of plan.variantUpdates) {
-    await guard();
-    const { productVariantsBulkUpdate } = await client.graphql<{ productVariantsBulkUpdate: { userErrors: UserError[] } }>(VARIANTS_UPDATE, group);
-    if (productVariantsBulkUpdate.userErrors.length) for (const v of group.variants) failed.set(v.id, errorText(productVariantsBulkUpdate.userErrors));
+    for (const variants of chunk(group.variants, MAX_INPUT_ITEMS)) {
+      await guard();
+      const { productVariantsBulkUpdate } = await client.graphql<{ productVariantsBulkUpdate: { userErrors: UserError[] } }>(VARIANTS_UPDATE, { productId: group.productId, variants });
+      if (productVariantsBulkUpdate.userErrors.length) for (const v of variants) failed.push({ id: v.id, scope: 'variant', reason: errorText(productVariantsBulkUpdate.userErrors) });
+    }
   }
   for (const batch of chunk(plan.inventory, 100)) {
     await guard();
@@ -61,12 +71,12 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
       input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
       key: key(),
     });
-    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.set(q.inventoryItemId, errorText(inventorySetQuantities.userErrors));
+    if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', reason: errorText(inventorySetQuantities.userErrors) });
   }
   for (const batch of chunk(plan.metafields, 25)) {
     await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
-    if (metafieldsSet.userErrors.length) for (const m of batch) failed.set(m.ownerId, errorText(metafieldsSet.userErrors));
+    if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', reason: errorText(metafieldsSet.userErrors) });
   }
   return failed;
 }
@@ -144,14 +154,15 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       return !error && data?.mode === 'live';
     };
     writing = true;
-    const failedById = await applyPlan(client, plan, runId, key, stillLive);
-    const failed = new Map<string, string>();
-    for (const [id, reason] of failedById) for (const sku of skusById.get(id) ?? [id]) failed.set(sku, reason);
+    const failures = await applyPlan(client, plan, runId, key, stillLive);
+    // Failures per SKU and scope: a failed stock write must not mark the SKU's successful price write as failed.
+    const failed = new Map<string, { sku: string; scope: Scope; reason: string }>();
+    for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set(`${sku}\u0000${f.scope}`, { sku, scope: f.scope, reason: f.reason });
 
-    const failedSkus = [...failed.keys()];
     const { error: markError } = await db.from('shopify_sync_changes').update({ applied: true }).eq('run_id', runId);
     if (markError) throw new Error('Status van de wijzigingen kon niet worden bijgewerkt.');
-    for (const [sku, reason] of failed) await db.from('shopify_sync_changes').update({ applied: false, error: reason }).eq('run_id', runId).eq('sku', sku);
+    for (const f of failed.values()) await db.from('shopify_sync_changes').update({ applied: false, error: f.reason }).eq('run_id', runId).eq('sku', f.sku).eq('scope', f.scope);
+    const failedSkus = [...new Set([...failed.values()].map(f => f.sku))];
     counts.failedSkus = failedSkus.length;
     return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);
   } catch (error) {
