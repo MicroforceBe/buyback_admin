@@ -12,7 +12,7 @@ export const maxDuration = 300;
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' }) : '—');
 const LISTS = {
-  erpOnly: { label: 'Alleen in ERP', key: 'erpOnlySkus', help: 'Staan in de ERP-CSV maar niet in Shopify. Ze worden niet aangemaakt.' },
+  erpOnly: { label: 'Alleen in ERP', key: 'erpOnlySkus', help: 'Staan in het ERP-bestand maar niet in Shopify. Ze worden alleen als concept aangemaakt als dat in de instellingen aan staat.' },
   shopifyOnly: { label: 'Alleen in Shopify', key: 'shopifyOnlySkus', help: 'Staan in Shopify maar niet in de ERP-CSV. Ze worden niet aangeraakt.' },
   duplicate: { label: 'Dubbele SKU in Shopify', key: 'duplicateSkuList', help: 'Deze SKU staat op meer dan één variant in Shopify en wordt daarom overgeslagen.' },
 } as const;
@@ -27,7 +27,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   const configured = (() => { try { return shopifyConfig() !== null; } catch { return false; } })();
 
   const [{ data: settings }, { data: runs }] = await Promise.all([
-    supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,version,updated_at,updated_by').eq('id', true).single(),
+    supabaseAdmin.from('shopify_sync_settings').select('mode,max_changes,create_drafts,version,updated_at,updated_by').eq('id', true).single(),
     supabaseAdmin.from('shopify_sync_runs').select('id,trigger,mode,status,started_at,started_by').order('started_at', { ascending: false }).limit(20),
   ]);
   const selectedId = params.run ?? runs?.[0]?.id;
@@ -56,7 +56,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
       <div className="rounded-3xl border bg-slate-950 p-8 text-white shadow-sm">
         <Link href="/admin/erp" className="text-xs text-slate-400 hover:text-white">← ERP</Link>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Shopify-synchronisatie</h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-300">Vervangt Matrixify. Elke 15 minuten (5 minuten na de ERP-import) vergelijken we de ERP-CSV met Shopify en schrijven we alleen wat verschilt: titel, merk, type, status, prijs, vergelijkingsprijs, btw, voorraad per winkel en vijf metavelden. Nieuwe of verdwenen artikelen worden niet aangemaakt of verwijderd.</p>
+        <p className="mt-2 max-w-3xl text-sm text-slate-300">Vervangt Matrixify. Elke 15 minuten (5 minuten na de ERP-import) vergelijken we de ERP-CSV met Shopify en schrijven we alleen wat verschilt: titel, merk, type, status, prijs, vergelijkingsprijs, btw, voorraad per winkel en vijf metavelden. Verdwenen artikelen worden nooit verwijderd; nieuwe artikelen worden alleen als concept aangemaakt als dat aan staat.</p>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
           <span className={`rounded-full px-3 py-1 font-semibold ${mode === 'live' ? 'bg-green-500 text-white' : mode === 'shadow' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-200'}`}>Modus: {MODES[mode]}</span>
           <span className={`rounded-full px-3 py-1 ${configured ? 'bg-white/10' : 'bg-red-500/80'}`}>{configured ? 'Shopify gekoppeld' : 'Shopify niet gekoppeld'}</span>
@@ -82,9 +82,15 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                 <input name="max_changes" type="number" min={1} max={100000} defaultValue={settings?.max_changes ?? 1500} className="mt-1 block w-full rounded-lg border px-3 py-2" />
                 <span className="mt-1 block text-xs text-slate-500">Zijn er meer wijzigingen, dan schrijft de run niets en stopt hij. Zo kan een kapotte CSV de webshop niet leegmaken.</span>
               </label>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" name="create_drafts" defaultChecked={settings?.create_drafts === true} className="mt-1" />
+                <span>Nieuwe ERP-artikelen als <b>concept</b> (draft) aanmaken in Shopify
+                  <span className="mt-1 block text-xs text-slate-500">Maximaal 50 per run, met de tag <code>erp-nieuw</code>. Zolang die tag op het product staat, verandert de synchronisatie de status niet; verwijder de tag als foto’s en beschrijving klaar zijn. Bij meer dan 200 nieuwe artikelen tegelijk wordt niets aangemaakt (vermoedelijk een fout in het ERP-bestand).</span>
+                </span>
+              </label>
               <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Opslaan</button>
             </form>
-          ) : <p className="mt-4 text-sm text-slate-600">Alleen beheerders wijzigen de modus. Noodrem: {settings?.max_changes} wijzigingen.</p>}
+          ) : <p className="mt-4 text-sm text-slate-600">Alleen beheerders wijzigen de modus. Noodrem: {settings?.max_changes} wijzigingen. Nieuwe artikelen als concept: {settings?.create_drafts ? 'aan' : 'uit'}.</p>}
           <p className="mt-4 text-xs text-slate-500">Laatst gewijzigd {fmt(settings?.updated_at ?? null)} door {settings?.updated_by}.</p>
         </section>
 
@@ -110,13 +116,16 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Status vergrendeld (erp-nieuw)', c.statusLocked]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
               return <Link key={label} href={back({ run: selected.id, ...(target ? { view: target } : {}) })} className={`rounded-xl border p-3 hover:border-sky-400 ${active ? 'border-sky-500 bg-sky-50 ring-1 ring-sky-500' : ''}`}>{body}<span className="text-xs text-sky-700">{active ? 'getoond' : 'toon lijst'}</span></Link>;
             })}
           </dl>
+          {typeof c.createBlocked === 'string' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{c.createBlocked}</p>}
+          {Number(c.newDraftsPending ?? 0) > 0 && <p className="mt-3 text-sm text-slate-600">Nog {String(c.newDraftsPending)} nieuwe artikelen volgen in de volgende runs.</p>}
+          {Array.isArray(c.newSkipped) && c.newSkipped.length > 0 && <p className="mt-3 text-sm text-slate-600">Niet aangemaakt: {(c.newSkipped as { sku: string; reason: string }[]).slice(0, 20).map(x => `${x.sku} (${x.reason})`).join(', ')}{c.newSkipped.length > 20 ? ' …' : ''}</p>}
           {Array.isArray(c.unknownLocations) && c.unknownLocations.length > 0 && <p className="mt-3 text-sm text-amber-700">Onbekende locaties in de CSV: {(c.unknownLocations as string[]).join(', ')}</p>}
           {view ? (
             <>

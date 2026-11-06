@@ -45,8 +45,12 @@ export function createShopifyClient(config: ShopifyConfig, deps: { fetch?: Fetch
     return token.value;
   }
 
-  /** Runs a GraphQL operation; retries on throttling and transient server errors. */
-  async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  /**
+   * Runs a GraphQL operation; retries on throttling and transient server errors. Pass
+   * retryServerErrors: false for non-idempotent writes (creating a product): a 5xx may still have
+   * been processed, and a retry could create a duplicate.
+   */
+  async function graphql<T>(query: string, variables: Record<string, unknown> = {}, options: { retryServerErrors?: boolean } = {}): Promise<T> {
     let refreshed = false;
     for (let attempt = 1; ; attempt++) {
       const response = await doFetch(`https://${config.domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
@@ -54,7 +58,7 @@ export function createShopifyClient(config: ShopifyConfig, deps: { fetch?: Fetch
         headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': await accessToken(), 'User-Agent': 'microforce-buyback-admin' },
         body: JSON.stringify({ query, variables }),
       });
-      if ((response.status === 429 || response.status >= 500) && attempt < 6) { await wait(Math.min(1000 * 2 ** attempt, 20_000)); continue; }
+      if ((response.status === 429 || (response.status >= 500 && options.retryServerErrors !== false)) && attempt < 6) { await wait(Math.min(1000 * 2 ** attempt, 20_000)); continue; }
       if (response.status === 401 && !refreshed) { refreshed = true; token = null; continue; }
       if (!response.ok) throw new ShopifyError(`Shopify antwoordde met HTTP ${response.status}.`);
       const body = (await response.json()) as { data?: T; errors?: { message?: string; extensions?: { code?: string } }[]; extensions?: { cost?: { throttleStatus?: { currentlyAvailable?: number; restoreRate?: number }; requestedQueryCost?: number } } };
@@ -128,4 +132,9 @@ export const INVENTORY_SET = `mutation SyncInventory($input: InventorySetQuantit
 
 export const METAFIELDS_SET = `mutation SyncMetafields($metafields: [MetafieldsSetInput!]!) {
   metafieldsSet(metafields: $metafields) { userErrors { code field message } }
+}`;
+
+// Creates one new product (status DRAFT). No identifier: productSet then always creates.
+export const PRODUCT_CREATE = `mutation CreateDraftProduct($input: ProductSetInput!) {
+  productSet(input: $input, synchronous: true) { product { id } userErrors { code field message } }
 }`;

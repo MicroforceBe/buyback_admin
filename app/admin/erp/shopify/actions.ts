@@ -13,9 +13,10 @@ export async function saveSettingsAction(formData: FormData) {
   const mode = String(formData.get('mode') ?? '');
   const maxChanges = Number(formData.get('max_changes'));
   const version = Number(formData.get('version'));
+  const createDrafts = formData.get('create_drafts') === 'on';
   if (!Object.hasOwn(MODES, mode) || !Number.isInteger(maxChanges) || maxChanges < 1 || maxChanges > 100000) redirect(back({ error: 'Ongeldige instellingen.' }));
   const { data, error } = await supabaseAdmin.from('shopify_sync_settings')
-    .update({ mode, max_changes: maxChanges, version: version + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') })
+    .update({ mode, max_changes: maxChanges, create_drafts: createDrafts, version: version + 1, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'admin') })
     .eq('id', true).eq('version', version).select('id');
   if (error) redirect(back({ error: 'Opslaan mislukt.' }));
   if (!data?.length) redirect(back({ error: 'Iemand anders wijzigde de instellingen intussen. Controleer en probeer opnieuw.' }));

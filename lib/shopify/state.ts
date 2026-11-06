@@ -30,6 +30,7 @@ export const BULK_VARIANTS_QUERY = `{
           vendor
           productType
           status
+          tags
 ${SYNCED_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.namespace}", key: "${m.key}") { value }`).join('\n')}
         }
       }
@@ -40,7 +41,7 @@ ${SYNCED_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.n
 type VariantLine = {
   id: string; sku: string | null; price: string; compareAtPrice: string | null; taxable: boolean;
   inventoryItem: { id: string } | null;
-  product: Record<string, unknown> & { id: string; title: string; vendor: string; productType: string; status: ProductStatus };
+  product: Record<string, unknown> & { id: string; title: string; vendor: string; productType: string; status: ProductStatus; tags?: string[] };
 };
 type LevelLine = { __parentId: string; location: { id: string; name: string }; quantities: { name: string; quantity: number }[] };
 
@@ -77,6 +78,7 @@ export function parseBulkVariants(jsonl: string): { variants: CurrentState[]; lo
       taxable: v.taxable === true,
       inventory: {},
       metafields,
+      tags: Array.isArray(v.product.tags) ? v.product.tags : [],
     });
   }
   for (const level of pendingLevels) {
