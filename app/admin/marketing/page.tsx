@@ -58,9 +58,14 @@ export default async function MarketingPage() {
   const score = seoScore(latest ? { checked: Number(latest.checked ?? 0), issues } : null);
   const actions = topActions(issues);
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-  const { data: recent } = await supabaseAdmin.from('shopify_catalog_fixes').select('kind').eq('result', 'ok').gte('created_at', since).limit(5000);
+  // All applied fixes of the last 7 days, page by page (Supabase returns at most 1000 rows per request).
   const week = new Map<string, number>();
-  for (const r of recent ?? []) week.set(r.kind, (week.get(r.kind) ?? 0) + 1);
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin.from('shopify_catalog_fixes').select('kind').eq('result', 'ok').gte('created_at', since).order('id', { ascending: true }).range(from, from + 999);
+    if (error) break;
+    for (const r of data ?? []) week.set(r.kind, (week.get(r.kind) ?? 0) + 1);
+    if (!data || data.length < 1000) break;
+  }
   const sources = sourceStatus(process.env);
 
   return (

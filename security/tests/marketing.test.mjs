@@ -68,4 +68,7 @@ test('the marketing page is behind the ERP permission and never prints setting v
   assert.match(page, /await requirePageAccess\('erp'\)/);
   assert.doesNotMatch(page, /process\.env\.[A-Z_]+/);
   assert.match(page, /sourceStatus\(process\.env\)/);
+  // The weekly totals read every page, not a capped result.
+  assert.match(page, /range\(from, from \+ 999\)/);
+  assert.doesNotMatch(page, /\.limit\(5000\)/);
 });
