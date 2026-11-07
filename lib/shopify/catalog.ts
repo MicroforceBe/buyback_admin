@@ -199,7 +199,7 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     if (!p.seoTitle) list.push('seo_title_missing');
     if (!p.seoDescription) list.push('seo_description_missing');
     const tooLong = p.seoTitle.length > SEO_TITLE_MAX || p.seoDescription.length > SEO_DESCRIPTION_MAX;
-    const raw = seoIsRaw(p.seoTitle, p.seoDescription);
+    const raw = seoIsRaw(p.seoTitle, p.seoDescription, p.refurbished);
     const mismatch = seoConditionMismatch(p.title, p.seoTitle, p.seoDescription);
     const dupMeta = !!p.seoDescription && (metaCount.get(p.seoDescription.toLowerCase()) ?? 0) > 1;
     if (tooLong) list.push('seo_too_long');

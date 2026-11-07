@@ -11,6 +11,7 @@ export const maxDuration = 300;
 
 const PATH = '/admin/erp/shopify/catalog';
 const PAGE_SIZE = 200;
+const FIX_LABEL: Record<Fix['kind'], string> = { condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving' };
 const fixText = (f: Fix) => {
   switch (f.kind) {
     case 'condition': return `Uiterlijk → ${f.value}`;
@@ -61,6 +62,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
       {params.notice && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.notice}</div>}
       {params.applied && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">Aangepast: {params.applied} · overgeslagen: {params.skipped} · mislukt: {params.failed}. Maak een nieuw rapport om het resultaat te zien.</div>}
+      {Number(params.nomatch) > 0 && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{params.nomatch} geselecteerde producten hadden geen voorstel van het aangevinkte soort en zijn niet aangepast. Kijk in de kolom &quot;Voorgestelde aanpassing&quot; welk vakje erbij hoort (bv. <b>SEO invullen</b> of <b>SEO vervangen</b>).</div>}
 
       {!report ? <p className="text-sm text-slate-600">Nog geen rapport. {isAdmin ? 'Klik op "Nieuw rapport maken".' : ''}</p> : (
         <>
@@ -110,7 +112,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                           <td className="pr-4 font-mono text-xs">{r.skus.join(', ')}</td>
                           <td className={`pr-4 text-right tabular-nums ${r.stock > 0 ? 'font-semibold text-green-700' : 'text-slate-400'}`}>{r.stock}</td>
                           <td className="pr-4"><div className="flex flex-wrap gap-1">{r.issues.map(c => <span key={c} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{ISSUE_LABELS[c] ?? c}</span>)}</div></td>
-                          <td className="text-xs text-slate-600">{r.fixes.map((f, i) => <div key={i}>{fixText(f)}</div>)}</td>
+                          <td className="text-xs text-slate-600">{r.fixes.map((f, i) => <div key={i}><span className="mr-1 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">{FIX_LABEL[f.kind]}</span>{fixText(f)}</div>)}</td>
                         </tr>
                       );
                     })}
@@ -129,12 +131,12 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                 <div className="mt-4 space-y-2 rounded-xl border bg-slate-50 p-4 text-sm">
                   <p className="font-semibold">Geselecteerde producten aanpassen in Shopify (max. 200)</p>
                   <p className="text-xs text-slate-600">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, alt-teksten, kleur, bestaande SEO-teksten, bestaande beschrijvingen en tags zoals main_sku worden nooit automatisch aangepast.</p>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="condition" defaultChecked /> Uiterlijk invullen of rechtzetten volgens de sterren in de titel</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="category" /> Categorie-tags toevoegen zoals bij het meest gelijkende product</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo" /> Ontbrekende SEO-titel en meta-description invullen met de voorgestelde tekst</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo_replace" /> Slechte SEO-tekst vervangen door het voorstel (oude tekst wordt bewaard en kan teruggezet worden)</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="condition" defaultChecked /> <b>Uiterlijk</b>: invullen of rechtzetten volgens de sterren in de titel</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="category" /> <b>Categorie</b>: tags toevoegen zoals bij het meest gelijkende product</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo" /> <b>SEO invullen</b>: ontbrekende SEO-titel en meta-description invullen met de voorgestelde tekst</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo_replace" /> <b>SEO vervangen</b>: slechte SEO-tekst vervangen door het voorstel (oude tekst wordt bewaard en kan teruggezet worden)</label>
                   <p className="text-xs text-slate-600">Producten met een SEO-tekst van deze tool krijgen de tag <code>tinyimg_metadata_skip</code>, zodat TinySEO ze niet meer overschrijft. Terugdraaien haalt die tag weer weg.</p>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="description" /> Lege beschrijving overnemen van een product van hetzelfde model</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="description" /> <b>Beschrijving</b>: lege beschrijving overnemen van een product van hetzelfde model</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
                   <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Aanpassen</button>
                 </div>
