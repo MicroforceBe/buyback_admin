@@ -117,6 +117,9 @@ on:
       - security/tests/shopify-cleanup.test.mjs
       - security/tests/shopify-catalog.test.mjs
       - security/tests/shopify-collections.test.mjs
+      - lib/marketing/**
+      - app/admin/marketing/**
+      - security/tests/marketing.test.mjs
       - security/sql/*shopify-collections*.sql
       - security/sql/*shopify-catalog*.sql
       - security/sql/*shopify-product-removals*.sql
@@ -185,6 +188,8 @@ jobs:
         run: node --experimental-vm-modules --test security/tests/customers.test.mjs
       - name: Shopify sync tests
         run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs security/tests/shopify-cleanup.test.mjs security/tests/shopify-catalog.test.mjs security/tests/shopify-collections.test.mjs
+      - name: Marketing overview tests
+        run: node --experimental-vm-modules --test security/tests/marketing.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
