@@ -43,11 +43,13 @@ test('SEO score and first actions only count findability issues; actions only pr
     { productId: '2', stock: 0, issues: ['seo_raw'], fixes: [] },
     { productId: '3', stock: 1, issues: ['no_photo'], fixes: [] },
     { productId: '4', stock: 3, issues: ['seo_raw', 'alt_missing'], fixes: [] },
+    { productId: '5', stock: 1, issues: ['description_short'], fixes: [{ kind: 'condition' }] },
   ];
-  assert.deepEqual(plain(mk.seoScore({ checked: 10, issues })), { score: 70, inStockWithIssues: 2 });
+  assert.deepEqual(plain(mk.seoScore({ checked: 10, issues })), { score: 60, inStockWithIssues: 3 });
   assert.equal(mk.seoScore(null), null);
   const a = plain(mk.topActions(issues));
-  assert.deepEqual(a.map(x => [x.code, x.inStock, x.fixable]), [['seo_raw', 2, 1], ['alt_missing', 1, 0]]);
+  // An unrelated proposal (condition) does not make a short description fixable.
+  assert.deepEqual(a.map(x => [x.code, x.inStock, x.fixable]), [['seo_raw', 2, 1], ['description_short', 1, 0], ['alt_missing', 1, 0]]);
 });
 
 test('sources are connected only when every setting is present; values are never returned', async () => {

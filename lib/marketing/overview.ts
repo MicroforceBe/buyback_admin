@@ -1,6 +1,6 @@
 // Marketing overview (pure): SEO health from the stored catalogue and collection reports, the actions
 // that matter most, and which marketing sources are connected (by the presence of their settings only).
-import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type IssueCode } from '@/lib/shopify/catalog';
+import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type Fix, type IssueCode } from '@/lib/shopify/catalog';
 import { COLLECTION_ISSUE_LABELS, type CollectionIssueCode } from '@/lib/shopify/collections';
 
 export type StoredReport<C extends string> = { id: string; created_at: string; checked: number; counts: Partial<Record<C, number>> };
@@ -37,6 +37,16 @@ export function seoScore(report: { checked: number; issues: CatalogIssue[] } | n
   return { score: Math.round(100 * (1 - withIssue.length / report.checked)), inStockWithIssues: withIssue.filter(i => i.stock > 0).length };
 }
 
+/** Which proposal kinds solve which check; a check without an entry is only reported (manual work). */
+export const FIXES_FOR: Partial<Record<IssueCode, Fix['kind'][]>> = {
+  seo_title_missing: ['seo'], seo_description_missing: ['seo'],
+  seo_too_long: ['seo_replace'], seo_raw: ['seo_replace'], seo_condition_mismatch: ['seo_replace'], seo_description_duplicate: ['seo_replace'], seo_outdated: ['seo_replace'],
+  seo_overwritten: ['seo', 'seo_replace'],
+  description_empty: ['description'], description_h1: ['heading'],
+  description_script: ['clean'], description_placeholder: ['clean'], description_empty_image: ['clean'],
+  alt_missing: ['alt_photo'], alt_weak: ['alt_photo_replace'], description_alt_missing: ['alt_text'],
+};
+
 export type Action = { code: IssueCode; label: string; inStock: number; fixable: number };
 
 /**
@@ -51,7 +61,8 @@ export function topActions(issues: CatalogIssue[], limit = 5): Action[] {
       if (!SEO_CODES.has(c)) continue;
       const a = by.get(c) ?? { code: c, label: ISSUE_LABELS[c], inStock: 0, fixable: 0 };
       a.inStock++;
-      if (i.fixes.length) a.fixable++;
+      // Only a proposal that solves this check counts (not an unrelated fix on the same product).
+      if (i.fixes.some(f => FIXES_FOR[c]?.includes(f.kind))) a.fixable++;
       by.set(c, a);
     }
   }
