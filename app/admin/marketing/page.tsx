@@ -5,6 +5,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ISSUE_LABELS, type CatalogIssue, type IssueCode } from '@/lib/shopify/catalog';
 import { COLLECTION_ISSUE_LABELS, type CollectionIssueCode } from '@/lib/shopify/collections';
+import GoogleSection from './GoogleSection';
 import { COLLECTION_METRICS, metrics, PRODUCT_METRICS, seoScore, sourceStatus, topActions, type Metric, type StoredReport } from '@/lib/marketing/overview';
 
 export const dynamic = 'force-dynamic';
@@ -45,8 +46,10 @@ function MetricTile({ m, href }: { m: Metric; href: string }) {
   );
 }
 
-export default async function MarketingPage() {
-  await requirePageAccess('erp');
+export default async function MarketingPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const user = await requirePageAccess('erp');
+  const params = await searchParams;
+  const isAdmin = String((user as { role?: string }).role ?? '').toLowerCase() === 'admin';
   const [{ data: productReports }, { data: collectionReports }] = await Promise.all([
     supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,checked,counts').eq('scope', 'products').order('created_at', { ascending: false }).limit(10),
     supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,checked,counts').eq('scope', 'collections').order('created_at', { ascending: false }).limit(10),
@@ -79,6 +82,11 @@ export default async function MarketingPage() {
           <div><div className="text-xs uppercase tracking-wide text-slate-400">Aanpassingen (7 dagen)</div><div className="mt-1 text-4xl font-bold">{[...week.entries()].filter(([k]) => k !== 'revert').reduce((a, [, n]) => a + n, 0)}</div><div className="text-xs text-slate-400">uitgevoerd via de rapporten</div></div>
         </div>
       </div>
+
+      {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
+      {params.ok && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.ok}</div>}
+
+      <GoogleSection isAdmin={isAdmin} />
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between"><h2 className="text-lg font-semibold">Eerst aanpakken</h2><span className="text-xs text-slate-500">producten op voorraad, uit het rapport van {products[0] ? fmt(products[0].created_at) : '—'}</span></div>
