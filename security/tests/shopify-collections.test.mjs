@@ -7,7 +7,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function load(db = null) {
-  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
+  const context = vm.createContext({ TextEncoder, console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
   const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/textClean': 'lib/shopify/textClean.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/collections': 'lib/shopify/collections.ts', '@/lib/shopify/collectionsRun': 'lib/shopify/collectionsRun.ts' };
   async function ld(path) {

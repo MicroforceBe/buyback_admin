@@ -2,8 +2,11 @@
 // "[Bedrijfsnaam]" by the shop name, and undoes that exactly. Shared by both reports; I/O is passed in.
 import { cleanDescription, htmlHash, undoClean, type DescriptionEdit } from '@/lib/shopify/seo';
 
-/** Above this size (JSON of the removed parts) the clean-up is not done: the undo data must fit in the log. */
-export const MAX_CLEAN_UNDO_CHARS = 50_000;
+/**
+ * Above this size (UTF-8 bytes of the JSON of the removed parts) the clean-up is not done: the undo data
+ * must fit in the log (64 KB per row in the database). The margin covers JSONB overhead; no compression assumed.
+ */
+export const MAX_CLEAN_UNDO_BYTES = 48_000;
 
 export type CleanOutcome =
   | { done: false; reason: string }
@@ -12,7 +15,7 @@ export type CleanOutcome =
 export async function applyClean(html: string, write: (html: string) => Promise<void>, read: () => Promise<string | null>): Promise<CleanOutcome> {
   const c = cleanDescription(html);
   if (!c.edits.length) return { done: false, reason: 'geen verborgen code of [Bedrijfsnaam] meer gevonden' };
-  if (JSON.stringify(c.edits).length > MAX_CLEAN_UNDO_CHARS) return { done: false, reason: 'te veel verborgen code om veilig terug te kunnen zetten; pas deze tekst manueel aan' };
+  if (new TextEncoder().encode(JSON.stringify({ edits: c.edits })).length > MAX_CLEAN_UNDO_BYTES) return { done: false, reason: 'te veel verborgen code om veilig terug te kunnen zetten; pas deze tekst manueel aan' };
   await write(c.html);
   // Undo rebuilds the original from positions in the cleaned text, so it needs Shopify to have kept that text exactly.
   // A failing check read leaves the undo available: undo itself refuses when the text differs (hash).

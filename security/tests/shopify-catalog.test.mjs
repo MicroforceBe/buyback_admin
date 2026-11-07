@@ -7,7 +7,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function load(db = null) {
-  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
+  const context = vm.createContext({ TextEncoder, console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
   const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/textClean': 'lib/shopify/textClean.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/catalog': 'lib/shopify/catalog.ts', '@/lib/shopify/catalogRun': 'lib/shopify/catalogRun.ts' };
   async function ld(path) {
@@ -662,4 +662,23 @@ test('a description fix never copies a source with hidden code or placeholders',
   assert.equal(r.skipped, 1);
   assert.equal(stored, '');
   assert.match(plain(writes[0].rows)[0].detail, /niet meer geschikt/);
+});
+
+test('a clean-up whose undo data would not fit in the log is not done', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  // 20,000 characters, 60,000 bytes in UTF-8: fits by character count, not by size.
+  let stored = '<p>tekst</p><script type="application/ld+json">' + '漢'.repeat(20000) + '</script>';
+  const original = stored;
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'clean', scripts: 1, names: 0 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['clean'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.skipped, 1);
+  assert.equal(stored, original);
+  assert.match(plain(writes[0].rows)[0].detail, /manueel/);
 });
