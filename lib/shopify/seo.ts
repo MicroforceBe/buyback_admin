@@ -225,7 +225,11 @@ export function cleanDescription(html: string): { html: string; edits: Descripti
 /** Rebuilds the original of cleanDescription; null when the text no longer matches the recorded edits. */
 export function undoClean(html: string, edits: DescriptionEdit[]): string | null {
   let out = html;
-  for (const e of [...edits].sort((a, b) => b.at - a.at)) {
+  // Last edit first: edits are recorded in text order, and several can share a position (adjacent scripts).
+  let prev = Infinity;
+  for (const e of [...edits].reverse()) {
+    if (e.at > prev) return null;
+    prev = e.at;
     if (!Number.isInteger(e.at) || e.at < 0 || out.slice(e.at, e.at + e.inserted.length) !== e.inserted) return null;
     out = out.slice(0, e.at) + e.removed + out.slice(e.at + e.inserted.length);
   }

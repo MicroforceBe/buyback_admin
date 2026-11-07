@@ -590,6 +590,11 @@ test('pasted texts: hidden code, placeholders and promises are found; clean-up i
   assert.match(c.html, /van Microforce is top[\s\S]*Bij Microforce:/);
   assert.equal(seo.undoClean(c.html, c.edits), PASTED);
   assert.equal(seo.undoClean(c.html.replace('Microforce', 'Iemand'), c.edits), null);
+  // Adjacent parts share a position in the cleaned text and still come back in their own order.
+  for (const html of ['<p>x</p><script>A</script><script>B</script><p>y</p>', '<script>A</script>[Bedrijfsnaam] en <script>B</script>[bedrijf]']) {
+    const d = plain(seo.cleanDescription(html));
+    assert.equal(seo.undoClean(d.html, d.edits), html);
+  }
 });
 
 test('a pasted text is reported, gets a clean-up proposal and is never used as copy source', async () => {
