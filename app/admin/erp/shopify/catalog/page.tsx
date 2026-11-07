@@ -21,7 +21,7 @@ const fixText = (f: Fix) => {
     case 'seo_replace': return `SEO vervangen — titel: "${f.oldTitle}" → "${f.title}" · meta: "${f.oldDescription}" → "${f.description}"`;
     case 'description': return `Beschrijving overnemen van "${f.fromTitle}"`;
     case 'heading': return `${f.count} H1-kop${f.count === 1 ? '' : 'pen'} in de beschrijving → H2`;
-    case 'clean': return `Opschonen: ${[f.scripts ? `${f.scripts} verborgen code-blok${f.scripts === 1 ? '' : 'ken'} weg` : '', f.names ? `${f.names}× [Bedrijfsnaam] → Microforce` : ''].filter(Boolean).join(' · ')}`;
+    case 'clean': return `Opschonen: ${[f.scripts ? `${f.scripts} verborgen code-blok${f.scripts === 1 ? '' : 'ken'} weg` : '', f.names ? `${f.names}× [Bedrijfsnaam] → Microforce` : '', f.images ? `${f.images} lege afbeelding${f.images === 1 ? '' : 'en'} weg` : ''].filter(Boolean).join(' · ')}`;
   }
 };
 const fmt = (iso: string) => new Date(iso).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' });
@@ -117,7 +117,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="seo_replace" /> <b>SEO vervangen</b> <span className="text-xs text-slate-500">(oude tekst bewaard)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="description" /> <b>Beschrijving</b> <span className="text-xs text-slate-500">(alleen lege)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="heading" /> <b>Koppen</b> <span className="text-xs text-slate-500">(H1 → H2)</span></label>
-                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="clean" /> <b>Opschonen</b> <span className="text-xs text-slate-500">(verborgen code weg, [Bedrijfsnaam] → Microforce)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="clean" /> <b>Opschonen</b> <span className="text-xs text-slate-500">(verborgen code en lege afbeeldingen weg, [Bedrijfsnaam] → Microforce)</span></label>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>

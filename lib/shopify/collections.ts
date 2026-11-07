@@ -1,7 +1,7 @@
 // Collection (category / model page) SEO report (pure): finds collections without SEO texts or
 // description, extra H1 headings, empty or duplicate collections and internal collections that
 // search engines can index, and proposes safe fixes.
-import { hasCssAsText, hasPlaceholder, namePlaceholderCount, scriptCount, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, textHash, wordCount } from '@/lib/shopify/seo';
+import { emptyImageCount, hasCssAsText, hasPlaceholder, namePlaceholderCount, scriptCount, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: every collection with its SEO fields and its products (status, stock, refurbished). */
 export const COLLECTIONS_BULK_QUERY = `{
@@ -40,6 +40,7 @@ export type CollectionInfo = {
   descriptionH1Count: number;
   descriptionScripts: number;
   descriptionNames: number;
+  descriptionEmptyImages: number;
   descriptionPlaceholder: boolean;
   descriptionCssText: boolean;
   products: number;
@@ -62,7 +63,7 @@ export function parseCollections(jsonl: string): CollectionInfo[] {
       seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(),
       hidden: String((l.hidden as { value?: string } | null)?.value ?? '') === '1',
       descriptionWords: wordCount(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length,
-      descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionPlaceholder: hasPlaceholder(html), descriptionCssText: hasCssAsText(html),
+      descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionEmptyImages: emptyImageCount(html), descriptionPlaceholder: hasPlaceholder(html), descriptionCssText: hasCssAsText(html),
       products: 0, active: 0, inStock: 0, refurbished: 0, activeSet: null, ids: [],
     });
   }
@@ -84,7 +85,7 @@ export type CollectionIssueCode =
   | 'col_seo_title_missing' | 'col_seo_description_missing' | 'col_seo_too_long'
   | 'col_description_empty' | 'col_description_short' | 'col_h1'
   | 'col_empty' | 'col_internal' | 'col_duplicate'
-  | 'col_script' | 'col_placeholder' | 'col_css';
+  | 'col_script' | 'col_placeholder' | 'col_css' | 'col_empty_image';
 
 export const COLLECTION_ISSUE_LABELS: Record<CollectionIssueCode, string> = {
   col_seo_title_missing: 'SEO-titel ontbreekt',
@@ -99,13 +100,14 @@ export const COLLECTION_ISSUE_LABELS: Record<CollectionIssueCode, string> = {
   col_script: 'Verborgen code (JSON-LD/script) in de tekst',
   col_placeholder: 'Placeholder in de tekst ([Bedrijfsnaam], uwdomein …)',
   col_css: 'Code (CSS) zichtbaar als tekst',
+  col_empty_image: 'Lege afbeelding in de tekst',
 };
 
 export type CollectionFix =
   | { kind: 'col_seo'; title: string | null; description: string | null }
   | { kind: 'col_hide' }
   | { kind: 'col_heading'; count: number }
-  | { kind: 'col_clean'; scripts: number; names: number };
+  | { kind: 'col_clean'; scripts: number; names: number; images?: number };
 
 export const COLLECTION_FIX_KINDS = ['col_seo', 'col_hide', 'col_heading', 'col_clean'] as const;
 
@@ -189,7 +191,8 @@ export function analyseCollections(collections: CollectionInfo[]): { issues: Col
       if (c.descriptionScripts) list.push('col_script');
       if (c.descriptionPlaceholder) list.push('col_placeholder');
       if (c.descriptionCssText) list.push('col_css');
-      if (c.descriptionScripts || c.descriptionNames) fixes.push({ kind: 'col_clean', scripts: c.descriptionScripts, names: c.descriptionNames });
+      if (c.descriptionEmptyImages) list.push('col_empty_image');
+      if (c.descriptionScripts || c.descriptionNames || c.descriptionEmptyImages) fixes.push({ kind: 'col_clean', scripts: c.descriptionScripts, names: c.descriptionNames, images: c.descriptionEmptyImages });
       if (!c.active) list.push('col_empty');
       const same = c.activeSet ? bySet.get(c.activeSet) ?? [] : [];
       if (same.length > 1) {

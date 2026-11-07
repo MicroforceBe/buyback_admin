@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { COLLECTION_INFO, COLLECTION_UPDATE, createShopifyClient, METAFIELDS_DELETE, METAFIELDS_SET, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCollections, COLLECTIONS_BULK_QUERY, parseCollections, type CollectionFix, type CollectionIssue } from '@/lib/shopify/collections';
 import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
-import { demoteH1, DEMOTED_H1_ATTR, hasH1, namePlaceholderCount, restoreH1, scriptCount } from '@/lib/shopify/seo';
+import { demoteH1, DEMOTED_H1_ATTR, emptyImageCount, hasH1, namePlaceholderCount, restoreH1, scriptCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -74,7 +74,7 @@ export async function applyCollectionFixes(input: { reportId: string; collection
       else if (col.title !== issue.title) reason = 'titel gewijzigd sinds het rapport';
       else if (fix.kind === 'col_seo') { if ((!fix.title || col.seo?.title?.trim()) && (!fix.description || col.seo?.description?.trim())) reason = 'SEO-gegevens zijn intussen al ingevuld'; }
       else if (fix.kind === 'col_hide') { if (col.hidden?.value === '1') reason = 'is al verborgen'; }
-      else if (fix.kind === 'col_clean') { if (!scriptCount(col.descriptionHtml) && !namePlaceholderCount(col.descriptionHtml)) reason = 'al opgeschoond'; }
+      else if (fix.kind === 'col_clean') { if (!scriptCount(col.descriptionHtml) && !namePlaceholderCount(col.descriptionHtml) && !emptyImageCount(col.descriptionHtml)) reason = 'al opgeschoond'; }
       else if (!hasH1(col.descriptionHtml)) reason = 'tekst heeft geen H1-kop meer';
       if (reason) { skipped++; log.push({ ...base, result: 'skipped', detail: reason }); continue; }
       try {

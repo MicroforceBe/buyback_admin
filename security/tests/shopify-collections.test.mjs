@@ -28,7 +28,7 @@ async function load(db = null) {
 }
 
 const C = (n, over = {}) => ({ id: `gid://shopify/Collection/${n}`, title: `Coll ${n}`, handle: `coll-${n}`, seoTitle: 'T', seoDescription: 'D', hidden: false,
-  descriptionWords: 300, descriptionH1Count: 0, descriptionScripts: 0, descriptionNames: 0, descriptionPlaceholder: false, descriptionCssText: false, products: 3, active: 3, inStock: 2, refurbished: 3, activeSet: `set${n}`, ...over });
+  descriptionWords: 300, descriptionH1Count: 0, descriptionScripts: 0, descriptionNames: 0, descriptionEmptyImages: 0, descriptionPlaceholder: false, descriptionCssText: false, products: 3, active: 3, inStock: 2, refurbished: 3, activeSet: `set${n}`, ...over });
 
 test('the bulk export is parsed with product counts, stock, refurbished share and hidden flag', async () => {
   const { col } = await load();
@@ -175,7 +175,7 @@ test('collection texts with hidden code or placeholders are reported, cleaned an
   const { col } = await load();
   const { issues } = plain(col.analyseCollections([C(1, { descriptionScripts: 1, descriptionNames: 1, descriptionPlaceholder: true, descriptionCssText: true })]));
   assert.deepEqual(issues[0].issues, ['col_script', 'col_placeholder', 'col_css']);
-  assert.deepEqual(issues[0].fixes, [{ kind: 'col_clean', scripts: 1, names: 1 }]);
+  assert.deepEqual(issues[0].fixes, [{ kind: 'col_clean', scripts: 1, names: 1, images: 0 }]);
   const original = '<p>Bij [Bedrijfsnaam] vind je alles.</p><script type="application/ld+json">{"a":1}</script>';
   const state = { 'gid://shopify/Collection/1': { id: 1, title: 'Coll 1', descriptionHtml: original, seo: null, hidden: null } };
   const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'col_clean', scripts: 1, names: 1 }])] });
