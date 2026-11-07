@@ -863,3 +863,29 @@ test('description alt texts are applied and undone exactly', async () => {
   assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
   assert.equal(state.descriptionHtml, original);
 });
+
+test('weak photo alt texts (TinySEO template, too long) get a separate replacement; undo restores the old text', async () => {
+  const { seo, catalog } = await load();
+  const tiny = 'Apple iMac 27" 5K M20 I9 64GB 512SSD Refurbished 5* - Simple kopen bij Microforce | Apple-specialist & refurbished expert | Gratis afhalen in Gentbrugge';
+  assert.equal(seo.altIsWeak(tiny), true);
+  assert.equal(seo.altIsWeak('Refurbished iMac 27" 5K'), false);
+  assert.equal(seo.altIsWeak(''), false);
+  assert.equal(seo.altIsWeak('x'.repeat(126)), true);
+  const t = 'Apple iMac 27" 5K M20 I9 64GB 512SSD Refurbished 5*';
+  const { issues } = plain(catalog.analyseCatalog([P(1, { title: t, images: [{ width: 1200, height: 1200, alt: tiny }, { width: 1200, height: 1200, alt: '' }] })]));
+  assert.ok(issues[0].issues.includes('alt_weak'));
+  assert.deepEqual(issues[0].fixes.find(f => f.kind === 'alt_photo_replace'), { kind: 'alt_photo_replace', count: 1, example: 'Refurbished Apple iMac 27" 5K M20 I9 64GB 512SSD', oldExample: tiny });
+  const state = { title: t, descriptionHtml: '', media: [{ id: 'M1', alt: tiny, mediaContentType: 'IMAGE' }, { id: 'M2', alt: '', mediaContentType: 'IMAGE' }] };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo_replace', count: 1, example: 'x', oldExample: 'y' }], t)] });
+  const { run } = await load(db);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_photo_replace'], actor: 'a' }, { db, client: altClient(state).client }));
+  assert.equal(r.applied, 1);
+  // Only the weak one is replaced; the empty one is for "Alt foto's".
+  assert.deepEqual(state.media.map(m => m.alt), ['Refurbished Apple iMac 27" 5K M20 I9 64GB 512SSD', '']);
+  const row = plain(writes[0].rows)[0];
+  assert.deepEqual(row.old_value, { media: [{ id: 'M1', alt: tiny }] });
+  const { db: db2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'alt_photo_replace', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
+  assert.equal(state.media[0].alt, tiny);
+});

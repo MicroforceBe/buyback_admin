@@ -6,7 +6,7 @@ import { APP_SCOPES, CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, FILE_UPDATE, C
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix, type ManagedSeo } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
 import { applyClean, applyDescriptionAlts, cleanUndoHtml } from '@/lib/shopify/textClean';
-import { altText, demoteH1, descriptionAltMissingCount, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, emptyImageCount, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { altIsWeak, altText, demoteH1, descriptionAltMissingCount, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, emptyImageCount, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -137,6 +137,8 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         if (!hasH1(product.descriptionHtml)) reason = 'beschrijving heeft geen H1-kop meer';
       } else if (fix.kind === 'alt_photo') {
         if (!photosOf(product).some(m => !m.alt?.trim())) reason = "alle productfoto's hebben al een alt-tekst";
+      } else if (fix.kind === 'alt_photo_replace') {
+        if (!photosOf(product).some(m => altIsWeak(m.alt))) reason = 'geen zwakke alt-tekst meer gevonden';
       } else if (fix.kind === 'alt_text') {
         if (!descriptionAltMissingCount(product.descriptionHtml)) reason = 'alle afbeeldingen in de beschrijving hebben al een alt-tekst';
       } else if (fix.kind === 'clean') {
@@ -176,17 +178,17 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           } catch { unchecked = true; }
           log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? (unchecked ? ' (markering niet gecontroleerd)' : '') : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
             old_value: kept ? { headings: count, token } : null, new_value: kept ? { headings: count, token } : null });
-        } else if (fix.kind === 'alt_photo') {
+        } else if (fix.kind === 'alt_photo' || fix.kind === 'alt_photo_replace') {
           if (filesScope === null) filesScope = await hasScope(client, 'write_files');
           if (!filesScope) { skipped++; log.push({ ...base, result: 'skipped', detail: "de app heeft het recht write_files (nog) niet: alt-teksten van productfoto's kunnen niet geschreven worden" }); continue; }
           const photos = photosOf(product!);
-          // Only photos without an alt text; the number follows the photo's place in the gallery.
-          const todo = photos.map((m, i) => ({ m, n: i + 1 })).filter(x => !x.m.alt?.trim());
+          // Only photos without an alt text (or, when replacing, with a weak one); the number follows the photo's place in the gallery.
+          const todo = photos.map((m, i) => ({ m, n: i + 1 })).filter(x => (fix.kind === 'alt_photo' ? !x.m.alt?.trim() : altIsWeak(x.m.alt)));
           const files = todo.map(x => ({ id: x.m.id, alt: altText(product!.title, product!.refurbished?.value === 'true', x.n, photos.length) }));
           // The undo data must fit in the log (64 KB); far beyond any real gallery, but checked before writing.
           if (new TextEncoder().encode(JSON.stringify(files)).length > 48_000) { skipped++; log.push({ ...base, result: 'skipped', detail: "te veel foto's om veilig terug te kunnen zetten" }); continue; }
           await setAlts(client, files);
-          log.push({ ...base, result: 'ok', detail: `${files.length} productfoto${files.length === 1 ? '' : "'s"} kreeg${files.length === 1 ? '' : 'en'} een alt-tekst, bv. "${files[0].alt}"`.slice(0, 1000),
+          log.push({ ...base, result: 'ok', detail: `${files.length} productfoto${files.length === 1 ? '' : "'s"} kreeg${files.length === 1 ? '' : 'en'} ${fix.kind === 'alt_photo' ? 'een' : 'een nieuwe'} alt-tekst, bv. "${files[0].alt}"`.slice(0, 1000),
             old_value: { media: todo.map(x => ({ id: x.m.id, alt: x.m.alt ?? '' })) }, new_value: { media: files } });
         } else if (fix.kind === 'alt_text') {
           const out = await applyDescriptionAlts(product!.descriptionHtml ?? '', product!.title, product!.refurbished?.value === 'true', html => updateProduct(client, { id, descriptionHtml: html }), async () => {
@@ -250,10 +252,10 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
   const client = clientOrThrow(deps.client);
   const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
   if (error || !fix) throw new Error('Aanpassing niet gevonden.');
-  if (!['seo', 'seo_replace', 'heading', 'clean', 'alt_photo', 'alt_text'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
+  if (!['seo', 'seo_replace', 'heading', 'clean', 'alt_photo', 'alt_photo_replace', 'alt_text'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
   const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
   if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
-  if (fix.kind === 'alt_photo') return revertAltPhoto(db, client, fix as AltPhotoRow, input.actor);
+  if (fix.kind === 'alt_photo' || fix.kind === 'alt_photo_replace') return revertAltPhoto(db, client, fix as AltPhotoRow, input.actor);
   if (fix.kind === 'clean' || fix.kind === 'alt_text') return revertClean(db, client, fix as CleanFixRow, input.actor);
   if (fix.kind === 'heading') return revertHeading(db, client, fix as { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { token?: string } }, input.actor);
   const old = fix.old_value as { title: string | null; description: string | null; skipTagAdded?: boolean };

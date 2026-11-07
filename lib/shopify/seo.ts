@@ -298,6 +298,15 @@ export function altText(title: string, refurbished: boolean, n: number, of: numb
   return of > 1 && n > 1 ? `${base} – ${word} ${n}` : base;
 }
 
+/**
+ * A weak alt text: TinySEO's generic template (stars, "kopen bij Microforce", the pickup slogan) or longer
+ * than an alt text should be. It describes the shop, not what is on the photo.
+ */
+export const altIsWeak = (alt: string | null | undefined) => {
+  const a = (alt ?? '').trim();
+  return !!a && (/\b\d\s*\*/.test(a) || /kopen bij microforce|gratis afhalen|apple-specialist|refurbished expert/i.test(a) || a.length > ALT_MAX);
+};
+
 /** Position and current alt of every <img> with a source (outside scripts); images inside <picture> included. */
 function describedImages(html: string): { start: number; tag: string; alt: { index: number; text: string; value: string } | null }[] {
   const out: { start: number; tag: string; alt: { index: number; text: string; value: string } | null }[] = [];
