@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { requireAccess } from '@/lib/security/access';
-import { applyCatalogFixes, generateCatalogReport } from '@/lib/shopify/catalogRun';
+import { applyCatalogFixes, generateCatalogReport, revertCatalogFix } from '@/lib/shopify/catalogRun';
 import { FIX_KINDS, type Fix } from '@/lib/shopify/catalog';
 
 const PATH = '/admin/erp/shopify/catalog';
@@ -35,6 +35,24 @@ export async function applyFixesAction(formData: FormData) {
     target = back({ ...keep, applied: String(r.applied), skipped: String(r.skipped), failed: String(r.failed) });
   } catch (error) {
     target = back({ ...keep, error: error instanceof Error ? error.message.slice(0, 300) : 'Aanpassen mislukt.' });
+  }
+  revalidatePath(PATH);
+  redirect(target);
+}
+
+export async function revertFixAction(formData: FormData) {
+  const user = await requireAccess('erp', 'write', true);
+  const reportId = String(formData.get('report') ?? '');
+  const fixId = Number(formData.get('fix'));
+  let target: string;
+  if (!Number.isSafeInteger(fixId) || fixId <= 0) target = back({ report: reportId, error: 'Ongeldige aanpassing.' });
+  else {
+    try {
+      const r = await revertCatalogFix({ fixId, actor: String(user.email ?? 'admin') });
+      target = back({ report: reportId, ...(r.ok ? { notice: 'Aanpassing teruggedraaid.' } : { error: `Niet teruggedraaid: ${r.detail}.` }) });
+    } catch (error) {
+      target = back({ report: reportId, error: error instanceof Error ? error.message.slice(0, 300) : 'Terugdraaien mislukt.' });
+    }
   }
   revalidatePath(PATH);
   redirect(target);

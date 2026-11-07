@@ -155,8 +155,14 @@ Extra automatische aanpassingen (zelfde regels: admin, bevestiging, product eers
 - **SEO-tekst:** alleen een **lege** SEO-titel of meta-description wordt ingevuld, in de huisstijl ("Refurbished … – Zeer Goed | Microforce", "Koop refurbished … bij Microforce met 24 maanden garantie. Gratis afhalen …"). Geen prijzen (die veranderen). Een bestaande tekst wordt nooit overschreven.
 - **Beschrijving:** een lege beschrijving wordt overgenomen van het product van **exact hetzelfde model** met de langste beschrijving (≥ 100 woorden) waarvan de koppen geen ander model noemen.
 
+**Samenwerking met TinySEO.** TinySEO genereert elke nacht SEO-titels en meta-descriptions uit een sjabloon ("Alle metadata overschrijven") en slaat producten met de tag `tinyimg_metadata_skip` over. Onze tool zet die tag op elk product waarvan hij de SEO-tekst invult of vervangt (vóór de tekst geschreven wordt; mislukt het schrijven, dan gaat de tag weer weg). Zo neemt de tool product per product over, en blijven andere producten een TinySEO-tekst houden. Alt-teksten en beeldverkleining blijven bij TinySEO.
+
+Extra controles: SEO-tekst is de ruwe titel of het algemene sjabloon (sterren, "… kopen - Microforce"), noemt een andere conditie dan de sterren in de titel, of de meta-description is identiek aan die van een ander product.
+
+**Slechte SEO-tekst vervangen** (`seo_replace`) is een aparte keuze: het rapport toont oud → nieuw; er wordt alleen vervangen als de tekst nog exact is wat het rapport toonde. De oude tekst staat in het logboek (`old_value`) en elke SEO-aanpassing kan via **Terugdraaien** ongedaan gemaakt worden (één keer, alleen als de tekst intussen niet opnieuw gewijzigd is). Terugdraaien haalt ook de skip-tag weg als de tool die had toegevoegd, zodat TinySEO het product weer beheert.
+
 Alt-teksten worden (nog) niet automatisch aangepast: daarvoor is het recht `write_files` nodig, dat de app nu niet heeft.
 
 **Nieuwe concepten** uit de sync krijgen dezelfde beschrijving-regel; zonder geschikte bron krijgen ze de tag `geen-beschrijving`.
 
-SQL: `security/sql/shopify-catalog.sql` en `shopify-catalog-seo.sql` (tests: `test-shopify-catalog*.sql`).
+SQL: `security/sql/shopify-catalog.sql`, `shopify-catalog-seo.sql` en `shopify-catalog-revert.sql` (tests: `test-shopify-catalog*.sql`).
