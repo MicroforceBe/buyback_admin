@@ -191,6 +191,8 @@ export function restoreH1(html: string, token: string): { html: string; count: n
 // ── Pasted (AI) text: hidden code, placeholders and promises to check ──────────────────────────────
 
 const SCRIPT_BLOCK = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+/** A <picture> element: its <img> can take the image from a <source>, so it is never treated as empty. */
+const PICTURE = /<picture\b[\s\S]*?<\/picture\s*>/gi;
 /** A complete <img> tag; quoted attribute values may contain ">". */
 const IMG_TAG = `<img\\b(?:[^>"']|"[^"]*"|'[^']*')*>`;
 /** An <img>, with its <p> when that holds nothing else; whether it is empty is decided by isEmptyImageTag. */
@@ -215,7 +217,7 @@ const CSS_AS_TEXT = /(?:^|\s)[.#]?[a-z][\w-]*(?:\s+[.#]?[\w-]+)*\s*\{[^{}]*:[^{}
 /** Number of <script> blocks (e.g. JSON-LD) in a description: Google reads them as extra product data. */
 export const scriptCount = (html: string | null | undefined) => ((html ?? '').match(/<script\b/gi) ?? []).length;
 /** Images without a usable src outside scripts (the clean-up removes them). */
-export const emptyImageCount = (html: string | null | undefined) => [...withoutScripts(html).matchAll(IMAGE)].filter(m => isEmptyImageTag(m[0])).length;
+export const emptyImageCount = (html: string | null | undefined) => [...withoutScripts(html).replace(PICTURE, ' ').matchAll(IMAGE)].filter(m => isEmptyImageTag(m[0])).length;
 const withoutScripts = (html: string | null | undefined) => (html ?? '').replace(SCRIPT_BLOCK, ' ');
 /** Company-name placeholders outside scripts. */
 export const namePlaceholderCount = (html: string | null | undefined) => (withoutScripts(html).match(NAME_PLACEHOLDER) ?? []).length;
@@ -234,14 +236,25 @@ export type DescriptionEdit = { at: number; removed: string; inserted: string };
  * recorded with their position in the result, so the exact original can be rebuilt (undoClean).
  */
 export function cleanDescription(html: string): { html: string; edits: DescriptionEdit[]; scripts: number; names: number; images: number } {
-  const re = new RegExp(`${SCRIPT_BLOCK.source}|${IMAGE.source}|${NAME_PLACEHOLDER.source}`, 'gi');
+  const re = new RegExp(`${SCRIPT_BLOCK.source}|${PICTURE.source}|${IMAGE.source}|${NAME_PLACEHOLDER.source}`, 'gi');
   const edits: DescriptionEdit[] = [];
   let out = '', last = 0, scripts = 0, names = 0, images = 0;
   for (const m of html.matchAll(re)) {
     out += html.slice(last, m.index);
     last = (m.index ?? 0) + m[0].length;
-    // An image with a source stays exactly as it is.
-    if (/^<(p|img)\b/i.test(m[0]) && !/^<script/i.test(m[0]) && !isEmptyImageTag(m[0])) { out += m[0]; continue; }
+    // A <picture>, or an image with a source, stays; only company-name placeholders inside it are replaced.
+    if (/^<picture\b/i.test(m[0]) || (/^<(p|img)\b/i.test(m[0]) && !isEmptyImageTag(m[0]))) {
+      let kept = 0;
+      for (const n of m[0].matchAll(new RegExp(NAME_PLACEHOLDER.source, 'gi'))) {
+        out += m[0].slice(kept, n.index);
+        names++;
+        edits.push({ at: out.length, removed: n[0], inserted: BRAND });
+        out += BRAND;
+        kept = (n.index ?? 0) + n[0].length;
+      }
+      out += m[0].slice(kept);
+      continue;
+    }
     const name = !m[0].startsWith('<');
     if (name) names++; else if (/^<script/i.test(m[0])) scripts++; else images++;
     const inserted = name ? BRAND : '';

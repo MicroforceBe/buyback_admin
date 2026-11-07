@@ -682,6 +682,15 @@ test('images without a src are removed by the clean-up (with an otherwise empty 
   assert.equal(seo.emptyImageCount(keep), 0);
   assert.equal(seo.hasEmptyImage(keep), false);
   assert.equal(plain(seo.cleanDescription(keep)).html, keep);
+  const pic = '<picture><source srcset="a.webp" type="image/webp"><img alt="Product"></picture>';
+  assert.equal(seo.emptyImageCount(pic), 0);
+  assert.equal(plain(seo.cleanDescription(pic)).html, pic);
+  // Placeholders inside kept images and pictures are still replaced, and undone.
+  const ph = '<img src="a.jpg" alt="[Bedrijfsnaam]"><picture><img alt="[bedrijf] x"></picture>';
+  const pc = plain(seo.cleanDescription(ph));
+  assert.equal(pc.names, 2);
+  assert.equal(pc.html, '<img src="a.jpg" alt="Microforce"><picture><img alt="Microforce x"></picture>');
+  assert.equal(seo.undoClean(pc.html, pc.edits), ph);
   const quoted = '<img alt="a > b"><p>x</p>';
   assert.equal(plain(seo.cleanDescription(quoted)).html, '<p>x</p>');
   const { issues } = plain(catalog.analyseCatalog([P(1, { descriptionEmptyImage: true, descriptionEmptyImages: 2 })]));
