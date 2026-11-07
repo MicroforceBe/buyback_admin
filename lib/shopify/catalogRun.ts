@@ -135,6 +135,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           const token = randomUUID().slice(0, 12);
           const { html, count } = demoteH1(product!.descriptionHtml ?? '', token);
           await updateProduct(client, { id, descriptionHtml: html });
+          product = { ...product!, descriptionHtml: html };
           // Undo relies on the marker; if Shopify did not keep it, say so instead of offering an undo that cannot work.
           const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
           const kept = (after?.descriptionHtml ?? '').includes(`${DEMOTED_H1_ATTR}="${token}"`);
@@ -147,6 +148,8 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
             skipped++; log.push({ ...base, result: 'skipped', detail: 'bronproduct is niet meer geschikt' }); continue;
           }
           await updateProduct(client, { id, descriptionHtml: source.descriptionHtml });
+          // Later fixes for this product (e.g. headings) must work on the text that is now in Shopify.
+          product = { ...product!, descriptionHtml: source.descriptionHtml };
           log.push({ ...base, result: 'ok', detail: `beschrijving overgenomen van "${source.title}"`.slice(0, 1000) });
         } else if (fix.kind === 'condition') {
           const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: [{ ownerId: id, namespace: 'magento', key: 'conditie', type: 'single_line_text_field', value: fix.value }] });

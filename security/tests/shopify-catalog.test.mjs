@@ -482,6 +482,24 @@ test('heading fix is applied, logged for undo, and undone via the marker', async
   assert.equal(plain(w2[0].rows).reverts, 9);
 });
 
+test('a heading fix after a description fix works on the newly copied text', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let stored = '<h1></h1>';
+  const source = '<h1>Bron</h1><p>' + 'tekst '.repeat(150) + '</p>';
+  const { db } = fakeDb({ issues: [issue(1, [{ kind: 'description', fromProductId: 'gid://shopify/Product/9', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' }, { kind: 'heading', count: 1 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogDescriptionSource')) return { product: { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: source } };
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['description', 'heading'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.applied, 2);
+  assert.match(stored, /^<h2 data-mf-h1="[^"]+">Bron<\/h2><p>tekst/);
+});
+
 test('SEO texts set by the tool that were overwritten or lost their skip tag are reported', async () => {
   const { catalog } = await load();
   const own = { title: 'Mijn titel', description: 'Mijn meta' };
