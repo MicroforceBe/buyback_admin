@@ -75,7 +75,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border bg-slate-950 p-8 text-white shadow-sm">
-        <Link href="/admin/erp" className="text-xs text-slate-400 hover:text-white">← ERP</Link>
+        <div className="flex justify-between text-xs"><Link href="/admin/erp" className="text-slate-400 hover:text-white">← ERP</Link><Link href="/admin/erp/shopify/catalog" className="text-sky-300 hover:text-white">Catalogusrapport →</Link></div>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Shopify-synchronisatie</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Vervangt Matrixify. Elke 15 minuten (5 minuten na de ERP-import) vergelijken we de ERP-CSV met Shopify en schrijven we alleen wat verschilt: titel, merk, type, status, prijs, vergelijkingsprijs, btw, voorraad per winkel en vijf metavelden. Verdwenen artikelen worden nooit verwijderd; nieuwe artikelen worden alleen als concept aangemaakt als dat aan staat.</p>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
