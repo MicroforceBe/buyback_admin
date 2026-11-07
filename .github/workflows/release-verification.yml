@@ -116,6 +116,8 @@ on:
       - security/tests/shopify-sync.test.mjs
       - security/tests/shopify-cleanup.test.mjs
       - security/tests/shopify-catalog.test.mjs
+      - security/tests/shopify-collections.test.mjs
+      - security/sql/*shopify-collections*.sql
       - security/sql/*shopify-catalog*.sql
       - security/sql/*shopify-product-removals*.sql
       - security/sql/*shopify-sync*.sql
@@ -182,7 +184,7 @@ jobs:
       - name: Verify customer validation, duplicate checks, versioning and access without live services
         run: node --experimental-vm-modules --test security/tests/customers.test.mjs
       - name: Shopify sync tests
-        run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs security/tests/shopify-cleanup.test.mjs security/tests/shopify-catalog.test.mjs
+        run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs security/tests/shopify-cleanup.test.mjs security/tests/shopify-catalog.test.mjs security/tests/shopify-collections.test.mjs
       - name: Check application types against the updated SDK
         run: |
           node -e "const fs=require('fs'); if(!fs.existsSync('next-env.d.ts'))fs.writeFileSync('next-env.d.ts','/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n')"
