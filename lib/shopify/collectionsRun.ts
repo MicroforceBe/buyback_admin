@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { COLLECTION_INFO, COLLECTION_UPDATE, createShopifyClient, METAFIELDS_DELETE, METAFIELDS_SET, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCollections, COLLECTIONS_BULK_QUERY, parseCollections, type CollectionFix, type CollectionIssue } from '@/lib/shopify/collections';
-import { demoteH1, DEMOTED_H1_ATTR, hasH1, restoreH1 } from '@/lib/shopify/seo';
+import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
+import { demoteH1, DEMOTED_H1_ATTR, hasH1, namePlaceholderCount, restoreH1, scriptCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -73,6 +74,7 @@ export async function applyCollectionFixes(input: { reportId: string; collection
       else if (col.title !== issue.title) reason = 'titel gewijzigd sinds het rapport';
       else if (fix.kind === 'col_seo') { if ((!fix.title || col.seo?.title?.trim()) && (!fix.description || col.seo?.description?.trim())) reason = 'SEO-gegevens zijn intussen al ingevuld'; }
       else if (fix.kind === 'col_hide') { if (col.hidden?.value === '1') reason = 'is al verborgen'; }
+      else if (fix.kind === 'col_clean') { if (!scriptCount(col.descriptionHtml) && !namePlaceholderCount(col.descriptionHtml)) reason = 'al opgeschoond'; }
       else if (!hasH1(col.descriptionHtml)) reason = 'tekst heeft geen H1-kop meer';
       if (reason) { skipped++; log.push({ ...base, result: 'skipped', detail: reason }); continue; }
       try {
@@ -86,6 +88,14 @@ export async function applyCollectionFixes(input: { reportId: string; collection
         } else if (fix.kind === 'col_hide') {
           await setHidden(client, id);
           log.push({ ...base, result: 'ok', detail: 'verborgen voor zoekmachines (seo.hidden = 1)', old_value: { hidden: false }, new_value: { hidden: true } });
+        } else if (fix.kind === 'col_clean') {
+          const out = await applyClean(col!.descriptionHtml ?? '', html => updateCollection(client, { id, descriptionHtml: html }), async () => {
+            const { collection: after } = await client.graphql<{ collection: Fresh }>(COLLECTION_INFO, { id });
+            return after?.descriptionHtml ?? null;
+          });
+          if (!out.done) { skipped++; log.push({ ...base, result: 'skipped', detail: out.reason }); continue; }
+          col = { ...col!, descriptionHtml: out.html };
+          log.push({ ...base, result: 'ok', detail: out.detail.slice(0, 1000), old_value: out.old_value, new_value: out.new_value });
         } else {
           const token = randomUUID().slice(0, 12);
           const { html, count } = demoteH1(col!.descriptionHtml ?? '', token);
@@ -113,7 +123,7 @@ export async function revertCollectionFix(input: { fixId: number; actor: string 
   const client = clientOrThrow(deps.client);
   const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
   if (error || !fix) throw new Error('Aanpassing niet gevonden.');
-  if (!['col_seo', 'col_hide', 'col_heading'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
+  if (!['col_seo', 'col_hide', 'col_heading', 'col_clean'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
   const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
   if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
   const { collection: col } = await client.graphql<{ collection: Fresh }>(COLLECTION_INFO, { id: fix.product_id });
@@ -130,6 +140,10 @@ export async function revertCollectionFix(input: { fixId: number; actor: string 
     } else if (fix.kind === 'col_hide') {
       if (col.hidden?.value !== '1') result = { ok: false, status: 'skipped', detail: 'collectie is al zichtbaar' };
       else { await clearHidden(client, fix.product_id); result = { ok: true, status: 'ok', detail: 'weer zichtbaar voor zoekmachines' }; }
+    } else if (fix.kind === 'col_clean') {
+      const undo = cleanUndoHtml(col.descriptionHtml ?? '', fix.old_value as { edits?: [] }, fix.new_value as { hash?: string });
+      if ('reason' in undo) result = { ok: false, status: 'skipped', detail: undo.reason };
+      else { await updateCollection(client, { id: fix.product_id, descriptionHtml: undo.html }); result = { ok: true, status: 'ok', detail: 'oorspronkelijke tekst teruggezet' }; }
     } else {
       const restored = restoreH1(col.descriptionHtml ?? '', String((fix.old_value as { token?: string }).token ?? ''));
       if (!restored.count) result = { ok: false, status: 'skipped', detail: `geen gemarkeerde kop (${DEMOTED_H1_ATTR}) meer gevonden; tekst is intussen gewijzigd` };

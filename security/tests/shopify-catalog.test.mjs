@@ -7,9 +7,9 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function load(db = null) {
-  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
+  const context = vm.createContext({ TextEncoder, console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/catalog': 'lib/shopify/catalog.ts', '@/lib/shopify/catalogRun': 'lib/shopify/catalogRun.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/textClean': 'lib/shopify/textClean.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/catalog': 'lib/shopify/catalog.ts', '@/lib/shopify/catalogRun': 'lib/shopify/catalogRun.ts' };
   async function ld(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -24,13 +24,13 @@ async function load(db = null) {
     if (m.status === 'linked') await m.evaluate();
     return m;
   }
-  return { catalog: (await ld('lib/shopify/catalog.ts')).namespace, run: (await ld('lib/shopify/catalogRun.ts')).namespace };
+  return { catalog: (await ld('lib/shopify/catalog.ts')).namespace, run: (await ld('lib/shopify/catalogRun.ts')).namespace, seo: (await ld('lib/shopify/seo.ts')).namespace };
 }
 
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, descriptionScripts: 0, descriptionNames: 0, descriptionPlaceholder: false, descriptionClaims: false, descriptionCssText: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -567,4 +567,118 @@ test('catalogue actions are admin-only and the SQL keeps the fix log append-only
   assert.match(sql, /grant select, insert on public\.shopify_catalog_fixes to service_role;/);
   assert.doesNotMatch(sql, /grant[^;]*(update|delete)[^;]*shopify_catalog_fixes/i);
   assert.match(sql, /enable row level security/);
+});
+
+const PASTED = '<section><h2>Waarom</h2><p>Een device van [Bedrijfsnaam] is top. Batterijconditie van minimaal 85%.</p>\n    <script type="application/ld+json">{"@type":"Product","brand":{"name":"Apple"},"image":["https://uwdomein.nl/a.jpg"]}</script>\n<p>Bij [bedrijfsnaam]: ' + 'tekst '.repeat(120) + '</p></section>';
+
+test('pasted texts: hidden code, placeholders and promises are found; clean-up is exact and undoable', async () => {
+  const { seo } = await load();
+  assert.equal(seo.scriptCount(PASTED), 1);
+  assert.equal(seo.namePlaceholderCount(PASTED), 2);
+  assert.equal(seo.hasPlaceholder(PASTED), true);
+  assert.equal(seo.hasClaims(PASTED), true);
+  assert.equal(seo.hasClaims('<p>Ruim 50 kg aan CO2 bespaard</p>'), true);
+  assert.equal(seo.hasPlaceholder('<p>Neem contact op met [Stad] winkel</p>'), true);
+  assert.equal(seo.hasPlaceholder('<p>Gewone tekst [1] zonder iets</p>'), false);
+  assert.equal(seo.hasCssAsText('<p>.seo-box { color: red; }</p>'), true);
+  assert.equal(seo.hasCssAsText('<style>.x{color:red}</style><p>tekst</p>'), false);
+  assert.equal(seo.isUnsafeDescription(PASTED), true);
+  const c = plain(seo.cleanDescription(PASTED));
+  assert.equal(c.scripts, 1);
+  assert.equal(c.names, 2);
+  assert.doesNotMatch(c.html, /<script|\[bedrijfsnaam\]/i);
+  assert.match(c.html, /van Microforce is top[\s\S]*Bij Microforce:/);
+  assert.equal(seo.undoClean(c.html, c.edits), PASTED);
+  assert.equal(seo.undoClean(c.html.replace('Microforce', 'Iemand'), c.edits), null);
+  // Adjacent parts share a position in the cleaned text and still come back in their own order.
+  for (const html of ['<p>x</p><script>A</script><script>B</script><p>y</p>', '<script>A</script>[Bedrijfsnaam] en <script>B</script>[bedrijf]']) {
+    const d = plain(seo.cleanDescription(html));
+    assert.equal(seo.undoClean(d.html, d.edits), html);
+  }
+});
+
+test('a pasted text is reported, gets a clean-up proposal and is never used as copy source', async () => {
+  const { catalog, seo } = await load();
+  const { issues } = plain(catalog.analyseCatalog([
+    P(1, { title: 'iPhone 13 128GB Zwart 5*', descriptionWords: 300, descriptionScripts: 1, descriptionNames: 2, descriptionPlaceholder: true, descriptionClaims: true }),
+    P(2, { title: 'iPhone 13 128GB Wit 5*', descriptionWords: 0, descriptionBlank: true, descriptionHash: null }),
+  ]));
+  const by = Object.fromEntries(issues.map(i => [i.productId.split('/').pop(), i]));
+  for (const code of ['description_script', 'description_placeholder', 'description_claims']) assert.ok(by[1].issues.includes(code), code);
+  assert.deepEqual(by[1].fixes.find(f => f.kind === 'clean'), { kind: 'clean', scripts: 1, names: 2 });
+  assert.ok(!by[2].fixes.some(f => f.kind === 'description'));
+  assert.equal(seo.pickDescription('iPhone 13 128GB Wit 5*', [{ title: 'iPhone 13 128GB Zwart 5*', descriptionHtml: PASTED }]), null);
+});
+
+test('clean-up is applied, re-checked, logged with undo data, and undone only while unchanged', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let stored = PASTED;
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'clean', scripts: 1, names: 2 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['clean'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 1, skipped: 0, failed: 0, noMatch: 0 });
+  assert.doesNotMatch(stored, /<script|\[bedrijfsnaam\]/i);
+  const row = plain(writes[0].rows)[0];
+  assert.match(row.detail, /1 verborgen code-blok verwijderd · 2× \[Bedrijfsnaam\] → Microforce$/);
+  assert.equal(row.old_value.edits.length, 3);
+  // A second run finds nothing left to do.
+  const again = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['clean'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(again.skipped, 1);
+  const fixRow = { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'clean', result: 'ok', old_value: row.old_value, new_value: row.new_value };
+  // Changed since: not restored.
+  const cleaned = stored;
+  stored = cleaned + '<p>nieuw</p>';
+  const { db: dbA } = fakeDb(null, { fix: fixRow });
+  const { run: runA } = await load(dbA);
+  assert.equal(plain(await runA.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: dbA, client: fake.client })).status, 'skipped');
+  stored = cleaned;
+  const { db: db2, writes: w2 } = fakeDb(null, { fix: fixRow });
+  const { run: run2 } = await load(db2);
+  const u = plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: fake.client }));
+  assert.equal(u.ok, true);
+  assert.equal(stored, PASTED);
+  assert.equal(plain(w2[0].rows).reverts, 9);
+});
+
+test('a description fix never copies a source with hidden code or placeholders', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let stored = '';
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'description', fromProductId: 'gid://shopify/Product/9', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogDescriptionSource')) return { product: { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: PASTED } };
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['description'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.skipped, 1);
+  assert.equal(stored, '');
+  assert.match(plain(writes[0].rows)[0].detail, /niet meer geschikt/);
+});
+
+test('a clean-up whose undo data would not fit in the log is not done', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  // 20,000 characters, 60,000 bytes in UTF-8: fits by character count, not by size.
+  let stored = '<p>tekst</p><script type="application/ld+json">' + '漢'.repeat(20000) + '</script>';
+  const original = stored;
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'clean', scripts: 1, names: 0 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['clean'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.skipped, 1);
+  assert.equal(stored, original);
+  assert.match(plain(writes[0].rows)[0].detail, /manueel/);
 });

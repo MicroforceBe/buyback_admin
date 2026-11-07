@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { EMPTY_DESCRIPTION_WORDS, hasClaims, hasCssAsText, hasEmptyImage, hasPlaceholder, namePlaceholderCount, scriptCount, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -76,6 +76,13 @@ export type CatalogProduct = {
   descriptionH1Count: number;
   descriptionEmptyImage: boolean;
   descriptionOtherModel: boolean;
+  /** <script> blocks (e.g. JSON-LD) in the description. */
+  descriptionScripts: number;
+  /** Company-name placeholders ("[Bedrijfsnaam]") the clean-up replaces by the shop name. */
+  descriptionNames: number;
+  descriptionPlaceholder: boolean;
+  descriptionClaims: boolean;
+  descriptionCssText: boolean;
 };
 
 export function parseCatalog(jsonl: string): CatalogProduct[] {
@@ -95,6 +102,8 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         specs: Object.fromEntries(SPEC_KEYS.map(k => [k, mf(`mf_${k}`)?.trim()]).filter(([, v]) => v)),
         descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length, descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
+        descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionPlaceholder: hasPlaceholder(html),
+        descriptionClaims: hasClaims(html), descriptionCssText: hasCssAsText(html),
       });
     }
   }
@@ -116,7 +125,8 @@ export type IssueCode =
   | 'seo_title_missing' | 'seo_description_missing' | 'seo_too_long'
   | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
-  | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten';
+  | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten'
+  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -144,12 +154,17 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   description_empty_image: 'Lege afbeelding in de beschrijving',
   alt_missing: 'Foto zonder alt-tekst',
   seo_overwritten: 'SEO-tekst van de tool is overschreven',
+  description_script: 'Verborgen code (JSON-LD/script) in de beschrijving',
+  description_placeholder: 'Placeholder in de beschrijving ([Bedrijfsnaam], uwdomein …)',
+  description_claims: 'Belofte om te controleren (batterij, CO2)',
+  description_css: 'Code (CSS) zichtbaar als tekst',
 };
 
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
   { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten'] },
+  { label: 'Geplakte teksten', codes: ['description_script', 'description_placeholder', 'description_claims', 'description_css'] },
 ];
 
 export type Fix =
@@ -158,9 +173,10 @@ export type Fix =
   | { kind: 'seo'; title: string | null; description: string | null }
   | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string }
   | { kind: 'description'; fromProductId: string; fromTitle: string }
-  | { kind: 'heading'; count: number };
+  | { kind: 'heading'; count: number }
+  | { kind: 'clean'; scripts: number; names: number };
 
-export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading'] as const;
+export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading', 'clean'] as const;
 
 export type CatalogIssue = { productId: string; title: string; handle: string; status: string; skus: string[]; stock: number; issues: IssueCode[]; fixes: Fix[] };
 
@@ -186,7 +202,7 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
   const descriptionSource = new Map<string, CatalogProduct>();
   for (const p of products) {
     const m = modelOf(p.title);
-    if (!m || p.descriptionWords < SHORT_DESCRIPTION_WORDS || p.descriptionOtherModel) continue;
+    if (!m || p.descriptionWords < SHORT_DESCRIPTION_WORDS || p.descriptionOtherModel || p.descriptionScripts || p.descriptionPlaceholder) continue;
     const cur = descriptionSource.get(m);
     if (!cur || p.descriptionWords > cur.descriptionWords) descriptionSource.set(m, p);
   }
@@ -252,6 +268,12 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     if (p.descriptionOtherModel) list.push('description_other_model');
     if (p.descriptionH1) { list.push('description_h1'); fixes.push({ kind: 'heading', count: p.descriptionH1Count }); }
     if (p.descriptionEmptyImage) list.push('description_empty_image');
+    // Pasted texts: hidden code is removed and "[Bedrijfsnaam]" becomes the shop name; the rest is only reported.
+    if (p.descriptionScripts) list.push('description_script');
+    if (p.descriptionPlaceholder) list.push('description_placeholder');
+    if (p.descriptionClaims) list.push('description_claims');
+    if (p.descriptionCssText) list.push('description_css');
+    if (p.descriptionScripts || p.descriptionNames) fixes.push({ kind: 'clean', scripts: p.descriptionScripts, names: p.descriptionNames });
     if (p.images.some(i => !i.alt)) list.push('alt_missing');
     // SEO text set by this tool (latest applied fix, not undone) that is no longer there, or lost its TinySEO skip tag.
     const own = managed.get(p.id);
