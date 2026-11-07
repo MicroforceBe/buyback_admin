@@ -6,6 +6,9 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ISSUE_LABELS, type CatalogIssue, type IssueCode } from '@/lib/shopify/catalog';
 import { COLLECTION_ISSUE_LABELS, type CollectionIssueCode } from '@/lib/shopify/collections';
 import GoogleSection from './GoogleSection';
+import { loadGoogle } from './googleLoad';
+import { merchantIssueLabel, shopifyProductIdOf } from '@/lib/marketing/googleData';
+import { shopifyConfig } from '@/lib/shopify/client';
 import { COLLECTION_METRICS, metrics, PRODUCT_METRICS, seoScore, sourceStatus, topActions, type Metric, type StoredReport } from '@/lib/marketing/overview';
 
 export const dynamic = 'force-dynamic';
@@ -70,6 +73,15 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
     if (!data || data.length < 1000) break;
   }
   const sources = sourceStatus(process.env);
+  const google = await loadGoogle();
+  const merchant = google && !('settingsError' in google) && google.mc?.ok ? google.mc.data : null;
+  const store = (() => { try { return shopifyConfig()?.domain.replace(/\.myshopify\.com$/, '') ?? null; } catch { return null; } })();
+  // Shopify Google channel offers carry the product id; other feeds (Channable) are found by searching their offer id.
+  const shopifyLink = (offerId: string) => {
+    if (!store) return null;
+    const id = shopifyProductIdOf(offerId);
+    return id ? `https://admin.shopify.com/store/${store}/products/${id}` : `https://admin.shopify.com/store/${store}/products?query=${encodeURIComponent(offerId)}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -100,6 +112,27 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
             ))}
           </div>
         ) : <p className="rounded-2xl border bg-white p-4 text-sm text-slate-500">{products.length ? 'Geen vindbaarheidsproblemen bij producten op voorraad.' : <>Nog geen catalogusrapport. <Link href={CATALOG} className="text-sky-700 underline">Maak er een</Link>.</>}</p>}
+        {merchant && merchant.disapproved.length > 0 && (
+          <details className="rounded-2xl border bg-white shadow-sm">
+            <summary className="flex cursor-pointer items-center justify-between gap-4 p-4 hover:bg-slate-50">
+              <span><b>{merchant.byStatus.NOT_ELIGIBLE_OR_DISAPPROVED ?? merchant.disapproved.length}</b> {(merchant.byStatus.NOT_ELIGIBLE_OR_DISAPPROVED ?? merchant.disapproved.length) === 1 ? 'product' : 'producten'} afgekeurd in Google Shopping</span>
+              <span className="text-xs text-slate-500">toon de lijst ↓</span>
+            </summary>
+            <table className="w-full border-t text-sm">
+              <thead><tr className="text-left text-xs text-slate-500"><th className="px-4 py-2">Product</th><th className="py-2">Waarom</th><th className="px-4 py-2 text-right">Shopify</th></tr></thead>
+              <tbody>{merchant.disapproved.map(p => {
+                const href = shopifyLink(p.offerId);
+                return (
+                  <tr key={p.offerId || p.title} className="border-t align-top">
+                    <td className="px-4 py-2">{p.title}<div className="text-xs text-slate-400">{p.offerId}</div></td>
+                    <td className="py-2 text-xs text-slate-600">{p.issues.length ? p.issues.map(merchantIssueLabel).join(' · ') : '—'}</td>
+                    <td className="px-4 py-2 text-right">{href ? <a href={href} target="_blank" rel="noreferrer" className="text-sky-700 hover:underline">openen ↗</a> : '—'}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </details>
+        )}
       </section>
 
       <section className="space-y-3">

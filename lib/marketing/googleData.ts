@@ -60,13 +60,44 @@ export const MERCHANT_STATUS_LABELS: Record<string, string> = {
   ELIGIBLE: 'Goedgekeurd', ELIGIBLE_LIMITED: 'Beperkt', NOT_ELIGIBLE_OR_DISAPPROVED: 'Afgekeurd', PENDING: 'In behandeling',
 };
 
-type MerchantRow = { productView?: { aggregatedReportingContextStatus?: string; itemIssues?: { type?: { code?: string; canonicalAttribute?: string } }[] } };
-export type MerchantSummary = { products: number; byStatus: Record<string, number>; issues: { code: string; attribute: string | null; products: number }[] };
+type MerchantRow = { productView?: { offerId?: string; title?: string; aggregatedReportingContextStatus?: string; itemIssues?: { type?: { code?: string; canonicalAttribute?: string } }[] } };
+export type DisapprovedProduct = { offerId: string; title: string; issues: string[] };
+export type MerchantSummary = { products: number; byStatus: Record<string, number>; issues: { code: string; attribute: string | null; products: number }[]; disapproved: DisapprovedProduct[] };
+
+/** Dutch labels for the Merchant Center issue codes seen in this shop; other codes are shown as they are. */
+export const MERCHANT_ISSUE_LABELS: Record<string, string> = {
+  local_stores_lack_inventory: 'Geen winkelvoorraad doorgestuurd',
+  item_missing_required_attribute: 'Verplicht veld ontbreekt',
+  landing_page_error: 'Productpagina werkt niet',
+  personal_hardships_policy_violation: 'Beleid: inspelen op persoonlijke tegenslag',
+  image_too_small: 'Afbeelding te klein',
+  image_link_broken: 'Afbeelding niet bereikbaar',
+  missing_image_link: 'Geen afbeelding',
+  price_mismatch: 'Prijs verschilt van de website',
+  availability_mismatch: 'Beschikbaarheid verschilt van de website',
+};
+export const merchantIssueLabel = (code: string) => MERCHANT_ISSUE_LABELS[code] ?? code.replace(/_/g, ' ');
+
+/** Shopify product id from an offer id of the Shopify Google channel ("shopify_BE_<product>_<variant>"); null for other feeds. */
+export function shopifyProductIdOf(offerId: string): string | null {
+  const m = offerId.match(/^shopify_[A-Z]{2}_(\d+)_\d+$/i);
+  return m ? m[1] : null;
+}
+
+/** A page of Search Console: the path on the main domain, otherwise host and path (so two "/" never look alike). */
+export function pageLabel(url: string, mainHost = 'microforce.be'): string {
+  try {
+    const u = new URL(url);
+    const path = `${u.pathname}${u.search}` || '/';
+    return u.hostname === mainHost ? path : `${u.hostname}${path === '/' ? '' : path}`;
+  } catch { return url; }
+}
 
 /** Product counts per status and the most frequent issues (number of products per issue code), over all pages. */
 export function merchantSummary(pages: { results?: MerchantRow[] }[]): MerchantSummary {
   const byStatus: Record<string, number> = {};
   const issues = new Map<string, { code: string; attribute: string | null; products: number }>();
+  const disapproved: DisapprovedProduct[] = [];
   let products = 0;
   for (const page of pages) for (const row of page.results ?? []) {
     const v = row.productView;
@@ -84,8 +115,10 @@ export function merchantSummary(pages: { results?: MerchantRow[] }[]): MerchantS
       cur.products++;
       issues.set(code, cur);
     }
+    if (s === 'NOT_ELIGIBLE_OR_DISAPPROVED') disapproved.push({ offerId: v.offerId ?? '', title: v.title ?? v.offerId ?? '', issues: [...seen] });
   }
-  return { products, byStatus, issues: [...issues.values()].sort((a, b) => b.products - a.products || a.code.localeCompare(b.code)).slice(0, 10) };
+  disapproved.sort((a, b) => a.title.localeCompare(b.title));
+  return { products, byStatus, issues: [...issues.values()].sort((a, b) => b.products - a.products || a.code.localeCompare(b.code)).slice(0, 10), disapproved: disapproved.slice(0, 200) };
 }
 
 /** Merchant API answers this way until the Cloud project is registered with the Merchant Center account. */
