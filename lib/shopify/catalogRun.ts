@@ -183,6 +183,8 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           // Only photos without an alt text; the number follows the photo's place in the gallery.
           const todo = photos.map((m, i) => ({ m, n: i + 1 })).filter(x => !x.m.alt?.trim());
           const files = todo.map(x => ({ id: x.m.id, alt: altText(product!.title, product!.refurbished?.value === 'true', x.n, photos.length) }));
+          // The undo data must fit in the log (64 KB); far beyond any real gallery, but checked before writing.
+          if (new TextEncoder().encode(JSON.stringify(files)).length > 48_000) { skipped++; log.push({ ...base, result: 'skipped', detail: "te veel foto's om veilig terug te kunnen zetten" }); continue; }
           await setAlts(client, files);
           log.push({ ...base, result: 'ok', detail: `${files.length} productfoto${files.length === 1 ? '' : "'s"} kreeg${files.length === 1 ? '' : 'en'} een alt-tekst, bv. "${files[0].alt}"`.slice(0, 1000),
             old_value: { media: todo.map(x => ({ id: x.m.id, alt: x.m.alt ?? '' })) }, new_value: { media: files } });
