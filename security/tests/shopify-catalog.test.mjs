@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -400,6 +400,43 @@ test('selected products without a proposal of the chosen kind are counted, not s
   assert.deepEqual(r, { applied: 0, skipped: 0, failed: 0, noMatch: 1 });
   assert.equal(fake.calls.length, 0);
   assert.equal(writes.length, 0);
+});
+
+test('products with the same title get unique SEO texts from the properties that differ', async () => {
+  const { catalog } = await load();
+  const t = 'MacBook Pro 16" L19 32GB 1TB SSD SG Refurbished 4*';
+  const r = plain(catalog.analyseCatalog([
+    P(1, { title: t, seoTitle: '', seoDescription: '', specs: { cpu: 'i9-9980HK', gpu: 'AMD Radeon Pro 5500M', layout: 'AZERTY' } }),
+    P(2, { title: t, seoTitle: '', seoDescription: '', specs: { cpu: 'i7-9750H', gpu: 'AMD Radeon Pro 5300M', layout: 'AZERTY' } }),
+    P(3, { title: 'Dell Latitude 5420 I5 16GB 256SSD 14" Refurbished 4*', seoTitle: '', seoDescription: '', specs: { cpu: 'i5-1145G7' } }),
+  ]));
+  const seoOf = n => r.issues.find(i => i.productId.endsWith('/' + n)).fixes.find(f => f.kind === 'seo');
+  const a = seoOf(1), b = seoOf(2), c = seoOf(3);
+  assert.notEqual(a.title, b.title);
+  assert.notEqual(a.description, b.description);
+  assert.match(a.title, /i9-9980HK/);
+  assert.match(b.title, /i7-9750H/);
+  assert.match(a.description, /i9-9980HK en AMD Radeon Pro 5500M/);
+  assert.doesNotMatch(a.description, /AZERTY/, 'equal in the group, so not a distinguishing property');
+  assert.ok(a.title.length <= 60 && b.title.length <= 60 && a.description.length <= 155);
+  // A unique title keeps the plain proposal.
+  assert.doesNotMatch(c.title, /i5-1145G7/);
+});
+
+test('distinguishing properties already in the title are not repeated', async () => {
+  const { catalog } = await load();
+  const t = 'MacBook Air 13" M20 I5 8GB 512SSD SL Refurbished 5*';
+  // The Processor Model differs, but "I5" is already in the title: only the model year is added.
+  const group = [P(1, { title: t, specs: { cpu: 'I5', year: 'Early 2020' } }), P(2, { title: t, specs: { cpu: 'I7', year: 'Mid 2020' } })];
+  assert.deepEqual(plain(catalog.distinguishingSpecs(group[0], group)), ['Early 2020']);
+  assert.deepEqual(plain(catalog.distinguishingSpecs(group[0], [group[0]])), []);
+  // Missing or already-mentioned values never use up the two slots.
+  const lt = 'Laptop i5 Intel HD Refurbished 4*';
+  const g3 = [P(1, { title: lt, specs: { cpu: 'i5', gpu: 'Intel HD', year: '2019', layout: 'AZERTY' } }), P(2, { title: lt, specs: { cpu: 'i5', gpu: 'Intel HD', year: '2020', layout: 'QWERTY' } }), P(3, { title: lt, specs: { cpu: 'i7', gpu: 'Iris' } })];
+  assert.deepEqual(plain(catalog.distinguishingSpecs(g3[0], g3)), ['2019', 'AZERTY']);
+  assert.deepEqual(plain(catalog.distinguishingSpecs(g3[1], g3)), ['2020', 'QWERTY']);
+  const g2 = [P(1, { title: t, specs: { cpu: 'i5-1030NG7' } }), P(2, { title: t, specs: { cpu: 'i3-1000NG4' } })];
+  assert.deepEqual(plain(catalog.distinguishingSpecs(g2[0], g2)), ['i5-1030NG7']);
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

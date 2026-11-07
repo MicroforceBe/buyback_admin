@@ -71,29 +71,39 @@ const cutAtWord = (s: string, max: number) => {
   return (i > max * 0.6 ? cut.slice(0, i) : s.slice(0, max)).replace(/[\s,–|-]+$/, '');
 };
 
-/** Suggested SEO title (max. 60 characters), in the shop's existing style; the most complete variant that fits. */
-export function suggestSeoTitle(title: string, refurbished: boolean): string {
+/**
+ * Suggested SEO title (max. 60 characters), in the shop's existing style; the most complete variant
+ * that fits. Distinguishing properties (for products sharing a title) come right after the name and
+ * are dropped last.
+ */
+export function suggestSeoTitle(title: string, refurbished: boolean, extras: string[] = []): string {
   const name = seoName(title);
   const cond = conditionLabel(title);
-  const base = refurbished ? `Refurbished ${name}` : name;
-  const options = refurbished
-    ? [...(cond ? [`${base} – ${cond} | ${BRAND}`, `${base} – ${cond}`] : []), `${base} | ${BRAND}`, base]
-    : [`${name} kopen - ${BRAND}`, `${name} | ${BRAND}`, name];
-  return options.find(o => o.length <= SEO_TITLE_MAX) ?? cutAtWord(base, SEO_TITLE_MAX);
+  const plain = refurbished ? `Refurbished ${name}` : name;
+  const options: string[] = [];
+  // All distinguishing properties, then only the first; with and without "Refurbished"; the plain name last.
+  const sets = [extras, extras.slice(0, 1)].filter((x, i, all) => x.length && (i === 0 || x.length !== all[0].length)).map(x => x.join(' '));
+  const bases = [...sets.flatMap(x => [`${plain} ${x}`, ...(refurbished ? [`${name} ${x}`] : [])]), plain];
+  for (const base of bases) {
+    if (refurbished) options.push(...(cond ? [`${base} – ${cond} | ${BRAND}`, `${base} – ${cond}`] : []), `${base} | ${BRAND}`, base);
+    else options.push(`${base} kopen - ${BRAND}`, `${base} | ${BRAND}`, base);
+  }
+  return options.find(o => o.length <= SEO_TITLE_MAX) ?? cutAtWord(plain, SEO_TITLE_MAX);
 }
 
 const PICKUP = ['Gratis afhalen in Gentbrugge, Antwerpen & Oudenaarde of snelle levering in België.', 'Gratis afhalen of snelle levering in België.'];
 
 /** Suggested meta description (max. 155 characters), only from facts the shop already states. No prices: they change. */
-export function suggestSeoDescription(title: string, refurbished: boolean, warranty: string | null): string {
+export function suggestSeoDescription(title: string, refurbished: boolean, warranty: string | null, extras: string[] = []): string {
   const name = seoName(title);
   const cond = conditionLabel(title);
   const w = warranty?.trim() ? `${warranty.trim()} garantie` : 'garantie';
+  const withSpecs = extras.length ? ` met ${extras.join(' en ')}` : '';
   const leads = refurbished
-    ? [`Koop refurbished ${name}${cond ? ` in conditie ${cond}` : ''} bij ${BRAND} met ${w}.`, `Koop refurbished ${name} bij ${BRAND} met ${w}.`]
-    : [`Koop ${name} bij ${BRAND} met garantie.`];
-  for (const lead of leads) for (const tail of PICKUP) { const t = `${lead} ${tail}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
-  for (const lead of leads) if (lead.length <= SEO_DESCRIPTION_MAX) return lead;
+    ? [`Koop refurbished ${name}${withSpecs}${cond ? ` in conditie ${cond}` : ''} bij ${BRAND} met ${w}.`, `Koop refurbished ${name}${withSpecs} bij ${BRAND} met ${w}.`, ...(withSpecs ? [`Refurbished ${name}${withSpecs} bij ${BRAND}.`] : [])]
+    : [`Koop ${name}${withSpecs} bij ${BRAND} met garantie.`];
+  // Condition and warranty matter more than the pickup sentence: a fuller lead without tail beats a shorter lead with one.
+  for (const lead of leads) for (const tail of [...PICKUP, '']) { const t = tail ? `${lead} ${tail}` : lead; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
   return cutAtWord(leads[leads.length - 1], SEO_DESCRIPTION_MAX);
 }
 

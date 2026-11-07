@@ -19,6 +19,10 @@ export const CATALOG_BULK_QUERY = `{
         descriptionHtml
         seo { title description }
         mf_garantie: metafield(namespace: "magento", key: "garantie") { value }
+        mf_cpu: metafield(namespace: "magento", key: "processor_model") { value }
+        mf_gpu: metafield(namespace: "magento", key: "discretegraphicsadaptermodel") { value }
+        mf_year: metafield(namespace: "magento", key: "modeljaar") { value }
+        mf_layout: metafield(namespace: "magento", key: "keyboard_layout") { value }
         mf_conditie: metafield(namespace: "magento", key: "conditie") { value }
         mf_colour: metafield(namespace: "custom", key: "color_swatch") { value }
         mf_refurb: metafield(namespace: "custom", key: "refurbished_product") { value }
@@ -29,6 +33,23 @@ export const CATALOG_BULK_QUERY = `{
     }
   }
 }`;
+
+/** In this order: the first properties that differ within a group of equal titles make the SEO text unique. */
+export const SPEC_KEYS = ['cpu', 'gpu', 'year', 'layout'] as const;
+export type SpecKey = (typeof SPEC_KEYS)[number];
+const MAX_DISTINGUISHING = 2;
+
+/**
+ * For products sharing a title: the property values that tell this one apart from the others,
+ * e.g. ["i7-1185G7"] or ["AMD Radeon Pro 5500M"]. Empty when the title is unique or nothing differs.
+ */
+export function distinguishingSpecs(p: CatalogProduct, sameTitle: CatalogProduct[]): string[] {
+  if (sameTitle.length < 2) return [];
+  const differing = SPEC_KEYS.filter(k => new Set(sameTitle.map(o => (o.specs[k] ?? '').toLowerCase())).size > 1);
+  const titleLower = p.title.toLowerCase();
+  // Missing values and values already in the title are dropped first, so they never use up a slot.
+  return differing.map(k => p.specs[k]).filter((v): v is string => !!v && !titleLower.includes(v.toLowerCase())).slice(0, MAX_DISTINGUISHING);
+}
 
 export type CatalogProduct = {
   id: string;
@@ -46,6 +67,8 @@ export type CatalogProduct = {
   seoTitle: string;
   seoDescription: string;
   warranty: string | null;
+  /** Properties that can tell products with the same title apart (Processor Model, graphics card, model year, keyboard). */
+  specs: Partial<Record<SpecKey, string>>;
   descriptionWords: number;
   descriptionBlank: boolean;
   descriptionHash: string | null;
@@ -68,6 +91,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         condition: mf('mf_conditie'), colour: mf('mf_colour'), refurbished: mf('mf_refurb') === 'true',
         skus: [], images: [], collections: 0,
         seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(), warranty: mf('mf_garantie'),
+        specs: Object.fromEntries(SPEC_KEYS.map(k => [k, mf(`mf_${k}`)?.trim()]).filter(([, v]) => v)),
         descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
       });
@@ -149,6 +173,8 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
   const withCategory = products.filter(p => p.tags.some(t => t.startsWith('cat_') && t.length > 4))
     .flatMap(p => p.skus.slice(0, 1).map(sku => ({ sku, title: p.title, tags: p.tags })));
 
+  const byTitle = new Map<string, CatalogProduct[]>();
+  for (const p of products) { const k = titleKey(p.title); byTitle.set(k, [...(byTitle.get(k) ?? []), p]); }
   const metaCount = new Map<string, number>();
   for (const p of products) if (p.seoDescription) metaCount.set(p.seoDescription.toLowerCase(), (metaCount.get(p.seoDescription.toLowerCase()) ?? 0) + 1);
   const hashCount = new Map<string, number>();
@@ -207,10 +233,12 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     if (mismatch) list.push('seo_condition_mismatch');
     if (dupMeta) list.push('seo_description_duplicate');
     // A weak SEO text is replaced as a whole (separate choice, old text kept for undo); otherwise only empty fields are filled.
-    const proposal = { title: suggestSeoTitle(p.title, p.refurbished), description: suggestSeoDescription(p.title, p.refurbished, p.warranty) };
+    // Same title as other products: the differing properties (Processor Model, graphics card, …) make the SEO text unique.
+    const extras = distinguishingSpecs(p, byTitle.get(titleKey(p.title)) ?? []);
+    const proposal = { title: suggestSeoTitle(p.title, p.refurbished, extras), description: suggestSeoDescription(p.title, p.refurbished, p.warranty, extras) };
     const weak = p.seoTitle && p.seoDescription && (tooLong || raw || mismatch || dupMeta);
     if (weak && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
-    else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : suggestSeoTitle(p.title, p.refurbished), description: p.seoDescription ? null : suggestSeoDescription(p.title, p.refurbished, p.warranty) });
+    else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : proposal.title, description: p.seoDescription ? null : proposal.description });
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
       list.push('description_empty');
       // Only a truly empty description is filled; a short text is reported but never replaced.

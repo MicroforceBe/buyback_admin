@@ -159,6 +159,8 @@ Extra automatische aanpassingen (zelfde regels: admin, bevestiging, product eers
 
 Extra controles: SEO-tekst is de ruwe titel of het algemene sjabloon (sterren, "… kopen - Microforce"), noemt een andere conditie dan de sterren in de titel, of de meta-description is identiek aan die van een ander product.
 
+**Unieke SEO-tekst bij dezelfde titel.** Hebben meerdere producten exact dezelfde titel, dan zoekt de tool binnen die groep de eigenschappen die verschillen, in deze volgorde: Processor Model, Grafische kaart, Model Jaar, Toetsenbord layout (max. 2, en niet als de waarde al in de titel staat). Die komen in de SEO-titel (zo nodig alleen de eerste) en in de meta-description, bv. "Koop refurbished MacBook Pro 16" … met i9-9980HK en AMD Radeon Pro 5500M in conditie Zeer Goed …".
+
 **Slechte SEO-tekst vervangen** (`seo_replace`) is een aparte keuze: het rapport toont oud → nieuw; er wordt alleen vervangen als de tekst nog exact is wat het rapport toonde. De oude tekst staat in het logboek (`old_value`) en elke SEO-aanpassing kan via **Terugdraaien** ongedaan gemaakt worden (één keer, alleen als de tekst intussen niet opnieuw gewijzigd is). Terugdraaien haalt ook de skip-tag weg als de tool die had toegevoegd, zodat TinySEO het product weer beheert.
 
 Alt-teksten worden (nog) niet automatisch aangepast: daarvoor is het recht `write_files` nodig, dat de app nu niet heeft.
