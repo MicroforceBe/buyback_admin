@@ -64,7 +64,7 @@ export async function analytics(sa: ServiceAccount, property: string, deps: { fe
   return ga4Channels(res);
 }
 
-const MERCHANT_QUERY = 'SELECT id, aggregated_reporting_context_status, item_issues FROM product_view';
+const MERCHANT_QUERY = 'SELECT id, offer_id, title, aggregated_reporting_context_status, item_issues FROM product_view';
 
 export async function merchantCenter(sa: ServiceAccount, account: string, deps: { fetch?: Fetch } = {}): Promise<MerchantSummary> {
   if (!/^\d+$/.test(account)) throw new Error('MERCHANT_CENTER_ID moet het account-ID zijn (alleen cijfers).');

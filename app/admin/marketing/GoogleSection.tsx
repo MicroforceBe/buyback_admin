@@ -1,13 +1,9 @@
 // Google block of the marketing overview: Search Console, Analytics 4 and Merchant Center, each cached for
 // an hour; a source that fails shows its error without breaking the rest of the page.
 import type { ReactNode } from 'react';
-import { unstable_cache } from 'next/cache';
-import { analytics, googleSettings, isMerchantUnregistered, merchantCenter, searchConsole } from '@/lib/marketing/google';
-import { change, MERCHANT_STATUS_LABELS } from '@/lib/marketing/googleData';
+import { change, isMerchantUnregistered, merchantIssueLabel, MERCHANT_STATUS_LABELS, pageLabel } from '@/lib/marketing/googleData';
 import { refreshGoogleAction, registerMerchantAction } from './actions';
-
-type Result<T> = { ok: true; data: T } | { ok: false; error: string } | null;
-const settle = async <T,>(fn: () => Promise<T>): Promise<Result<T>> => { try { return { ok: true, data: await fn() }; } catch (e) { return { ok: false, error: (e instanceof Error ? e.message : 'onbekende fout').slice(0, 300) }; } };
+import { loadGoogle } from './googleLoad';
 const nf = new Intl.NumberFormat('nl-BE');
 const eur = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const pct = (v: number) => `${(v * 100).toFixed(1).replace('.', ',')}%`;
@@ -29,16 +25,10 @@ function Card({ title, children, error }: { title: string; children?: ReactNode;
 }
 
 export default async function GoogleSection({ isAdmin }: { isAdmin: boolean }) {
-  let settings: ReturnType<typeof googleSettings>;
-  try { settings = googleSettings(); } catch (e) { return <Card title="Google" error={e instanceof Error ? e.message : 'Instellingen ongeldig.'} />; }
-  const { sa, site, ga4, merchant } = settings;
-  if (!sa) return null;
-  const opts = { revalidate: 3600, tags: ['marketing-google'] };
-  const [gsc, ga, mc] = await Promise.all([
-    site ? settle(unstable_cache(() => searchConsole(sa, site), ['mk-gsc', site, sa.clientEmail], opts)) : Promise.resolve(null),
-    ga4 ? settle(unstable_cache(() => analytics(sa, ga4), ['mk-ga4', ga4, sa.clientEmail], opts)) : Promise.resolve(null),
-    merchant ? settle(unstable_cache(() => merchantCenter(sa, merchant), ['mk-mc', merchant, sa.clientEmail], opts)) : Promise.resolve(null),
-  ]);
+  const g = await loadGoogle();
+  if (!g) return null;
+  if ('settingsError' in g) return <Card title="Google" error={g.settingsError} />;
+  const { gsc, ga, mc } = g;
 
   return (
     <section className="space-y-3">
@@ -46,7 +36,7 @@ export default async function GoogleSection({ isAdmin }: { isAdmin: boolean }) {
         <h2 className="text-lg font-semibold">Google</h2>
         {isAdmin && <form action={refreshGoogleAction}><button className="text-sm text-sky-700 hover:underline">Vernieuwen</button></form>}
       </div>
-      <p className="text-xs text-slate-500">Cijfers worden een uur bewaard. Serviceaccount: {sa.clientEmail}</p>
+      <p className="text-xs text-slate-500">Cijfers worden een uur bewaard. Serviceaccount: {g.serviceAccount}</p>
       <div className="grid gap-4 lg:grid-cols-2">
         {gsc && (gsc.ok ? (
           <Card title={`Search Console · organisch, ${gsc.data.window.start} t/m ${gsc.data.window.end}`}>
@@ -60,7 +50,7 @@ export default async function GoogleSection({ isAdmin }: { isAdmin: boolean }) {
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {([['Top-zoektermen', gsc.data.queries], ['Top-pagina\'s', gsc.data.pages]] as const).map(([label, rows]) => (
                 <div key={label}><div className="text-xs font-semibold text-slate-600">{label}</div>
-                  <table className="mt-1 w-full text-xs"><tbody>{rows.map(r => <tr key={r.key} className="border-t"><td className="max-w-[14rem] truncate py-1 pr-2" title={r.key}>{label.includes('pagina') ? r.key.replace(/^https?:\/\/[^/]+/, '') || '/' : r.key}</td><td className="text-right">{nf.format(r.clicks)}</td><td className="pl-2 text-right text-slate-400">#{r.position.toFixed(1).replace('.', ',')}</td></tr>)}</tbody></table>
+                  <table className="mt-1 w-full text-xs"><tbody>{rows.map(r => <tr key={r.key} className="border-t"><td className="max-w-[14rem] truncate py-1 pr-2" title={r.key}>{label.includes('pagina') ? pageLabel(r.key) : r.key}</td><td className="text-right">{nf.format(r.clicks)}</td><td className="pl-2 text-right text-slate-400">#{r.position.toFixed(1).replace('.', ',')}</td></tr>)}</tbody></table>
                 </div>
               ))}
             </div>
@@ -75,11 +65,11 @@ export default async function GoogleSection({ isAdmin }: { isAdmin: boolean }) {
         ) : <Card title="Analytics 4" error={ga.error} />)}
 
         {mc && (mc.ok ? (
-          <Card title={`Merchant Center · ${nf.format(mc.data.products)} producten`}>
+          <div id="merchant"><Card title={`Merchant Center · ${nf.format(mc.data.products)} producten`}>
             <div className="flex flex-wrap gap-2">{Object.entries(mc.data.byStatus).sort((a, b) => b[1] - a[1]).map(([s, n]) => <span key={s} className={`rounded-full px-3 py-1 text-sm ${s === 'NOT_ELIGIBLE_OR_DISAPPROVED' ? 'bg-red-100 text-red-800' : s === 'ELIGIBLE' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'}`}><b>{nf.format(n)}</b> {MERCHANT_STATUS_LABELS[s] ?? s}</span>)}</div>
             {mc.data.issues.length > 0 && <table className="mt-3 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="py-1">Meest voorkomende problemen</th><th className="text-right">Producten</th></tr></thead>
-              <tbody>{mc.data.issues.map(i => <tr key={i.code} className="border-t"><td className="py-1">{i.code.replace(/_/g, ' ')}{i.attribute ? <span className="text-slate-400"> · {i.attribute.toLowerCase()}</span> : null}</td><td className="text-right">{nf.format(i.products)}</td></tr>)}</tbody></table>}
-          </Card>
+              <tbody>{mc.data.issues.map(i => <tr key={i.code} className="border-t"><td className="py-1">{merchantIssueLabel(i.code)}{i.attribute ? <span className="text-slate-400"> · {i.attribute.toLowerCase()}</span> : null}</td><td className="text-right">{nf.format(i.products)}</td></tr>)}</tbody></table>}
+          </Card></div>
         ) : (
           <Card title="Merchant Center" error={isMerchantUnregistered(mc.error) ? null : mc.error}>
             {isMerchantUnregistered(mc.error) && (

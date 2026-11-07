@@ -139,13 +139,24 @@ test('Search Console windows lag 3 days; GA4 and Merchant responses are summaris
   const mc = plain(data.merchantSummary([
     { results: [
       { productView: { aggregatedReportingContextStatus: 'ELIGIBLE', itemIssues: [] } },
-      { productView: { aggregatedReportingContextStatus: 'NOT_ELIGIBLE_OR_DISAPPROVED', itemIssues: [{ type: { code: 'missing_brand', canonicalAttribute: 'BRAND' } }, { type: { code: 'missing_brand' } }] } },
+      { productView: { offerId: 'shopify_BE_111_222', title: 'B product', aggregatedReportingContextStatus: 'NOT_ELIGIBLE_OR_DISAPPROVED', itemIssues: [{ type: { code: 'missing_brand', canonicalAttribute: 'BRAND' } }, { type: { code: 'missing_brand' } }] } },
     ] },
-    { results: [{ productView: { aggregatedReportingContextStatus: 'NOT_ELIGIBLE_OR_DISAPPROVED', itemIssues: [{ type: { code: 'missing_brand' } }, { type: { code: 'image_too_small' } }] } }] },
+    { results: [{ productView: { offerId: '20500000123', title: 'A product', aggregatedReportingContextStatus: 'NOT_ELIGIBLE_OR_DISAPPROVED', itemIssues: [{ type: { code: 'missing_brand' } }, { type: { code: 'image_too_small' } }] } }] },
   ]));
   assert.equal(mc.products, 3);
   assert.deepEqual(mc.byStatus, { ELIGIBLE: 1, NOT_ELIGIBLE_OR_DISAPPROVED: 2 });
   assert.deepEqual(mc.issues.map(i => [i.code, i.products]), [['missing_brand', 2], ['image_too_small', 1]]);
+  // Disapproved products, by title, each issue once.
+  assert.deepEqual(mc.disapproved, [{ offerId: '20500000123', title: 'A product', issues: ['missing_brand', 'image_too_small'] }, { offerId: 'shopify_BE_111_222', title: 'B product', issues: ['missing_brand'] }]);
+  assert.equal(data.shopifyProductIdOf('shopify_BE_111_222'), '111');
+  assert.equal(data.shopifyProductIdOf('20500000123'), null);
+  assert.equal(data.merchantIssueLabel('landing_page_error'), 'Productpagina werkt niet');
+  assert.equal(data.merchantIssueLabel('some_new_code'), 'some new code');
+  // Pages on another host keep the host, so two "/" never look the same.
+  assert.equal(data.pageLabel('https://microforce.be/pages/x'), '/pages/x');
+  assert.equal(data.pageLabel('https://microforce.be/'), '/');
+  assert.equal(data.pageLabel('https://www.microforce.be/'), 'www.microforce.be');
+  assert.equal(data.pageLabel('https://microforce.eu/en'), 'microforce.eu/en');
   assert.equal(data.isMerchantUnregistered('GCP project with id x and number 1 is not registered with the merchant account.'), true);
   assert.equal(data.change(110, 100), 10);
   assert.equal(data.change(5, 0), null);
