@@ -176,8 +176,9 @@ export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
 }`;
 
 // ---------- catalogue report fixes ----------
+// media(first: 250): a product holds at most 250 media in Shopify, so one page is the whole gallery.
 export const CATALOG_PRODUCT = `query CatalogProduct($id: ID!) {
-  product(id: $id) { id title tags descriptionHtml seo { title description } condition: metafield(namespace: "magento", key: "conditie") { value } refurbished: metafield(namespace: "custom", key: "refurbished_product") { value } media(first: 100) { nodes { id alt mediaContentType } } }
+  product(id: $id) { id title tags descriptionHtml seo { title description } condition: metafield(namespace: "magento", key: "conditie") { value } refurbished: metafield(namespace: "custom", key: "refurbished_product") { value } media(first: 250) { nodes { id alt mediaContentType } } }
 }`;
 export const CATALOG_DESCRIPTION_SOURCE = `query CatalogDescriptionSource($id: ID!) { product(id: $id) { id title descriptionHtml } }`;
 export const CATALOG_PRODUCT_UPDATE = `mutation CatalogProductUpdate($product: ProductUpdateInput!) { productUpdate(product: $product) { product { id } userErrors { field message } } }`;
