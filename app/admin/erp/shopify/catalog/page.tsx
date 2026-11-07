@@ -97,7 +97,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
           </section>
 
           <section className="rounded-2xl border bg-white p-6 shadow-sm">
-            <form action={applyFixesAction}>
+            {/* Keyed by the shown dataset: another page or filter remounts the form, so no selection or count carries over. */}
+            <form key={`${report.id}|${issue ?? ''}|${q}|${params.fixable ?? ''}|${page}`} action={applyFixesAction}>
               <input type="hidden" name="report" value={report.id} />
               {issue && <input type="hidden" name="issue" value={issue} />}
               {isAdmin && (
