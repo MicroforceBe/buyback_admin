@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
 import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type Fix, type IssueCode } from '@/lib/shopify/catalog';
 import { applyFixesAction, generateReportAction, revertFixAction } from './actions';
+import { SelectAll, SelectionCount } from './Selection';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -99,9 +100,32 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
             <form action={applyFixesAction}>
               <input type="hidden" name="report" value={report.id} />
               {issue && <input type="hidden" name="issue" value={issue} />}
+              {isAdmin && (
+                // Sticky at the top of the screen while scrolling through the list.
+                <div className="sticky top-0 z-20 -mx-6 -mt-6 mb-4 space-y-2 rounded-t-2xl border-b bg-slate-50/95 p-4 text-sm shadow-sm backdrop-blur">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-semibold">Geselecteerde producten aanpassen in Shopify (max. 200)</p>
+                    <SelectionCount max={200} />
+                  </div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-1">
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="condition" defaultChecked /> <b>Uiterlijk</b></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="category" /> <b>Categorie</b></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="seo" /> <b>SEO invullen</b> <span className="text-xs text-slate-500">(lege velden)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="seo_replace" /> <b>SEO vervangen</b> <span className="text-xs text-slate-500">(oude tekst bewaard)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="description" /> <b>Beschrijving</b> <span className="text-xs text-slate-500">(alleen lege)</span></label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
+                    <button className="rounded-lg bg-slate-900 px-4 py-1.5 font-semibold text-white">Aanpassen</button>
+                    <details className="text-xs text-slate-600"><summary className="cursor-pointer">Wat wordt er precies gedaan?</summary>
+                      <p className="mt-1 max-w-3xl">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, alt-teksten, kleur, bestaande beschrijvingen en tags zoals main_sku worden nooit automatisch aangepast. Uiterlijk volgt de sterren in de titel; Categorie neemt de tags van het meest gelijkende product over; SEO invullen vult alleen lege velden; SEO vervangen vervangt een slechte tekst (oud wordt bewaard, terugdraaien kan in het logboek); Beschrijving neemt een lege beschrijving over van hetzelfde model. Producten met een SEO-tekst van deze tool krijgen de tag <code>tinyimg_metadata_skip</code>, zodat TinySEO ze niet meer overschrijft.</p>
+                    </details>
+                  </div>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="text-xs uppercase text-slate-500"><tr>{isAdmin && <th className="py-2 pr-2"></th>}<th className="pr-4">Product</th><th className="pr-4">SKU</th><th className="pr-4 text-right">Voorraad</th><th className="pr-4">Problemen</th><th>Voorgestelde aanpassing</th></tr></thead>
+                  <thead className="text-xs uppercase text-slate-500"><tr>{isAdmin && <th className="py-2 pr-2"><SelectAll /></th>}<th className="pr-4">Product</th><th className="pr-4">SKU</th><th className="pr-4 text-right">Voorraad</th><th className="pr-4">Problemen</th><th>Voorgestelde aanpassing</th></tr></thead>
                   <tbody className="divide-y">
                     {rows.map(r => {
                       const url = productUrl(r.productId);
@@ -125,20 +149,6 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   {page > 1 && <Link href={link({ page: String(page - 1) })} className="text-sky-700 hover:underline">← Vorige</Link>}
                   <span className="text-slate-500">Pagina {page} van {Math.ceil(filtered.length / PAGE_SIZE)}</span>
                   {page * PAGE_SIZE < filtered.length && <Link href={link({ page: String(page + 1) })} className="text-sky-700 hover:underline">Volgende →</Link>}
-                </div>
-              )}
-              {isAdmin && (
-                <div className="mt-4 space-y-2 rounded-xl border bg-slate-50 p-4 text-sm">
-                  <p className="font-semibold">Geselecteerde producten aanpassen in Shopify (max. 200)</p>
-                  <p className="text-xs text-slate-600">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, alt-teksten, kleur, bestaande SEO-teksten, bestaande beschrijvingen en tags zoals main_sku worden nooit automatisch aangepast.</p>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="condition" defaultChecked /> <b>Uiterlijk</b>: invullen of rechtzetten volgens de sterren in de titel</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="category" /> <b>Categorie</b>: tags toevoegen zoals bij het meest gelijkende product</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo" /> <b>SEO invullen</b>: ontbrekende SEO-titel en meta-description invullen met de voorgestelde tekst</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo_replace" /> <b>SEO vervangen</b>: slechte SEO-tekst vervangen door het voorstel (oude tekst wordt bewaard en kan teruggezet worden)</label>
-                  <p className="text-xs text-slate-600">Producten met een SEO-tekst van deze tool krijgen de tag <code>tinyimg_metadata_skip</code>, zodat TinySEO ze niet meer overschrijft. Terugdraaien haalt die tag weer weg.</p>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="description" /> <b>Beschrijving</b>: lege beschrijving overnemen van een product van hetzelfde model</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
-                  <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Aanpassen</button>
                 </div>
               )}
             </form>
