@@ -1,9 +1,10 @@
 import 'server-only';
 // Generates and stores the catalogue report, and applies selected safe fixes (admin action).
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { CATALOG_PRODUCT, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
+import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix } from '@/lib/shopify/catalog';
-import { CONDITION, starsOf } from '@/lib/shopify/enrich';
+import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
+import { EMPTY_DESCRIPTION_WORDS, mentionsOtherModel, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -15,6 +16,11 @@ const clientOrThrow = (client?: ShopifyClient | null) => {
   if (!c) throw new Error('Shopify is niet gekoppeld.');
   return c;
 };
+
+async function updateProduct(client: ShopifyClient, product: Record<string, unknown>) {
+  const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(CATALOG_PRODUCT_UPDATE, { product });
+  if (productUpdate.userErrors.length) throw new Error(productUpdate.userErrors.map(e => e.message).join('; '));
+}
 
 export async function generateCatalogReport(actor: string, deps: { db?: Db; client?: ShopifyClient | null } = {}): Promise<string> {
   const db = deps.db ?? supabaseAdmin;
@@ -48,7 +54,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
     // The outcome of every product is logged before the next one is touched, so a later failure
     // never loses the record of changes that are already live in Shopify.
     const log: Record<string, unknown>[] = [];
-    type Fresh = { id: string; title: string; tags: string[]; condition: { value: string } | null } | null;
+    type Fresh = { id: string; title: string; tags: string[]; descriptionHtml: string | null; seo: { title: string | null; description: string | null } | null; condition: { value: string } | null } | null;
     let product: Fresh = null;
     let readError: string | null = null;
     try { ({ product } = await client.graphql<{ product: Fresh }>(CATALOG_PRODUCT, { id })); }
@@ -63,10 +69,28 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         const stars = starsOf(product.title);
         if (!stars || CONDITION[stars] !== fix.value) reason = 'sterren in de titel komen niet meer overeen';
         else if (product.condition?.value?.trim().startsWith(`${stars}*`)) reason = 'al in orde';
-      } else if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
+      } else if (fix.kind === 'category') {
+        if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
+      } else if (fix.kind === 'seo') {
+        if ((!fix.title || product.seo?.title?.trim()) && (!fix.description || product.seo?.description?.trim())) reason = 'SEO-gegevens zijn intussen al ingevuld';
+      } else if (wordCount(product.descriptionHtml) >= EMPTY_DESCRIPTION_WORDS) reason = 'heeft intussen al een beschrijving';
       if (reason) { skipped++; log.push({ ...base, result: 'skipped', detail: reason }); continue; }
       try {
-        if (fix.kind === 'condition') {
+        if (fix.kind === 'seo') {
+          // Only the empty field is filled; an existing SEO title or description is never overwritten.
+          const title = product!.seo?.title?.trim() ? product!.seo!.title : fix.title;
+          const description = product!.seo?.description?.trim() ? product!.seo!.description : fix.description;
+          await updateProduct(client, { id, seo: { title, description } });
+          log.push({ ...base, result: 'ok', detail: `SEO: ${[title !== product!.seo?.title ? `titel "${title}"` : '', description !== product!.seo?.description ? `beschrijving "${description}"` : ''].filter(Boolean).join(', ')}`.slice(0, 1000) });
+        } else if (fix.kind === 'description') {
+          const { product: source } = await client.graphql<{ product: { id: string; title: string; descriptionHtml: string | null } | null }>(CATALOG_DESCRIPTION_SOURCE, { id: fix.fromProductId });
+          // The source must still be the same model, with a substantial text that names no other model.
+          if (!source || modelOf(source.title) !== modelOf(product!.title) || wordCount(source.descriptionHtml) < SHORT_DESCRIPTION_WORDS || mentionsOtherModel(product!.title, source.descriptionHtml)) {
+            skipped++; log.push({ ...base, result: 'skipped', detail: 'bronproduct is niet meer geschikt' }); continue;
+          }
+          await updateProduct(client, { id, descriptionHtml: source.descriptionHtml });
+          log.push({ ...base, result: 'ok', detail: `beschrijving overgenomen van "${source.title}"`.slice(0, 1000) });
+        } else if (fix.kind === 'condition') {
           const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: [{ ownerId: id, namespace: 'magento', key: 'conditie', type: 'single_line_text_field', value: fix.value }] });
           if (metafieldsSet.userErrors.length) throw new Error(metafieldsSet.userErrors.map(e => e.message).join('; '));
           log.push({ ...base, result: 'ok', detail: `Uiterlijk = ${fix.value}` });

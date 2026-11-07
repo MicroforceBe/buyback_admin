@@ -138,4 +138,25 @@ Automatisch herstellen (alleen beheerder, max. 200 per keer, met bevestiging):
 
 Elk product wordt vlak voor de wijziging opnieuw gelezen; als de titel sindsdien veranderd is of het probleem al opgelost is, wordt het overgeslagen. Foto's, kleur en `main_sku` worden nooit automatisch gewijzigd. Elke poging staat in het logboek `shopify_catalog_fixes` (alleen toevoegen, niet wijzigen of wissen).
 
-SQL: `security/sql/shopify-catalog.sql` (test: `test-shopify-catalog.sql`).
+### Vindbaarheid (SEO)
+
+| Controle | Betekenis |
+|---|---|
+| SEO-titel / meta-description ontbreekt | Google toont dan de technische producttitel |
+| Te lang | SEO-titel > 60 of meta-description > 155 tekens (Google kort af) |
+| Geen / korte beschrijving | < 20 / < 100 woorden zichtbare tekst |
+| Identieke beschrijving | Zelfde zichtbare tekst als minstens één ander actief product (dubbele inhoud) |
+| Koppen noemen ander model | iPhone-pagina waarvan de koppen wel een iPhone noemen, maar nooit het eigen model |
+| Extra H1 / lege afbeelding | `<h1>` in de beschrijving (het thema toont de titel al als H1), `<img>` zonder bron |
+| Foto zonder alt-tekst | Minstens één productfoto zonder alt-tekst (alleen gemeld) |
+
+Extra automatische aanpassingen (zelfde regels: admin, bevestiging, product eerst opnieuw gelezen):
+
+- **SEO-tekst:** alleen een **lege** SEO-titel of meta-description wordt ingevuld, in de huisstijl ("Refurbished … – Zeer Goed | Microforce", "Koop refurbished … bij Microforce met 24 maanden garantie. Gratis afhalen …"). Geen prijzen (die veranderen). Een bestaande tekst wordt nooit overschreven.
+- **Beschrijving:** een lege beschrijving wordt overgenomen van het product van **exact hetzelfde model** met de langste beschrijving (≥ 100 woorden) waarvan de koppen geen ander model noemen.
+
+Alt-teksten worden (nog) niet automatisch aangepast: daarvoor is het recht `write_files` nodig, dat de app nu niet heeft.
+
+**Nieuwe concepten** uit de sync krijgen dezelfde beschrijving-regel; zonder geschikte bron krijgen ze de tag `geen-beschrijving`.
+
+SQL: `security/sql/shopify-catalog.sql` en `shopify-catalog-seo.sql` (tests: `test-shopify-catalog*.sql`).

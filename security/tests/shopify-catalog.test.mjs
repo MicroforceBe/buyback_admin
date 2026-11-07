@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function load(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/catalog': 'lib/shopify/catalog.ts', '@/lib/shopify/catalogRun': 'lib/shopify/catalogRun.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/catalog': 'lib/shopify/catalog.ts', '@/lib/shopify/catalogRun': 'lib/shopify/catalogRun.ts' };
   async function ld(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -29,7 +29,8 @@ async function load(db = null) {
 
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
-  condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200 }], collections: 1, ...over,
+  condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
+  seoTitle: 'SEO titel', seoDescription: 'Meta', warranty: '24 maanden', descriptionWords: 150, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -46,7 +47,7 @@ test('the bulk export is parsed into products with variants, images and collecti
   assert.equal(p.condition, '4* Zeer Goed');
   assert.equal(p.colour, null);
   assert.equal(p.refurbished, true);
-  assert.deepEqual(p.images, [{ width: 800, height: 600 }]);
+  assert.deepEqual(p.images, [{ width: 800, height: 600, alt: '' }]);
   assert.equal(p.collections, 1);
 });
 
@@ -61,7 +62,7 @@ test('photos, categories, properties and tags are checked', async () => {
   const { catalog } = await load();
   const r = plain(catalog.analyseCatalog([
     P(1, { images: [] }),
-    P(2, { title: 'iPad 9 64GB 3*', images: [{ width: 600, height: 600 }, { width: 1500, height: 100 }], condition: '5* Als Nieuw' }),
+    P(2, { title: 'iPad 9 64GB 3*', images: [{ width: 600, height: 600, alt: 'a' }, { width: 1500, height: 100, alt: 'b' }], condition: '5* Als Nieuw' }),
     P(3, { title: 'Pixel 7 Zwart', tags: ['cat_', 'main_sku_999'], collections: 0, colour: null }),
   ]));
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
@@ -93,6 +94,82 @@ test('duplicate titles are reported and products with stock come first', async (
   assert.ok(r.issues.every(i => i.issues.includes('duplicate_title')));
 });
 
+test('SEO title and meta description follow the shop style and stay within the limits', async () => {
+  const { seo } = await loadSeo();
+  assert.equal(seo.seoName('iPhone 14 Plus 128GB Purple Refurbished 4* M'), 'iPhone 14 Plus 128GB Purple');
+  assert.equal(seo.suggestSeoTitle('iPhone 13 128GB Blue Refurbished 4* M', true), 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce');
+  const long = seo.suggestSeoTitle('iPhone 14 Plus 128GB Purple Refurbished 4* M', true);
+  assert.equal(long, 'Refurbished iPhone 14 Plus 128GB Purple – Zeer Goed');
+  assert.equal(seo.suggestSeoTitle('Apple USB-C kabel 1M', false), 'Apple USB-C kabel 1M kopen - Microforce');
+  for (const t of ['MacBook Pro 16" L21 M1 Max 64GB 2TB SSD SG Refurbished 4*', 'Dell Precision 7560 Xeon 64GB 1TB SSD 15" Touch Refurbished 5* Extra Lange Naam']) {
+    assert.ok(seo.suggestSeoTitle(t, true).length <= 60);
+    assert.ok(seo.suggestSeoDescription(t, true, '24 maanden').length <= 155);
+  }
+  const d = seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 4* M', true, '24 maanden');
+  assert.equal(d, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.');
+  assert.doesNotMatch(d, /€/);
+});
+
+test('description checks: words, duplicates, extra H1, empty image and another model in the headings', async () => {
+  const { seo } = await loadSeo();
+  assert.equal(seo.wordCount('<p>een <b>twee</b>&nbsp;drie</p>'), 3);
+  assert.equal(seo.textHash('<p>Zelfde  tekst</p>'), seo.textHash('<div>zelfde tekst</div>'));
+  assert.equal(seo.textHash(''), null);
+  assert.equal(seo.hasH1('<h1>x</h1>'), true);
+  assert.equal(seo.hasH1('<h2>x</h2>'), false);
+  assert.equal(seo.hasEmptyImage('<p><img></p>'), true);
+  assert.equal(seo.hasEmptyImage('<img alt="x" src="https://cdn/x.jpg">'), false);
+  const wrong = '<h1>Refurbished iPhone 14: Innovatie</h1><h2>iPhone 14 Specificaties</h2>';
+  assert.equal(seo.mentionsOtherModel('iPhone 14 Plus 128GB Purple Refurbished 4* M', wrong), true);
+  assert.equal(seo.mentionsOtherModel('iPhone 14 128GB Purple Refurbished 4* M', wrong), false);
+  assert.equal(seo.mentionsOtherModel('MacBook Pro 13" M1 8GB 512SSD Refurbished 4*', wrong), false);
+});
+
+test('a description is only taken over from the same model with a substantial text', async () => {
+  const { seo } = await loadSeo();
+  const text = n => '<h2>iPhone 14 Plus</h2><p>' + 'woord '.repeat(n) + '</p>';
+  const refs = [
+    { title: 'iPhone 14 128GB Purple Refurbished 4* M', descriptionHtml: text(500) },
+    { title: 'iPhone 14 Plus 256GB Blue Refurbished 5* M', descriptionHtml: text(150) },
+    { title: 'iPhone 14 Plus 128GB Red Refurbished 3* M', descriptionHtml: text(300) },
+    { title: 'iPhone 14 Plus 512GB Black Refurbished 3* M', descriptionHtml: '<h2>iPhone 14</h2><p>' + 'woord '.repeat(900) + '</p>' },
+    { title: 'iPhone 14 Plus 64GB Black Refurbished 3* M', descriptionHtml: text(50) },
+  ];
+  assert.equal(seo.pickDescription('iPhone 14 Plus 128GB Purple Refurbished 4* M', refs).title, 'iPhone 14 Plus 128GB Red Refurbished 3* M');
+  assert.equal(seo.pickDescription('iPhone 15 128GB Purple Refurbished 4* M', refs), null);
+});
+
+test('SEO and description issues are reported with fix proposals', async () => {
+  const { catalog } = await load();
+  const r = plain(catalog.analyseCatalog([
+    P(1, { title: 'iPhone 13 128GB Blue Refurbished 4* M', seoTitle: '', seoDescription: '', descriptionWords: 0, descriptionHash: null, images: [{ width: 1200, height: 1200, alt: '' }] }),
+    P(2, { title: 'iPhone 13 256GB Black Refurbished 5* M', condition: '5* Als Nieuw', descriptionWords: 400, descriptionHash: 'same' }),
+    P(3, { title: 'iPhone 13 128GB Pink Refurbished 3* M', condition: '3* Goed', descriptionWords: 300, descriptionHash: 'same', seoTitle: 'x'.repeat(61), descriptionH1: true, descriptionEmptyImage: true }),
+  ]));
+  const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
+  assert.deepEqual(by[1].issues, ['seo_title_missing', 'seo_description_missing', 'description_empty', 'alt_missing']);
+  assert.deepEqual(by[1].fixes, [
+    { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.' },
+    { kind: 'description', fromProductId: 'gid://shopify/Product/2', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' },
+  ]);
+  assert.deepEqual(by[2].issues, ['description_duplicate']);
+  assert.deepEqual(by[3].issues, ['seo_too_long', 'description_duplicate', 'description_h1', 'description_empty_image']);
+  assert.deepEqual(by[3].fixes, []);
+});
+
+async function loadSeo() {
+  const context = vm.createContext({ Set, Map, Object, Array, String, RegExp, Number, JSON, Math });
+  const mods = {};
+  for (const p of ['lib/shopify/enrich.ts', 'lib/shopify/seo.ts']) {
+    const code = ts.transpileModule(read(p), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    mods[p] = new vm.SourceTextModule(code, { context, identifier: p });
+  }
+  await mods['lib/shopify/enrich.ts'].link(() => { throw new Error('no imports'); });
+  await mods['lib/shopify/seo.ts'].link(spec => { assert.equal(spec, '@/lib/shopify/enrich'); return mods['lib/shopify/enrich.ts']; });
+  await mods['lib/shopify/seo.ts'].evaluate();
+  return { seo: mods['lib/shopify/seo.ts'].namespace };
+}
+
 function fakeDb(report) {
   const writes = [];
   const from = table => {
@@ -117,6 +194,8 @@ function fakeClient(products) {
     if (name === 'SyncMetafields') return { metafieldsSet: { userErrors: [] } };
     if (name === 'CatalogTagsAdd') return { tagsAdd: { userErrors: [] } };
     if (name === 'CatalogTagsRemove') return { tagsRemove: { userErrors: [] } };
+    if (name === 'CatalogDescriptionSource') return { product: products[vars.id] ?? null };
+    if (name === 'CatalogProductUpdate') return { productUpdate: { userErrors: [] } };
     throw new Error('unexpected ' + name);
   } } };
 }
@@ -162,6 +241,26 @@ test('a failed product read is logged as failed and earlier fixes stay logged', 
   const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
   assert.deepEqual(log.map(l => l.result), ['ok', 'failed', 'ok']);
   assert.match(log[1].detail, /netwerk/);
+});
+
+test('SEO fixes never overwrite existing texts and descriptions come from a still valid source', async () => {
+  const seoFix = { kind: 'seo', title: 'Nieuwe titel', description: 'Nieuwe meta' };
+  const descFix = { kind: 'description', fromProductId: 'gid://shopify/Product/9', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' };
+  const t = 'iPhone 13 128GB Zwart 5*';
+  const { db } = fakeDb({ issues: [issue(1, [seoFix, descFix], t), issue(2, [seoFix], t), issue(3, [descFix], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({
+    'gid://shopify/Product/1': { id: 1, title: t, tags: [], descriptionHtml: '', seo: { title: 'Bestaande titel', description: null }, condition: null },
+    'gid://shopify/Product/2': { id: 2, title: t, tags: [], descriptionHtml: '', seo: { title: 'A', description: 'B' }, condition: null },
+    'gid://shopify/Product/3': { id: 3, title: t, tags: [], descriptionHtml: '<p>' + 'woord '.repeat(50) + '</p>', seo: null, condition: null },
+    'gid://shopify/Product/9': { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: '<p>' + 'tekst '.repeat(200) + '</p>' },
+  });
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: [1, 2, 3].map(n => `gid://shopify/Product/${n}`), kinds: ['seo', 'description'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 2, skipped: 2, failed: 0 });
+  const updates = fake.calls.filter(c => c.name === 'CatalogProductUpdate').map(c => c.vars.product);
+  assert.deepEqual(updates[0], { id: 'gid://shopify/Product/1', seo: { title: 'Bestaande titel', description: 'Nieuwe meta' } });
+  assert.match(updates[1].descriptionHtml, /tekst/);
+  assert.equal(updates.length, 2);
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {
