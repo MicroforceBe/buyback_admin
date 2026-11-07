@@ -174,9 +174,16 @@ export function enrichMetafields(title: string, refs: Reference[]): { metafields
   // The title's colour is the most specific known colour it contains ("Rose Gold" beats "Gold");
   // only a reference with exactly that colour gives the colour fields.
   const colourOf = (r: Reference) => r.metafields.find(m => id(m) === 'magento.colour_of_product')?.value.trim().toLowerCase() ?? '';
-  const titleColour = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])].filter(c => sameColour(title, c))
-    .sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
-  const colourRef = titleColour ? refs.find(r => colourOf(r) === titleColour) : undefined;
+  const known = [...new Set([...KNOWN_COLOURS, ...refs.map(colourOf).filter(Boolean)])];
+  const mostSpecific = (t: string) => known.filter(c => sameColour(t, c)).sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)[0];
+  const titleColour = mostSpecific(title);
+  // Same colour by the colour field or by the reference's own title (most products only have the
+  // Color Swatch). The swatch can differ per model (iPhone 15 Yellow vs 15 Plus Yellow), so a
+  // reference of the same model wins, and a reference with a swatch wins over one without.
+  const colourMatches = titleColour ? refs.filter(r => colourOf(r) === titleColour || mostSpecific(r.title) === titleColour) : [];
+  const hasSwatch = (r: Reference) => r.metafields.some(m => id(m) === 'custom.color_swatch' && m.value !== '');
+  const colourRef = [...colourMatches].sort((a, b) =>
+    Number(model !== '' && modelOf(b.title) === model) - Number(model !== '' && modelOf(a.title) === model) || Number(hasSwatch(b)) - Number(hasSwatch(a)))[0];
   const capacityRef = capacities ? sameModel.find(r => capacitiesOf(r.title) === capacities) : undefined;
   const starsRef = stars ? refs.find(r => starsOf(r.title) === stars) : undefined;
   const modelRef = sameModel[0];

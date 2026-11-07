@@ -624,6 +624,18 @@ test('a new draft gets condition from its stars and other properties only from m
   assert.equal(r.sources['magento.conditie'], 'titel');
 });
 
+test('the Color Swatch comes from the same colour by title, preferring the same model', async () => {
+  const e = await loadEnrich();
+  const sw = (id) => mf('custom.color_swatch', 'gid://shopify/Metaobject/' + id, 'metaobject_reference');
+  const plus = { sku: 'P', title: 'iPhone 15 Plus 256GB Yellow Refurbished 4* M', lead: 3, metafields: [sw('geel')] };
+  const same = { sku: 'S', title: 'iPhone 15 256GB Yellow Refurbished 5* M', lead: 3, metafields: [sw('lichtgeel')] };
+  const blue = { sku: 'B', title: 'iPhone 15 128GB Blue Refurbished 5* M', lead: 3, metafields: [sw('blauw')] };
+  const swatch = refs => plain(e.enrichMetafields('iPhone 15 128GB Yellow Refurbished 4* M', refs).metafields).find(m => m.key === 'color_swatch')?.value;
+  assert.equal(swatch([plus, blue, same]), 'gid://shopify/Metaobject/lichtgeel');
+  assert.equal(swatch([blue, plus]), 'gid://shopify/Metaobject/geel');
+  assert.equal(swatch([blue]), undefined);
+});
+
 test('a different model never gives its hardware or memory, even with equal capacities', async () => {
   const e = await loadEnrich();
   assert.equal(e.modelOf('MacBook Pro 16" L21 M1 Max 32GB 1TB SSD SG Refurbished 5*'), 'macbook pro 16 l21 m1 max');

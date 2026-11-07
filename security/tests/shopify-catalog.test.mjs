@@ -41,6 +41,7 @@ test('the bulk export is parsed into products with variants, images and collecti
     { id: 'gid://shopify/Collection/9', __parentId: 'gid://shopify/Product/1' },
   ].map(l => JSON.stringify(l)).join('\n');
   const [p] = plain(catalog.parseCatalog(lines));
+  assert.match(catalog.CATALOG_BULK_QUERY, /mf_colour: metafield\(namespace: "custom", key: "color_swatch"\)/);
   assert.deepEqual(p.skus, ['123']);
   assert.equal(p.condition, '4* Zeer Goed');
   assert.equal(p.colour, null);
