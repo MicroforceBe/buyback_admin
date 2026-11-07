@@ -145,8 +145,22 @@ test('fixes are applied only when the product is unchanged and the problem still
   const names = fake.calls.map(c => c.name).filter(n => n !== 'CatalogProduct');
   assert.deepEqual(names, ['SyncMetafields', 'CatalogTagsAdd', 'CatalogTagsRemove']);
   assert.equal(fake.calls.find(c => c.name === 'SyncMetafields').vars.metafields[0].value, '5* Als Nieuw');
-  const log = plain(writes.find(w => w.table === 'shopify_catalog_fixes').rows);
+  const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
   assert.deepEqual(log.map(l => l.result), ['ok', 'skipped', 'skipped', 'ok', 'skipped']);
+});
+
+test('a failed product read is logged as failed and earlier fixes stay logged', async () => {
+  const fix = [{ kind: 'condition', value: '5* Als Nieuw' }];
+  const { db, writes } = fakeDb({ issues: [issue(1, fix), issue(2, fix), issue(3, fix)] });
+  const { run } = await load(db);
+  const fake = fakeClient({ 'gid://shopify/Product/1': { id: 1, title: 'iPhone 13 128GB Zwart 5*', tags: [], condition: null }, 'gid://shopify/Product/3': { id: 3, title: 'iPhone 13 128GB Zwart 5*', tags: [], condition: null } });
+  const original = fake.client.graphql;
+  fake.client.graphql = async (q, v) => (v?.id === 'gid://shopify/Product/2' ? Promise.reject(new Error('netwerk')) : original(q, v));
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: [1, 2, 3].map(n => `gid://shopify/Product/${n}`), kinds: ['condition'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 2, skipped: 0, failed: 1 });
+  const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
+  assert.deepEqual(log.map(l => l.result), ['ok', 'failed', 'ok']);
+  assert.match(log[1].detail, /netwerk/);
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

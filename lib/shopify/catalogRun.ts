@@ -42,13 +42,20 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
   if (error || !report) throw new Error('Rapport niet gevonden.');
   const byId = new Map((report.issues as CatalogIssue[]).map(i => [i.productId, i]));
   let applied = 0, skipped = 0, failed = 0;
-  const log: Record<string, unknown>[] = [];
   for (const id of ids) {
     const issue = byId.get(id);
     if (!issue) { skipped++; continue; }
-    const { product } = await client.graphql<{ product: { id: string; title: string; tags: string[]; condition: { value: string } | null } | null }>(CATALOG_PRODUCT, { id });
+    // The outcome of every product is logged before the next one is touched, so a later failure
+    // never loses the record of changes that are already live in Shopify.
+    const log: Record<string, unknown>[] = [];
+    type Fresh = { id: string; title: string; tags: string[]; condition: { value: string } | null } | null;
+    let product: Fresh = null;
+    let readError: string | null = null;
+    try { ({ product } = await client.graphql<{ product: Fresh }>(CATALOG_PRODUCT, { id })); }
+    catch (e) { readError = `product kon niet gelezen worden: ${e instanceof Error ? e.message : 'onbekende fout'}`.slice(0, 1000); }
     for (const fix of issue.fixes.filter(f => input.kinds.includes(f.kind))) {
       const base = { report_id: input.reportId, product_id: id, title: issue.title.slice(0, 255), kind: fix.kind, actor: input.actor };
+      if (readError) { failed++; log.push({ ...base, result: 'failed', detail: readError }); continue; }
       let reason: string | null = null;
       if (!product) reason = 'product niet meer gevonden';
       else if (product.title !== issue.title) reason = 'titel gewijzigd sinds het rapport';
@@ -78,10 +85,10 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         log.push({ ...base, result: 'failed', detail: (e instanceof Error ? e.message : 'onbekende fout').slice(0, 1000) });
       }
     }
-  }
-  if (log.length) {
-    const { error: logError } = await db.from('shopify_catalog_fixes').insert(log);
-    if (logError) throw new Error(`${applied} aanpassingen zijn uitgevoerd, maar het logboek kon niet worden bijgewerkt.`);
+    if (log.length) {
+      const { error: logError } = await db.from('shopify_catalog_fixes').insert(log);
+      if (logError) throw new Error(`${applied} aanpassingen zijn uitgevoerd, maar het logboek kon niet worden bijgewerkt; gestopt.`);
+    }
   }
   return { applied, skipped, failed };
 }
