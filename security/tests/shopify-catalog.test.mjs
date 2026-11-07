@@ -17,7 +17,7 @@ async function load(db = null) {
     modules.set(path, m);
     await m.link(async spec => {
       if (internal[spec]) return ld(internal[spec]);
-      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'k' }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
+      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'key-1-abcdefgh' }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
       assert.ok(e, 'unexpected import ' + spec);
       return new vm.SyntheticModule(Object.keys(e), function () { for (const [k, v] of Object.entries(e)) this.setExport(k, v); }, { context });
     });
@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -168,7 +168,7 @@ test('SEO and description issues are reported with fix proposals', async () => {
   assert.deepEqual(by[4].issues, ['description_empty']);
   assert.deepEqual(by[4].fixes, []);
   assert.deepEqual(by[3].issues, ['seo_too_long', 'description_duplicate', 'description_h1', 'description_empty_image']);
-  assert.deepEqual(by[3].fixes.map(f => f.kind), ['seo_replace']);
+  assert.deepEqual(by[3].fixes.map(f => f.kind), ['seo_replace', 'heading']);
 });
 
 async function loadSeo() {
@@ -437,6 +437,117 @@ test('distinguishing properties already in the title are not repeated', async ()
   assert.deepEqual(plain(catalog.distinguishingSpecs(g3[1], g3)), ['2020', 'QWERTY']);
   const g2 = [P(1, { title: t, specs: { cpu: 'i5-1030NG7' } }), P(2, { title: t, specs: { cpu: 'i3-1000NG4' } })];
   assert.deepEqual(plain(catalog.distinguishingSpecs(g2[0], g2)), ['i5-1030NG7']);
+});
+
+test('H1 headings in a description become marked H2 headings, and only those come back on undo', async () => {
+  const { seo } = await loadSeo();
+  const html = '<h1>Ontdek</h1><p>x</p><h1 class="a">B</h1><h2>Eigen H2</h2>';
+  const d = plain(seo.demoteH1(html, 'fixa1'));
+  assert.equal(d.count, 2);
+  assert.equal(seo.hasH1(d.html), false);
+  // A later fix with its own token: undoing one never touches the other's headings.
+  const later = plain(seo.demoteH1(d.html + '<h1>Nieuw</h1>', 'fixb2'));
+  assert.equal(later.count, 1);
+  const undoB = plain(seo.restoreH1(later.html, 'fixb2'));
+  assert.equal(undoB.count, 1);
+  assert.equal(undoB.html, d.html + '<h1>Nieuw</h1>');
+  const r = plain(seo.restoreH1(d.html, 'fixa1'));
+  assert.equal(r.count, 2);
+  assert.equal(r.html, html);
+  assert.equal(plain(seo.restoreH1(d.html, 'other')).count, 0);
+});
+
+test('heading fix is applied, logged for undo, and undone via the marker', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let stored = '<h1>Ontdek</h1><p>tekst</p>';
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'heading', count: 1 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    fake.calls.push({ name: q.match(/(?:query|mutation) (\w+)/)[1], vars: plain(v) });
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['heading'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.applied, 1);
+  assert.match(stored, /^<h2 data-mf-h1="key-1-abcdef">Ontdek<\/h2>/);
+  const row = plain(writes[0].rows)[0];
+  assert.deepEqual(row.old_value, { headings: 1, token: 'key-1-abcdef' });
+  const { db: db2, writes: w2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'heading', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  const u = plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: fake.client }));
+  assert.equal(u.ok, true);
+  assert.equal(stored, '<h1>Ontdek</h1><p>tekst</p>');
+  assert.equal(plain(w2[0].rows).reverts, 9);
+});
+
+test('a heading fix after a description fix works on the newly copied text', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let stored = '<h1></h1>';
+  const source = '<h1>Bron</h1><p>' + 'tekst '.repeat(150) + '</p>';
+  const { db } = fakeDb({ issues: [issue(1, [{ kind: 'description', fromProductId: 'gid://shopify/Product/9', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' }, { kind: 'heading', count: 1 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) { stored = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogDescriptionSource')) return { product: { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: source } };
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: t, tags: [], descriptionHtml: stored, seo: null, condition: null } };
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['description', 'heading'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.applied, 2);
+  assert.match(stored, /^<h2 data-mf-h1="[^"]+">Bron<\/h2><p>tekst/);
+});
+
+test('a failing check read after a heading write still logs the fix as applied, with its undo token', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let reads = 0;
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'heading', count: 1 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) return { productUpdate: { userErrors: [] } };
+    if (q.includes('CatalogProduct(')) { if (reads++) throw new Error('netwerk'); return { product: { id: 1, title: t, tags: [], descriptionHtml: '<h1>A</h1>', seo: null, condition: null } }; }
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['heading'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 1, skipped: 0, failed: 0, noMatch: 0 });
+  const row = plain(writes[0].rows)[0];
+  assert.equal(row.result, 'ok');
+  assert.equal(row.old_value.token, 'key-1-abcdef');
+  assert.match(row.detail, /niet gecontroleerd/);
+});
+
+test('SEO texts set by the tool that were overwritten or lost their skip tag are reported', async () => {
+  const { catalog } = await load();
+  const own = { title: 'Mijn titel', description: 'Mijn meta' };
+  const managed = new Map([['gid://shopify/Product/1', own], ['gid://shopify/Product/2', own], ['gid://shopify/Product/3', own]]);
+  const r = plain(catalog.analyseCatalog([
+    P(1, { seoTitle: 'Mijn titel', seoDescription: 'Mijn meta', tags: ['cat_x', 'tinyimg_metadata_skip'] }),
+    P(2, { seoTitle: 'iets anders kopen - Microforce', seoDescription: 'Mijn meta', tags: ['cat_x', 'tinyimg_metadata_skip'] }),
+    P(3, { seoTitle: 'Mijn titel', seoDescription: 'Mijn meta', tags: ['cat_x'] }),
+  ], managed));
+  const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
+  assert.ok(!by[1] || !by[1].issues.includes('seo_overwritten'));
+  assert.ok(by[2].issues.includes('seo_overwritten'));
+  assert.ok(by[3].issues.includes('seo_overwritten'));
+});
+
+test('undoing a later SEO fix keeps an earlier applied one counted as managed', async () => {
+  const fixes = [
+    { id: 1, product_id: 'gid://shopify/Product/9', kind: 'seo', result: 'ok', new_value: { title: 'A', description: 'a' } },
+    { id: 2, product_id: 'gid://shopify/Product/9', kind: 'seo_replace', result: 'ok', new_value: { title: 'B', description: 'b' } },
+    { id: 3, product_id: 'gid://shopify/Product/9', kind: 'revert', result: 'ok', reverts: 2 },
+  ];
+  const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); const rows = kind ? fixes.filter(f => f.kind === 'revert') : fixes.filter(f => f.kind !== 'revert'); return Promise.resolve({ data: rows, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
+  const writes = [];
+  const db = { from: t => (t === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) };
+  const { run } = await load(db);
+  const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: 'X 4*', handle: 'x', status: 'ACTIVE', tags: ['cat_x'], totalInventory: 0, seo: { title: 'B', description: 'b' } });
+  await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
+  const issue = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9');
+  assert.ok(issue.issues.includes('seo_overwritten'), 'A is still the managed text, so B is reported (and the skip tag is missing)');
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {
