@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, descriptionScripts: 0, descriptionNames: 0, descriptionEmptyImages: 0, descriptionPlaceholder: false, descriptionClaims: false, descriptionCssText: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, descriptionScripts: 0, descriptionNames: 0, descriptionEmptyImages: 0, descriptionPlaceholder: false, descriptionClaims: false, descriptionCssText: false, descriptionAltMissing: 0, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -198,6 +198,7 @@ test('SEO and description issues are reported with fix proposals', async () => {
   assert.deepEqual(by[1].fixes, [
     { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.' },
     { kind: 'description', fromProductId: 'gid://shopify/Product/2', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' },
+    { kind: 'alt_photo', count: 1, example: 'Refurbished iPhone 13 128GB Blue' },
   ]);
   assert.deepEqual(by[2].issues, ['description_duplicate']);
   assert.deepEqual(by[4].issues, ['description_empty']);
@@ -786,4 +787,118 @@ test('a clean-up whose undo data would not fit in the log is not done', async ()
   assert.equal(r.skipped, 1);
   assert.equal(stored, original);
   assert.match(plain(writes[0].rows)[0].detail, /manueel/);
+});
+
+test('alt texts: product name, numbered per photo; description images without alt get one, exactly undoable', async () => {
+  const { seo, catalog } = await load();
+  assert.equal(seo.altText('Dell Latitude 5420 I5 8GB 256SSD 14" Refurbished 4*', true, 1, 3), 'Refurbished Dell Latitude 5420 I5 8GB 256SSD 14"');
+  assert.equal(seo.altText('Dell Latitude 5420 I5 8GB 256SSD 14" Refurbished 4*', true, 2, 3), 'Refurbished Dell Latitude 5420 I5 8GB 256SSD 14" – foto 2');
+  assert.ok(seo.altText('x '.repeat(100), false, 9, 9).length <= 125);
+  const html = '<p><img src="a.jpg"></p><img alt="" src="b.jpg"><img src="c.jpg" alt="Eigen tekst"><img alt><script>"<img src=x>"</script><img alt="geen bron"><picture><img srcset="d.jpg 1x"></picture>';
+  assert.equal(seo.descriptionAltMissingCount(html), 3);
+  const r = plain(seo.addDescriptionAlts(html, 'iPhone 14 128GB Blue Refurbished 4*', true));
+  assert.equal(r.images, 3);
+  assert.equal(r.html, '<p><img alt="Refurbished iPhone 14 128GB Blue" src="a.jpg"></p><img alt="Refurbished iPhone 14 128GB Blue – afbeelding 2" src="b.jpg"><img src="c.jpg" alt="Eigen tekst"><img alt><script>"<img src=x>"</script><img alt="geen bron"><picture><img alt="Refurbished iPhone 14 128GB Blue – afbeelding 3" srcset="d.jpg 1x"></picture>');
+  assert.equal(seo.undoClean(r.html, r.edits), html);
+  assert.equal(seo.descriptionAltMissingCount(r.html), 0);
+  // Quotes in a name are escaped in the attribute.
+  assert.match(plain(seo.addDescriptionAlts('<img src="a.jpg">', 'MacBook Pro 14" M4', false)).html, /alt="MacBook Pro 14&quot; M4"/);
+  const { issues } = plain(catalog.analyseCatalog([P(1, { title: 'iPhone 14 128GB Blue Refurbished 4*', images: [{ width: 1200, height: 1200, alt: 'x' }, { width: 1200, height: 1200, alt: '' }], descriptionAltMissing: 2 })]));
+  assert.ok(issues[0].issues.includes('alt_missing') && issues[0].issues.includes('description_alt_missing'));
+  assert.deepEqual(issues[0].fixes.filter(f => f.kind.startsWith('alt')), [{ kind: 'alt_photo', count: 1, example: 'Refurbished iPhone 14 128GB Blue' }, { kind: 'alt_text', count: 2 }]);
+});
+
+function altClient(state, scopes = ['write_products', 'write_files']) {
+  const calls = [];
+  const client = { graphql: async (q, v) => {
+    calls.push(q.match(/(?:query|mutation) (\w+)/)[1]);
+    if (q.includes('AppScopes')) return { currentAppInstallation: { accessScopes: scopes.map(handle => ({ handle })) } };
+    if (q.includes('CatalogFileUpdate')) { for (const f of v.files) state.media.find(m => m.id === f.id).alt = f.alt; return { fileUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProductUpdate')) { state.descriptionHtml = v.product.descriptionHtml; return { productUpdate: { userErrors: [] } }; }
+    if (q.includes('CatalogProduct(')) return { product: { id: 1, title: state.title, tags: [], descriptionHtml: state.descriptionHtml, seo: null, condition: null, refurbished: { value: 'true' }, media: { nodes: state.media.map(m => ({ ...m })) } } };
+    throw new Error('unexpected ' + q);
+  } };
+  return { client, calls };
+}
+
+test('photo alt texts are written only for photos without one, checked against the app permission, and undone', async () => {
+  const t = 'iPhone 14 128GB Blue Refurbished 4*';
+  const state = { title: t, descriptionHtml: '', media: [{ id: 'M1', alt: 'Eigen', mediaContentType: 'IMAGE' }, { id: 'V1', alt: '', mediaContentType: 'VIDEO' }, { id: 'M2', alt: '', mediaContentType: 'IMAGE' }] };
+  // Without write_files: skipped, nothing written, and the permission is asked only once.
+  {
+    const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo', count: 1, example: 'x' }], t), issue(2, [{ kind: 'alt_photo', count: 1, example: 'x' }], t)] });
+    const { run } = await load(db);
+    const fake = altClient(state, ['write_products']);
+    const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1', 'gid://shopify/Product/2'], kinds: ['alt_photo'], actor: 'a' }, { db, client: fake.client }));
+    assert.equal(r.skipped, 2);
+    assert.equal(fake.calls.filter(c => c === 'AppScopes').length, 1);
+    assert.match(plain(writes[0].rows)[0].detail, /write_files/);
+    assert.equal(state.media[2].alt, '');
+  }
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo', count: 1, example: 'x' }], t)] });
+  const { run } = await load(db);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_photo'], actor: 'a' }, { db, client: altClient(state).client }));
+  assert.equal(r.applied, 1);
+  assert.deepEqual(state.media.map(m => m.alt), ['Eigen', '', 'Refurbished iPhone 14 128GB Blue – foto 2']);
+  const row = plain(writes[0].rows)[0];
+  assert.deepEqual(row.old_value, { media: [{ id: 'M2', alt: '' }] });
+  const { db: db2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'alt_photo', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
+  assert.equal(state.media[2].alt, '');
+});
+
+test('description alt texts are applied and undone exactly', async () => {
+  const t = 'iPhone 14 128GB Blue Refurbished 4*';
+  const original = '<p>x</p><img src="a.jpg">';
+  const state = { title: t, descriptionHtml: original, media: [] };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_text', count: 1 }], t)] });
+  const { run } = await load(db);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_text'], actor: 'a' }, { db, client: altClient(state).client }));
+  assert.equal(r.applied, 1);
+  assert.equal(state.descriptionHtml, '<p>x</p><img alt="Refurbished iPhone 14 128GB Blue" src="a.jpg">');
+  const row = plain(writes[0].rows)[0];
+  const { db: db2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'alt_text', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
+  assert.equal(state.descriptionHtml, original);
+});
+
+test('weak photo alt texts (TinySEO template, too long) get a separate replacement; undo restores the old text', async () => {
+  const { seo, catalog } = await load();
+  const tiny = 'Apple iMac 27" 5K M20 I9 64GB 512SSD Refurbished 5* - Simple kopen bij Microforce | Apple-specialist & refurbished expert | Gratis afhalen in Gentbrugge';
+  assert.equal(seo.altIsWeak(tiny), true);
+  assert.equal(seo.altIsWeak('Refurbished iMac 27" 5K'), false);
+  assert.equal(seo.altIsWeak(''), false);
+  assert.equal(seo.altIsWeak('x'.repeat(126)), true);
+  const t = 'Apple iMac 27" 5K M20 I9 64GB 512SSD Refurbished 5*';
+  const { issues } = plain(catalog.analyseCatalog([P(1, { title: t, images: [{ width: 1200, height: 1200, alt: tiny }, { width: 1200, height: 1200, alt: '' }] })]));
+  assert.ok(issues[0].issues.includes('alt_weak'));
+  assert.deepEqual(issues[0].fixes.find(f => f.kind === 'alt_photo_replace'), { kind: 'alt_photo_replace', count: 1, example: 'Refurbished Apple iMac 27" 5K M20 I9 64GB 512SSD', oldExample: tiny });
+  const state = { title: t, descriptionHtml: '', media: [{ id: 'M1', alt: tiny, mediaContentType: 'IMAGE' }, { id: 'M2', alt: '', mediaContentType: 'IMAGE' }] };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo_replace', count: 1, example: 'x', oldExample: 'y' }], t)] });
+  const { run } = await load(db);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_photo_replace'], actor: 'a' }, { db, client: altClient(state).client }));
+  assert.equal(r.applied, 1);
+  // Only the weak one is replaced; the empty one is for "Alt foto's".
+  assert.deepEqual(state.media.map(m => m.alt), ['Refurbished Apple iMac 27" 5K M20 I9 64GB 512SSD', '']);
+  const row = plain(writes[0].rows)[0];
+  assert.deepEqual(row.old_value, { media: [{ id: 'M1', alt: tiny }] });
+  const { db: db2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'alt_photo_replace', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
+  assert.equal(state.media[0].alt, tiny);
+});
+
+test('a replacement whose old alt texts would not fit in the log is not done', async () => {
+  const t = 'iPhone 14 128GB Blue Refurbished 4*';
+  const long = '漢'.repeat(200) + ' 5* kopen bij Microforce';
+  const state = { title: t, descriptionHtml: '', media: Array.from({ length: 120 }, (_, i) => ({ id: 'M' + i, alt: long, mediaContentType: 'IMAGE' })) };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo_replace', count: 120, example: 'x', oldExample: 'y' }], t)] });
+  const { run } = await load(db);
+  const fake = altClient(state);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_photo_replace'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.skipped, 1);
+  assert.ok(!fake.calls.includes('CatalogFileUpdate'));
+  assert.match(plain(writes[0].rows)[0].detail, /terug te kunnen zetten/);
 });

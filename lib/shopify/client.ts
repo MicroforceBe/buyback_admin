@@ -176,11 +176,14 @@ export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
 }`;
 
 // ---------- catalogue report fixes ----------
+// media(first: 250): a product holds at most 250 media in Shopify, so one page is the whole gallery.
 export const CATALOG_PRODUCT = `query CatalogProduct($id: ID!) {
-  product(id: $id) { id title tags descriptionHtml seo { title description } condition: metafield(namespace: "magento", key: "conditie") { value } }
+  product(id: $id) { id title tags descriptionHtml seo { title description } condition: metafield(namespace: "magento", key: "conditie") { value } refurbished: metafield(namespace: "custom", key: "refurbished_product") { value } media(first: 250) { nodes { id alt mediaContentType } } }
 }`;
 export const CATALOG_DESCRIPTION_SOURCE = `query CatalogDescriptionSource($id: ID!) { product(id: $id) { id title descriptionHtml } }`;
 export const CATALOG_PRODUCT_UPDATE = `mutation CatalogProductUpdate($product: ProductUpdateInput!) { productUpdate(product: $product) { product { id } userErrors { field message } } }`;
+/** Alt text of product photos (MediaImage ids are file ids); needs the app permission write_files. */
+export const FILE_UPDATE = `mutation CatalogFileUpdate($files: [FileUpdateInput!]!) { fileUpdate(files: $files) { files { id alt } userErrors { field message code } } }`;
 export const TAGS_ADD = `mutation CatalogTagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`;
 export const TAGS_REMOVE = `mutation CatalogTagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { field message } } }`;
 

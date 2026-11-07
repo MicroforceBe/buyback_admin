@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, emptyImageCount, hasClaims, hasCssAsText, hasEmptyImage, hasPlaceholder, namePlaceholderCount, scriptCount, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { altIsWeak, altText, descriptionAltMissingCount, EMPTY_DESCRIPTION_WORDS, emptyImageCount, hasClaims, hasCssAsText, hasEmptyImage, hasPlaceholder, namePlaceholderCount, scriptCount, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -85,6 +85,8 @@ export type CatalogProduct = {
   descriptionPlaceholder: boolean;
   descriptionClaims: boolean;
   descriptionCssText: boolean;
+  /** Images (with a source) in the description without an alt text. */
+  descriptionAltMissing: number;
 };
 
 export function parseCatalog(jsonl: string): CatalogProduct[] {
@@ -105,7 +107,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length, descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
         descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionEmptyImages: emptyImageCount(html), descriptionPlaceholder: hasPlaceholder(html),
-        descriptionClaims: hasClaims(html), descriptionCssText: hasCssAsText(html),
+        descriptionClaims: hasClaims(html), descriptionCssText: hasCssAsText(html), descriptionAltMissing: descriptionAltMissingCount(html),
       });
     }
   }
@@ -128,7 +130,7 @@ export type IssueCode =
   | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
   | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten'
-  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css' | 'seo_outdated';
+  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css' | 'seo_outdated' | 'description_alt_missing' | 'alt_weak';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -154,7 +156,9 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   description_other_model: 'Koppen in tekst noemen ander model',
   description_h1: 'Extra H1-kop in de beschrijving',
   description_empty_image: 'Lege afbeelding in de beschrijving',
-  alt_missing: 'Foto zonder alt-tekst',
+  alt_missing: 'Productfoto zonder alt-tekst',
+  description_alt_missing: 'Afbeelding in de beschrijving zonder alt-tekst',
+  alt_weak: 'Alt-tekst van een foto is het algemene sjabloon of te lang',
   seo_overwritten: 'SEO-tekst van de tool is overschreven',
   seo_outdated: 'SEO-tekst van de tool kan bijgewerkt worden',
   description_script: 'Verborgen code (JSON-LD/script) in de beschrijving',
@@ -166,7 +170,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
-  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten', 'seo_outdated'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'alt_weak', 'description_alt_missing', 'seo_overwritten', 'seo_outdated'] },
   { label: 'Geplakte teksten', codes: ['description_script', 'description_placeholder', 'description_claims', 'description_css'] },
 ];
 
@@ -177,9 +181,12 @@ export type Fix =
   | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string; generated?: { title: boolean; description: boolean } }
   | { kind: 'description'; fromProductId: string; fromTitle: string }
   | { kind: 'heading'; count: number }
-  | { kind: 'clean'; scripts: number; names: number; images?: number };
+  | { kind: 'clean'; scripts: number; names: number; images?: number }
+  | { kind: 'alt_photo'; count: number; example: string }
+  | { kind: 'alt_photo_replace'; count: number; example: string; oldExample: string }
+  | { kind: 'alt_text'; count: number };
 
-export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading', 'clean'] as const;
+export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading', 'clean', 'alt_photo', 'alt_photo_replace', 'alt_text'] as const;
 
 export type CatalogIssue = { productId: string; title: string; handle: string; status: string; skus: string[]; stock: number; issues: IssueCode[]; fixes: Fix[] };
 
@@ -292,7 +299,13 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     if (p.descriptionClaims) list.push('description_claims');
     if (p.descriptionCssText) list.push('description_css');
     if (p.descriptionScripts || p.descriptionNames || p.descriptionEmptyImages) fixes.push({ kind: 'clean', scripts: p.descriptionScripts, names: p.descriptionNames, images: p.descriptionEmptyImages });
-    if (p.images.some(i => !i.alt)) list.push('alt_missing');
+    // Alt texts: the product name (numbered per photo); existing alt texts are never changed.
+    const noAlt = p.images.filter(i => !i.alt).length;
+    if (noAlt) { list.push('alt_missing'); fixes.push({ kind: 'alt_photo', count: noAlt, example: altText(p.title, p.refurbished, 1, 1) }); }
+    // Weak alt texts (generic template, too long) are replaced as a separate choice; the old text is kept for undo.
+    const weakAlts = p.images.filter(i => altIsWeak(i.alt));
+    if (weakAlts.length) { list.push('alt_weak'); fixes.push({ kind: 'alt_photo_replace', count: weakAlts.length, example: altText(p.title, p.refurbished, 1, 1), oldExample: weakAlts[0].alt.slice(0, 200) }); }
+    if (p.descriptionAltMissing) { list.push('description_alt_missing'); fixes.push({ kind: 'alt_text', count: p.descriptionAltMissing }); }
     // SEO text set by this tool (latest applied fix, not undone) that is no longer there, or lost its TinySEO skip tag.
     const own = managed.get(p.id);
     if (own && ((own.title ?? '') !== p.seoTitle || (own.description ?? '') !== p.seoDescription || !p.tags.includes(SEO_SKIP_TAG))) list.push('seo_overwritten');

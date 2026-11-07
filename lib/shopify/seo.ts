@@ -286,3 +286,63 @@ export function htmlHash(html: string | null | undefined): string {
   for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return `${t.length}:${h.toString(16)}`;
 }
+
+// ── Alt texts: product photos and images in the description ────────────────────────────────────────
+
+export const ALT_MAX = 125;
+const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Alt text for a product photo or a description image: what is on it (no stars, no shop slogan). */
+export function altText(title: string, refurbished: boolean, n: number, of: number, word: 'foto' | 'afbeelding' = 'foto'): string {
+  const base = cutAtWord(refurbished ? `Refurbished ${seoName(title)}` : seoName(title), ALT_MAX - 15);
+  return of > 1 && n > 1 ? `${base} – ${word} ${n}` : base;
+}
+
+/**
+ * A weak alt text: TinySEO's generic template (stars, "kopen bij Microforce", the pickup slogan) or longer
+ * than an alt text should be. It describes the shop, not what is on the photo.
+ */
+export const altIsWeak = (alt: string | null | undefined) => {
+  const a = (alt ?? '').trim();
+  return !!a && (/\b\d\s*\*/.test(a) || /kopen bij microforce|gratis afhalen|apple-specialist|refurbished expert/i.test(a) || a.length > ALT_MAX);
+};
+
+/** Position and current alt of every <img> with a source (outside scripts); images inside <picture> included. */
+function describedImages(html: string): { start: number; tag: string; alt: { index: number; text: string; value: string } | null }[] {
+  const out: { start: number; tag: string; alt: { index: number; text: string; value: string } | null }[] = [];
+  for (const m of html.matchAll(new RegExp(`${SCRIPT_BLOCK.source}|${IMG_TAG}`, 'gi'))) {
+    if (/^<script/i.test(m[0]) || isEmptyImageTag(m[0])) continue;
+    let alt: { index: number; text: string; value: string } | null = null;
+    for (const a of m[0].slice(4, -1).matchAll(/([^\s"'=\/>]+)\s*(?:=\s*("[^"]*"|'[^']*'|[^\s"'>]+))?/g)) {
+      if (a[1].toLowerCase() === 'alt') { alt = { index: 4 + (a.index ?? 0), text: a[0], value: (a[2] ?? '').replace(/^["']|["']$/g, '').trim() }; break; }
+    }
+    out.push({ start: m.index ?? 0, tag: m[0], alt });
+  }
+  return out;
+}
+
+/** Images with a source in the description whose alt text is missing or blank. */
+export const descriptionAltMissingCount = (html: string | null | undefined) => describedImages(html ?? '').filter(i => !i.alt?.value).length;
+
+/**
+ * Gives every image in the description without an alt text one (the product name, numbered when there
+ * are several). Existing alt texts stay. Edits in the same form as cleanDescription, so undoClean rebuilds the original.
+ */
+export function addDescriptionAlts(html: string, title: string, refurbished: boolean): { html: string; edits: DescriptionEdit[]; images: number } {
+  const missing = describedImages(html).filter(i => !i.alt?.value);
+  const edits: DescriptionEdit[] = [];
+  let out = '', last = 0, n = 0;
+  for (const img of missing) {
+    n++;
+    const attr = `alt="${escapeAttr(altText(title, refurbished, n, missing.length, 'afbeelding'))}"`;
+    // A blank alt attribute is replaced; a missing one is added right after "<img".
+    const at = img.alt ? img.start + img.alt.index : img.start + 4;
+    const removed = img.alt ? img.alt.text : '';
+    const inserted = img.alt ? attr : ` ${attr}`;
+    out += html.slice(last, at);
+    edits.push({ at: out.length, removed, inserted });
+    out += inserted;
+    last = at + removed.length;
+  }
+  return { html: out + html.slice(last), edits, images: missing.length };
+}

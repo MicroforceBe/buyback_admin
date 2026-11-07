@@ -2,11 +2,11 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 // Generates and stores the catalogue report, and applies selected safe fixes (admin action).
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
+import { APP_SCOPES, CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, FILE_UPDATE, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix, type ManagedSeo } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
-import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
-import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, emptyImageCount, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { applyClean, applyDescriptionAlts, cleanUndoHtml } from '@/lib/shopify/textClean';
+import { altIsWeak, altText, demoteH1, descriptionAltMissingCount, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, emptyImageCount, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -36,6 +36,20 @@ async function editTags(client: ShopifyClient, mutation: string, id: string, tag
   const errors = (r.tagsAdd ?? r.tagsRemove)?.userErrors ?? [];
   if (errors.length) throw new Error(errors.map(e => e.message).join('; '));
 }
+
+/** Whether the app has an access scope (e.g. write_files for photo alt texts). */
+async function hasScope(client: ShopifyClient, scope: string): Promise<boolean> {
+  const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
+  return (currentAppInstallation?.accessScopes ?? []).some(s => s.handle === scope);
+}
+
+async function setAlts(client: ShopifyClient, files: { id: string; alt: string }[]) {
+  const { fileUpdate } = await client.graphql<{ fileUpdate: { userErrors: UserError[] } }>(FILE_UPDATE, { files });
+  if (fileUpdate.userErrors.length) throw new Error(fileUpdate.userErrors.map(e => e.message).join('; '));
+}
+
+type MediaNode = { id: string; alt: string | null; mediaContentType: string };
+const photosOf = (p: { media?: { nodes: MediaNode[] } | null }) => (p.media?.nodes ?? []).filter(m => m.mediaContentType === 'IMAGE');
 
 async function updateProduct(client: ShopifyClient, product: Record<string, unknown>) {
   const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(CATALOG_PRODUCT_UPDATE, { product });
@@ -95,6 +109,8 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
   if (error || !report) throw new Error('Rapport niet gevonden.');
   const byId = new Map((report.issues as CatalogIssue[]).map(i => [i.productId, i]));
   let applied = 0, skipped = 0, failed = 0, noMatch = 0;
+  // Checked once, only when photo alt texts are chosen.
+  let filesScope: boolean | null = null;
   for (const id of ids) {
     const issue = byId.get(id);
     // A selected product without a proposal of the chosen kind is counted, so the screen can say so.
@@ -102,7 +118,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
     // The outcome of every product is logged before the next one is touched, so a later failure
     // never loses the record of changes that are already live in Shopify.
     const log: Record<string, unknown>[] = [];
-    type Fresh = { id: string; title: string; tags: string[]; descriptionHtml: string | null; seo: { title: string | null; description: string | null } | null; condition: { value: string } | null } | null;
+    type Fresh = { id: string; title: string; tags: string[]; descriptionHtml: string | null; seo: { title: string | null; description: string | null } | null; condition: { value: string } | null; refurbished?: { value: string } | null; media?: { nodes: MediaNode[] } | null } | null;
     let product: Fresh = null;
     let readError: string | null = null;
     try { ({ product } = await client.graphql<{ product: Fresh }>(CATALOG_PRODUCT, { id })); }
@@ -119,6 +135,12 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         else if (product.condition?.value?.trim().startsWith(`${stars}*`)) reason = 'al in orde';
       } else if (fix.kind === 'heading') {
         if (!hasH1(product.descriptionHtml)) reason = 'beschrijving heeft geen H1-kop meer';
+      } else if (fix.kind === 'alt_photo') {
+        if (!photosOf(product).some(m => !m.alt?.trim())) reason = "alle productfoto's hebben al een alt-tekst";
+      } else if (fix.kind === 'alt_photo_replace') {
+        if (!photosOf(product).some(m => altIsWeak(m.alt))) reason = 'geen zwakke alt-tekst meer gevonden';
+      } else if (fix.kind === 'alt_text') {
+        if (!descriptionAltMissingCount(product.descriptionHtml)) reason = 'alle afbeeldingen in de beschrijving hebben al een alt-tekst';
       } else if (fix.kind === 'clean') {
         if (!scriptCount(product.descriptionHtml) && !namePlaceholderCount(product.descriptionHtml) && !emptyImageCount(product.descriptionHtml)) reason = 'al opgeschoond';
       } else if (fix.kind === 'category') {
@@ -156,6 +178,28 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           } catch { unchecked = true; }
           log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? (unchecked ? ' (markering niet gecontroleerd)' : '') : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
             old_value: kept ? { headings: count, token } : null, new_value: kept ? { headings: count, token } : null });
+        } else if (fix.kind === 'alt_photo' || fix.kind === 'alt_photo_replace') {
+          if (filesScope === null) filesScope = await hasScope(client, 'write_files');
+          if (!filesScope) { skipped++; log.push({ ...base, result: 'skipped', detail: "de app heeft het recht write_files (nog) niet: alt-teksten van productfoto's kunnen niet geschreven worden" }); continue; }
+          const photos = photosOf(product!);
+          // Only photos without an alt text (or, when replacing, with a weak one); the number follows the photo's place in the gallery.
+          const todo = photos.map((m, i) => ({ m, n: i + 1 })).filter(x => (fix.kind === 'alt_photo' ? !x.m.alt?.trim() : altIsWeak(x.m.alt)));
+          const files = todo.map(x => ({ id: x.m.id, alt: altText(product!.title, product!.refurbished?.value === 'true', x.n, photos.length) }));
+          // The undo data must fit in the log (64 KB); far beyond any real gallery, but checked before writing.
+          const oldMedia = todo.map(x => ({ id: x.m.id, alt: x.m.alt ?? '' }));
+          const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
+          if (bytes({ media: files }) > 48_000 || bytes({ media: oldMedia }) > 48_000) { skipped++; log.push({ ...base, result: 'skipped', detail: "te veel foto's om veilig terug te kunnen zetten" }); continue; }
+          await setAlts(client, files);
+          log.push({ ...base, result: 'ok', detail: `${files.length} productfoto${files.length === 1 ? '' : "'s"} kreeg${files.length === 1 ? '' : 'en'} ${fix.kind === 'alt_photo' ? 'een' : 'een nieuwe'} alt-tekst, bv. "${files[0].alt}"`.slice(0, 1000),
+            old_value: { media: oldMedia }, new_value: { media: files } });
+        } else if (fix.kind === 'alt_text') {
+          const out = await applyDescriptionAlts(product!.descriptionHtml ?? '', product!.title, product!.refurbished?.value === 'true', html => updateProduct(client, { id, descriptionHtml: html }), async () => {
+            const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
+            return after?.descriptionHtml ?? null;
+          });
+          if (!out.done) { skipped++; log.push({ ...base, result: 'skipped', detail: out.reason }); continue; }
+          product = { ...product!, descriptionHtml: out.html };
+          log.push({ ...base, result: 'ok', detail: out.detail.slice(0, 1000), old_value: out.old_value, new_value: out.new_value });
         } else if (fix.kind === 'clean') {
           const out = await applyClean(product!.descriptionHtml ?? '', html => updateProduct(client, { id, descriptionHtml: html }), async () => {
             const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
@@ -210,10 +254,11 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
   const client = clientOrThrow(deps.client);
   const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
   if (error || !fix) throw new Error('Aanpassing niet gevonden.');
-  if (!['seo', 'seo_replace', 'heading', 'clean'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
+  if (!['seo', 'seo_replace', 'heading', 'clean', 'alt_photo', 'alt_photo_replace', 'alt_text'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
   const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
   if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
-  if (fix.kind === 'clean') return revertClean(db, client, fix as CleanFixRow, input.actor);
+  if (fix.kind === 'alt_photo' || fix.kind === 'alt_photo_replace') return revertAltPhoto(db, client, fix as AltPhotoRow, input.actor);
+  if (fix.kind === 'clean' || fix.kind === 'alt_text') return revertClean(db, client, fix as CleanFixRow, input.actor);
   if (fix.kind === 'heading') return revertHeading(db, client, fix as { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { token?: string } }, input.actor);
   const old = fix.old_value as { title: string | null; description: string | null; skipTagAdded?: boolean };
   const set = fix.new_value as { title: string | null; description: string | null };
@@ -268,6 +313,28 @@ async function revertClean(db: Db, client: ShopifyClient, fix: CleanFixRow, acto
     const undo = product ? cleanUndoHtml(product.descriptionHtml ?? '', fix.old_value, fix.new_value) : { reason: 'product niet meer gevonden' };
     if ('reason' in undo) result = { ok: false, status: 'skipped', detail: undo.reason };
     else { await updateProduct(client, { id: fix.product_id, descriptionHtml: undo.html }); result = { ok: true, status: 'ok', detail: 'oorspronkelijke beschrijving teruggezet' }; }
+  } catch (e) {
+    result = { ok: false, status: 'failed', detail: `terugdraaien mislukt: ${e instanceof Error ? e.message : 'onbekende fout'}`.slice(0, 1000) };
+  }
+  const { error } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.status, detail: result.detail, old_value: null, new_value: null });
+  if (error) throw new Error(result.ok ? 'Teruggezet, maar het logboek kon niet worden bijgewerkt.' : 'Logboek kon niet worden bijgewerkt.');
+  return result;
+}
+
+type AltPhotoRow = { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { media?: { id: string; alt: string }[] } | null; new_value: { media?: { id: string; alt: string }[] } | null };
+
+/** Undo of photo alt texts: only photos that still carry the alt text this fix set get their old one back. */
+async function revertAltPhoto(db: Db, client: ShopifyClient, fix: AltPhotoRow, actor: string): Promise<{ ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' }> {
+  const base = { report_id: fix.report_id, product_id: fix.product_id, title: String(fix.title ?? '').slice(0, 255), kind: 'revert', actor, reverts: fix.id };
+  let result: { ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' };
+  try {
+    const { product } = await client.graphql<{ product: { id: string; media?: { nodes: MediaNode[] } | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
+    const now = new Map((product?.media?.nodes ?? []).map(m => [m.id, m.alt ?? '']));
+    const old = new Map((fix.old_value?.media ?? []).map(m => [m.id, m.alt]));
+    const back = (fix.new_value?.media ?? []).filter(m => now.get(m.id) === m.alt && old.has(m.id)).map(m => ({ id: m.id, alt: old.get(m.id) ?? '' }));
+    if (!product) result = { ok: false, status: 'skipped', detail: 'product niet meer gevonden' };
+    else if (!back.length) result = { ok: false, status: 'skipped', detail: 'alt-teksten zijn intussen gewijzigd; niet teruggezet' };
+    else { await setAlts(client, back); result = { ok: true, status: 'ok', detail: `${back.length} alt-tekst${back.length === 1 ? '' : 'en'} teruggezet` }; }
   } catch (e) {
     result = { ok: false, status: 'failed', detail: `terugdraaien mislukt: ${e instanceof Error ? e.message : 'onbekende fout'}`.slice(0, 1000) };
   }

@@ -167,7 +167,7 @@ Extra controles: SEO-tekst is de ruwe titel of het algemene sjabloon (sterren, "
 
 **SEO-tekst van de tool is overschreven.** Bij elk rapport vergelijkt de tool per product de laatste toegepaste SEO-aanpassing (niet teruggedraaid) met de huidige SEO-titel en meta-description, en controleert of de tag `tinyimg_metadata_skip` er nog op staat.
 
-Alt-teksten worden (nog) niet automatisch aangepast: daarvoor is het recht `write_files` nodig, dat de app nu niet heeft.
+**Alt-teksten.** Productfoto's zonder alt-tekst (`alt_photo`) krijgen de productnaam ("Refurbished Dell Latitude 5420 …", vanaf de tweede foto "– foto 2"); afbeeldingen in de beschrijving zonder alt-tekst (`alt_text`) krijgen de naam met "– afbeelding 2" enz. Bestaande alt-teksten worden nooit gewijzigd. Productfoto's schrijven gebeurt via `fileUpdate` en vraagt het recht `write_files` (en `read_files`) in de Dev Dashboard-app; zonder dat recht wordt de aanpassing overgeslagen met die reden. Terugdraaien zet per foto de oude alt-tekst terug zolang de tool-tekst er nog staat; bij de beschrijving exact zoals bij Opschonen. Let op: producten met de tag `tinyimg_metadata_skip` krijgen van TinySEO geen alt-teksten meer, en TinySEO's ALT-functie staat op overschrijven.
 
 **Nieuwe concepten** uit de sync krijgen dezelfde beschrijving-regel; zonder geschikte bron krijgen ze de tag `geen-beschrijving`.
 
