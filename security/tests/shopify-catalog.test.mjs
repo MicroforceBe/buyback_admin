@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: 'Meta', warranty: '24 maanden', descriptionWords: 150, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: 'Meta', warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -123,6 +123,17 @@ test('description checks: words, duplicates, extra H1, empty image and another m
   assert.equal(seo.mentionsOtherModel('iPhone 14 Plus 128GB Purple Refurbished 4* M', wrong), true);
   assert.equal(seo.mentionsOtherModel('iPhone 14 128GB Purple Refurbished 4* M', wrong), false);
   assert.equal(seo.mentionsOtherModel('MacBook Pro 13" M1 8GB 512SSD Refurbished 4*', wrong), false);
+  // A longer model name never counts for a shorter one, and the other way round.
+  const proMax = '<h2>iPhone 14 Pro Max specificaties</h2>';
+  assert.equal(seo.mentionsOtherModel('iPhone 14 128GB Blue Refurbished 4* M', proMax), true);
+  assert.equal(seo.mentionsOtherModel('iPhone 14 Pro 128GB Purple Refurbished 4* M', proMax), true);
+  assert.equal(seo.mentionsOtherModel('iPhone 14 Pro Max 128GB Purple Refurbished 4* M', proMax), false);
+  assert.equal(seo.mentionsOtherModel('iPhone 13 Mini 128GB Blue Refurbished 4* M', '<h2>iPhone 13 mini</h2>'), false);
+  assert.equal(seo.mentionsOtherModel('iPhone 16e 128GB White Refurbished 4* M', '<h2>iPhone 16</h2>'), true);
+  assert.equal(seo.isBlankDescription(''), true);
+  assert.equal(seo.isBlankDescription('<p> </p>'), true);
+  assert.equal(seo.isBlankDescription('<p>Kort</p>'), false);
+  assert.equal(seo.isBlankDescription('<img src="x.jpg">'), false);
 });
 
 test('a description is only taken over from the same model with a substantial text', async () => {
@@ -142,8 +153,9 @@ test('a description is only taken over from the same model with a substantial te
 test('SEO and description issues are reported with fix proposals', async () => {
   const { catalog } = await load();
   const r = plain(catalog.analyseCatalog([
-    P(1, { title: 'iPhone 13 128GB Blue Refurbished 4* M', seoTitle: '', seoDescription: '', descriptionWords: 0, descriptionHash: null, images: [{ width: 1200, height: 1200, alt: '' }] }),
+    P(1, { title: 'iPhone 13 128GB Blue Refurbished 4* M', seoTitle: '', seoDescription: '', descriptionWords: 0, descriptionBlank: true, descriptionHash: null, images: [{ width: 1200, height: 1200, alt: '' }] }),
     P(2, { title: 'iPhone 13 256GB Black Refurbished 5* M', condition: '5* Als Nieuw', descriptionWords: 400, descriptionHash: 'same' }),
+    P(4, { title: 'iPhone 13 64GB Red Refurbished 4* M', descriptionWords: 5, descriptionBlank: false }),
     P(3, { title: 'iPhone 13 128GB Pink Refurbished 3* M', condition: '3* Goed', descriptionWords: 300, descriptionHash: 'same', seoTitle: 'x'.repeat(61), descriptionH1: true, descriptionEmptyImage: true }),
   ]));
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
@@ -153,6 +165,8 @@ test('SEO and description issues are reported with fix proposals', async () => {
     { kind: 'description', fromProductId: 'gid://shopify/Product/2', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' },
   ]);
   assert.deepEqual(by[2].issues, ['description_duplicate']);
+  assert.deepEqual(by[4].issues, ['description_empty']);
+  assert.deepEqual(by[4].fixes, []);
   assert.deepEqual(by[3].issues, ['seo_too_long', 'description_duplicate', 'description_h1', 'description_empty_image']);
   assert.deepEqual(by[3].fixes, []);
 });
@@ -252,7 +266,7 @@ test('SEO fixes never overwrite existing texts and descriptions come from a stil
   const fake = fakeClient({
     'gid://shopify/Product/1': { id: 1, title: t, tags: [], descriptionHtml: '', seo: { title: 'Bestaande titel', description: null }, condition: null },
     'gid://shopify/Product/2': { id: 2, title: t, tags: [], descriptionHtml: '', seo: { title: 'A', description: 'B' }, condition: null },
-    'gid://shopify/Product/3': { id: 3, title: t, tags: [], descriptionHtml: '<p>' + 'woord '.repeat(50) + '</p>', seo: null, condition: null },
+    'gid://shopify/Product/3': { id: 3, title: t, tags: [], descriptionHtml: '<p>Korte eigen tekst</p>', seo: null, condition: null },
     'gid://shopify/Product/9': { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: '<p>' + 'tekst '.repeat(200) + '</p>' },
   });
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: [1, 2, 3].map(n => `gid://shopify/Product/${n}`), kinds: ['seo', 'description'], actor: 'a' }, { db, client: fake.client }));

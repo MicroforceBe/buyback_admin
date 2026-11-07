@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -47,6 +47,7 @@ export type CatalogProduct = {
   seoDescription: string;
   warranty: string | null;
   descriptionWords: number;
+  descriptionBlank: boolean;
   descriptionHash: string | null;
   descriptionH1: boolean;
   descriptionEmptyImage: boolean;
@@ -67,7 +68,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         condition: mf('mf_conditie'), colour: mf('mf_colour'), refurbished: mf('mf_refurb') === 'true',
         skus: [], images: [], collections: 0,
         seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(), warranty: mf('mf_garantie'),
-        descriptionWords: wordCount(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionEmptyImage: hasEmptyImage(html),
+        descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
       });
     }
@@ -194,7 +195,8 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : suggestSeoTitle(p.title, p.refurbished), description: p.seoDescription ? null : suggestSeoDescription(p.title, p.refurbished, p.warranty) });
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
       list.push('description_empty');
-      const src = descriptionSource.get(modelOf(p.title));
+      // Only a truly empty description is filled; a short text is reported but never replaced.
+      const src = p.descriptionBlank ? descriptionSource.get(modelOf(p.title)) : undefined;
       if (src && src.id !== p.id) fixes.push({ kind: 'description', fromProductId: src.id, fromTitle: src.title });
     } else if (p.descriptionWords < SHORT_DESCRIPTION_WORDS) list.push('description_short');
     if (p.descriptionHash && (hashCount.get(p.descriptionHash) ?? 0) > 1) list.push('description_duplicate');

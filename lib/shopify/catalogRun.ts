@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
-import { EMPTY_DESCRIPTION_WORDS, mentionsOtherModel, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { isBlankDescription, mentionsOtherModel, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -73,7 +73,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
       } else if (fix.kind === 'seo') {
         if ((!fix.title || product.seo?.title?.trim()) && (!fix.description || product.seo?.description?.trim())) reason = 'SEO-gegevens zijn intussen al ingevuld';
-      } else if (wordCount(product.descriptionHtml) >= EMPTY_DESCRIPTION_WORDS) reason = 'heeft intussen al een beschrijving';
+      } else if (!isBlankDescription(product.descriptionHtml)) reason = 'heeft al een beschrijving (die wordt nooit vervangen)';
       if (reason) { skipped++; log.push({ ...base, result: 'skipped', detail: reason }); continue; }
       try {
         if (fix.kind === 'seo') {

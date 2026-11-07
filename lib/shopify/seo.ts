@@ -30,17 +30,26 @@ export const hasH1 = (html: string | null | undefined) => /<h1[\s>]/i.test(html 
 /** An <img> without a usable src (renders as a broken image). */
 export const hasEmptyImage = (html: string | null | undefined) => [...(html ?? '').matchAll(/<img\b[^>]*>/gi)].some(m => !/\bsrc\s*=\s*["']?\s*[^"'\s>]/i.test(m[0]));
 
+// Complete iPhone model names: generation plus suffix ("iphone 14 pro max", "iphone 13 mini", "iphone 16e").
+const IPHONE_MODEL = /\biphone (\d{1,2}e?|xs|xr|x|se)(?: (pro max|pro|plus|max|mini))?(?![a-z0-9])/g;
+const iphoneModels = (text: string) => new Set([...` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `.matchAll(IPHONE_MODEL)].map(m => m[0].trim()));
+
 /**
- * For iPhones: the description's headings mention an iPhone, but never the product's own model
- * (e.g. an "iPhone 14 Plus" page whose headings only speak of "iPhone 14").
+ * For iPhones: the description's headings name one or more iPhone models, but never the product's
+ * own complete model (e.g. an "iPhone 14 Plus" page whose headings only speak of "iPhone 14", or an
+ * "iPhone 14" page whose headings only name the "iPhone 14 Pro Max").
  */
 export function mentionsOtherModel(title: string, html: string | null | undefined): boolean {
   const model = modelOf(title);
-  if (!model.startsWith('iphone ')) return false;
-  const headings = [...(html ?? '').matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)].map(m => ` ${textOf(m[1]).toLowerCase().replace(/[^a-z0-9+]+/g, ' ')} `);
-  if (!headings.some(h => h.includes(' iphone '))) return false;
-  return !headings.some(h => h.includes(` ${model} `));
+  const own = iphoneModels(model);
+  // Only for titles whose model is exactly one recognised iPhone model.
+  if (own.size !== 1 || !own.has(model)) return false;
+  const mentioned = new Set([...(html ?? '').matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)].flatMap(m => [...iphoneModels(textOf(m[1]))]));
+  return mentioned.size > 0 && !mentioned.has(model);
 }
+
+/** Truly empty: no visible text and no images (a short text is never replaced automatically). */
+export const isBlankDescription = (html: string | null | undefined) => !textOf(html) && !/<img\b/i.test(html ?? '');
 
 /** The product name for SEO: without "Refurbished", stars and the trailing "M" code. */
 export function seoName(title: string): string {
