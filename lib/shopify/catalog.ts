@@ -47,7 +47,8 @@ export function distinguishingSpecs(p: CatalogProduct, sameTitle: CatalogProduct
   if (sameTitle.length < 2) return [];
   const differing = SPEC_KEYS.filter(k => new Set(sameTitle.map(o => (o.specs[k] ?? '').toLowerCase())).size > 1);
   const titleLower = p.title.toLowerCase();
-  return differing.slice(0, MAX_DISTINGUISHING).map(k => p.specs[k]).filter((v): v is string => !!v && !titleLower.includes(v.toLowerCase()));
+  // Missing values and values already in the title are dropped first, so they never use up a slot.
+  return differing.map(k => p.specs[k]).filter((v): v is string => !!v && !titleLower.includes(v.toLowerCase())).slice(0, MAX_DISTINGUISHING);
 }
 
 export type CatalogProduct = {

@@ -430,6 +430,11 @@ test('distinguishing properties already in the title are not repeated', async ()
   const group = [P(1, { title: t, specs: { cpu: 'I5', year: 'Early 2020' } }), P(2, { title: t, specs: { cpu: 'I7', year: 'Mid 2020' } })];
   assert.deepEqual(plain(catalog.distinguishingSpecs(group[0], group)), ['Early 2020']);
   assert.deepEqual(plain(catalog.distinguishingSpecs(group[0], [group[0]])), []);
+  // Missing or already-mentioned values never use up the two slots.
+  const lt = 'Laptop i5 Intel HD Refurbished 4*';
+  const g3 = [P(1, { title: lt, specs: { cpu: 'i5', gpu: 'Intel HD', year: '2019', layout: 'AZERTY' } }), P(2, { title: lt, specs: { cpu: 'i5', gpu: 'Intel HD', year: '2020', layout: 'QWERTY' } }), P(3, { title: lt, specs: { cpu: 'i7', gpu: 'Iris' } })];
+  assert.deepEqual(plain(catalog.distinguishingSpecs(g3[0], g3)), ['2019', 'AZERTY']);
+  assert.deepEqual(plain(catalog.distinguishingSpecs(g3[1], g3)), ['2020', 'QWERTY']);
   const g2 = [P(1, { title: t, specs: { cpu: 'i5-1030NG7' } }), P(2, { title: t, specs: { cpu: 'i3-1000NG4' } })];
   assert.deepEqual(plain(catalog.distinguishingSpecs(g2[0], g2)), ['i5-1030NG7']);
 });
