@@ -1,0 +1,33 @@
+// Clean-up of pasted texts for products and collections: removes hidden <script> code and replaces
+// "[Bedrijfsnaam]" by the shop name, and undoes that exactly. Shared by both reports; I/O is passed in.
+import { cleanDescription, htmlHash, undoClean, type DescriptionEdit } from '@/lib/shopify/seo';
+
+/** Above this size (JSON of the removed parts) the clean-up is not done: the undo data must fit in the log. */
+export const MAX_CLEAN_UNDO_CHARS = 50_000;
+
+export type CleanOutcome =
+  | { done: false; reason: string }
+  | { done: true; detail: string; old_value: { edits: DescriptionEdit[] } | null; new_value: { hash: string; scripts: number; names: number } | null; html: string };
+
+export async function applyClean(html: string, write: (html: string) => Promise<void>, read: () => Promise<string | null>): Promise<CleanOutcome> {
+  const c = cleanDescription(html);
+  if (!c.edits.length) return { done: false, reason: 'geen verborgen code of [Bedrijfsnaam] meer gevonden' };
+  if (JSON.stringify(c.edits).length > MAX_CLEAN_UNDO_CHARS) return { done: false, reason: 'te veel verborgen code om veilig terug te kunnen zetten; pas deze tekst manueel aan' };
+  await write(c.html);
+  // Undo rebuilds the original from positions in the cleaned text, so it needs Shopify to have kept that text exactly.
+  // A failing check read leaves the undo available: undo itself refuses when the text differs (hash).
+  let kept = true, unchecked = false;
+  try { kept = (await read()) === c.html; } catch { unchecked = true; }
+  const what = [c.scripts ? `${c.scripts} verborgen code-blok${c.scripts === 1 ? '' : 'ken'} verwijderd` : '', c.names ? `${c.names}× [Bedrijfsnaam] → Microforce` : ''].filter(Boolean).join(' · ');
+  const note = !kept ? ' (terugdraaien niet mogelijk: Shopify bewaarde de tekst anders)' : unchecked ? ' (niet gecontroleerd)' : '';
+  return { done: true, detail: `${what}${note}`, html: c.html,
+    old_value: kept ? { edits: c.edits } : null, new_value: kept ? { hash: htmlHash(c.html), scripts: c.scripts, names: c.names } : null };
+}
+
+/** The original text, or the reason it cannot be rebuilt (text changed since the clean-up). */
+export function cleanUndoHtml(current: string, oldValue: { edits?: DescriptionEdit[] } | null, newValue: { hash?: string } | null): { html: string } | { reason: string } {
+  if (!oldValue?.edits || !newValue?.hash) return { reason: 'geen gegevens om terug te zetten' };
+  if (htmlHash(current) !== newValue.hash) return { reason: 'tekst is sinds het opschonen gewijzigd; niet teruggezet' };
+  const html = undoClean(current, oldValue.edits);
+  return html === null ? { reason: 'tekst komt niet overeen met het opschonen; niet teruggezet' } : { html };
+}

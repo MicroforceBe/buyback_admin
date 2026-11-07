@@ -116,7 +116,8 @@ export function pickDescription<T extends { title: string; descriptionHtml?: str
   if (!model) return null;
   let best: { ref: T; words: number } | null = null;
   for (const r of refs) {
-    if (modelOf(r.title) !== model || mentionsOtherModel(title, r.descriptionHtml)) continue;
+    // Never copied: texts naming another model, or with hidden code or placeholders.
+    if (modelOf(r.title) !== model || mentionsOtherModel(title, r.descriptionHtml) || isUnsafeDescription(r.descriptionHtml)) continue;
     const words = wordCount(r.descriptionHtml);
     if (words >= SHORT_DESCRIPTION_WORDS && (!best || words > best.words)) best = { ref: r, words };
   }
@@ -172,4 +173,69 @@ export function restoreH1(html: string, token: string): { html: string; count: n
   const re = new RegExp(`<h2 ${DEMOTED_H1_ATTR}="${token}"(\\s[^>]*)?>([\\s\\S]*?)<\\/h2\\s*>`, 'gi');
   const out = html.replace(re, (_m, attrs: string | undefined, inner: string) => { count++; return `<h1${attrs ?? ''}>${inner}</h1>`; });
   return { html: out, count };
+}
+
+// ── Pasted (AI) text: hidden code, placeholders and promises to check ──────────────────────────────
+
+const SCRIPT_BLOCK = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+/** Company-name placeholders left in pasted texts; replaced by the shop name. */
+const NAME_PLACEHOLDER = /\[(?:bedrijfsnaam|bedrijf|winkelnaam|webshopnaam|webshop|shopnaam|naam bedrijf|company name|company|store name|shop name)\]/gi;
+/** Other placeholders in the visible text ("[Stad]", "uwdomein.nl", "lorem ipsum"): reported, never replaced. */
+const OTHER_PLACEHOLDER = /\[[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .\-]{1,38}\]|\b(?:uw|jouw)domein\.|\bexample\.(?:com|nl|be)\b|\blorem ipsum\b/i;
+/** Promises a pasted text makes on behalf of the shop that someone should check. */
+const CLAIMS = /\bbatterij\w* (?:conditie |capaciteit )?van (?:minimaal|minstens)\b|\b\d+\s*kg (?:aan )?co2/i;
+/** CSS that is shown as text (a rule like ".x { color: red; }" outside a <style> tag). */
+const CSS_AS_TEXT = /(?:^|\s)[.#]?[a-z][\w-]*(?:\s+[.#]?[\w-]+)*\s*\{[^{}]*:[^{}]*;?\s*\}/i;
+
+/** Number of <script> blocks (e.g. JSON-LD) in a description: Google reads them as extra product data. */
+export const scriptCount = (html: string | null | undefined) => ((html ?? '').match(/<script\b/gi) ?? []).length;
+const withoutScripts = (html: string | null | undefined) => (html ?? '').replace(SCRIPT_BLOCK, ' ');
+/** Company-name placeholders outside scripts. */
+export const namePlaceholderCount = (html: string | null | undefined) => (withoutScripts(html).match(NAME_PLACEHOLDER) ?? []).length;
+/** Any placeholder in the visible text (company name or other). */
+export const hasPlaceholder = (html: string | null | undefined) => { const t = textOf(html); return new RegExp(NAME_PLACEHOLDER.source, 'i').test(t) || OTHER_PLACEHOLDER.test(t); };
+export const hasClaims = (html: string | null | undefined) => CLAIMS.test(textOf(html));
+export const hasCssAsText = (html: string | null | undefined) => CSS_AS_TEXT.test(textOf((html ?? '').replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')));
+/** A text that must never be copied to another product: hidden code or placeholders. */
+export const isUnsafeDescription = (html: string | null | undefined) => scriptCount(html) > 0 || hasPlaceholder(html);
+
+/** One change of cleanDescription, at a position in the cleaned text: undo puts `removed` back in place of `inserted`. */
+export type DescriptionEdit = { at: number; removed: string; inserted: string };
+
+/**
+ * Removes <script> blocks and replaces company-name placeholders by the shop name. The edits are
+ * recorded with their position in the result, so the exact original can be rebuilt (undoClean).
+ */
+export function cleanDescription(html: string): { html: string; edits: DescriptionEdit[]; scripts: number; names: number } {
+  const re = new RegExp(`${SCRIPT_BLOCK.source}|${NAME_PLACEHOLDER.source}`, 'gi');
+  const edits: DescriptionEdit[] = [];
+  let out = '', last = 0, scripts = 0, names = 0;
+  for (const m of html.matchAll(re)) {
+    out += html.slice(last, m.index);
+    const script = m[0].startsWith('<');
+    if (script) scripts++; else names++;
+    const inserted = script ? '' : BRAND;
+    edits.push({ at: out.length, removed: m[0], inserted });
+    out += inserted;
+    last = (m.index ?? 0) + m[0].length;
+  }
+  return { html: out + html.slice(last), edits, scripts, names };
+}
+
+/** Rebuilds the original of cleanDescription; null when the text no longer matches the recorded edits. */
+export function undoClean(html: string, edits: DescriptionEdit[]): string | null {
+  let out = html;
+  for (const e of [...edits].sort((a, b) => b.at - a.at)) {
+    if (!Number.isInteger(e.at) || e.at < 0 || out.slice(e.at, e.at + e.inserted.length) !== e.inserted) return null;
+    out = out.slice(0, e.at) + e.removed + out.slice(e.at + e.inserted.length);
+  }
+  return out;
+}
+
+/** Fingerprint of the full HTML (FNV-1a, 32 bit), to check a text is still exactly what a fix wrote. */
+export function htmlHash(html: string | null | undefined): string {
+  const t = html ?? '';
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `${t.length}:${h.toString(16)}`;
 }

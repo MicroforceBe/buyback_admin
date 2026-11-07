@@ -1,7 +1,7 @@
 // Collection (category / model page) SEO report (pure): finds collections without SEO texts or
 // description, extra H1 headings, empty or duplicate collections and internal collections that
 // search engines can index, and proposes safe fixes.
-import { SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, textHash, wordCount } from '@/lib/shopify/seo';
+import { hasCssAsText, hasPlaceholder, namePlaceholderCount, scriptCount, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: every collection with its SEO fields and its products (status, stock, refurbished). */
 export const COLLECTIONS_BULK_QUERY = `{
@@ -38,6 +38,10 @@ export type CollectionInfo = {
   hidden: boolean;
   descriptionWords: number;
   descriptionH1Count: number;
+  descriptionScripts: number;
+  descriptionNames: number;
+  descriptionPlaceholder: boolean;
+  descriptionCssText: boolean;
   products: number;
   active: number;
   inStock: number;
@@ -58,6 +62,7 @@ export function parseCollections(jsonl: string): CollectionInfo[] {
       seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(),
       hidden: String((l.hidden as { value?: string } | null)?.value ?? '') === '1',
       descriptionWords: wordCount(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length,
+      descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionPlaceholder: hasPlaceholder(html), descriptionCssText: hasCssAsText(html),
       products: 0, active: 0, inStock: 0, refurbished: 0, activeSet: null, ids: [],
     });
   }
@@ -78,7 +83,8 @@ export function parseCollections(jsonl: string): CollectionInfo[] {
 export type CollectionIssueCode =
   | 'col_seo_title_missing' | 'col_seo_description_missing' | 'col_seo_too_long'
   | 'col_description_empty' | 'col_description_short' | 'col_h1'
-  | 'col_empty' | 'col_internal' | 'col_duplicate';
+  | 'col_empty' | 'col_internal' | 'col_duplicate'
+  | 'col_script' | 'col_placeholder' | 'col_css';
 
 export const COLLECTION_ISSUE_LABELS: Record<CollectionIssueCode, string> = {
   col_seo_title_missing: 'SEO-titel ontbreekt',
@@ -90,14 +96,18 @@ export const COLLECTION_ISSUE_LABELS: Record<CollectionIssueCode, string> = {
   col_empty: 'Geen actieve producten',
   col_internal: 'Interne collectie zichtbaar voor Google',
   col_duplicate: 'Zelfde producten als een andere collectie',
+  col_script: 'Verborgen code (JSON-LD/script) in de tekst',
+  col_placeholder: 'Placeholder in de tekst ([Bedrijfsnaam], uwdomein …)',
+  col_css: 'Code (CSS) zichtbaar als tekst',
 };
 
 export type CollectionFix =
   | { kind: 'col_seo'; title: string | null; description: string | null }
   | { kind: 'col_hide' }
-  | { kind: 'col_heading'; count: number };
+  | { kind: 'col_heading'; count: number }
+  | { kind: 'col_clean'; scripts: number; names: number };
 
-export const COLLECTION_FIX_KINDS = ['col_seo', 'col_hide', 'col_heading'] as const;
+export const COLLECTION_FIX_KINDS = ['col_seo', 'col_hide', 'col_heading', 'col_clean'] as const;
 
 export type CollectionIssue = {
   collectionId: string; title: string; handle: string; active: number; inStock: number; hidden: boolean;
@@ -175,6 +185,10 @@ export function analyseCollections(collections: CollectionInfo[]): { issues: Col
       if (c.descriptionWords < EMPTY_WORDS) list.push('col_description_empty');
       else if (c.descriptionWords < SHORT_COLLECTION_WORDS) list.push('col_description_short');
       if (c.descriptionH1Count) { list.push('col_h1'); fixes.push({ kind: 'col_heading', count: c.descriptionH1Count }); }
+      if (c.descriptionScripts) list.push('col_script');
+      if (c.descriptionPlaceholder) list.push('col_placeholder');
+      if (c.descriptionCssText) list.push('col_css');
+      if (c.descriptionScripts || c.descriptionNames) fixes.push({ kind: 'col_clean', scripts: c.descriptionScripts, names: c.descriptionNames });
       if (!c.active) list.push('col_empty');
       const same = c.activeSet ? bySet.get(c.activeSet) ?? [] : [];
       if (same.length > 1) {

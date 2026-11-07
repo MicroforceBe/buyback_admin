@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function load(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/collections': 'lib/shopify/collections.ts', '@/lib/shopify/collectionsRun': 'lib/shopify/collectionsRun.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/textClean': 'lib/shopify/textClean.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/collections': 'lib/shopify/collections.ts', '@/lib/shopify/collectionsRun': 'lib/shopify/collectionsRun.ts' };
   async function ld(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -28,7 +28,7 @@ async function load(db = null) {
 }
 
 const C = (n, over = {}) => ({ id: `gid://shopify/Collection/${n}`, title: `Coll ${n}`, handle: `coll-${n}`, seoTitle: 'T', seoDescription: 'D', hidden: false,
-  descriptionWords: 300, descriptionH1Count: 0, products: 3, active: 3, inStock: 2, refurbished: 3, activeSet: `set${n}`, ...over });
+  descriptionWords: 300, descriptionH1Count: 0, descriptionScripts: 0, descriptionNames: 0, descriptionPlaceholder: false, descriptionCssText: false, products: 3, active: 3, inStock: 2, refurbished: 3, activeSet: `set${n}`, ...over });
 
 test('the bulk export is parsed with product counts, stock, refurbished share and hidden flag', async () => {
   const { col } = await load();
@@ -169,4 +169,23 @@ test('collection actions are admin-only and reports are kept apart from product 
   for (const f of ['lib/shopify/collectionsRun.ts', 'app/admin/erp/shopify/collections/page.tsx']) assert.match(read(f), /eq\('scope', 'collections'\)/);
   for (const f of ['lib/shopify/catalogRun.ts', 'app/admin/erp/shopify/catalog/page.tsx']) assert.match(read(f), /eq\('scope', 'products'\)/);
   assert.match(read('security/sql/shopify-collections.sql'), /check \(scope in \('products','collections'\)\)/);
+});
+
+test('collection texts with hidden code or placeholders are reported, cleaned and restored exactly', async () => {
+  const { col } = await load();
+  const { issues } = plain(col.analyseCollections([C(1, { descriptionScripts: 1, descriptionNames: 1, descriptionPlaceholder: true, descriptionCssText: true })]));
+  assert.deepEqual(issues[0].issues, ['col_script', 'col_placeholder', 'col_css']);
+  assert.deepEqual(issues[0].fixes, [{ kind: 'col_clean', scripts: 1, names: 1 }]);
+  const original = '<p>Bij [Bedrijfsnaam] vind je alles.</p><script type="application/ld+json">{"a":1}</script>';
+  const state = { 'gid://shopify/Collection/1': { id: 1, title: 'Coll 1', descriptionHtml: original, seo: null, hidden: null } };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'col_clean', scripts: 1, names: 1 }])] });
+  const { run } = await load(db);
+  const r = plain(await run.applyCollectionFixes({ reportId: 'R1', collectionIds: ['gid://shopify/Collection/1'], kinds: ['col_clean'], actor: 'a' }, { db, client: fakeClient(state).client }));
+  assert.equal(r.applied, 1);
+  assert.equal(state['gid://shopify/Collection/1'].descriptionHtml, '<p>Bij Microforce vind je alles.</p>');
+  const row = plain(writes[0].rows)[0];
+  const { db: db2 } = fakeDb(null, { fix: { id: 7, report_id: 'R1', product_id: 'gid://shopify/Collection/1', title: 'Coll 1', kind: 'col_clean', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
+  const { run: run2 } = await load(db2);
+  assert.equal(plain(await run2.revertCollectionFix({ fixId: 7, actor: 'a' }, { db: db2, client: fakeClient(state).client })).ok, true);
+  assert.equal(state['gid://shopify/Collection/1'].descriptionHtml, original);
 });

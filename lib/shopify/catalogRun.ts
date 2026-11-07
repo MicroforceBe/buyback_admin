@@ -5,7 +5,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
-import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, mentionsOtherModel, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
+import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -113,6 +114,8 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         else if (product.condition?.value?.trim().startsWith(`${stars}*`)) reason = 'al in orde';
       } else if (fix.kind === 'heading') {
         if (!hasH1(product.descriptionHtml)) reason = 'beschrijving heeft geen H1-kop meer';
+      } else if (fix.kind === 'clean') {
+        if (!scriptCount(product.descriptionHtml) && !namePlaceholderCount(product.descriptionHtml)) reason = 'al opgeschoond';
       } else if (fix.kind === 'category') {
         if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
       } else if (fix.kind === 'seo') {
@@ -146,10 +149,18 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           } catch { unchecked = true; }
           log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? (unchecked ? ' (markering niet gecontroleerd)' : '') : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
             old_value: kept ? { headings: count, token } : null, new_value: kept ? { headings: count, token } : null });
+        } else if (fix.kind === 'clean') {
+          const out = await applyClean(product!.descriptionHtml ?? '', html => updateProduct(client, { id, descriptionHtml: html }), async () => {
+            const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
+            return after?.descriptionHtml ?? null;
+          });
+          if (!out.done) { skipped++; log.push({ ...base, result: 'skipped', detail: out.reason }); continue; }
+          product = { ...product!, descriptionHtml: out.html };
+          log.push({ ...base, result: 'ok', detail: out.detail.slice(0, 1000), old_value: out.old_value, new_value: out.new_value });
         } else if (fix.kind === 'description') {
           const { product: source } = await client.graphql<{ product: { id: string; title: string; descriptionHtml: string | null } | null }>(CATALOG_DESCRIPTION_SOURCE, { id: fix.fromProductId });
           // The source must still be the same model, with a substantial text that names no other model.
-          if (!source || modelOf(source.title) !== modelOf(product!.title) || wordCount(source.descriptionHtml) < SHORT_DESCRIPTION_WORDS || mentionsOtherModel(product!.title, source.descriptionHtml)) {
+          if (!source || modelOf(source.title) !== modelOf(product!.title) || wordCount(source.descriptionHtml) < SHORT_DESCRIPTION_WORDS || mentionsOtherModel(product!.title, source.descriptionHtml) || isUnsafeDescription(source.descriptionHtml)) {
             skipped++; log.push({ ...base, result: 'skipped', detail: 'bronproduct is niet meer geschikt' }); continue;
           }
           await updateProduct(client, { id, descriptionHtml: source.descriptionHtml });
@@ -192,9 +203,10 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
   const client = clientOrThrow(deps.client);
   const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
   if (error || !fix) throw new Error('Aanpassing niet gevonden.');
-  if (!['seo', 'seo_replace', 'heading'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
+  if (!['seo', 'seo_replace', 'heading', 'clean'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
   const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
   if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
+  if (fix.kind === 'clean') return revertClean(db, client, fix as CleanFixRow, input.actor);
   if (fix.kind === 'heading') return revertHeading(db, client, fix as { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { token?: string } }, input.actor);
   const old = fix.old_value as { title: string | null; description: string | null; skipTagAdded?: boolean };
   const set = fix.new_value as { title: string | null; description: string | null };
@@ -232,6 +244,25 @@ async function revertHeading(db: Db, client: ShopifyClient, fix: { id: number; r
   else {
     try { await updateProduct(client, { id: fix.product_id, descriptionHtml: restored.html }); result = { ok: true, status: 'ok', detail: `${restored.count} kop${restored.count === 1 ? '' : 'pen'} terug naar H1` }; }
     catch (e) { result = { ok: false, status: 'failed', detail: `terugdraaien mislukt: ${e instanceof Error ? e.message : 'onbekende fout'}`.slice(0, 1000) }; }
+  }
+  const { error } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.status, detail: result.detail, old_value: null, new_value: null });
+  if (error) throw new Error(result.ok ? 'Teruggezet, maar het logboek kon niet worden bijgewerkt.' : 'Logboek kon niet worden bijgewerkt.');
+  return result;
+}
+
+type CleanFixRow = { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { edits?: [] } | null; new_value: { hash?: string } | null };
+
+/** Undo of a clean-up: the removed code and placeholders come back, only if the text is still exactly what the clean-up left. */
+async function revertClean(db: Db, client: ShopifyClient, fix: CleanFixRow, actor: string): Promise<{ ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' }> {
+  const base = { report_id: fix.report_id, product_id: fix.product_id, title: String(fix.title ?? '').slice(0, 255), kind: 'revert', actor, reverts: fix.id };
+  let result: { ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' };
+  try {
+    const { product } = await client.graphql<{ product: { id: string; descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
+    const undo = product ? cleanUndoHtml(product.descriptionHtml ?? '', fix.old_value, fix.new_value) : { reason: 'product niet meer gevonden' };
+    if ('reason' in undo) result = { ok: false, status: 'skipped', detail: undo.reason };
+    else { await updateProduct(client, { id: fix.product_id, descriptionHtml: undo.html }); result = { ok: true, status: 'ok', detail: 'oorspronkelijke beschrijving teruggezet' }; }
+  } catch (e) {
+    result = { ok: false, status: 'failed', detail: `terugdraaien mislukt: ${e instanceof Error ? e.message : 'onbekende fout'}`.slice(0, 1000) };
   }
   const { error } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.status, detail: result.detail, old_value: null, new_value: null });
   if (error) throw new Error(result.ok ? 'Teruggezet, maar het logboek kon niet worden bijgewerkt.' : 'Logboek kon niet worden bijgewerkt.');
