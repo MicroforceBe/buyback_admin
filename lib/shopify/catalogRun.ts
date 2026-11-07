@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 // Generates and stores the catalogue report, and applies selected safe fixes (admin action).
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
-import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix } from '@/lib/shopify/catalog';
+import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix, type ManagedSeo } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
 import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
 import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
@@ -43,10 +43,11 @@ async function updateProduct(client: ShopifyClient, product: Record<string, unkn
 }
 
 /** Per product the SEO texts the tool set last (applied, not undone), to see whether they were overwritten. */
-async function managedSeo(db: Db): Promise<Map<string, { title: string | null; description: string | null }>> {
-  const rows: { id: number; product_id: string; new_value: { title: string | null; description: string | null } | null }[] = [];
+async function managedSeo(db: Db): Promise<Map<string, ManagedSeo>> {
+  type Texts = { title: string | null; description: string | null };
+  const rows: { id: number; product_id: string; kind: string; old_value: Texts | null; new_value: Texts | null }[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from('shopify_catalog_fixes').select('id,product_id,new_value').in('kind', ['seo', 'seo_replace']).eq('result', 'ok').order('id', { ascending: true }).range(from, from + 999);
+    const { data, error } = await db.from('shopify_catalog_fixes').select('id,product_id,kind,old_value,new_value').in('kind', ['seo', 'seo_replace']).eq('result', 'ok').order('id', { ascending: true }).range(from, from + 999);
     if (error) throw new Error('Logboek kon niet gelezen worden.');
     rows.push(...((data ?? []) as typeof rows));
     if (!data || data.length < 1000) break;
@@ -58,9 +59,12 @@ async function managedSeo(db: Db): Promise<Map<string, { title: string | null; d
     for (const r of data ?? []) if (r.reverts) undone.add(Number(r.reverts));
     if (!data || data.length < 1000) break;
   }
-  const out = new Map<string, { title: string | null; description: string | null }>();
+  const out = new Map<string, ManagedSeo>();
   // Undone fixes are skipped (an earlier fix that is still applied keeps counting); among the rest the latest wins.
-  for (const r of rows) if (!undone.has(r.id) && r.new_value) out.set(r.product_id, r.new_value);
+  // 'seo' only filled empty fields: a field that already had text was kept, so it is not the tool's.
+  const filled = (v: string | null | undefined) => !!v?.trim();
+  for (const r of rows) if (!undone.has(r.id) && r.new_value) out.set(r.product_id, { ...r.new_value,
+    generated: r.kind === 'seo_replace' ? { title: true, description: true } : { title: !filled(r.old_value?.title), description: !filled(r.old_value?.description) } });
   return out;
 }
 

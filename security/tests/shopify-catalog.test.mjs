@@ -124,13 +124,25 @@ test('SEO texts the tool placed and that are still unchanged get a replacement p
   const t = 'iPhone 13 128GB Blue Refurbished 4* M';
   const oldText = { title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.' };
   const base = { title: t, seoTitle: oldText.title, seoDescription: oldText.description, tags: ['cat_smartphones', 'tinyimg_metadata_skip'] };
-  const managed = new Map([['gid://shopify/Product/1', oldText], ['gid://shopify/Product/3', { title: oldText.title, description: 'Oudere meta van de tool.' }]]);
-  const { issues } = plain(catalog.analyseCatalog([P(1, base), P(2, { ...base, seoDescription: 'Met de hand geschreven meta.' }), P(3, { ...base, seoDescription: 'Andere meta van de tool.' })], managed));
+  const both = { title: true, description: true };
+  const managed = new Map([
+    ['gid://shopify/Product/1', { ...oldText, generated: both }],
+    ['gid://shopify/Product/3', { title: oldText.title, description: 'Oudere meta van de tool.', generated: both }],
+    // The tool only filled the meta; the title was written by hand and stays.
+    ['gid://shopify/Product/4', { title: 'Eigen titel', description: 'Koop refurbished vier.', generated: { title: false, description: true } }],
+    // The tool only filled the title, which is still current; the hand-written meta is no reason to propose anything.
+    ['gid://shopify/Product/5', { title: oldText.title, description: 'Eigen meta vijf.', generated: { title: true, description: false } }],
+  ]);
+  const { issues } = plain(catalog.analyseCatalog([P(1, base), P(2, { ...base, seoDescription: 'Met de hand geschreven meta.' }), P(3, { ...base, seoDescription: 'Andere meta van de tool.' }),
+    P(4, { ...base, seoTitle: 'Eigen titel', seoDescription: 'Koop refurbished vier.' }), P(5, { ...base, seoDescription: 'Eigen meta vijf.' })], managed));
   const by = Object.fromEntries(issues.map(i => [i.productId.split('/').pop(), i]));
   assert.ok(by[1].issues.includes('seo_outdated'));
   assert.deepEqual(by[1].fixes.find(f => f.kind === 'seo_replace').description, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.');
   // Not placed by the tool (2), or changed since (3): no replacement on this ground.
-  for (const n of [2, 3]) assert.ok(!(by[n]?.fixes ?? []).some(f => f.kind === 'seo_replace'), String(n));
+  for (const n of [2, 3, 5]) assert.ok(!(by[n]?.fixes ?? []).some(f => f.kind === 'seo_replace'), String(n));
+  const four = by[4].fixes.find(f => f.kind === 'seo_replace');
+  assert.equal(four.title, 'Eigen titel');
+  assert.match(four.description, /Premium kwaliteit/);
 });
 
 test('description checks: words, duplicates, extra H1, empty image and another model in the headings', async () => {
@@ -571,6 +583,20 @@ test('undoing a later SEO fix keeps an earlier applied one counted as managed', 
   await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
   const issue = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9');
   assert.ok(issue.issues.includes('seo_overwritten'), 'A is still the managed text, so B is reported (and the skip tag is missing)');
+});
+
+test('the report only updates SEO fields the tool generated, not a kept hand-written field', async () => {
+  const t = 'iPhone 13 128GB Blue Refurbished 4* M';
+  const fixes = [{ id: 1, product_id: 'gid://shopify/Product/9', kind: 'seo', result: 'ok', old_value: { title: 'Eigen titel', description: null }, new_value: { title: 'Eigen titel', description: 'Oude meta' } }];
+  const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); return Promise.resolve({ data: kind ? [] : fixes, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
+  const writes = [];
+  const db = { from: tb => (tb === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) }) };
+  const { run } = await load(db);
+  const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: t, handle: 'x', status: 'ACTIVE', tags: ['cat_x', 'tinyimg_metadata_skip'], totalInventory: 0, seo: { title: 'Eigen titel', description: 'Oude meta' }, mf_refurb: { value: 'true' }, mf_garantie: { value: '24 maanden' } });
+  await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
+  const fix = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9').fixes.find(f => f.kind === 'seo_replace');
+  assert.equal(fix.title, 'Eigen titel');
+  assert.match(fix.description, /Premium kwaliteit aan een scherpe prijs\.$/);
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

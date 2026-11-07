@@ -185,7 +185,10 @@ const isUnusable = (i: { width: number | null; height: number | null }) =>
   !i.width || !i.height || Math.min(i.width, i.height) < 200 || Math.max(i.width, i.height) / Math.min(i.width, i.height) > 6;
 
 /** All checks; only products with at least one issue are returned. */
-export function analyseCatalog(products: CatalogProduct[], managed: Map<string, { title: string | null; description: string | null }> = new Map()): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
+/** SEO texts the tool set last on a product, and which of the two fields it wrote itself (the other was kept). */
+export type ManagedSeo = { title: string | null; description: string | null; generated?: { title: boolean; description: boolean } };
+
+export function analyseCatalog(products: CatalogProduct[], managed: Map<string, ManagedSeo> = new Map()): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
   const counts = Object.fromEntries(Object.keys(ISSUE_LABELS).map(k => [k, 0])) as Record<IssueCode, number>;
   const titleCount = new Map<string, number>();
   for (const p of products) titleCount.set(titleKey(p.title), (titleCount.get(titleKey(p.title)) ?? 0) + 1);
@@ -261,11 +264,13 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : proposal.title, description: p.seoDescription ? null : proposal.description });
     else {
       // Texts this tool placed earlier, still unchanged, follow the current proposal (e.g. a new quality line).
-      // Texts written by hand are never proposed for replacement on this ground.
+      // Only the fields the tool wrote itself are updated; a field written by hand is kept as it is.
       const placed = managed.get(p.id);
-      if (placed && (placed.title ?? '') === p.seoTitle && (placed.description ?? '') === p.seoDescription && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) {
+      const gen = placed?.generated ?? { title: false, description: false };
+      const update = { title: gen.title ? proposal.title : p.seoTitle, description: gen.description ? proposal.description : p.seoDescription };
+      if (placed && (placed.title ?? '') === p.seoTitle && (placed.description ?? '') === p.seoDescription && (update.title !== p.seoTitle || update.description !== p.seoDescription)) {
         list.push('seo_outdated');
-        fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
+        fixes.push({ kind: 'seo_replace', ...update, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
       }
     }
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
