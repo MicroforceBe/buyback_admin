@@ -677,6 +677,13 @@ test('images without a src are removed by the clean-up (with an otherwise empty 
   assert.equal(c.html, '<p>Intro</p>\n <!-- x -->\n\n<p>Tekst  loopt door</p><img src="https://cdn.shopify.com/a.jpg" alt="ok"><img data-src="lazy.jpg">');
   assert.equal(seo.undoClean(c.html, c.edits), html);
   assert.equal(seo.hasClaims('<h5>Accucapaciteit &gt;85%</h5>'), true);
+  // Quoted ">" in an attribute, and images loading through srcset, are kept whole.
+  const keep = '<p><img alt="Batterij >85%" src="https://cdn.shopify.com/a.jpg"></p><img srcset="https://cdn.shopify.com/a.jpg 1x, b.jpg 2x" alt="x"><p><img data-srcset="c.jpg 1x"></p>';
+  assert.equal(seo.emptyImageCount(keep), 0);
+  assert.equal(seo.hasEmptyImage(keep), false);
+  assert.equal(plain(seo.cleanDescription(keep)).html, keep);
+  const quoted = '<img alt="a > b"><p>x</p>';
+  assert.equal(plain(seo.cleanDescription(quoted)).html, '<p>x</p>');
   const { issues } = plain(catalog.analyseCatalog([P(1, { descriptionEmptyImage: true, descriptionEmptyImages: 2 })]));
   assert.deepEqual(issues[0].fixes.find(f => f.kind === 'clean'), { kind: 'clean', scripts: 0, names: 0, images: 2 });
 });
