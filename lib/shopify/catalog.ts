@@ -172,7 +172,7 @@ export type Fix =
   | { kind: 'condition'; value: string }
   | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean }
   | { kind: 'seo'; title: string | null; description: string | null }
-  | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string }
+  | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string; generated?: { title: boolean; description: boolean } }
   | { kind: 'description'; fromProductId: string; fromTitle: string }
   | { kind: 'heading'; count: number }
   | { kind: 'clean'; scripts: number; names: number };
@@ -270,7 +270,8 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
       const update = { title: gen.title ? proposal.title : p.seoTitle, description: gen.description ? proposal.description : p.seoDescription };
       if (placed && (placed.title ?? '') === p.seoTitle && (placed.description ?? '') === p.seoDescription && (update.title !== p.seoTitle || update.description !== p.seoDescription)) {
         list.push('seo_outdated');
-        fixes.push({ kind: 'seo_replace', ...update, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
+        // Ownership is carried along, so a kept hand-written field stays the user's after this replacement too.
+        fixes.push({ kind: 'seo_replace', ...update, oldTitle: p.seoTitle, oldDescription: p.seoDescription, generated: gen });
       }
     }
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {

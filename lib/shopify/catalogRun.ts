@@ -44,7 +44,7 @@ async function updateProduct(client: ShopifyClient, product: Record<string, unkn
 
 /** Per product the SEO texts the tool set last (applied, not undone), to see whether they were overwritten. */
 async function managedSeo(db: Db): Promise<Map<string, ManagedSeo>> {
-  type Texts = { title: string | null; description: string | null };
+  type Texts = { title: string | null; description: string | null; generated?: { title: boolean; description: boolean } };
   const rows: { id: number; product_id: string; kind: string; old_value: Texts | null; new_value: Texts | null }[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db.from('shopify_catalog_fixes').select('id,product_id,kind,old_value,new_value').in('kind', ['seo', 'seo_replace']).eq('result', 'ok').order('id', { ascending: true }).range(from, from + 999);
@@ -63,8 +63,9 @@ async function managedSeo(db: Db): Promise<Map<string, ManagedSeo>> {
   // Undone fixes are skipped (an earlier fix that is still applied keeps counting); among the rest the latest wins.
   // 'seo' only filled empty fields: a field that already had text was kept, so it is not the tool's.
   const filled = (v: string | null | undefined) => !!v?.trim();
-  for (const r of rows) if (!undone.has(r.id) && r.new_value) out.set(r.product_id, { ...r.new_value,
-    generated: r.kind === 'seo_replace' ? { title: true, description: true } : { title: !filled(r.old_value?.title), description: !filled(r.old_value?.description) } });
+  // Newer rows record the owned fields themselves; for older rows they are derived from the kind.
+  for (const r of rows) if (!undone.has(r.id) && r.new_value) out.set(r.product_id, { title: r.new_value.title, description: r.new_value.description,
+    generated: r.new_value.generated ?? (r.kind === 'seo_replace' ? { title: true, description: true } : { title: !filled(r.old_value?.title), description: !filled(r.old_value?.description) }) });
   return out;
 }
 
@@ -136,8 +137,10 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           const title = fix.kind === 'seo' && old.title?.trim() ? old.title : fix.title;
           const description = fix.kind === 'seo' && old.description?.trim() ? old.description : fix.description;
           const { skipTagAdded } = await setManagedSeo(client, id, product!.tags, { title, description });
+          // Which fields the tool wrote: 'seo' only fills empty ones; a replacement keeps its own record (a field kept as written by hand is not the tool's).
+          const generated = fix.kind === 'seo_replace' ? (fix.generated ?? { title: true, description: true }) : { title: !old.title?.trim(), description: !old.description?.trim() };
           log.push({ ...base, result: 'ok', detail: `SEO: titel "${title}" · beschrijving "${description}"`.slice(0, 1000),
-            old_value: { ...old, skipTagAdded }, new_value: { title, description } });
+            old_value: { ...old, skipTagAdded }, new_value: { title, description, generated } });
         } else if (fix.kind === 'heading') {
           const token = randomUUID().slice(0, 12);
           const { html, count } = demoteH1(product!.descriptionHtml ?? '', token);
