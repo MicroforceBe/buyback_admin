@@ -126,7 +126,7 @@ export type IssueCode =
   | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
   | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten'
-  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css';
+  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css' | 'seo_outdated';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -154,6 +154,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   description_empty_image: 'Lege afbeelding in de beschrijving',
   alt_missing: 'Foto zonder alt-tekst',
   seo_overwritten: 'SEO-tekst van de tool is overschreven',
+  seo_outdated: 'SEO-tekst van de tool kan bijgewerkt worden',
   description_script: 'Verborgen code (JSON-LD/script) in de beschrijving',
   description_placeholder: 'Placeholder in de beschrijving ([Bedrijfsnaam], uwdomein …)',
   description_claims: 'Belofte om te controleren (batterij, CO2)',
@@ -163,7 +164,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
-  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten', 'seo_outdated'] },
   { label: 'Geplakte teksten', codes: ['description_script', 'description_placeholder', 'description_claims', 'description_css'] },
 ];
 
@@ -171,7 +172,7 @@ export type Fix =
   | { kind: 'condition'; value: string }
   | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean }
   | { kind: 'seo'; title: string | null; description: string | null }
-  | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string }
+  | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string; generated?: { title: boolean; description: boolean } }
   | { kind: 'description'; fromProductId: string; fromTitle: string }
   | { kind: 'heading'; count: number }
   | { kind: 'clean'; scripts: number; names: number };
@@ -184,7 +185,10 @@ const isUnusable = (i: { width: number | null; height: number | null }) =>
   !i.width || !i.height || Math.min(i.width, i.height) < 200 || Math.max(i.width, i.height) / Math.min(i.width, i.height) > 6;
 
 /** All checks; only products with at least one issue are returned. */
-export function analyseCatalog(products: CatalogProduct[], managed: Map<string, { title: string | null; description: string | null }> = new Map()): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
+/** SEO texts the tool set last on a product, and which of the two fields it wrote itself (the other was kept). */
+export type ManagedSeo = { title: string | null; description: string | null; generated?: { title: boolean; description: boolean } };
+
+export function analyseCatalog(products: CatalogProduct[], managed: Map<string, ManagedSeo> = new Map()): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
   const counts = Object.fromEntries(Object.keys(ISSUE_LABELS).map(k => [k, 0])) as Record<IssueCode, number>;
   const titleCount = new Map<string, number>();
   for (const p of products) titleCount.set(titleKey(p.title), (titleCount.get(titleKey(p.title)) ?? 0) + 1);
@@ -258,6 +262,18 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     const weak = p.seoTitle && p.seoDescription && (tooLong || raw || mismatch || dupMeta);
     if (weak && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
     else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : proposal.title, description: p.seoDescription ? null : proposal.description });
+    else {
+      // Texts this tool placed earlier, still unchanged, follow the current proposal (e.g. a new quality line).
+      // Only the fields the tool wrote itself are updated; a field written by hand is kept as it is.
+      const placed = managed.get(p.id);
+      const gen = placed?.generated ?? { title: false, description: false };
+      const update = { title: gen.title ? proposal.title : p.seoTitle, description: gen.description ? proposal.description : p.seoDescription };
+      if (placed && (placed.title ?? '') === p.seoTitle && (placed.description ?? '') === p.seoDescription && (update.title !== p.seoTitle || update.description !== p.seoDescription)) {
+        list.push('seo_outdated');
+        // Ownership is carried along, so a kept hand-written field stays the user's after this replacement too.
+        fixes.push({ kind: 'seo_replace', ...update, oldTitle: p.seoTitle, oldDescription: p.seoDescription, generated: gen });
+      }
+    }
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
       list.push('description_empty');
       // Only a truly empty description is filled; a short text is reported but never replaced.

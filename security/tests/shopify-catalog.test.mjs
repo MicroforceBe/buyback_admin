@@ -106,8 +106,43 @@ test('SEO title and meta description follow the shop style and stay within the l
     assert.ok(seo.suggestSeoDescription(t, true, '24 maanden').length <= 155);
   }
   const d = seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 4* M', true, '24 maanden');
-  assert.equal(d, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.');
+  assert.equal(d, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.');
   assert.doesNotMatch(d, /€/);
+  // Premium only for 4* and 5*; other grades get checked quality; new products get no quality line.
+  assert.match(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 5* M', true, '24 maanden'), /Premium kwaliteit/);
+  assert.match(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 3* M', true, '24 maanden'), /Gecontroleerde kwaliteit aan een scherpe prijs\.$/);
+  assert.doesNotMatch(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 3* M', true, '24 maanden'), /premium/i);
+  assert.doesNotMatch(seo.suggestSeoDescription('Apple USB-C kabel 1M', false, null), /kwaliteit/);
+  // With a long name the short form keeps condition and warranty in.
+  const lng = seo.suggestSeoDescription('MacBook Pro 14" M4 16GB 512GB Space Black Refurbished 5*', true, '24 maanden');
+  assert.ok(lng.length <= 155);
+  assert.match(lng, /conditie Als nieuw.*24 maanden garantie\. Premium kwaliteit/i);
+});
+
+test('SEO texts the tool placed and that are still unchanged get a replacement proposal when the proposal changed', async () => {
+  const { catalog } = await load();
+  const t = 'iPhone 13 128GB Blue Refurbished 4* M';
+  const oldText = { title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.' };
+  const base = { title: t, seoTitle: oldText.title, seoDescription: oldText.description, tags: ['cat_smartphones', 'tinyimg_metadata_skip'] };
+  const both = { title: true, description: true };
+  const managed = new Map([
+    ['gid://shopify/Product/1', { ...oldText, generated: both }],
+    ['gid://shopify/Product/3', { title: oldText.title, description: 'Oudere meta van de tool.', generated: both }],
+    // The tool only filled the meta; the title was written by hand and stays.
+    ['gid://shopify/Product/4', { title: 'Eigen titel', description: 'Koop refurbished vier.', generated: { title: false, description: true } }],
+    // The tool only filled the title, which is still current; the hand-written meta is no reason to propose anything.
+    ['gid://shopify/Product/5', { title: oldText.title, description: 'Eigen meta vijf.', generated: { title: true, description: false } }],
+  ]);
+  const { issues } = plain(catalog.analyseCatalog([P(1, base), P(2, { ...base, seoDescription: 'Met de hand geschreven meta.' }), P(3, { ...base, seoDescription: 'Andere meta van de tool.' }),
+    P(4, { ...base, seoTitle: 'Eigen titel', seoDescription: 'Koop refurbished vier.' }), P(5, { ...base, seoDescription: 'Eigen meta vijf.' })], managed));
+  const by = Object.fromEntries(issues.map(i => [i.productId.split('/').pop(), i]));
+  assert.ok(by[1].issues.includes('seo_outdated'));
+  assert.deepEqual(by[1].fixes.find(f => f.kind === 'seo_replace').description, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.');
+  // Not placed by the tool (2), or changed since (3): no replacement on this ground.
+  for (const n of [2, 3, 5]) assert.ok(!(by[n]?.fixes ?? []).some(f => f.kind === 'seo_replace'), String(n));
+  const four = by[4].fixes.find(f => f.kind === 'seo_replace');
+  assert.equal(four.title, 'Eigen titel');
+  assert.match(four.description, /Premium kwaliteit/);
 });
 
 test('description checks: words, duplicates, extra H1, empty image and another model in the headings', async () => {
@@ -161,7 +196,7 @@ test('SEO and description issues are reported with fix proposals', async () => {
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
   assert.deepEqual(by[1].issues, ['seo_title_missing', 'seo_description_missing', 'description_empty', 'alt_missing']);
   assert.deepEqual(by[1].fixes, [
-    { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.' },
+    { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.' },
     { kind: 'description', fromProductId: 'gid://shopify/Product/2', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' },
   ]);
   assert.deepEqual(by[2].issues, ['description_duplicate']);
@@ -305,7 +340,7 @@ test('weak SEO texts are recognised and get a replacement proposal with the old 
   ]));
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
   assert.deepEqual(by[1].issues, ['seo_raw']);
-  assert.deepEqual(by[1].fixes, [{ kind: 'seo_replace', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.', oldTitle: `${t} kopen - Microforce`, oldDescription: 'Koop vanaf €299 bij Microforce met garantie!' }]);
+  assert.deepEqual(by[1].fixes, [{ kind: 'seo_replace', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.', oldTitle: `${t} kopen - Microforce`, oldDescription: 'Koop vanaf €299 bij Microforce met garantie!' }]);
   assert.deepEqual(by[2].issues, ['seo_description_duplicate']);
   assert.equal(by[2].fixes[0].kind, 'seo_replace');
 });
@@ -324,7 +359,7 @@ test('a replacement is skipped when the SEO text changed after the report; appli
   assert.ok(!fake.calls.some(c => c.name === 'CatalogTagsAdd'), 'skip tag already present');
   const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
   assert.deepEqual(log[0].old_value, { title: 'Oud', description: 'Oude meta', skipTagAdded: false });
-  assert.deepEqual(log[0].new_value, { title: 'Nieuw', description: 'Nieuwe meta' });
+  assert.deepEqual(log[0].new_value, { title: 'Nieuw', description: 'Nieuwe meta', generated: { title: true, description: true } });
   assert.match(log[1].detail, /gewijzigd/);
 });
 
@@ -548,6 +583,42 @@ test('undoing a later SEO fix keeps an earlier applied one counted as managed', 
   await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
   const issue = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9');
   assert.ok(issue.issues.includes('seo_overwritten'), 'A is still the managed text, so B is reported (and the skip tag is missing)');
+});
+
+test('the report only updates SEO fields the tool generated, not a kept hand-written field', async () => {
+  const t = 'iPhone 13 128GB Blue Refurbished 4* M';
+  const fixes = [{ id: 1, product_id: 'gid://shopify/Product/9', kind: 'seo', result: 'ok', old_value: { title: 'Eigen titel', description: null }, new_value: { title: 'Eigen titel', description: 'Oude meta' } }];
+  const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); return Promise.resolve({ data: kind ? [] : fixes, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
+  const writes = [];
+  const db = { from: tb => (tb === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) }) };
+  const { run } = await load(db);
+  const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: t, handle: 'x', status: 'ACTIVE', tags: ['cat_x', 'tinyimg_metadata_skip'], totalInventory: 0, seo: { title: 'Eigen titel', description: 'Oude meta' }, mf_refurb: { value: 'true' }, mf_garantie: { value: '24 maanden' } });
+  await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
+  const fix = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9').fixes.find(f => f.kind === 'seo_replace');
+  assert.equal(fix.title, 'Eigen titel');
+  assert.match(fix.description, /Premium kwaliteit aan een scherpe prijs\.$/);
+});
+
+test('a replacement that kept a hand-written title is logged as such, so the next report keeps it too', async () => {
+  const t = 'iPhone 13 128GB Blue Refurbished 4* M';
+  const fix = { kind: 'seo_replace', title: 'Eigen titel', description: 'Nieuwe meta', oldTitle: 'Eigen titel', oldDescription: 'Oude meta', generated: { title: false, description: true } };
+  const { db, writes } = fakeDb({ issues: [issue(1, [fix], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({ 'gid://shopify/Product/1': { id: 1, title: t, tags: ['tinyimg_metadata_skip'], descriptionHtml: '', seo: { title: 'Eigen titel', description: 'Oude meta' }, condition: null } });
+  await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['seo_replace'], actor: 'a' }, { db, client: fake.client });
+  const row = plain(writes.flatMap(w => w.rows))[0];
+  assert.deepEqual(row.new_value.generated, { title: false, description: true });
+  // Next report, reading that row back: the title stays the user's.
+  const fixes = [{ id: 1, product_id: 'gid://shopify/Product/9', kind: 'seo_replace', result: 'ok', old_value: row.old_value, new_value: { ...row.new_value, description: 'Nog oudere tool-meta' } }];
+  const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); return Promise.resolve({ data: kind ? [] : fixes, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
+  const reports = [];
+  const db2 = { from: tb => (tb === 'shopify_catalog_fixes' ? from() : { insert: r => { reports.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) }) };
+  const { run: run2 } = await load(db2);
+  const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: t, handle: 'x', status: 'ACTIVE', tags: ['cat_x', 'tinyimg_metadata_skip'], totalInventory: 0, seo: { title: 'Eigen titel', description: 'Nog oudere tool-meta' }, mf_refurb: { value: 'true' }, mf_garantie: { value: '24 maanden' } });
+  await run2.generateCatalogReport('a', { db: db2, client: { bulkQuery: async () => line } });
+  const next = reports[0].issues.find(i => i.productId === 'gid://shopify/Product/9').fixes.find(f => f.kind === 'seo_replace');
+  assert.equal(next.title, 'Eigen titel');
+  assert.deepEqual(next.generated, { title: false, description: true });
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {
