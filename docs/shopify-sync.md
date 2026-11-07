@@ -76,7 +76,7 @@ Een nieuw concept krijgt zijn eigenschappen (metavelden) uit de titel en uit de 
 van dezelfde SKU-familie (`lib/shopify/enrich.ts`):
 - **Uiterlijk** (`magento.conditie`) volgt uit de sterren in de titel: 5* = "5* Als Nieuw", 4* = "4* Zeer Goed", 3* = "3* Goed".
 - **Wat mag je verwachten** komt van een product uit dezelfde familie met evenveel sterren.
-- **Kleur** (kleur, kleurstaal) komt alleen van een product met dezelfde kleur in de titel. SG telt als Space Grey, SL als Silver.
+- **Kleur** (Color Swatch `custom.color_swatch`, plus de kleurvelden als die er zijn) komt alleen van een product met dezelfde kleur, via het kleurveld of de titel. Een product van hetzelfde model gaat voor (de kleurstaal kan per model verschillen), daarna een product mét Color Swatch. SG telt als Space Grey, SL als Silver.
 - **Model** = de woorden van de titel vóór de eerste capaciteit, bv. "MacBook Pro 16 L21 M1 Max" of "iPhone 13 Mini".
 - **Modeleigenschappen** (scherm, processor, camera, garantie, ...) komen alleen van een product met exact hetzelfde model.
 - **Geheugen en opslag** komen alleen van een product met hetzelfde model én dezelfde capaciteiten (bv. 32GB + 1TB).
@@ -125,7 +125,7 @@ Controles per product:
 | Onbruikbare foto | Kleiner dan 200 px of een strook (verhouding >6:1) |
 | Geen categorie-tag / lege tag `cat_` / geen collectie | Product is niet vindbaar via het menu |
 | Uiterlijk ontbreekt / klopt niet | `magento.conditie` past niet bij de sterren (3*/4*/5*) in de titel |
-| Kleur ontbreekt | Refurbished product zonder `magento.colour_of_product` |
+| Kleurstaal ontbreekt | Refurbished product zonder Color Swatch (`custom.color_swatch`) |
 | main_sku past niet | Tag `main_sku_…` verwijst naar een SKU die geen variant van het product is (kan menselijk of door een oude import zijn) |
 | Dubbele titel | Meerdere actieve/concept-producten met dezelfde titel |
 

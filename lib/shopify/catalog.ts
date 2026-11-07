@@ -15,7 +15,7 @@ export const CATALOG_BULK_QUERY = `{
         tags
         totalInventory
         mf_conditie: metafield(namespace: "magento", key: "conditie") { value }
-        mf_colour: metafield(namespace: "magento", key: "colour_of_product") { value }
+        mf_colour: metafield(namespace: "custom", key: "color_swatch") { value }
         mf_refurb: metafield(namespace: "custom", key: "refurbished_product") { value }
         variants { edges { node { id sku } } }
         media { edges { node { ... on MediaImage { id image { width height } } } } }
@@ -79,7 +79,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_collection: 'In geen enkele collectie',
   no_condition: 'Uiterlijk ontbreekt',
   wrong_condition: 'Uiterlijk klopt niet met de sterren',
-  no_colour: 'Kleur ontbreekt',
+  no_colour: 'Kleurstaal (Color Swatch) ontbreekt',
   main_sku_mismatch: 'main_sku-tag past niet bij de SKU',
   duplicate_title: 'Dubbele titel',
 };
@@ -128,6 +128,7 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
       if (!p.condition) { list.push('no_condition'); fixes.push({ kind: 'condition', value: CONDITION[stars] }); }
       else if (!p.condition.trim().startsWith(`${stars}*`)) { list.push('wrong_condition'); fixes.push({ kind: 'condition', value: CONDITION[stars] }); }
     }
+    // Refurbished products show their colour through the Color Swatch (custom.color_swatch).
     if (p.refurbished && !p.colour) list.push('no_colour');
     // Tags
     const mainSku = p.tags.filter(t => t.startsWith('main_sku_')).map(t => t.slice(9));
