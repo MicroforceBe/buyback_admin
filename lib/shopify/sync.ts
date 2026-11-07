@@ -6,7 +6,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
-import { chunk, desiredFromRow, duplicateTitles, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { pickDescription } from '@/lib/shopify/seo';
+import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -247,6 +248,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
         const products = state.variants.map(v => ({ sku: v.sku, title: v.title, productId: v.productId }));
         const metafieldCache = new Map<string, MetafieldValue[]>();
         const imageCache = new Map<string, RefImage[]>();
+        const descriptionCache = new Map<string, string>();
+        const descriptionFrom = new Map<string, string>();
         const imageCount = new Map<string, number>();
         const enrichedCount = new Map<string, number>();
         for (const c of creates) {
@@ -260,24 +263,29 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
           const missing = [...new Set(picked.map(r => r.productId))].filter(id => !metafieldCache.has(id));
           // Small batches: each product asks for 100 metafields and 20 images (query cost limit).
           for (const ids of chunk(missing, REFERENCE_BATCH)) {
-            const { nodes } = await client.graphql<{ nodes: ({ id: string; metafields: { nodes: MetafieldValue[] }; media?: { nodes: ({ image?: RefImage | null } | null)[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids });
+            const { nodes } = await client.graphql<{ nodes: ({ id: string; descriptionHtml?: string | null; metafields: { nodes: MetafieldValue[] }; media?: { nodes: ({ image?: RefImage | null } | null)[] } } | null)[] }>(REFERENCE_METAFIELDS, { ids });
             for (const n of nodes) if (n?.id) {
               metafieldCache.set(n.id, n.metafields.nodes);
+              descriptionCache.set(n.id, n.descriptionHtml ?? '');
               imageCache.set(n.id, (n.media?.nodes ?? []).flatMap(m => (m?.image?.url ? [m.image] : [])));
             }
           }
-          const refs = picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [], images: imageCache.get(r.productId) ?? [] }));
+          const refs = picked.map(r => ({ sku: r.sku, title: r.title, lead: r.lead, metafields: metafieldCache.get(r.productId) ?? [], images: imageCache.get(r.productId) ?? [], descriptionHtml: descriptionCache.get(r.productId) ?? '' }));
           const { metafields } = enrichMetafields(c.input.title, refs);
           // Photos only from the same model and colour, and only of marketing quality.
           const images = pickImages(c.input.title, refs);
           if (images) c.input.files = images.files; else c.input.tags.push('geen-afbeelding');
           imageCount.set(c.sku, images?.files.length ?? 0);
+          // Description from a product of exactly the same model; without one the draft is tagged.
+          const description = pickDescription(c.input.title, refs);
+          if (description) { c.input.descriptionHtml = description.descriptionHtml; descriptionFrom.set(c.sku, description.sku); }
+          else c.input.tags.push(NO_DESCRIPTION_TAG);
           const fromErp = new Set(c.input.metafields.map(m => `${m.namespace}.${m.key}`));
           const extra = metafields.filter(m => !fromErp.has(`${m.namespace}.${m.key}`));
           c.input.metafields.push(...extra);
           enrichedCount.set(c.sku, extra.length);
         }
-        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld — ${imageCount.get(c.sku) ?? 0} foto's`.slice(0, 1000) });
+        for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld — ${imageCount.get(c.sku) ?? 0} foto's — ${descriptionFrom.has(c.sku) ? `beschrijving zoals ${descriptionFrom.get(c.sku)}` : 'geen beschrijving'}`.slice(0, 1000) });
         counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
       }
     }

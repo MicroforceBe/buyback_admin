@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -190,7 +190,7 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {}, refImages = {} } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {}, refImages = {}, refDescriptions = {} } = {}) {
   const mutations = [];
   return {
     mutations,
@@ -199,7 +199,7 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null, 
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
-        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, metafields: { nodes: refMetafields[id] ?? [] }, media: { nodes: (refImages[id] ?? []).map(image => ({ image })) } })) }; }
+        if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, descriptionHtml: refDescriptions[id] ?? '', metafields: { nodes: refMetafields[id] ?? [] }, media: { nodes: (refImages[id] ?? []).map(image => ({ image })) } })) }; }
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
         if (failVariantIndex !== null && query.includes('productVariantsBulkUpdate')) userErrors = [{ field: ['variants', String(failVariantIndex), 'price'], message: 'Ongeldige prijs' }];
@@ -375,7 +375,7 @@ test('shadow mode only records planned drafts; live mode creates them without se
     assert.equal(result.status, 'succeeded');
     assert.equal(result.counts.newDrafts, 1);
     const recorded = plain(log.find(l => l.table === 'shopify_sync_changes' && l.op === 'insert').row);
-    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', "iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld — 0 foto's"]]);
+    assert.deepEqual(recorded.map(r => [r.sku, r.scope, r.field, r.new_value]), [['NEW1', 'product', 'nieuw artikel (draft)', "iPhone 13 128GB — geen categorie gevonden — 0 eigenschappen ingevuld — 0 foto's — geen beschrijving"]]);
     if (mode === 'shadow') assert.equal(fake.mutations.length, 0);
     else {
       assert.deepEqual(fake.mutations.map(m => m[0]), ['CreateDraftProduct']);
@@ -709,6 +709,18 @@ test('a new draft without usable photos gets the tag geen-afbeelding; with photo
     const input = fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input;
     assert.equal(Array.isArray(input.files) && input.files.length === 1, expectFiles);
     assert.equal(input.tags.includes('geen-afbeelding'), !expectFiles);
+  }
+});
+
+test('a new draft takes over the description of the same model, otherwise it is tagged geen-beschrijving', async () => {
+  for (const [html, expectDescription] of [['<p>' + 'woord '.repeat(150) + '</p>', true], ['<p>kort</p>', false]]) {
+    const { db } = fakeDb({ mode: 'live', createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'SKU1NEW', Title: 'iPhone 13 128GB Blue Refurbished 4*' })] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current({ title: 'iPhone 13 128GB Blue Refurbished 5*' })], { refDescriptions: { 'gid://shopify/Product/1': html } });
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const input = fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input;
+    assert.equal(input.descriptionHtml === html, expectDescription);
+    assert.equal(input.tags.includes('geen-beschrijving'), !expectDescription);
   }
 });
 

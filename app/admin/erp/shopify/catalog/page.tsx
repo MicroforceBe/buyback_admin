@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
-import { ISSUE_LABELS, type CatalogIssue, type IssueCode } from '@/lib/shopify/catalog';
+import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type Fix, type IssueCode } from '@/lib/shopify/catalog';
 import { applyFixesAction, generateReportAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +11,14 @@ export const maxDuration = 300;
 
 const PATH = '/admin/erp/shopify/catalog';
 const PAGE_SIZE = 200;
+const fixText = (f: Fix) => {
+  switch (f.kind) {
+    case 'condition': return `Uiterlijk → ${f.value}`;
+    case 'category': return `Tags ${f.tags.join(', ')} (zoals ${f.fromSku})${f.removeEmptyTag ? ', lege "cat_" weg' : ''}`;
+    case 'seo': return [f.title && `SEO-titel: ${f.title}`, f.description && `Meta: ${f.description}`].filter(Boolean).join(' · ');
+    case 'description': return `Beschrijving overnemen van "${f.fromTitle}"`;
+  }
+};
 const fmt = (iso: string) => new Date(iso).toLocaleString('nl-BE', { timeZone: 'Europe/Brussels' });
 
 export default async function CatalogPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -56,13 +64,18 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
               <h2 className="text-lg font-semibold">Rapport van {fmt(report.created_at)} · {report.checked} producten nagekeken · {all.length} met minstens één probleem</h2>
               <span className="text-xs text-slate-500">door {report.created_by}{reports && reports.length > 1 ? ' · eerdere: ' : ''}{(reports ?? []).slice(1, 5).map(r => <Link key={r.id} href={`${PATH}?report=${r.id}`} className="ml-2 text-sky-700 hover:underline">{fmt(r.created_at)}</Link>)}</span>
             </div>
-            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-              {(Object.keys(ISSUE_LABELS) as IssueCode[]).map(code => (
-                <Link key={code} href={link({ issue: issue === code ? undefined : code, page: undefined })} className={`rounded-xl border p-3 hover:border-sky-400 ${issue === code ? 'border-sky-500 bg-sky-50 ring-1 ring-sky-500' : ''}`}>
-                  <dt className="text-xs text-slate-500">{ISSUE_LABELS[code]}</dt><dd className="text-lg font-bold">{counts[code] ?? 0}</dd>
-                </Link>
-              ))}
-            </dl>
+            {ISSUE_GROUPS.map(g => (
+              <div key={g.label} className="mt-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{g.label}</h3>
+                <dl className="mt-2 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+                  {g.codes.map(code => (
+                    <Link key={code} href={link({ issue: issue === code ? undefined : code, page: undefined })} className={`rounded-xl border p-3 hover:border-sky-400 ${issue === code ? 'border-sky-500 bg-sky-50 ring-1 ring-sky-500' : ''}`}>
+                      <dt className="text-xs text-slate-500">{ISSUE_LABELS[code]}</dt><dd className="text-lg font-bold">{counts[code] ?? 0}</dd>
+                    </Link>
+                  ))}
+                </dl>
+              </div>
+            ))}
             <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
               <form className="flex gap-2">
                 <input type="hidden" name="report" value={report.id} />
@@ -91,8 +104,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                           <td className="py-2 pr-4">{url ? <a href={url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">{r.title}</a> : r.title}<span className="ml-2 text-xs text-slate-400">{r.status === 'DRAFT' ? 'concept' : 'actief'}</span></td>
                           <td className="pr-4 font-mono text-xs">{r.skus.join(', ')}</td>
                           <td className={`pr-4 text-right tabular-nums ${r.stock > 0 ? 'font-semibold text-green-700' : 'text-slate-400'}`}>{r.stock}</td>
-                          <td className="pr-4"><div className="flex flex-wrap gap-1">{r.issues.map(c => <span key={c} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{ISSUE_LABELS[c]}</span>)}</div></td>
-                          <td className="text-xs text-slate-600">{r.fixes.map((f, i) => <div key={i}>{f.kind === 'condition' ? `Uiterlijk → ${f.value}` : `Tags ${f.tags.join(', ')} (zoals ${f.fromSku})${f.removeEmptyTag ? ', lege "cat_" weg' : ''}`}</div>)}</td>
+                          <td className="pr-4"><div className="flex flex-wrap gap-1">{r.issues.map(c => <span key={c} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{ISSUE_LABELS[c] ?? c}</span>)}</div></td>
+                          <td className="text-xs text-slate-600">{r.fixes.map((f, i) => <div key={i}>{fixText(f)}</div>)}</td>
                         </tr>
                       );
                     })}
@@ -110,9 +123,11 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
               {isAdmin && (
                 <div className="mt-4 space-y-2 rounded-xl border bg-slate-50 p-4 text-sm">
                   <p className="font-semibold">Geselecteerde producten aanpassen in Shopify (max. 200)</p>
-                  <p className="text-xs text-slate-600">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, kleur en tags zoals main_sku worden nooit automatisch aangepast.</p>
+                  <p className="text-xs text-slate-600">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, alt-teksten, kleur, bestaande SEO-teksten, bestaande beschrijvingen en tags zoals main_sku worden nooit automatisch aangepast.</p>
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="condition" defaultChecked /> Uiterlijk invullen of rechtzetten volgens de sterren in de titel</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="category" /> Categorie-tags toevoegen zoals bij het meest gelijkende product</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo" /> Ontbrekende SEO-titel en meta-description invullen met de voorgestelde tekst</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="description" /> Lege beschrijving overnemen van een product van hetzelfde model</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
                   <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Aanpassen</button>
                 </div>
@@ -126,7 +141,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
               <table className="mt-2 min-w-full text-left text-sm">
                 <tbody className="divide-y">
                   {(fixLog ?? []).map(l => (
-                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{l.kind === 'condition' ? 'Uiterlijk' : 'Categorie'}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td></tr>
+                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{({ condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO', description: 'Beschrijving' } as Record<string, string>)[l.kind] ?? l.kind}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td></tr>
                   ))}
                   {!fixLog?.length && <tr><td className="py-2 text-slate-500">Nog geen aanpassingen.</td></tr>}
                 </tbody>

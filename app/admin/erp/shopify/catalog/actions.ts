@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { requireAccess } from '@/lib/security/access';
 import { applyCatalogFixes, generateCatalogReport } from '@/lib/shopify/catalogRun';
+import { FIX_KINDS, type Fix } from '@/lib/shopify/catalog';
 
 const PATH = '/admin/erp/shopify/catalog';
 const back = (params: Record<string, string>) => `${PATH}?${new URLSearchParams(params)}`;
@@ -26,7 +27,7 @@ export async function applyFixesAction(formData: FormData) {
   const reportId = String(formData.get('report') ?? '');
   const keep = { report: reportId, ...(formData.get('issue') ? { issue: String(formData.get('issue')) } : {}) };
   if (formData.get('confirm') !== 'on') redirect(back({ ...keep, error: 'Bevestig de aanpassing eerst.' }));
-  const kinds = formData.getAll('kind').map(String).filter((k): k is 'condition' | 'category' => k === 'condition' || k === 'category');
+  const kinds = formData.getAll('kind').map(String).filter((k): k is Fix['kind'] => (FIX_KINDS as readonly string[]).includes(k));
   if (!kinds.length) redirect(back({ ...keep, error: 'Kies welke aanpassingen je wilt uitvoeren.' }));
   let target: string;
   try {

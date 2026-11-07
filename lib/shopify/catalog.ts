@@ -1,7 +1,9 @@
 // Catalogue health report for the Shopify shop (pure): finds products with weak photos, missing
 // categories, missing or wrong properties and inconsistent tags, and proposes safe fixes.
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
+import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
+import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -14,11 +16,14 @@ export const CATALOG_BULK_QUERY = `{
         status
         tags
         totalInventory
+        descriptionHtml
+        seo { title description }
+        mf_garantie: metafield(namespace: "magento", key: "garantie") { value }
         mf_conditie: metafield(namespace: "magento", key: "conditie") { value }
         mf_colour: metafield(namespace: "custom", key: "color_swatch") { value }
         mf_refurb: metafield(namespace: "custom", key: "refurbished_product") { value }
         variants { edges { node { id sku } } }
-        media { edges { node { ... on MediaImage { id image { width height } } } } }
+        media { edges { node { ... on MediaImage { id alt image { width height } } } } }
         collections { edges { node { id } } }
       }
     }
@@ -36,8 +41,17 @@ export type CatalogProduct = {
   colour: string | null;
   refurbished: boolean;
   skus: string[];
-  images: { width: number | null; height: number | null }[];
+  images: { width: number | null; height: number | null; alt: string }[];
   collections: number;
+  seoTitle: string;
+  seoDescription: string;
+  warranty: string | null;
+  descriptionWords: number;
+  descriptionBlank: boolean;
+  descriptionHash: string | null;
+  descriptionH1: boolean;
+  descriptionEmptyImage: boolean;
+  descriptionOtherModel: boolean;
 };
 
 export function parseCatalog(jsonl: string): CatalogProduct[] {
@@ -46,11 +60,16 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
   for (const l of lines) {
     if (typeof l.id === 'string' && l.id.includes('/Product/') && !l.__parentId) {
       const mf = (k: string) => ((l[k] as { value?: string } | null)?.value ?? null);
+      const html = typeof l.descriptionHtml === 'string' ? l.descriptionHtml : '';
+      const seo = (l.seo ?? {}) as { title?: string | null; description?: string | null };
       products.set(l.id, {
         id: l.id, title: String(l.title ?? ''), handle: String(l.handle ?? ''), status: l.status as CatalogProduct['status'],
         tags: Array.isArray(l.tags) ? (l.tags as string[]) : [], totalInventory: Number(l.totalInventory ?? 0),
         condition: mf('mf_conditie'), colour: mf('mf_colour'), refurbished: mf('mf_refurb') === 'true',
         skus: [], images: [], collections: 0,
+        seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(), warranty: mf('mf_garantie'),
+        descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionEmptyImage: hasEmptyImage(html),
+        descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
       });
     }
   }
@@ -58,7 +77,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
     const parent = typeof l.__parentId === 'string' ? products.get(l.__parentId) : undefined;
     if (!parent || typeof l.id !== 'string') continue;
     if (l.id.includes('/ProductVariant/')) { if (l.sku) parent.skus.push(String(l.sku).trim()); }
-    else if (l.id.includes('/MediaImage/')) { const img = l.image as { width?: number; height?: number } | null; parent.images.push({ width: img?.width ?? null, height: img?.height ?? null }); }
+    else if (l.id.includes('/MediaImage/')) { const img = l.image as { width?: number; height?: number } | null; parent.images.push({ width: img?.width ?? null, height: img?.height ?? null, alt: String(l.alt ?? '').trim() }); }
     else if (l.id.includes('/Collection/')) parent.collections++;
   }
   return [...products.values()];
@@ -68,7 +87,10 @@ export type IssueCode =
   | 'no_photo' | 'low_photo' | 'bad_photo'
   | 'no_category' | 'empty_category_tag' | 'no_collection'
   | 'no_condition' | 'wrong_condition' | 'no_colour'
-  | 'main_sku_mismatch' | 'duplicate_title';
+  | 'main_sku_mismatch' | 'duplicate_title'
+  | 'seo_title_missing' | 'seo_description_missing' | 'seo_too_long'
+  | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
+  | 'description_h1' | 'description_empty_image' | 'alt_missing';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -82,11 +104,31 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_colour: 'Kleurstaal (Color Swatch) ontbreekt',
   main_sku_mismatch: 'main_sku-tag past niet bij de SKU',
   duplicate_title: 'Dubbele titel',
+  seo_title_missing: 'SEO-titel ontbreekt',
+  seo_description_missing: 'Meta-description ontbreekt',
+  seo_too_long: `SEO-titel > ${SEO_TITLE_MAX} of meta-description > ${SEO_DESCRIPTION_MAX} tekens`,
+  description_empty: 'Geen beschrijving',
+  description_short: `Korte beschrijving (< ${SHORT_DESCRIPTION_WORDS} woorden)`,
+  description_duplicate: 'Beschrijving identiek aan ander product',
+  description_other_model: 'Koppen in tekst noemen ander model',
+  description_h1: 'Extra H1-kop in de beschrijving',
+  description_empty_image: 'Lege afbeelding in de beschrijving',
+  alt_missing: 'Foto zonder alt-tekst',
 };
+
+/** Groups for the summary tiles. */
+export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
+  { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing'] },
+];
 
 export type Fix =
   | { kind: 'condition'; value: string }
-  | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean };
+  | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean }
+  | { kind: 'seo'; title: string | null; description: string | null }
+  | { kind: 'description'; fromProductId: string; fromTitle: string };
+
+export const FIX_KINDS = ['condition', 'category', 'seo', 'description'] as const;
 
 export type CatalogIssue = { productId: string; title: string; handle: string; status: string; skus: string[]; stock: number; issues: IssueCode[]; fixes: Fix[] };
 
@@ -101,6 +143,17 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
   // Category suggestions come from products that already have a real category tag.
   const withCategory = products.filter(p => p.tags.some(t => t.startsWith('cat_') && t.length > 4))
     .flatMap(p => p.skus.slice(0, 1).map(sku => ({ sku, title: p.title, tags: p.tags })));
+
+  const hashCount = new Map<string, number>();
+  for (const p of products) if (p.descriptionHash && p.descriptionWords >= EMPTY_DESCRIPTION_WORDS) hashCount.set(p.descriptionHash, (hashCount.get(p.descriptionHash) ?? 0) + 1);
+  // Description sources: per model, the product with the longest description that names no other model.
+  const descriptionSource = new Map<string, CatalogProduct>();
+  for (const p of products) {
+    const m = modelOf(p.title);
+    if (!m || p.descriptionWords < SHORT_DESCRIPTION_WORDS || p.descriptionOtherModel) continue;
+    const cur = descriptionSource.get(m);
+    if (!cur || p.descriptionWords > cur.descriptionWords) descriptionSource.set(m, p);
+  }
 
   const issues: CatalogIssue[] = [];
   for (const p of products) {
@@ -135,6 +188,22 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     const norm = (s: string) => s.replace(/^0+/, '');
     if (mainSku.length && !mainSku.some(m => p.skus.some(s => norm(s) === norm(m)))) list.push('main_sku_mismatch');
     if ((titleCount.get(titleKey(p.title)) ?? 0) > 1) list.push('duplicate_title');
+    // Findability (SEO)
+    if (!p.seoTitle) list.push('seo_title_missing');
+    if (!p.seoDescription) list.push('seo_description_missing');
+    if (p.seoTitle.length > SEO_TITLE_MAX || p.seoDescription.length > SEO_DESCRIPTION_MAX) list.push('seo_too_long');
+    if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : suggestSeoTitle(p.title, p.refurbished), description: p.seoDescription ? null : suggestSeoDescription(p.title, p.refurbished, p.warranty) });
+    if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
+      list.push('description_empty');
+      // Only a truly empty description is filled; a short text is reported but never replaced.
+      const src = p.descriptionBlank ? descriptionSource.get(modelOf(p.title)) : undefined;
+      if (src && src.id !== p.id) fixes.push({ kind: 'description', fromProductId: src.id, fromTitle: src.title });
+    } else if (p.descriptionWords < SHORT_DESCRIPTION_WORDS) list.push('description_short');
+    if (p.descriptionHash && (hashCount.get(p.descriptionHash) ?? 0) > 1) list.push('description_duplicate');
+    if (p.descriptionOtherModel) list.push('description_other_model');
+    if (p.descriptionH1) list.push('description_h1');
+    if (p.descriptionEmptyImage) list.push('description_empty_image');
+    if (p.images.some(i => !i.alt)) list.push('alt_missing');
 
     for (const c of list) counts[c]++;
     if (list.length) issues.push({ productId: p.id, title: p.title, handle: p.handle, status: p.status, skus: p.skus, stock: p.totalInventory, issues: list, fixes });

@@ -172,12 +172,14 @@ export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScop
 
 // Metafields of reference products, used to fill the properties of a new draft.
 export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
-  nodes(ids: $ids) { ... on Product { id metafields(first: 100) { nodes { namespace key type value } } media(first: 20) { nodes { ... on MediaImage { image { url width height altText } } } } } }
+  nodes(ids: $ids) { ... on Product { id descriptionHtml metafields(first: 100) { nodes { namespace key type value } } media(first: 20) { nodes { ... on MediaImage { image { url width height altText } } } } } }
 }`;
 
 // ---------- catalogue report fixes ----------
 export const CATALOG_PRODUCT = `query CatalogProduct($id: ID!) {
-  product(id: $id) { id title tags condition: metafield(namespace: "magento", key: "conditie") { value } }
+  product(id: $id) { id title tags descriptionHtml seo { title description } condition: metafield(namespace: "magento", key: "conditie") { value } }
 }`;
+export const CATALOG_DESCRIPTION_SOURCE = `query CatalogDescriptionSource($id: ID!) { product(id: $id) { id title descriptionHtml } }`;
+export const CATALOG_PRODUCT_UPDATE = `mutation CatalogProductUpdate($product: ProductUpdateInput!) { productUpdate(product: $product) { product { id } userErrors { field message } } }`;
 export const TAGS_ADD = `mutation CatalogTagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`;
 export const TAGS_REMOVE = `mutation CatalogTagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { field message } } }`;
