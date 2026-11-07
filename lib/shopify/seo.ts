@@ -91,6 +91,16 @@ export function suggestSeoTitle(title: string, refurbished: boolean, extras: str
   return options.find(o => o.length <= SEO_TITLE_MAX) ?? cutAtWord(plain, SEO_TITLE_MAX);
 }
 
+/**
+ * The shop's promise for refurbished products, long and short form: "premium" only for condition 4* and 5*
+ * (no visible wear); other grades, or no grade in the title, get "gecontroleerde kwaliteit".
+ */
+export function qualityLine(title: string): [string, string] {
+  const stars = starsOf(title);
+  const word = stars === '4' || stars === '5' ? 'Premium' : 'Gecontroleerde';
+  return [`${word} kwaliteit aan een scherpe prijs.`, `${word} kwaliteit, scherpe prijs.`];
+}
+
 const PICKUP = ['Gratis afhalen in Gentbrugge, Antwerpen & Oudenaarde of snelle levering in België.', 'Gratis afhalen of snelle levering in België.'];
 
 /** Suggested meta description (max. 155 characters), only from facts the shop already states. No prices: they change. */
@@ -102,8 +112,11 @@ export function suggestSeoDescription(title: string, refurbished: boolean, warra
   const leads = refurbished
     ? [`Koop refurbished ${name}${withSpecs}${cond ? ` in conditie ${cond}` : ''} bij ${BRAND} met ${w}.`, `Koop refurbished ${name}${withSpecs} bij ${BRAND} met ${w}.`, ...(withSpecs ? [`Refurbished ${name}${withSpecs} bij ${BRAND}.`] : [])]
     : [`Koop ${name}${withSpecs} bij ${BRAND} met garantie.`];
-  // Condition and warranty matter more than the pickup sentence: a fuller lead without tail beats a shorter lead with one.
-  for (const lead of leads) for (const tail of [...PICKUP, '']) { const t = tail ? `${lead} ${tail}` : lead; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+  // Condition and warranty matter most, then the quality line, then the pickup sentence: a fuller lead
+  // without tail beats a shorter lead with one.
+  const quality = refurbished ? qualityLine(title) : null;
+  const tails = quality ? [...PICKUP.map(p => `${quality[0]} ${p}`), ...quality, ...PICKUP, ''] : [...PICKUP, ''];
+  for (const lead of leads) for (const tail of tails) { const t = tail ? `${lead} ${tail}` : lead; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
   return cutAtWord(leads[leads.length - 1], SEO_DESCRIPTION_MAX);
 }
 

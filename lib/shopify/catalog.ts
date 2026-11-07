@@ -126,7 +126,7 @@ export type IssueCode =
   | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
   | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten'
-  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css';
+  | 'description_script' | 'description_placeholder' | 'description_claims' | 'description_css' | 'seo_outdated';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -154,6 +154,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   description_empty_image: 'Lege afbeelding in de beschrijving',
   alt_missing: 'Foto zonder alt-tekst',
   seo_overwritten: 'SEO-tekst van de tool is overschreven',
+  seo_outdated: 'SEO-tekst van de tool kan bijgewerkt worden',
   description_script: 'Verborgen code (JSON-LD/script) in de beschrijving',
   description_placeholder: 'Placeholder in de beschrijving ([Bedrijfsnaam], uwdomein …)',
   description_claims: 'Belofte om te controleren (batterij, CO2)',
@@ -163,7 +164,7 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
-  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten', 'seo_outdated'] },
   { label: 'Geplakte teksten', codes: ['description_script', 'description_placeholder', 'description_claims', 'description_css'] },
 ];
 
@@ -258,6 +259,15 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     const weak = p.seoTitle && p.seoDescription && (tooLong || raw || mismatch || dupMeta);
     if (weak && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
     else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : proposal.title, description: p.seoDescription ? null : proposal.description });
+    else {
+      // Texts this tool placed earlier, still unchanged, follow the current proposal (e.g. a new quality line).
+      // Texts written by hand are never proposed for replacement on this ground.
+      const placed = managed.get(p.id);
+      if (placed && (placed.title ?? '') === p.seoTitle && (placed.description ?? '') === p.seoDescription && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) {
+        list.push('seo_outdated');
+        fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
+      }
+    }
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
       list.push('description_empty');
       // Only a truly empty description is filled; a short text is reported but never replaced.

@@ -151,7 +151,8 @@ export function suggestCollectionSeoTitle(name: string, refurbished: boolean): s
 /** Meta description without numbers or prices (they change); only what the shop already promises. */
 export function suggestCollectionSeoDescription(name: string, refurbished: boolean): string {
   const leads = refurbished
-    ? [`Koop een refurbished ${name} bij ${BRAND}, met garantie en in verschillende kleuren, opslag en condities.`, `Koop een refurbished ${name} bij ${BRAND} met garantie.`]
+    // A collection holds every grade, so it promises checked (not premium) quality; premium is for 4* and 5* only.
+    ? [`Koop een refurbished ${name} bij ${BRAND}: gecontroleerde kwaliteit aan een scherpe prijs, met garantie.`, `Koop een refurbished ${name} bij ${BRAND}, met garantie en in verschillende kleuren, opslag en condities.`, `Koop een refurbished ${name} bij ${BRAND} met garantie.`]
     : [`${name} kopen bij ${BRAND} met garantie.`];
   const options = leads.flatMap(l => [...PICKUP.map(p => `${l} ${p}`), l]);
   return fit(options, SEO_DESCRIPTION_MAX);
