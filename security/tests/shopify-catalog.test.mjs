@@ -17,7 +17,7 @@ async function load(db = null) {
     modules.set(path, m);
     await m.link(async spec => {
       if (internal[spec]) return ld(internal[spec]);
-      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'k' }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
+      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'key-1-abcdefgh' }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
       assert.ok(e, 'unexpected import ' + spec);
       return new vm.SyntheticModule(Object.keys(e), function () { for (const [k, v] of Object.entries(e)) this.setExport(k, v); }, { context });
     });
@@ -442,12 +442,19 @@ test('distinguishing properties already in the title are not repeated', async ()
 test('H1 headings in a description become marked H2 headings, and only those come back on undo', async () => {
   const { seo } = await loadSeo();
   const html = '<h1>Ontdek</h1><p>x</p><h1 class="a">B</h1><h2>Eigen H2</h2>';
-  const d = plain(seo.demoteH1(html));
+  const d = plain(seo.demoteH1(html, 'fixa1'));
   assert.equal(d.count, 2);
   assert.equal(seo.hasH1(d.html), false);
-  const r = plain(seo.restoreH1(d.html));
+  // A later fix with its own token: undoing one never touches the other's headings.
+  const later = plain(seo.demoteH1(d.html + '<h1>Nieuw</h1>', 'fixb2'));
+  assert.equal(later.count, 1);
+  const undoB = plain(seo.restoreH1(later.html, 'fixb2'));
+  assert.equal(undoB.count, 1);
+  assert.equal(undoB.html, d.html + '<h1>Nieuw</h1>');
+  const r = plain(seo.restoreH1(d.html, 'fixa1'));
   assert.equal(r.count, 2);
   assert.equal(r.html, html);
+  assert.equal(plain(seo.restoreH1(d.html, 'other')).count, 0);
 });
 
 test('heading fix is applied, logged for undo, and undone via the marker', async () => {
@@ -464,10 +471,10 @@ test('heading fix is applied, logged for undo, and undone via the marker', async
   };
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['heading'], actor: 'a' }, { db, client: fake.client }));
   assert.equal(r.applied, 1);
-  assert.match(stored, /^<h2 data-mf-h1="">Ontdek<\/h2>/);
+  assert.match(stored, /^<h2 data-mf-h1="key-1-abcdef">Ontdek<\/h2>/);
   const row = plain(writes[0].rows)[0];
-  assert.deepEqual(row.old_value, { headings: 1 });
-  const { db: db2, writes: w2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'heading', result: 'ok', old_value: { headings: 1 }, new_value: { headings: 1 } } });
+  assert.deepEqual(row.old_value, { headings: 1, token: 'key-1-abcdef' });
+  const { db: db2, writes: w2 } = fakeDb(null, { fix: { id: 9, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: t, kind: 'heading', result: 'ok', old_value: row.old_value, new_value: row.new_value } });
   const { run: run2 } = await load(db2);
   const u = plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: fake.client }));
   assert.equal(u.ok, true);
@@ -488,6 +495,22 @@ test('SEO texts set by the tool that were overwritten or lost their skip tag are
   assert.ok(!by[1] || !by[1].issues.includes('seo_overwritten'));
   assert.ok(by[2].issues.includes('seo_overwritten'));
   assert.ok(by[3].issues.includes('seo_overwritten'));
+});
+
+test('undoing a later SEO fix keeps an earlier applied one counted as managed', async () => {
+  const fixes = [
+    { id: 1, product_id: 'gid://shopify/Product/9', kind: 'seo', result: 'ok', new_value: { title: 'A', description: 'a' } },
+    { id: 2, product_id: 'gid://shopify/Product/9', kind: 'seo_replace', result: 'ok', new_value: { title: 'B', description: 'b' } },
+    { id: 3, product_id: 'gid://shopify/Product/9', kind: 'revert', result: 'ok', reverts: 2 },
+  ];
+  const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); const rows = kind ? fixes.filter(f => f.kind === 'revert') : fixes.filter(f => f.kind !== 'revert'); return Promise.resolve({ data: rows, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
+  const writes = [];
+  const db = { from: t => (t === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) };
+  const { run } = await load(db);
+  const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: 'X 4*', handle: 'x', status: 'ACTIVE', tags: ['cat_x'], totalInventory: 0, seo: { title: 'B', description: 'b' } });
+  await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
+  const issue = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9');
+  assert.ok(issue.issues.includes('seo_overwritten'), 'A is still the managed text, so B is reported (and the skip tag is missing)');
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

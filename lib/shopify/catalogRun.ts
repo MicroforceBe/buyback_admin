@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomUUID } from 'node:crypto';
 // Generates and stores the catalogue report, and applies selected safe fixes (admin action).
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
@@ -57,8 +58,8 @@ async function managedSeo(db: Db): Promise<Map<string, { title: string | null; d
     if (!data || data.length < 1000) break;
   }
   const out = new Map<string, { title: string | null; description: string | null }>();
-  // Ascending order: the latest fix per product wins; an undone latest fix means the tool no longer manages it.
-  for (const r of rows) { if (undone.has(r.id)) out.delete(r.product_id); else if (r.new_value) out.set(r.product_id, r.new_value); }
+  // Undone fixes are skipped (an earlier fix that is still applied keeps counting); among the rest the latest wins.
+  for (const r of rows) if (!undone.has(r.id) && r.new_value) out.set(r.product_id, r.new_value);
   return out;
 }
 
@@ -131,13 +132,14 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           log.push({ ...base, result: 'ok', detail: `SEO: titel "${title}" · beschrijving "${description}"`.slice(0, 1000),
             old_value: { ...old, skipTagAdded }, new_value: { title, description } });
         } else if (fix.kind === 'heading') {
-          const { html, count } = demoteH1(product!.descriptionHtml ?? '');
+          const token = randomUUID().slice(0, 12);
+          const { html, count } = demoteH1(product!.descriptionHtml ?? '', token);
           await updateProduct(client, { id, descriptionHtml: html });
           // Undo relies on the marker; if Shopify did not keep it, say so instead of offering an undo that cannot work.
           const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
-          const kept = (after?.descriptionHtml ?? '').includes(DEMOTED_H1_ATTR);
+          const kept = (after?.descriptionHtml ?? '').includes(`${DEMOTED_H1_ATTR}="${token}"`);
           log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? '' : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
-            old_value: kept ? { headings: count } : null, new_value: kept ? { headings: count } : null });
+            old_value: kept ? { headings: count, token } : null, new_value: kept ? { headings: count, token } : null });
         } else if (fix.kind === 'description') {
           const { product: source } = await client.graphql<{ product: { id: string; title: string; descriptionHtml: string | null } | null }>(CATALOG_DESCRIPTION_SOURCE, { id: fix.fromProductId });
           // The source must still be the same model, with a substantial text that names no other model.
@@ -185,7 +187,7 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
   if (!['seo', 'seo_replace', 'heading'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
   const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
   if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
-  if (fix.kind === 'heading') return revertHeading(db, client, fix as { id: number; report_id: string | null; product_id: string; title: string | null }, input.actor);
+  if (fix.kind === 'heading') return revertHeading(db, client, fix as { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { token?: string } }, input.actor);
   const old = fix.old_value as { title: string | null; description: string | null; skipTagAdded?: boolean };
   const set = fix.new_value as { title: string | null; description: string | null };
   const { product } = await client.graphql<{ product: { id: string; tags: string[]; seo: { title: string | null; description: string | null } | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
@@ -212,11 +214,11 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
 }
 
 /** Undo of a heading fix: the marked <h2> headings become <h1> again; other headings are left alone. */
-async function revertHeading(db: Db, client: ShopifyClient, fix: { id: number; report_id: string | null; product_id: string; title: string | null }, actor: string): Promise<{ ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' }> {
+async function revertHeading(db: Db, client: ShopifyClient, fix: { id: number; report_id: string | null; product_id: string; title: string | null; old_value: { token?: string } }, actor: string): Promise<{ ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' }> {
   const base = { report_id: fix.report_id, product_id: fix.product_id, title: String(fix.title ?? '').slice(0, 255), kind: 'revert', actor, reverts: fix.id };
   const { product } = await client.graphql<{ product: { id: string; descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
   let result: { ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' };
-  const restored = product ? restoreH1(product.descriptionHtml ?? '') : { html: '', count: 0 };
+  const restored = product ? restoreH1(product.descriptionHtml ?? '', String(fix.old_value?.token ?? '')) : { html: '', count: 0 };
   if (!product) result = { ok: false, status: 'skipped', detail: 'product niet meer gevonden' };
   else if (!restored.count) result = { ok: false, status: 'skipped', detail: `geen gemarkeerde kop (${DEMOTED_H1_ATTR}) meer gevonden; beschrijving is intussen gewijzigd` };
   else {

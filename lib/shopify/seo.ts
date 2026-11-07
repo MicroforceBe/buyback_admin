@@ -152,19 +152,24 @@ export const seoIsRaw = (seoTitle: string, seoDescription: string, refurbished: 
 /** Marker on headings our tool demoted from h1 to h2, so the change can be undone exactly. */
 export const DEMOTED_H1_ATTR = 'data-mf-h1';
 
-/** Every <h1> in a description becomes a marked <h2> (the theme already shows the title as the page's H1). */
-export function demoteH1(html: string): { html: string; count: number } {
+/**
+ * Every <h1> in a description becomes a <h2> marked with this fix's token (the theme already shows
+ * the title as the page's H1). The token ties each heading to one fix, so undo touches only its own.
+ */
+export function demoteH1(html: string, token: string): { html: string; count: number } {
+  if (!/^[a-z0-9-]{4,40}$/i.test(token)) throw new Error('Ongeldige markering.');
   let count = 0;
   const out = html
-    .replace(/<h1(\s[^>]*)?>/gi, (_m, attrs: string | undefined) => { count++; return `<h2 ${DEMOTED_H1_ATTR}=""${attrs ?? ''}>`; })
+    .replace(/<h1(\s[^>]*)?>/gi, (_m, attrs: string | undefined) => { count++; return `<h2 ${DEMOTED_H1_ATTR}="${token}"${attrs ?? ''}>`; })
     .replace(/<\/h1\s*>/gi, '</h2>');
   return { html: out, count };
 }
 
-/** Undo of demoteH1: only the headings carrying our marker become <h1> again. */
-export function restoreH1(html: string): { html: string; count: number } {
+/** Undo of demoteH1: only the headings carrying this fix's token become <h1> again. */
+export function restoreH1(html: string, token: string): { html: string; count: number } {
+  if (!/^[a-z0-9-]{4,40}$/i.test(token)) return { html, count: 0 };
   let count = 0;
-  const re = new RegExp(`<h2 ${DEMOTED_H1_ATTR}(?:="")?(\\s[^>]*)?>([\\s\\S]*?)<\\/h2\\s*>`, 'gi');
+  const re = new RegExp(`<h2 ${DEMOTED_H1_ATTR}="${token}"(\\s[^>]*)?>([\\s\\S]*?)<\\/h2\\s*>`, 'gi');
   const out = html.replace(re, (_m, attrs: string | undefined, inner: string) => { count++; return `<h1${attrs ?? ''}>${inner}</h1>`; });
   return { html: out, count };
 }

@@ -163,7 +163,7 @@ Extra controles: SEO-tekst is de ruwe titel of het algemene sjabloon (sterren, "
 
 **Slechte SEO-tekst vervangen** (`seo_replace`) is een aparte keuze: het rapport toont oud → nieuw; er wordt alleen vervangen als de tekst nog exact is wat het rapport toonde. De oude tekst staat in het logboek (`old_value`) en elke SEO-aanpassing kan via **Terugdraaien** ongedaan gemaakt worden (één keer, alleen als de tekst intussen niet opnieuw gewijzigd is). Terugdraaien haalt ook de skip-tag weg als de tool die had toegevoegd, zodat TinySEO het product weer beheert.
 
-**Koppen (H1 → H2).** Het thema toont de producttitel al als H1; een `<h1>` in de beschrijving wordt een `<h2 data-mf-h1="">`. Die markering maakt terugdraaien exact (alleen de door de tool omgezette koppen worden weer H1). Bewaart Shopify de markering niet, dan staat dat in het logboek en is terugdraaien niet mogelijk.
+**Koppen (H1 → H2).** Het thema toont de producttitel al als H1; een `<h1>` in de beschrijving wordt een `<h2 data-mf-h1="…">` met een eigen code per aanpassing. Die markering maakt terugdraaien exact (alleen de koppen van díe aanpassing worden weer H1). Bewaart Shopify de markering niet, dan staat dat in het logboek en is terugdraaien niet mogelijk.
 
 **SEO-tekst van de tool is overschreven.** Bij elk rapport vergelijkt de tool per product de laatste toegepaste SEO-aanpassing (niet teruggedraaid) met de huidige SEO-titel en meta-description, en controleert of de tag `tinyimg_metadata_skip` er nog op staat.
 
