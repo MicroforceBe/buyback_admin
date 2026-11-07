@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: 'Meta', warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -168,7 +168,7 @@ test('SEO and description issues are reported with fix proposals', async () => {
   assert.deepEqual(by[4].issues, ['description_empty']);
   assert.deepEqual(by[4].fixes, []);
   assert.deepEqual(by[3].issues, ['seo_too_long', 'description_duplicate', 'description_h1', 'description_empty_image']);
-  assert.deepEqual(by[3].fixes, []);
+  assert.deepEqual(by[3].fixes.map(f => f.kind), ['seo_replace']);
 });
 
 async function loadSeo() {
@@ -184,7 +184,7 @@ async function loadSeo() {
   return { seo: mods['lib/shopify/seo.ts'].namespace };
 }
 
-function fakeDb(report) {
+function fakeDb(report, { fix = null, reverted = false } = {}) {
   const writes = [];
   const from = table => {
     const q = { ops: [] };
@@ -192,6 +192,8 @@ function fakeDb(report) {
       const ins = q.ops.find(o => o[0] === 'insert');
       if (ins) { writes.push({ table, rows: ins[1] }); return table === 'shopify_catalog_reports' ? { data: { id: 'R1' }, error: null } : { error: null }; }
       if (table === 'shopify_catalog_reports' && q.ops.some(o => o[0] === 'maybeSingle')) return { data: report, error: null };
+      if (table === 'shopify_catalog_fixes' && q.ops.some(o => o[0] === 'maybeSingle')) return { data: fix, error: null };
+      if (table === 'shopify_catalog_fixes' && q.ops.some(o => o[0] === 'eq' && o[1] === 'reverts')) return { data: reverted ? [{ id: 99 }] : [], error: null };
       return { data: [], error: null };
     };
     const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => Promise.resolve(result()).then(y, n); return (...a) => { q.ops.push([k, ...a]); return b; }; } });
@@ -273,8 +275,102 @@ test('SEO fixes never overwrite existing texts and descriptions come from a stil
   assert.deepEqual(r, { applied: 2, skipped: 2, failed: 0 });
   const updates = fake.calls.filter(c => c.name === 'CatalogProductUpdate').map(c => c.vars.product);
   assert.deepEqual(updates[0], { id: 'gid://shopify/Product/1', seo: { title: 'Bestaande titel', description: 'Nieuwe meta' } });
+  // The TinySEO skip tag goes on before the SEO text is written.
+  const names = fake.calls.map(c => c.name);
+  assert.ok(names.indexOf('CatalogTagsAdd') < names.indexOf('CatalogProductUpdate'));
+  assert.deepEqual(fake.calls.find(c => c.name === 'CatalogTagsAdd').vars.tags, ['tinyimg_metadata_skip']);
   assert.match(updates[1].descriptionHtml, /tekst/);
   assert.equal(updates.length, 2);
+});
+
+test('weak SEO texts are recognised and get a replacement proposal with the old text', async () => {
+  const { seo } = await loadSeo();
+  assert.equal(seo.seoIsRaw('iPhone 13 256GB Midnight Refurbished 3* M kopen - Microforce', 'x'), true);
+  assert.equal(seo.seoIsRaw('Apple USB-C kabel kopen - Microforce', ''), true);
+  assert.equal(seo.seoIsRaw('Refurbished iPhone 13 – Zeer Goed | Microforce', 'Koop'), false);
+  assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 5* M', 'Refurbished iPhone 13 – Zeer Goed', ''), true);
+  assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 4* M', 'Refurbished iPhone 13 – Zeer Goed', 'goed getest'), false);
+  assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 3* M', 'x', 'in conditie Goed'), false);
+  assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 3* M', 'x 4*', ''), true);
+
+  const { catalog } = await load();
+  const t = 'iPhone 13 128GB Blue Refurbished 4* M';
+  const r = plain(catalog.analyseCatalog([
+    P(1, { title: t, seoTitle: `${t} kopen - Microforce`, seoDescription: 'Koop vanaf €299 bij Microforce met garantie!' }),
+    P(2, { title: 'iPhone 13 256GB Black Refurbished 4* M', seoTitle: 'Goede titel', seoDescription: 'Zelfde meta' }),
+    P(3, { title: 'iPhone 13 256GB Pink Refurbished 4* M', seoTitle: 'Andere titel', seoDescription: 'Zelfde meta' }),
+  ]));
+  const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
+  assert.deepEqual(by[1].issues, ['seo_raw']);
+  assert.deepEqual(by[1].fixes, [{ kind: 'seo_replace', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Gratis afhalen of snelle levering in België.', oldTitle: `${t} kopen - Microforce`, oldDescription: 'Koop vanaf €299 bij Microforce met garantie!' }]);
+  assert.deepEqual(by[2].issues, ['seo_description_duplicate']);
+  assert.equal(by[2].fixes[0].kind, 'seo_replace');
+});
+
+test('a replacement is skipped when the SEO text changed after the report; applied ones keep the old text', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  const fix = { kind: 'seo_replace', title: 'Nieuw', description: 'Nieuwe meta', oldTitle: 'Oud', oldDescription: 'Oude meta' };
+  const { db, writes } = fakeDb({ issues: [issue(1, [fix], t), issue(2, [fix], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({
+    'gid://shopify/Product/1': { id: 1, title: t, tags: ['tinyimg_metadata_skip'], descriptionHtml: '', seo: { title: 'Oud', description: 'Oude meta' }, condition: null },
+    'gid://shopify/Product/2': { id: 2, title: t, tags: [], descriptionHtml: '', seo: { title: 'Door iemand aangepast', description: 'Oude meta' }, condition: null },
+  });
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1', 'gid://shopify/Product/2'], kinds: ['seo_replace'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 1, skipped: 1, failed: 0 });
+  assert.ok(!fake.calls.some(c => c.name === 'CatalogTagsAdd'), 'skip tag already present');
+  const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
+  assert.deepEqual(log[0].old_value, { title: 'Oud', description: 'Oude meta', skipTagAdded: false });
+  assert.deepEqual(log[0].new_value, { title: 'Nieuw', description: 'Nieuwe meta' });
+  assert.match(log[1].detail, /gewijzigd/);
+});
+
+test('a failed SEO update takes the skip tag off again', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  const { db } = fakeDb({ issues: [issue(1, [{ kind: 'seo', title: 'T', description: 'D' }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({ 'gid://shopify/Product/1': { id: 1, title: t, tags: [], descriptionHtml: '', seo: null, condition: null } });
+  const original = fake.client.graphql;
+  fake.client.graphql = async (q, v) => (q.includes('CatalogProductUpdate') ? Promise.reject(new Error('netwerk')) : original(q, v));
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['seo'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.failed, 1);
+  assert.deepEqual(fake.calls.map(c => c.name).filter(n => n.startsWith('CatalogTags')), ['CatalogTagsAdd', 'CatalogTagsRemove']);
+});
+
+test('undo restores the old SEO texts and hands the product back to TinySEO, once and only if unchanged', async () => {
+  const fixRow = { id: 7, report_id: 'R1', product_id: 'gid://shopify/Product/1', title: 'X', kind: 'seo_replace', result: 'ok',
+    old_value: { title: 'Oud', description: null, skipTagAdded: true }, new_value: { title: 'Nieuw', description: 'Nieuwe meta' } };
+  const product = seo => ({ 'gid://shopify/Product/1': { id: 1, title: 'X', tags: ['cat_x', 'tinyimg_metadata_skip'], seo } });
+  {
+    const { db, writes } = fakeDb(null, { fix: fixRow });
+    const { run } = await load(db);
+    const fake = fakeClient(product({ title: 'Nieuw', description: 'Nieuwe meta' }));
+    const r = plain(await run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fake.client }));
+    assert.equal(r.ok, true);
+    assert.deepEqual(fake.calls.find(c => c.name === 'CatalogProductUpdate').vars.product.seo, { title: 'Oud', description: '' });
+    assert.deepEqual(fake.calls.find(c => c.name === 'CatalogTagsRemove').vars.tags, ['tinyimg_metadata_skip']);
+    const row = plain(writes[0].rows);
+    assert.equal(row.kind, 'revert');
+    assert.equal(row.reverts, 7);
+  }
+  {
+    const { db } = fakeDb(null, { fix: fixRow });
+    const { run } = await load(db);
+    const fake = fakeClient(product({ title: 'Iemand anders', description: 'Nieuwe meta' }));
+    const r = plain(await run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fake.client }));
+    assert.equal(r.ok, false);
+    assert.ok(!fake.calls.some(c => c.name === 'CatalogProductUpdate'));
+  }
+  {
+    const { db } = fakeDb(null, { fix: fixRow, reverted: true });
+    const { run } = await load(db);
+    await assert.rejects(run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fakeClient({}).client }), /al teruggedraaid/);
+  }
+  {
+    const { db } = fakeDb(null, { fix: { ...fixRow, kind: 'condition' } });
+    const { run } = await load(db);
+    await assert.rejects(run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fakeClient({}).client }), /kan niet/);
+  }
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

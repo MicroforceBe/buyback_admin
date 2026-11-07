@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, createShopifyClient, METAFIELDS_SET, shopifyConfig, TAGS_ADD, TAGS_REMOVE, type ShopifyClient } from '@/lib/shopify/client';
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
-import { isBlankDescription, mentionsOtherModel, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { isBlankDescription, mentionsOtherModel, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -16,6 +16,24 @@ const clientOrThrow = (client?: ShopifyClient | null) => {
   if (!c) throw new Error('Shopify is niet gekoppeld.');
   return c;
 };
+
+/**
+ * Sets the SEO texts of a product our tool manages. The TinySEO skip tag goes on first, so TinySEO's
+ * nightly template never overwrites them; if the update fails, a tag we added is taken off again.
+ */
+async function setManagedSeo(client: ShopifyClient, id: string, tags: string[], seo: { title: string | null; description: string | null }) {
+  const skipTagAdded = !tags.includes(SEO_SKIP_TAG);
+  if (skipTagAdded) await editTags(client, TAGS_ADD, id, [SEO_SKIP_TAG]);
+  try { await updateProduct(client, { id, seo }); }
+  catch (e) { if (skipTagAdded) await editTags(client, TAGS_REMOVE, id, [SEO_SKIP_TAG]).catch(() => undefined); throw e; }
+  return { skipTagAdded };
+}
+
+async function editTags(client: ShopifyClient, mutation: string, id: string, tags: string[]) {
+  const r = await client.graphql<{ tagsAdd?: { userErrors: UserError[] }; tagsRemove?: { userErrors: UserError[] } }>(mutation, { id, tags });
+  const errors = (r.tagsAdd ?? r.tagsRemove)?.userErrors ?? [];
+  if (errors.length) throw new Error(errors.map(e => e.message).join('; '));
+}
 
 async function updateProduct(client: ShopifyClient, product: Record<string, unknown>) {
   const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(CATALOG_PRODUCT_UPDATE, { product });
@@ -73,15 +91,20 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
         if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
       } else if (fix.kind === 'seo') {
         if ((!fix.title || product.seo?.title?.trim()) && (!fix.description || product.seo?.description?.trim())) reason = 'SEO-gegevens zijn intussen al ingevuld';
+      } else if (fix.kind === 'seo_replace') {
+        // Only replaced when the SEO text is still exactly what the report showed.
+        if ((product.seo?.title ?? '').trim() !== fix.oldTitle || (product.seo?.description ?? '').trim() !== fix.oldDescription) reason = 'SEO-tekst is sinds het rapport gewijzigd';
       } else if (!isBlankDescription(product.descriptionHtml)) reason = 'heeft al een beschrijving (die wordt nooit vervangen)';
       if (reason) { skipped++; log.push({ ...base, result: 'skipped', detail: reason }); continue; }
       try {
-        if (fix.kind === 'seo') {
-          // Only the empty field is filled; an existing SEO title or description is never overwritten.
-          const title = product!.seo?.title?.trim() ? product!.seo!.title : fix.title;
-          const description = product!.seo?.description?.trim() ? product!.seo!.description : fix.description;
-          await updateProduct(client, { id, seo: { title, description } });
-          log.push({ ...base, result: 'ok', detail: `SEO: ${[title !== product!.seo?.title ? `titel "${title}"` : '', description !== product!.seo?.description ? `beschrijving "${description}"` : ''].filter(Boolean).join(', ')}`.slice(0, 1000) });
+        if (fix.kind === 'seo' || fix.kind === 'seo_replace') {
+          // 'seo' only fills an empty field; 'seo_replace' replaces both. The old texts are kept for undo.
+          const old = { title: product!.seo?.title ?? null, description: product!.seo?.description ?? null };
+          const title = fix.kind === 'seo' && old.title?.trim() ? old.title : fix.title;
+          const description = fix.kind === 'seo' && old.description?.trim() ? old.description : fix.description;
+          const { skipTagAdded } = await setManagedSeo(client, id, product!.tags, { title, description });
+          log.push({ ...base, result: 'ok', detail: `SEO: titel "${title}" · beschrijving "${description}"`.slice(0, 1000),
+            old_value: { ...old, skipTagAdded }, new_value: { title, description } });
         } else if (fix.kind === 'description') {
           const { product: source } = await client.graphql<{ product: { id: string; title: string; descriptionHtml: string | null } | null }>(CATALOG_DESCRIPTION_SOURCE, { id: fix.fromProductId });
           // The source must still be the same model, with a substantial text that names no other model.
@@ -115,4 +138,34 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
     }
   }
   return { applied, skipped, failed };
+}
+
+/**
+ * Undoes an applied SEO fix: the old SEO texts come back and a skip tag we added is removed, so
+ * TinySEO manages the product again. Only when the texts are still what the fix set; each fix once.
+ */
+export async function revertCatalogFix(input: { fixId: number; actor: string }, deps: { db?: Db; client?: ShopifyClient | null } = {}): Promise<{ ok: boolean; detail: string }> {
+  const db = deps.db ?? supabaseAdmin;
+  const client = clientOrThrow(deps.client);
+  const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
+  if (error || !fix) throw new Error('Aanpassing niet gevonden.');
+  if (!['seo', 'seo_replace'].includes(fix.kind) || fix.result !== 'ok' || !fix.old_value || !fix.new_value) throw new Error('Deze aanpassing kan niet worden teruggedraaid.');
+  const { data: done } = await db.from('shopify_catalog_fixes').select('id').eq('reverts', fix.id).eq('result', 'ok').limit(1);
+  if (done?.length) throw new Error('Deze aanpassing is al teruggedraaid.');
+  const old = fix.old_value as { title: string | null; description: string | null; skipTagAdded?: boolean };
+  const set = fix.new_value as { title: string | null; description: string | null };
+  const { product } = await client.graphql<{ product: { id: string; tags: string[]; seo: { title: string | null; description: string | null } | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
+  const base = { report_id: fix.report_id, product_id: fix.product_id, title: String(fix.title ?? '').slice(0, 255), kind: 'revert', actor: input.actor, reverts: fix.id };
+  let result: { ok: boolean; detail: string };
+  if (!product) result = { ok: false, detail: 'product niet meer gevonden' };
+  else if ((product.seo?.title ?? '') !== (set.title ?? '') || (product.seo?.description ?? '') !== (set.description ?? '')) result = { ok: false, detail: 'SEO-tekst is intussen opnieuw gewijzigd; niet teruggezet' };
+  else {
+    await updateProduct(client, { id: fix.product_id, seo: { title: old.title ?? '', description: old.description ?? '' } });
+    if (old.skipTagAdded && product.tags.includes(SEO_SKIP_TAG)) await editTags(client, TAGS_REMOVE, fix.product_id, [SEO_SKIP_TAG]);
+    result = { ok: true, detail: `teruggezet${old.skipTagAdded ? '; TinySEO beheert dit product weer' : ''}` };
+  }
+  const { error: logError } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.ok ? 'ok' : 'skipped', detail: result.detail,
+    old_value: result.ok ? set : null, new_value: result.ok ? { title: old.title, description: old.description } : null });
+  if (logError) throw new Error(result.ok ? 'Teruggezet, maar het logboek kon niet worden bijgewerkt.' : 'Logboek kon niet worden bijgewerkt.');
+  return result;
 }

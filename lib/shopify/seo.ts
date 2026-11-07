@@ -3,6 +3,8 @@
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
 
 export const SEO_TITLE_MAX = 60;
+/** Products with this tag are skipped by TinySEO's automatic metadata templates: our tool manages their SEO texts. */
+export const SEO_SKIP_TAG = 'tinyimg_metadata_skip';
 export const SEO_DESCRIPTION_MAX = 155;
 export const SHORT_DESCRIPTION_WORDS = 100;
 export const EMPTY_DESCRIPTION_WORDS = 20;
@@ -110,3 +112,26 @@ export function pickDescription<T extends { title: string; descriptionHtml?: str
   }
   return best?.ref ?? null;
 }
+
+/** Condition grades mentioned in a text: stars ("4*") and the Dutch labels. */
+export function conditionMentions(text: string): Set<string> {
+  const t = ` ${text.toLowerCase()} `;
+  const out = new Set<string>([...t.matchAll(/\b([345])\s*\*/g)].map(m => m[1]));
+  if (/\bals nieuw\b/.test(t)) out.add('5');
+  if (/\bzeer goed\b/.test(t)) out.add('4');
+  // "Goed" alone is a common word; only "conditie goed" counts as the 3* label.
+  if (/\bconditie goed\b/.test(t)) out.add('3');
+  return out;
+}
+
+/** The SEO text names a condition that does not match the stars in the product title. */
+export function seoConditionMismatch(title: string, seoTitle: string, seoDescription: string): boolean {
+  const stars = starsOf(title);
+  if (!stars || !CONDITION[stars]) return false;
+  const mentioned = conditionMentions(`${seoTitle} ${seoDescription}`);
+  return [...mentioned].some(g => g !== stars);
+}
+
+/** The SEO text is the raw product title (stars, condition code) or the generic "… kopen - Microforce" template. */
+export const seoIsRaw = (seoTitle: string, seoDescription: string) =>
+  /\b\d\s*\*/.test(`${seoTitle} ${seoDescription}`) || / kopen - Microforce$/i.test(seoTitle.trim());

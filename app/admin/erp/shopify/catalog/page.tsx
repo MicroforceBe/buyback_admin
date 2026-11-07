@@ -4,7 +4,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
 import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type Fix, type IssueCode } from '@/lib/shopify/catalog';
-import { applyFixesAction, generateReportAction } from './actions';
+import { applyFixesAction, generateReportAction, revertFixAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -16,6 +16,7 @@ const fixText = (f: Fix) => {
     case 'condition': return `Uiterlijk → ${f.value}`;
     case 'category': return `Tags ${f.tags.join(', ')} (zoals ${f.fromSku})${f.removeEmptyTag ? ', lege "cat_" weg' : ''}`;
     case 'seo': return [f.title && `SEO-titel: ${f.title}`, f.description && `Meta: ${f.description}`].filter(Boolean).join(' · ');
+    case 'seo_replace': return `SEO vervangen — titel: "${f.oldTitle}" → "${f.title}" · meta: "${f.oldDescription}" → "${f.description}"`;
     case 'description': return `Beschrijving overnemen van "${f.fromTitle}"`;
   }
 };
@@ -38,7 +39,10 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const filtered = all.filter(i => (!issue || i.issues.includes(issue)) && (!params.fixable || i.fixes.length) && (!q || i.title.toLowerCase().includes(q) || i.skus.some(s => s.includes(q))));
   const page = Math.max(1, Number(params.page ?? 1) || 1);
   const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const { data: fixLog } = await supabaseAdmin.from('shopify_catalog_fixes').select('id,created_at,title,kind,result,detail,actor').order('created_at', { ascending: false }).limit(20);
+  const { data: fixLog } = await supabaseAdmin.from('shopify_catalog_fixes').select('id,created_at,title,kind,result,detail,actor,reverts').order('created_at', { ascending: false }).limit(50);
+  const logIds = (fixLog ?? []).map(l => l.id);
+  const { data: revertRows } = logIds.length ? await supabaseAdmin.from('shopify_catalog_fixes').select('reverts').in('reverts', logIds).eq('result', 'ok') : { data: [] };
+  const reverted = new Set((revertRows ?? []).map(r => r.reverts));
   const link = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries({ report: reportId, issue: issue ?? undefined, q: params.q, fixable: params.fixable, ...extra })) if (v) p.set(k, v);
@@ -55,6 +59,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
       </div>
 
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
+      {params.notice && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.notice}</div>}
       {params.applied && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">Aangepast: {params.applied} · overgeslagen: {params.skipped} · mislukt: {params.failed}. Maak een nieuw rapport om het resultaat te zien.</div>}
 
       {!report ? <p className="text-sm text-slate-600">Nog geen rapport. {isAdmin ? 'Klik op "Nieuw rapport maken".' : ''}</p> : (
@@ -127,6 +132,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="condition" defaultChecked /> Uiterlijk invullen of rechtzetten volgens de sterren in de titel</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="category" /> Categorie-tags toevoegen zoals bij het meest gelijkende product</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo" /> Ontbrekende SEO-titel en meta-description invullen met de voorgestelde tekst</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="seo_replace" /> Slechte SEO-tekst vervangen door het voorstel (oude tekst wordt bewaard en kan teruggezet worden)</label>
+                  <p className="text-xs text-slate-600">Producten met een SEO-tekst van deze tool krijgen de tag <code>tinyimg_metadata_skip</code>, zodat TinySEO ze niet meer overschrijft. Terugdraaien haalt die tag weer weg.</p>
                   <label className="flex items-center gap-2"><input type="checkbox" name="kind" value="description" /> Lege beschrijving overnemen van een product van hetzelfde model</label>
                   <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
                   <button className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Aanpassen</button>
@@ -137,11 +144,14 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
 
           {isAdmin && (
             <section className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h3 className="font-semibold">Logboek aanpassingen (laatste 20)</h3>
+              <h3 className="font-semibold">Logboek aanpassingen (laatste 50)</h3>
               <table className="mt-2 min-w-full text-left text-sm">
                 <tbody className="divide-y">
                   {(fixLog ?? []).map(l => (
-                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{({ condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO', description: 'Beschrijving' } as Record<string, string>)[l.kind] ?? l.kind}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td></tr>
+                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{({ condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving', revert: 'Teruggedraaid' } as Record<string, string>)[l.kind] ?? l.kind}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td>
+                      <td className="pl-3">{(l.kind === 'seo' || l.kind === 'seo_replace') && l.result === 'ok' && (reverted.has(l.id) ? <span className="text-xs text-slate-400">teruggedraaid</span> : (
+                        <form action={revertFixAction}><input type="hidden" name="report" value={report.id} /><input type="hidden" name="fix" value={l.id} /><button className="rounded border px-2 py-0.5 text-xs hover:bg-slate-50">Terugdraaien</button></form>
+                      ))}</td></tr>
                   ))}
                   {!fixLog?.length && <tr><td className="py-2 text-slate-500">Nog geen aanpassingen.</td></tr>}
                 </tbody>

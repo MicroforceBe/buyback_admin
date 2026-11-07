@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -89,6 +89,7 @@ export type IssueCode =
   | 'no_condition' | 'wrong_condition' | 'no_colour'
   | 'main_sku_mismatch' | 'duplicate_title'
   | 'seo_title_missing' | 'seo_description_missing' | 'seo_too_long'
+  | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
   | 'description_h1' | 'description_empty_image' | 'alt_missing';
 
@@ -107,6 +108,9 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   seo_title_missing: 'SEO-titel ontbreekt',
   seo_description_missing: 'Meta-description ontbreekt',
   seo_too_long: `SEO-titel > ${SEO_TITLE_MAX} of meta-description > ${SEO_DESCRIPTION_MAX} tekens`,
+  seo_raw: 'SEO-tekst is de ruwe titel of het algemene sjabloon',
+  seo_condition_mismatch: 'SEO-tekst noemt een andere conditie',
+  seo_description_duplicate: 'Meta-description identiek aan ander product',
   description_empty: 'Geen beschrijving',
   description_short: `Korte beschrijving (< ${SHORT_DESCRIPTION_WORDS} woorden)`,
   description_duplicate: 'Beschrijving identiek aan ander product',
@@ -119,16 +123,17 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
-  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing'] },
 ];
 
 export type Fix =
   | { kind: 'condition'; value: string }
   | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean }
   | { kind: 'seo'; title: string | null; description: string | null }
+  | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string }
   | { kind: 'description'; fromProductId: string; fromTitle: string };
 
-export const FIX_KINDS = ['condition', 'category', 'seo', 'description'] as const;
+export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description'] as const;
 
 export type CatalogIssue = { productId: string; title: string; handle: string; status: string; skus: string[]; stock: number; issues: IssueCode[]; fixes: Fix[] };
 
@@ -144,6 +149,8 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
   const withCategory = products.filter(p => p.tags.some(t => t.startsWith('cat_') && t.length > 4))
     .flatMap(p => p.skus.slice(0, 1).map(sku => ({ sku, title: p.title, tags: p.tags })));
 
+  const metaCount = new Map<string, number>();
+  for (const p of products) if (p.seoDescription) metaCount.set(p.seoDescription.toLowerCase(), (metaCount.get(p.seoDescription.toLowerCase()) ?? 0) + 1);
   const hashCount = new Map<string, number>();
   for (const p of products) if (p.descriptionHash && p.descriptionWords >= EMPTY_DESCRIPTION_WORDS) hashCount.set(p.descriptionHash, (hashCount.get(p.descriptionHash) ?? 0) + 1);
   // Description sources: per model, the product with the longest description that names no other model.
@@ -191,8 +198,19 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     // Findability (SEO)
     if (!p.seoTitle) list.push('seo_title_missing');
     if (!p.seoDescription) list.push('seo_description_missing');
-    if (p.seoTitle.length > SEO_TITLE_MAX || p.seoDescription.length > SEO_DESCRIPTION_MAX) list.push('seo_too_long');
-    if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : suggestSeoTitle(p.title, p.refurbished), description: p.seoDescription ? null : suggestSeoDescription(p.title, p.refurbished, p.warranty) });
+    const tooLong = p.seoTitle.length > SEO_TITLE_MAX || p.seoDescription.length > SEO_DESCRIPTION_MAX;
+    const raw = seoIsRaw(p.seoTitle, p.seoDescription);
+    const mismatch = seoConditionMismatch(p.title, p.seoTitle, p.seoDescription);
+    const dupMeta = !!p.seoDescription && (metaCount.get(p.seoDescription.toLowerCase()) ?? 0) > 1;
+    if (tooLong) list.push('seo_too_long');
+    if (raw) list.push('seo_raw');
+    if (mismatch) list.push('seo_condition_mismatch');
+    if (dupMeta) list.push('seo_description_duplicate');
+    // A weak SEO text is replaced as a whole (separate choice, old text kept for undo); otherwise only empty fields are filled.
+    const proposal = { title: suggestSeoTitle(p.title, p.refurbished), description: suggestSeoDescription(p.title, p.refurbished, p.warranty) };
+    const weak = p.seoTitle && p.seoDescription && (tooLong || raw || mismatch || dupMeta);
+    if (weak && (proposal.title !== p.seoTitle || proposal.description !== p.seoDescription)) fixes.push({ kind: 'seo_replace', ...proposal, oldTitle: p.seoTitle, oldDescription: p.seoDescription });
+    else if (!p.seoTitle || !p.seoDescription) fixes.push({ kind: 'seo', title: p.seoTitle ? null : suggestSeoTitle(p.title, p.refurbished), description: p.seoDescription ? null : suggestSeoDescription(p.title, p.refurbished, p.warranty) });
     if (p.descriptionWords < EMPTY_DESCRIPTION_WORDS) {
       list.push('description_empty');
       // Only a truly empty description is filled; a short text is reported but never replaced.
