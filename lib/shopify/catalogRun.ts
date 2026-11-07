@@ -186,10 +186,12 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           const todo = photos.map((m, i) => ({ m, n: i + 1 })).filter(x => (fix.kind === 'alt_photo' ? !x.m.alt?.trim() : altIsWeak(x.m.alt)));
           const files = todo.map(x => ({ id: x.m.id, alt: altText(product!.title, product!.refurbished?.value === 'true', x.n, photos.length) }));
           // The undo data must fit in the log (64 KB); far beyond any real gallery, but checked before writing.
-          if (new TextEncoder().encode(JSON.stringify(files)).length > 48_000) { skipped++; log.push({ ...base, result: 'skipped', detail: "te veel foto's om veilig terug te kunnen zetten" }); continue; }
+          const oldMedia = todo.map(x => ({ id: x.m.id, alt: x.m.alt ?? '' }));
+          const bytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
+          if (bytes({ media: files }) > 48_000 || bytes({ media: oldMedia }) > 48_000) { skipped++; log.push({ ...base, result: 'skipped', detail: "te veel foto's om veilig terug te kunnen zetten" }); continue; }
           await setAlts(client, files);
           log.push({ ...base, result: 'ok', detail: `${files.length} productfoto${files.length === 1 ? '' : "'s"} kreeg${files.length === 1 ? '' : 'en'} ${fix.kind === 'alt_photo' ? 'een' : 'een nieuwe'} alt-tekst, bv. "${files[0].alt}"`.slice(0, 1000),
-            old_value: { media: todo.map(x => ({ id: x.m.id, alt: x.m.alt ?? '' })) }, new_value: { media: files } });
+            old_value: { media: oldMedia }, new_value: { media: files } });
         } else if (fix.kind === 'alt_text') {
           const out = await applyDescriptionAlts(product!.descriptionHtml ?? '', product!.title, product!.refurbished?.value === 'true', html => updateProduct(client, { id, descriptionHtml: html }), async () => {
             const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });

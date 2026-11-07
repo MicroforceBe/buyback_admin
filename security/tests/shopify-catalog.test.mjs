@@ -889,3 +889,16 @@ test('weak photo alt texts (TinySEO template, too long) get a separate replaceme
   assert.equal(plain(await run2.revertCatalogFix({ fixId: 9, actor: 'a' }, { db: db2, client: altClient(state).client })).ok, true);
   assert.equal(state.media[0].alt, tiny);
 });
+
+test('a replacement whose old alt texts would not fit in the log is not done', async () => {
+  const t = 'iPhone 14 128GB Blue Refurbished 4*';
+  const long = '漢'.repeat(200) + ' 5* kopen bij Microforce';
+  const state = { title: t, descriptionHtml: '', media: Array.from({ length: 120 }, (_, i) => ({ id: 'M' + i, alt: long, mediaContentType: 'IMAGE' })) };
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'alt_photo_replace', count: 120, example: 'x', oldExample: 'y' }], t)] });
+  const { run } = await load(db);
+  const fake = altClient(state);
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['alt_photo_replace'], actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.skipped, 1);
+  assert.ok(!fake.calls.includes('CatalogFileUpdate'));
+  assert.match(plain(writes[0].rows)[0].detail, /terug te kunnen zetten/);
+});
