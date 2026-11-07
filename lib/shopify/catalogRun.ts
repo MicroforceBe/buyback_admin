@@ -144,7 +144,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
  * Undoes an applied SEO fix: the old SEO texts come back and a skip tag we added is removed, so
  * TinySEO manages the product again. Only when the texts are still what the fix set; each fix once.
  */
-export async function revertCatalogFix(input: { fixId: number; actor: string }, deps: { db?: Db; client?: ShopifyClient | null } = {}): Promise<{ ok: boolean; detail: string }> {
+export async function revertCatalogFix(input: { fixId: number; actor: string }, deps: { db?: Db; client?: ShopifyClient | null } = {}): Promise<{ ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' }> {
   const db = deps.db ?? supabaseAdmin;
   const client = clientOrThrow(deps.client);
   const { data: fix, error } = await db.from('shopify_catalog_fixes').select('id,report_id,product_id,title,kind,result,old_value,new_value').eq('id', input.fixId).maybeSingle();
@@ -156,15 +156,22 @@ export async function revertCatalogFix(input: { fixId: number; actor: string }, 
   const set = fix.new_value as { title: string | null; description: string | null };
   const { product } = await client.graphql<{ product: { id: string; tags: string[]; seo: { title: string | null; description: string | null } | null } | null }>(CATALOG_PRODUCT, { id: fix.product_id });
   const base = { report_id: fix.report_id, product_id: fix.product_id, title: String(fix.title ?? '').slice(0, 255), kind: 'revert', actor: input.actor, reverts: fix.id };
-  let result: { ok: boolean; detail: string };
-  if (!product) result = { ok: false, detail: 'product niet meer gevonden' };
-  else if ((product.seo?.title ?? '') !== (set.title ?? '') || (product.seo?.description ?? '') !== (set.description ?? '')) result = { ok: false, detail: 'SEO-tekst is intussen opnieuw gewijzigd; niet teruggezet' };
+  const same = (a: { title: string | null; description: string | null }) => (product?.seo?.title ?? '') === (a.title ?? '') && (product?.seo?.description ?? '') === (a.description ?? '');
+  let result: { ok: boolean; detail: string; status: 'ok' | 'skipped' | 'failed' };
+  if (!product) result = { ok: false, status: 'skipped', detail: 'product niet meer gevonden' };
+  // Already restored by an earlier attempt whose tag removal failed: only the tag is left to do.
+  else if (!same(set) && !same(old)) result = { ok: false, status: 'skipped', detail: 'SEO-tekst is intussen opnieuw gewijzigd; niet teruggezet' };
   else {
-    await updateProduct(client, { id: fix.product_id, seo: { title: old.title ?? '', description: old.description ?? '' } });
-    if (old.skipTagAdded && product.tags.includes(SEO_SKIP_TAG)) await editTags(client, TAGS_REMOVE, fix.product_id, [SEO_SKIP_TAG]);
-    result = { ok: true, detail: `teruggezet${old.skipTagAdded ? '; TinySEO beheert dit product weer' : ''}` };
+    try {
+      if (same(set)) await updateProduct(client, { id: fix.product_id, seo: { title: old.title ?? '', description: old.description ?? '' } });
+      if (old.skipTagAdded && product.tags.includes(SEO_SKIP_TAG)) await editTags(client, TAGS_REMOVE, fix.product_id, [SEO_SKIP_TAG]);
+      result = { ok: true, status: 'ok', detail: `teruggezet${old.skipTagAdded ? '; TinySEO beheert dit product weer' : ''}` };
+    } catch (e) {
+      // Partly done (text restored, tag still on) stays retryable: a failed row never blocks a later undo.
+      result = { ok: false, status: 'failed', detail: `terugdraaien niet volledig: ${e instanceof Error ? e.message : 'onbekende fout'}; probeer opnieuw`.slice(0, 1000) };
+    }
   }
-  const { error: logError } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.ok ? 'ok' : 'skipped', detail: result.detail,
+  const { error: logError } = await db.from('shopify_catalog_fixes').insert({ ...base, result: result.status, detail: result.detail,
     old_value: result.ok ? set : null, new_value: result.ok ? { title: old.title, description: old.description } : null });
   if (logError) throw new Error(result.ok ? 'Teruggezet, maar het logboek kon niet worden bijgewerkt.' : 'Logboek kon niet worden bijgewerkt.');
   return result;

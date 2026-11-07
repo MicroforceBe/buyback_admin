@@ -362,6 +362,22 @@ test('undo restores the old SEO texts and hands the product back to TinySEO, onc
     assert.ok(!fake.calls.some(c => c.name === 'CatalogProductUpdate'));
   }
   {
+    // Tag removal fails: logged as failed; a retry sees the old text already back and only removes the tag.
+    const { db, writes } = fakeDb(null, { fix: fixRow });
+    const { run } = await load(db);
+    const fake = fakeClient(product({ title: 'Nieuw', description: 'Nieuwe meta' }));
+    const original = fake.client.graphql;
+    fake.client.graphql = async (q, v) => (q.includes('CatalogTagsRemove') ? Promise.reject(new Error('netwerk')) : original(q, v));
+    const r = plain(await run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fake.client }));
+    assert.equal(r.status, 'failed');
+    assert.equal(plain(writes[0].rows).result, 'failed');
+    const retry = fakeClient(product({ title: 'Oud', description: null }));
+    const r2 = plain(await run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: retry.client }));
+    assert.equal(r2.ok, true);
+    assert.ok(!retry.calls.some(c => c.name === 'CatalogProductUpdate'));
+    assert.ok(retry.calls.some(c => c.name === 'CatalogTagsRemove'));
+  }
+  {
     const { db } = fakeDb(null, { fix: fixRow, reverted: true });
     const { run } = await load(db);
     await assert.rejects(run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fakeClient({}).client }), /al teruggedraaid/);
