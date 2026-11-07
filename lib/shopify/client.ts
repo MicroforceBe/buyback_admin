@@ -183,3 +183,8 @@ export const CATALOG_DESCRIPTION_SOURCE = `query CatalogDescriptionSource($id: I
 export const CATALOG_PRODUCT_UPDATE = `mutation CatalogProductUpdate($product: ProductUpdateInput!) { productUpdate(product: $product) { product { id } userErrors { field message } } }`;
 export const TAGS_ADD = `mutation CatalogTagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`;
 export const TAGS_REMOVE = `mutation CatalogTagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { field message } } }`;
+
+// ---------- collection report fixes ----------
+export const COLLECTION_INFO = `query CollectionInfo($id: ID!) { collection(id: $id) { id title descriptionHtml seo { title description } hidden: metafield(namespace: "seo", key: "hidden") { value } } }`;
+export const COLLECTION_UPDATE = `mutation CollectionSeoUpdate($collection: CollectionUpdateInput!) { collectionUpdate(collection: $collection) { collection { id } userErrors { field message } } }`;
+export const METAFIELDS_DELETE = `mutation CollectionMetafieldsDelete($metafields: [MetafieldIdentifierInput!]!) { metafieldsDelete(metafields: $metafields) { deletedMetafields { key } userErrors { field message } } }`;

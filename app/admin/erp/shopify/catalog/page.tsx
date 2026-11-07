@@ -32,9 +32,9 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const store = (() => { try { return shopifyConfig()?.domain.replace(/\.myshopify\.com$/, '') ?? null; } catch { return null; } })();
   const productUrl = (gid: string) => (store ? `https://admin.shopify.com/store/${store}/products/${gid.split('/').pop()}` : null);
 
-  const { data: reports } = await supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,created_by,checked').order('created_at', { ascending: false }).limit(10);
+  const { data: reports } = await supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,created_by,checked').eq('scope', 'products').order('created_at', { ascending: false }).limit(10);
   const reportId = params.report ?? reports?.[0]?.id;
-  const { data: report } = reportId ? await supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,created_by,checked,counts,issues').eq('id', reportId).maybeSingle() : { data: null };
+  const { data: report } = reportId ? await supabaseAdmin.from('shopify_catalog_reports').select('id,created_at,created_by,checked,counts,issues').eq('id', reportId).eq('scope', 'products').maybeSingle() : { data: null };
   const counts = (report?.counts ?? {}) as Record<IssueCode, number>;
   const all = (report?.issues ?? []) as CatalogIssue[];
   const issue = params.issue && Object.hasOwn(ISSUE_LABELS, params.issue) ? (params.issue as IssueCode) : null;
@@ -42,7 +42,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   const filtered = all.filter(i => (!issue || i.issues.includes(issue)) && (!params.fixable || i.fixes.length) && (!q || i.title.toLowerCase().includes(q) || i.skus.some(s => s.includes(q))));
   const page = Math.max(1, Number(params.page ?? 1) || 1);
   const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const { data: fixLog } = await supabaseAdmin.from('shopify_catalog_fixes').select('id,created_at,title,kind,result,detail,actor,reverts').order('created_at', { ascending: false }).limit(50);
+  const { data: fixLog } = await supabaseAdmin.from('shopify_catalog_fixes').select('id,created_at,title,kind,result,detail,actor,reverts').like('product_id', 'gid://shopify/Product/%').order('created_at', { ascending: false }).limit(50);
   const logIds = (fixLog ?? []).map(l => l.id);
   const { data: revertRows } = logIds.length ? await supabaseAdmin.from('shopify_catalog_fixes').select('reverts').in('reverts', logIds).eq('result', 'ok') : { data: [] };
   const reverted = new Set((revertRows ?? []).map(r => r.reverts));
@@ -55,7 +55,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border bg-slate-950 p-8 text-white shadow-sm">
-        <Link href="/admin/erp/shopify" className="text-xs text-slate-400 hover:text-white">← Shopify-sync</Link>
+        <div className="flex justify-between text-xs"><Link href="/admin/erp/shopify" className="text-slate-400 hover:text-white">← Shopify-sync</Link><Link href="/admin/erp/shopify/collections" className="text-sky-300 hover:text-white">Collectierapport →</Link></div>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Catalogusrapport</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Actieve producten en concepten met zwakke foto&apos;s, ontbrekende categorie of collectie, ontbrekende of verkeerde eigenschappen en tags die niet kloppen. Producten met voorraad staan bovenaan. Veilige aanpassingen (Uiterlijk volgens de sterren, categorie zoals een gelijkend product) kan een beheerder hier uitvoeren.</p>
         {isAdmin && <form action={generateReportAction} className="mt-4"><button className="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-900">Nieuw rapport maken</button><span className="ml-3 text-xs text-slate-400">Duurt 1 à 2 minuten.</span></form>}

@@ -172,3 +172,16 @@ Alt-teksten worden (nog) niet automatisch aangepast: daarvoor is het recht `writ
 **Nieuwe concepten** uit de sync krijgen dezelfde beschrijving-regel; zonder geschikte bron krijgen ze de tag `geen-beschrijving`.
 
 SQL: `security/sql/shopify-catalog.sql`, `shopify-catalog-seo.sql` `shopify-catalog-revert.sql` en `shopify-catalog-heading.sql` (tests: `test-shopify-catalog*.sql`).
+
+## Collectierapport
+
+`/admin/erp/shopify/collections` (link vanaf het catalogusrapport). Eén bulk-query over alle collecties met hun producten (status, voorraad, refurbished). Rapporten staan in `shopify_catalog_reports` met `scope = 'collections'` (laatste 10), aanpassingen in hetzelfde logboek `shopify_catalog_fixes` (de kolom `product_id` bevat dan het collectie-ID).
+
+Controles: SEO-titel / meta-description ontbreekt of te lang, geen of korte tekst (< 20 / < 150 woorden), extra H1, geen actieve producten, zelfde actieve producten als een andere collectie (de collectie met de meeste tekst, dan de meeste voorraad, geldt als origineel), en **interne collecties** (CS-ATB…, Best selling/Seller, Homepage) die niet verborgen zijn.
+
+Aanpassingen (admin, bevestigen, collectie eerst opnieuw gelezen, terugdraaien kan):
+- **SEO invullen**: alleen lege velden, bv. "Refurbished iPad 2019 kopen – met garantie | Microforce"; voor niet-refurbished collecties "… kopen | Microforce". Geen prijzen of aantallen.
+- **Verbergen**: alleen voor interne collecties; zet `seo.hidden = 1` (Shopify laat de pagina weg uit de sitemap en zet noindex). De collectie blijft werken op de site. Lege collecties worden alleen gemeld.
+- **Koppen**: H1 → H2 met een eigen markering per aanpassing (zoals bij producten).
+
+SQL: `security/sql/shopify-collections.sql` (kolom `scope`, extra soorten in het logboek).

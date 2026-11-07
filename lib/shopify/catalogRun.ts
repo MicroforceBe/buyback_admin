@@ -68,9 +68,9 @@ export async function generateCatalogReport(actor: string, deps: { db?: Db; clie
   const client = clientOrThrow(deps.client);
   const products = parseCatalog(await client.bulkQuery(CATALOG_BULK_QUERY));
   const { issues, counts, checked } = analyseCatalog(products, await managedSeo(db));
-  const { data, error } = await db.from('shopify_catalog_reports').insert({ created_by: actor, checked, counts, issues }).select('id').single();
+  const { data, error } = await db.from('shopify_catalog_reports').insert({ scope: 'products', created_by: actor, checked, counts, issues }).select('id').single();
   if (error || !data) throw new Error('Rapport kon niet worden opgeslagen.');
-  const { data: old } = await db.from('shopify_catalog_reports').select('id').order('created_at', { ascending: false }).range(KEEP_REPORTS, KEEP_REPORTS + 100);
+  const { data: old } = await db.from('shopify_catalog_reports').select('id').eq('scope', 'products').order('created_at', { ascending: false }).range(KEEP_REPORTS, KEEP_REPORTS + 100);
   if (old?.length) await db.from('shopify_catalog_reports').delete().in('id', old.map(r => r.id));
   return data.id as string;
 }
@@ -85,7 +85,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
   const ids = [...new Set(input.productIds)];
   if (!ids.length) throw new Error('Geen producten geselecteerd.');
   if (ids.length > MAX_FIXES_PER_ACTION) throw new Error(`Maximaal ${MAX_FIXES_PER_ACTION} producten per keer.`);
-  const { data: report, error } = await db.from('shopify_catalog_reports').select('issues').eq('id', input.reportId).maybeSingle();
+  const { data: report, error } = await db.from('shopify_catalog_reports').select('issues').eq('id', input.reportId).eq('scope', 'products').maybeSingle();
   if (error || !report) throw new Error('Rapport niet gevonden.');
   const byId = new Map((report.issues as CatalogIssue[]).map(i => [i.productId, i]));
   let applied = 0, skipped = 0, failed = 0, noMatch = 0;

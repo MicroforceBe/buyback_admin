@@ -542,7 +542,7 @@ test('undoing a later SEO fix keeps an earlier applied one counted as managed', 
   ];
   const from = () => { const q = { ops: [] }; const b = new Proxy({}, { get(_, k) { if (k === 'then') return (y, n) => { const kind = q.ops.find(o => o[0] === 'eq' && o[1] === 'kind'); const rows = kind ? fixes.filter(f => f.kind === 'revert') : fixes.filter(f => f.kind !== 'revert'); return Promise.resolve({ data: rows, error: null }).then(y, n); }; return (...a) => { q.ops.push([k, ...a]); return b; }; } }); return b; };
   const writes = [];
-  const db = { from: t => (t === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) };
+  const db = { from: t => (t === 'shopify_catalog_fixes' ? from() : { insert: r => { writes.push(r); return { select: () => ({ single: async () => ({ data: { id: 'R' }, error: null }) }) }; }, select: () => ({ eq: () => ({ order: () => ({ range: async () => ({ data: [] }) }) }) }) }) };
   const { run } = await load(db);
   const line = JSON.stringify({ id: 'gid://shopify/Product/9', title: 'X 4*', handle: 'x', status: 'ACTIVE', tags: ['cat_x'], totalInventory: 0, seo: { title: 'B', description: 'b' } });
   await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
