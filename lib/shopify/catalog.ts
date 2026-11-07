@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { EMPTY_DESCRIPTION_WORDS, hasEmptyImage, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -73,6 +73,7 @@ export type CatalogProduct = {
   descriptionBlank: boolean;
   descriptionHash: string | null;
   descriptionH1: boolean;
+  descriptionH1Count: number;
   descriptionEmptyImage: boolean;
   descriptionOtherModel: boolean;
 };
@@ -92,7 +93,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         skus: [], images: [], collections: 0,
         seoTitle: (seo.title ?? '').trim(), seoDescription: (seo.description ?? '').trim(), warranty: mf('mf_garantie'),
         specs: Object.fromEntries(SPEC_KEYS.map(k => [k, mf(`mf_${k}`)?.trim()]).filter(([, v]) => v)),
-        descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionEmptyImage: hasEmptyImage(html),
+        descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length, descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
       });
     }
@@ -115,7 +116,7 @@ export type IssueCode =
   | 'seo_title_missing' | 'seo_description_missing' | 'seo_too_long'
   | 'seo_raw' | 'seo_condition_mismatch' | 'seo_description_duplicate'
   | 'description_empty' | 'description_short' | 'description_duplicate' | 'description_other_model'
-  | 'description_h1' | 'description_empty_image' | 'alt_missing';
+  | 'description_h1' | 'description_empty_image' | 'alt_missing' | 'seo_overwritten';
 
 export const ISSUE_LABELS: Record<IssueCode, string> = {
   no_photo: 'Geen foto',
@@ -142,12 +143,13 @@ export const ISSUE_LABELS: Record<IssueCode, string> = {
   description_h1: 'Extra H1-kop in de beschrijving',
   description_empty_image: 'Lege afbeelding in de beschrijving',
   alt_missing: 'Foto zonder alt-tekst',
+  seo_overwritten: 'SEO-tekst van de tool is overschreven',
 };
 
 /** Groups for the summary tiles. */
 export const ISSUE_GROUPS: { label: string; codes: IssueCode[] }[] = [
   { label: 'Foto\'s, categorie en eigenschappen', codes: ['no_photo', 'low_photo', 'bad_photo', 'no_category', 'empty_category_tag', 'no_collection', 'no_condition', 'wrong_condition', 'no_colour', 'main_sku_mismatch', 'duplicate_title'] },
-  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing'] },
+  { label: 'Vindbaarheid (SEO)', codes: ['seo_title_missing', 'seo_description_missing', 'seo_too_long', 'seo_raw', 'seo_condition_mismatch', 'seo_description_duplicate', 'description_empty', 'description_short', 'description_duplicate', 'description_other_model', 'description_h1', 'description_empty_image', 'alt_missing', 'seo_overwritten'] },
 ];
 
 export type Fix =
@@ -155,9 +157,10 @@ export type Fix =
   | { kind: 'category'; tags: string[]; fromSku: string; removeEmptyTag: boolean }
   | { kind: 'seo'; title: string | null; description: string | null }
   | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string }
-  | { kind: 'description'; fromProductId: string; fromTitle: string };
+  | { kind: 'description'; fromProductId: string; fromTitle: string }
+  | { kind: 'heading'; count: number };
 
-export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description'] as const;
+export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading'] as const;
 
 export type CatalogIssue = { productId: string; title: string; handle: string; status: string; skus: string[]; stock: number; issues: IssueCode[]; fixes: Fix[] };
 
@@ -165,7 +168,7 @@ const isUnusable = (i: { width: number | null; height: number | null }) =>
   !i.width || !i.height || Math.min(i.width, i.height) < 200 || Math.max(i.width, i.height) / Math.min(i.width, i.height) > 6;
 
 /** All checks; only products with at least one issue are returned. */
-export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
+export function analyseCatalog(products: CatalogProduct[], managed: Map<string, { title: string | null; description: string | null }> = new Map()): { issues: CatalogIssue[]; counts: Record<IssueCode, number>; checked: number } {
   const counts = Object.fromEntries(Object.keys(ISSUE_LABELS).map(k => [k, 0])) as Record<IssueCode, number>;
   const titleCount = new Map<string, number>();
   for (const p of products) titleCount.set(titleKey(p.title), (titleCount.get(titleKey(p.title)) ?? 0) + 1);
@@ -247,9 +250,12 @@ export function analyseCatalog(products: CatalogProduct[]): { issues: CatalogIss
     } else if (p.descriptionWords < SHORT_DESCRIPTION_WORDS) list.push('description_short');
     if (p.descriptionHash && (hashCount.get(p.descriptionHash) ?? 0) > 1) list.push('description_duplicate');
     if (p.descriptionOtherModel) list.push('description_other_model');
-    if (p.descriptionH1) list.push('description_h1');
+    if (p.descriptionH1) { list.push('description_h1'); fixes.push({ kind: 'heading', count: p.descriptionH1Count }); }
     if (p.descriptionEmptyImage) list.push('description_empty_image');
     if (p.images.some(i => !i.alt)) list.push('alt_missing');
+    // SEO text set by this tool (latest applied fix, not undone) that is no longer there, or lost its TinySEO skip tag.
+    const own = managed.get(p.id);
+    if (own && ((own.title ?? '') !== p.seoTitle || (own.description ?? '') !== p.seoDescription || !p.tags.includes(SEO_SKIP_TAG))) list.push('seo_overwritten');
 
     for (const c of list) counts[c]++;
     if (list.length) issues.push({ productId: p.id, title: p.title, handle: p.handle, status: p.status, skus: p.skus, stock: p.totalInventory, issues: list, fixes });
