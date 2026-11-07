@@ -6,7 +6,7 @@ import { CATALOG_DESCRIPTION_SOURCE, CATALOG_PRODUCT, CATALOG_PRODUCT_UPDATE, cr
 import { analyseCatalog, CATALOG_BULK_QUERY, parseCatalog, type CatalogIssue, type Fix, type ManagedSeo } from '@/lib/shopify/catalog';
 import { CONDITION, modelOf, starsOf } from '@/lib/shopify/enrich';
 import { applyClean, cleanUndoHtml } from '@/lib/shopify/textClean';
-import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
+import { demoteH1, DEMOTED_H1_ATTR, hasH1, isBlankDescription, isUnsafeDescription, mentionsOtherModel, emptyImageCount, namePlaceholderCount, scriptCount, restoreH1, SEO_SKIP_TAG, SHORT_DESCRIPTION_WORDS, wordCount } from '@/lib/shopify/seo';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -120,7 +120,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
       } else if (fix.kind === 'heading') {
         if (!hasH1(product.descriptionHtml)) reason = 'beschrijving heeft geen H1-kop meer';
       } else if (fix.kind === 'clean') {
-        if (!scriptCount(product.descriptionHtml) && !namePlaceholderCount(product.descriptionHtml)) reason = 'al opgeschoond';
+        if (!scriptCount(product.descriptionHtml) && !namePlaceholderCount(product.descriptionHtml) && !emptyImageCount(product.descriptionHtml)) reason = 'al opgeschoond';
       } else if (fix.kind === 'category') {
         if (product.tags.some(t => t.startsWith('cat_') && t.length > 4)) reason = 'heeft intussen al een categorie';
       } else if (fix.kind === 'seo') {

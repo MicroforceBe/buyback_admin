@@ -30,7 +30,7 @@ async function load(db = null) {
 const P = (n, over = {}) => ({
   id: `gid://shopify/Product/${n}`, title: `iPhone 13 128GB Blauw 4*`, handle: `p${n}`, status: 'ACTIVE', tags: ['cat_smartphones'], totalInventory: 1,
   condition: '4* Zeer Goed', colour: 'Blauw', refurbished: true, skus: [`20500000000${n}`], images: [{ width: 1200, height: 1200, alt: 'foto' }], collections: 1,
-  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, descriptionScripts: 0, descriptionNames: 0, descriptionPlaceholder: false, descriptionClaims: false, descriptionCssText: false, ...over,
+  seoTitle: 'SEO titel', seoDescription: `Meta ${n}`, warranty: '24 maanden', descriptionWords: 150, descriptionBlank: false, specs: {}, descriptionH1Count: 0, descriptionHash: `h${n}`, descriptionH1: false, descriptionEmptyImage: false, descriptionOtherModel: false, descriptionScripts: 0, descriptionNames: 0, descriptionEmptyImages: 0, descriptionPlaceholder: false, descriptionClaims: false, descriptionCssText: false, ...over,
 });
 
 test('the bulk export is parsed into products with variants, images and collections', async () => {
@@ -668,6 +668,19 @@ test('pasted texts: hidden code, placeholders and promises are found; clean-up i
   }
 });
 
+test('images without a src are removed by the clean-up (with an otherwise empty paragraph), exactly undoable', async () => {
+  const { seo, catalog } = await load();
+  const html = '<p>Intro</p>\n<img alt="Dell Latitude 5550"> <!-- x -->\n<p><img></p>\n<p>Tekst <img src=""> loopt door</p><img src="https://cdn.shopify.com/a.jpg" alt="ok"><img data-src="lazy.jpg">';
+  assert.equal(seo.emptyImageCount(html), 3);
+  const c = plain(seo.cleanDescription(html));
+  assert.equal(c.images, 3);
+  assert.equal(c.html, '<p>Intro</p>\n <!-- x -->\n\n<p>Tekst  loopt door</p><img src="https://cdn.shopify.com/a.jpg" alt="ok"><img data-src="lazy.jpg">');
+  assert.equal(seo.undoClean(c.html, c.edits), html);
+  assert.equal(seo.hasClaims('<h5>Accucapaciteit &gt;85%</h5>'), true);
+  const { issues } = plain(catalog.analyseCatalog([P(1, { descriptionEmptyImage: true, descriptionEmptyImages: 2 })]));
+  assert.deepEqual(issues[0].fixes.find(f => f.kind === 'clean'), { kind: 'clean', scripts: 0, names: 0, images: 2 });
+});
+
 test('a pasted text is reported, gets a clean-up proposal and is never used as copy source', async () => {
   const { catalog, seo } = await load();
   const { issues } = plain(catalog.analyseCatalog([
@@ -676,7 +689,7 @@ test('a pasted text is reported, gets a clean-up proposal and is never used as c
   ]));
   const by = Object.fromEntries(issues.map(i => [i.productId.split('/').pop(), i]));
   for (const code of ['description_script', 'description_placeholder', 'description_claims']) assert.ok(by[1].issues.includes(code), code);
-  assert.deepEqual(by[1].fixes.find(f => f.kind === 'clean'), { kind: 'clean', scripts: 1, names: 2 });
+  assert.deepEqual(by[1].fixes.find(f => f.kind === 'clean'), { kind: 'clean', scripts: 1, names: 2, images: 0 });
   assert.ok(!by[2].fixes.some(f => f.kind === 'description'));
   assert.equal(seo.pickDescription('iPhone 13 128GB Wit 5*', [{ title: 'iPhone 13 128GB Zwart 5*', descriptionHtml: PASTED }]), null);
 });

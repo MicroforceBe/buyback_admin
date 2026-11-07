@@ -191,17 +191,22 @@ export function restoreH1(html: string, token: string): { html: string; count: n
 // ── Pasted (AI) text: hidden code, placeholders and promises to check ──────────────────────────────
 
 const SCRIPT_BLOCK = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi;
+/** An <img> without a usable src (shows as a broken image), with its <p> when that holds nothing else. */
+const NO_SRC = `<img\\b(?![^>]*\\bsrc\\s*=\\s*(?:"\\s*[^"\\s]|'\\s*[^'\\s]|[^"'\\s>]))[^>]*>`;
+const EMPTY_IMAGE = new RegExp(`<p>\\s*${NO_SRC}\\s*<\\/p>|${NO_SRC}`, 'gi');
 /** Company-name placeholders left in pasted texts; replaced by the shop name. */
 const NAME_PLACEHOLDER = /\[(?:bedrijfsnaam|bedrijf|winkelnaam|webshopnaam|webshop|shopnaam|naam bedrijf|company name|company|store name|shop name)\]/gi;
 /** Other placeholders in the visible text ("[Stad]", "uwdomein.nl", "lorem ipsum"): reported, never replaced. */
 const OTHER_PLACEHOLDER = /\[[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .\-]{1,38}\]|\b(?:uw|jouw)domein\.|\bexample\.(?:com|nl|be)\b|\blorem ipsum\b/i;
 /** Promises a pasted text makes on behalf of the shop that someone should check. */
-const CLAIMS = /\bbatterij\w* (?:conditie |capaciteit )?van (?:minimaal|minstens)\b|\b\d+\s*kg (?:aan )?co2/i;
+const CLAIMS = /\bbatterij\w* (?:conditie |capaciteit )?van (?:minimaal|minstens)\b|\b(?:batterij|accu)\w*[^.<]{0,20}(?:>|≥|minimaal|minstens)\s*\d{2}\s*%|\b\d+\s*kg (?:aan )?co2/i;
 /** CSS that is shown as text (a rule like ".x { color: red; }" outside a <style> tag). */
 const CSS_AS_TEXT = /(?:^|\s)[.#]?[a-z][\w-]*(?:\s+[.#]?[\w-]+)*\s*\{[^{}]*:[^{}]*;?\s*\}/i;
 
 /** Number of <script> blocks (e.g. JSON-LD) in a description: Google reads them as extra product data. */
 export const scriptCount = (html: string | null | undefined) => ((html ?? '').match(/<script\b/gi) ?? []).length;
+/** Images without a usable src outside scripts (the clean-up removes them). */
+export const emptyImageCount = (html: string | null | undefined) => (withoutScripts(html).match(EMPTY_IMAGE) ?? []).length;
 const withoutScripts = (html: string | null | undefined) => (html ?? '').replace(SCRIPT_BLOCK, ' ');
 /** Company-name placeholders outside scripts. */
 export const namePlaceholderCount = (html: string | null | undefined) => (withoutScripts(html).match(NAME_PLACEHOLDER) ?? []).length;
@@ -216,23 +221,23 @@ export const isUnsafeDescription = (html: string | null | undefined) => scriptCo
 export type DescriptionEdit = { at: number; removed: string; inserted: string };
 
 /**
- * Removes <script> blocks and replaces company-name placeholders by the shop name. The edits are
+ * Removes <script> blocks and images without a src, and replaces company-name placeholders by the shop name. The edits are
  * recorded with their position in the result, so the exact original can be rebuilt (undoClean).
  */
-export function cleanDescription(html: string): { html: string; edits: DescriptionEdit[]; scripts: number; names: number } {
-  const re = new RegExp(`${SCRIPT_BLOCK.source}|${NAME_PLACEHOLDER.source}`, 'gi');
+export function cleanDescription(html: string): { html: string; edits: DescriptionEdit[]; scripts: number; names: number; images: number } {
+  const re = new RegExp(`${SCRIPT_BLOCK.source}|${EMPTY_IMAGE.source}|${NAME_PLACEHOLDER.source}`, 'gi');
   const edits: DescriptionEdit[] = [];
-  let out = '', last = 0, scripts = 0, names = 0;
+  let out = '', last = 0, scripts = 0, names = 0, images = 0;
   for (const m of html.matchAll(re)) {
     out += html.slice(last, m.index);
-    const script = m[0].startsWith('<');
-    if (script) scripts++; else names++;
-    const inserted = script ? '' : BRAND;
+    const name = !m[0].startsWith('<');
+    if (name) names++; else if (/^<script/i.test(m[0])) scripts++; else images++;
+    const inserted = name ? BRAND : '';
     edits.push({ at: out.length, removed: m[0], inserted });
     out += inserted;
     last = (m.index ?? 0) + m[0].length;
   }
-  return { html: out + html.slice(last), edits, scripts, names };
+  return { html: out + html.slice(last), edits, scripts, names, images };
 }
 
 /** Rebuilds the original of cleanDescription; null when the text no longer matches the recorded edits. */

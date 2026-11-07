@@ -17,7 +17,7 @@ const fixText = (f: CollectionFix) => {
     case 'col_seo': return [f.title && `SEO-titel: ${f.title}`, f.description && `Meta: ${f.description}`].filter(Boolean).join(' · ');
     case 'col_hide': return 'Verbergen voor zoekmachines (blijft gewoon werken op de site)';
     case 'col_heading': return `${f.count} H1-kop${f.count === 1 ? '' : 'pen'} in de tekst → H2`;
-    case 'col_clean': return `Opschonen: ${[f.scripts ? `${f.scripts} verborgen code-blok${f.scripts === 1 ? '' : 'ken'} weg` : '', f.names ? `${f.names}× [Bedrijfsnaam] → Microforce` : ''].filter(Boolean).join(' · ')}`;
+    case 'col_clean': return `Opschonen: ${[f.scripts ? `${f.scripts} verborgen code-blok${f.scripts === 1 ? '' : 'ken'} weg` : '', f.names ? `${f.names}× [Bedrijfsnaam] → Microforce` : '', f.images ? `${f.images} lege afbeelding${f.images === 1 ? '' : 'en'} weg` : ''].filter(Boolean).join(' · ')}`;
   }
 };
 const LOG_LABEL: Record<string, string> = { col_seo: 'SEO invullen', col_hide: 'Verbergen', col_heading: 'Koppen', col_clean: 'Opschonen', revert: 'Teruggedraaid' };
@@ -102,7 +102,7 @@ export default async function CollectionsPage({ searchParams }: { searchParams: 
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="col_seo" /> <b>SEO invullen</b> <span className="text-xs text-slate-500">(lege velden)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="col_hide" /> <b>Verbergen</b> <span className="text-xs text-slate-500">(interne collecties, voor zoekmachines)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="col_heading" /> <b>Koppen</b> <span className="text-xs text-slate-500">(H1 → H2)</span></label>
-                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="col_clean" /> <b>Opschonen</b> <span className="text-xs text-slate-500">(verborgen code weg, [Bedrijfsnaam] → Microforce)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="col_clean" /> <b>Opschonen</b> <span className="text-xs text-slate-500">(verborgen code en lege afbeeldingen weg, [Bedrijfsnaam] → Microforce)</span></label>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>

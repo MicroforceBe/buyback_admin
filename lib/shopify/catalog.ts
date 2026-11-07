@@ -3,7 +3,7 @@
 import { CONDITION, goodImage, starsOf } from '@/lib/shopify/enrich';
 import { modelOf } from '@/lib/shopify/enrich';
 import { suggestCategoryTags, titleKey } from '@/lib/shopify/plan';
-import { EMPTY_DESCRIPTION_WORDS, hasClaims, hasCssAsText, hasEmptyImage, hasPlaceholder, namePlaceholderCount, scriptCount, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
+import { EMPTY_DESCRIPTION_WORDS, emptyImageCount, hasClaims, hasCssAsText, hasEmptyImage, hasPlaceholder, namePlaceholderCount, scriptCount, hasH1, isBlankDescription, SEO_SKIP_TAG, seoConditionMismatch, seoIsRaw, mentionsOtherModel, SEO_DESCRIPTION_MAX, SEO_TITLE_MAX, SHORT_DESCRIPTION_WORDS, suggestSeoDescription, suggestSeoTitle, textHash, wordCount } from '@/lib/shopify/seo';
 
 /** Bulk query: active and draft products with what the checks need. */
 export const CATALOG_BULK_QUERY = `{
@@ -80,6 +80,8 @@ export type CatalogProduct = {
   descriptionScripts: number;
   /** Company-name placeholders ("[Bedrijfsnaam]") the clean-up replaces by the shop name. */
   descriptionNames: number;
+  /** Images without a src the clean-up removes. */
+  descriptionEmptyImages: number;
   descriptionPlaceholder: boolean;
   descriptionClaims: boolean;
   descriptionCssText: boolean;
@@ -102,7 +104,7 @@ export function parseCatalog(jsonl: string): CatalogProduct[] {
         specs: Object.fromEntries(SPEC_KEYS.map(k => [k, mf(`mf_${k}`)?.trim()]).filter(([, v]) => v)),
         descriptionWords: wordCount(html), descriptionBlank: isBlankDescription(html), descriptionHash: textHash(html), descriptionH1: hasH1(html), descriptionH1Count: (html.match(/<h1[\s>]/gi) ?? []).length, descriptionEmptyImage: hasEmptyImage(html),
         descriptionOtherModel: mentionsOtherModel(String(l.title ?? ''), html),
-        descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionPlaceholder: hasPlaceholder(html),
+        descriptionScripts: scriptCount(html), descriptionNames: namePlaceholderCount(html), descriptionEmptyImages: emptyImageCount(html), descriptionPlaceholder: hasPlaceholder(html),
         descriptionClaims: hasClaims(html), descriptionCssText: hasCssAsText(html),
       });
     }
@@ -175,7 +177,7 @@ export type Fix =
   | { kind: 'seo_replace'; title: string; description: string; oldTitle: string; oldDescription: string; generated?: { title: boolean; description: boolean } }
   | { kind: 'description'; fromProductId: string; fromTitle: string }
   | { kind: 'heading'; count: number }
-  | { kind: 'clean'; scripts: number; names: number };
+  | { kind: 'clean'; scripts: number; names: number; images?: number };
 
 export const FIX_KINDS = ['condition', 'category', 'seo', 'seo_replace', 'description', 'heading', 'clean'] as const;
 
@@ -289,7 +291,7 @@ export function analyseCatalog(products: CatalogProduct[], managed: Map<string, 
     if (p.descriptionPlaceholder) list.push('description_placeholder');
     if (p.descriptionClaims) list.push('description_claims');
     if (p.descriptionCssText) list.push('description_css');
-    if (p.descriptionScripts || p.descriptionNames) fixes.push({ kind: 'clean', scripts: p.descriptionScripts, names: p.descriptionNames });
+    if (p.descriptionScripts || p.descriptionNames || p.descriptionEmptyImages) fixes.push({ kind: 'clean', scripts: p.descriptionScripts, names: p.descriptionNames, images: p.descriptionEmptyImages });
     if (p.images.some(i => !i.alt)) list.push('alt_missing');
     // SEO text set by this tool (latest applied fix, not undone) that is no longer there, or lost its TinySEO skip tag.
     const own = managed.get(p.id);

@@ -10,21 +10,21 @@ export const MAX_CLEAN_UNDO_BYTES = 48_000;
 
 export type CleanOutcome =
   | { done: false; reason: string }
-  | { done: true; detail: string; old_value: { edits: DescriptionEdit[] } | null; new_value: { hash: string; scripts: number; names: number } | null; html: string };
+  | { done: true; detail: string; old_value: { edits: DescriptionEdit[] } | null; new_value: { hash: string; scripts: number; names: number; images: number } | null; html: string };
 
 export async function applyClean(html: string, write: (html: string) => Promise<void>, read: () => Promise<string | null>): Promise<CleanOutcome> {
   const c = cleanDescription(html);
-  if (!c.edits.length) return { done: false, reason: 'geen verborgen code of [Bedrijfsnaam] meer gevonden' };
+  if (!c.edits.length) return { done: false, reason: 'geen verborgen code, lege afbeelding of [Bedrijfsnaam] meer gevonden' };
   if (new TextEncoder().encode(JSON.stringify({ edits: c.edits })).length > MAX_CLEAN_UNDO_BYTES) return { done: false, reason: 'te veel verborgen code om veilig terug te kunnen zetten; pas deze tekst manueel aan' };
   await write(c.html);
   // Undo rebuilds the original from positions in the cleaned text, so it needs Shopify to have kept that text exactly.
   // A failing check read leaves the undo available: undo itself refuses when the text differs (hash).
   let kept = true, unchecked = false;
   try { kept = (await read()) === c.html; } catch { unchecked = true; }
-  const what = [c.scripts ? `${c.scripts} verborgen code-blok${c.scripts === 1 ? '' : 'ken'} verwijderd` : '', c.names ? `${c.names}× [Bedrijfsnaam] → Microforce` : ''].filter(Boolean).join(' · ');
+  const what = [c.scripts ? `${c.scripts} verborgen code-blok${c.scripts === 1 ? '' : 'ken'} verwijderd` : '', c.names ? `${c.names}× [Bedrijfsnaam] → Microforce` : '', c.images ? `${c.images} lege afbeelding${c.images === 1 ? '' : 'en'} verwijderd` : ''].filter(Boolean).join(' · ');
   const note = !kept ? ' (terugdraaien niet mogelijk: Shopify bewaarde de tekst anders)' : unchecked ? ' (niet gecontroleerd)' : '';
   return { done: true, detail: `${what}${note}`, html: c.html,
-    old_value: kept ? { edits: c.edits } : null, new_value: kept ? { hash: htmlHash(c.html), scripts: c.scripts, names: c.names } : null };
+    old_value: kept ? { edits: c.edits } : null, new_value: kept ? { hash: htmlHash(c.html), scripts: c.scripts, names: c.names, images: c.images } : null };
 }
 
 /** The original text, or the reason it cannot be rebuilt (text changed since the clean-up). */
