@@ -65,10 +65,11 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
   const { data: report, error } = await db.from('shopify_catalog_reports').select('issues').eq('id', input.reportId).maybeSingle();
   if (error || !report) throw new Error('Rapport niet gevonden.');
   const byId = new Map((report.issues as CatalogIssue[]).map(i => [i.productId, i]));
-  let applied = 0, skipped = 0, failed = 0;
+  let applied = 0, skipped = 0, failed = 0, noMatch = 0;
   for (const id of ids) {
     const issue = byId.get(id);
-    if (!issue) { skipped++; continue; }
+    // A selected product without a proposal of the chosen kind is counted, so the screen can say so.
+    if (!issue || !issue.fixes.some(f => input.kinds.includes(f.kind))) { noMatch++; continue; }
     // The outcome of every product is logged before the next one is touched, so a later failure
     // never loses the record of changes that are already live in Shopify.
     const log: Record<string, unknown>[] = [];
@@ -137,7 +138,7 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
       if (logError) throw new Error(`${applied} aanpassingen zijn uitgevoerd, maar het logboek kon niet worden bijgewerkt; gestopt.`);
     }
   }
-  return { applied, skipped, failed };
+  return { applied, skipped, failed, noMatch };
 }
 
 /**

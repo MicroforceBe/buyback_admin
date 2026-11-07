@@ -132,6 +132,9 @@ export function seoConditionMismatch(title: string, seoTitle: string, seoDescrip
   return [...mentioned].some(g => g !== stars);
 }
 
-/** The SEO text is the raw product title (stars, condition code) or the generic "… kopen - Microforce" template. */
-export const seoIsRaw = (seoTitle: string, seoDescription: string) =>
-  /\b\d\s*\*/.test(`${seoTitle} ${seoDescription}`) || / kopen - Microforce$/i.test(seoTitle.trim());
+/**
+ * The SEO text is the raw product title (stars, condition code), or, for a refurbished product,
+ * TinySEO's generic "… kopen - Microforce" template. For other products that form is the shop style.
+ */
+export const seoIsRaw = (seoTitle: string, seoDescription: string, refurbished: boolean) =>
+  /\b\d\s*\*/.test(`${seoTitle} ${seoDescription}`) || (refurbished && / kopen - Microforce$/i.test(seoTitle.trim()));

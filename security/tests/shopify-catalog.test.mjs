@@ -237,7 +237,7 @@ test('fixes are applied only when the product is unchanged and the problem still
   });
   const ids = [1, 2, 3, 4, 5, 6].map(n => `gid://shopify/Product/${n}`);
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ids, kinds: ['condition', 'category'], actor: 'a' }, { db, client: fake.client }));
-  assert.deepEqual(r, { applied: 2, skipped: 4, failed: 0 });
+  assert.deepEqual(r, { applied: 2, skipped: 3, failed: 0, noMatch: 1 });
   const names = fake.calls.map(c => c.name).filter(n => n !== 'CatalogProduct');
   assert.deepEqual(names, ['SyncMetafields', 'CatalogTagsAdd', 'CatalogTagsRemove']);
   assert.equal(fake.calls.find(c => c.name === 'SyncMetafields').vars.metafields[0].value, '5* Als Nieuw');
@@ -253,7 +253,7 @@ test('a failed product read is logged as failed and earlier fixes stay logged', 
   const original = fake.client.graphql;
   fake.client.graphql = async (q, v) => (v?.id === 'gid://shopify/Product/2' ? Promise.reject(new Error('netwerk')) : original(q, v));
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: [1, 2, 3].map(n => `gid://shopify/Product/${n}`), kinds: ['condition'], actor: 'a' }, { db, client: fake.client }));
-  assert.deepEqual(r, { applied: 2, skipped: 0, failed: 1 });
+  assert.deepEqual(r, { applied: 2, skipped: 0, failed: 1, noMatch: 0 });
   const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
   assert.deepEqual(log.map(l => l.result), ['ok', 'failed', 'ok']);
   assert.match(log[1].detail, /netwerk/);
@@ -272,7 +272,7 @@ test('SEO fixes never overwrite existing texts and descriptions come from a stil
     'gid://shopify/Product/9': { id: 9, title: 'iPhone 13 256GB Black Refurbished 5* M', descriptionHtml: '<p>' + 'tekst '.repeat(200) + '</p>' },
   });
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: [1, 2, 3].map(n => `gid://shopify/Product/${n}`), kinds: ['seo', 'description'], actor: 'a' }, { db, client: fake.client }));
-  assert.deepEqual(r, { applied: 2, skipped: 2, failed: 0 });
+  assert.deepEqual(r, { applied: 2, skipped: 2, failed: 0, noMatch: 0 });
   const updates = fake.calls.filter(c => c.name === 'CatalogProductUpdate').map(c => c.vars.product);
   assert.deepEqual(updates[0], { id: 'gid://shopify/Product/1', seo: { title: 'Bestaande titel', description: 'Nieuwe meta' } });
   // The TinySEO skip tag goes on before the SEO text is written.
@@ -285,9 +285,12 @@ test('SEO fixes never overwrite existing texts and descriptions come from a stil
 
 test('weak SEO texts are recognised and get a replacement proposal with the old text', async () => {
   const { seo } = await loadSeo();
-  assert.equal(seo.seoIsRaw('iPhone 13 256GB Midnight Refurbished 3* M kopen - Microforce', 'x'), true);
-  assert.equal(seo.seoIsRaw('Apple USB-C kabel kopen - Microforce', ''), true);
-  assert.equal(seo.seoIsRaw('Refurbished iPhone 13 – Zeer Goed | Microforce', 'Koop'), false);
+  assert.equal(seo.seoIsRaw('iPhone 13 256GB Midnight Refurbished 3* M kopen - Microforce', 'x', true), true);
+  assert.equal(seo.seoIsRaw('Refurbished AirPods kopen - Microforce', '', true), true);
+  // For new accessories "… kopen - Microforce" is the shop style, and our own proposal: never flagged as raw.
+  assert.equal(seo.seoIsRaw('Apple USB-C kabel kopen - Microforce', '', false), false);
+  assert.equal(seo.seoIsRaw(seo.suggestSeoTitle('Apple iPad iPhone 20W USB-C ADAPTER', false), seo.suggestSeoDescription('Apple iPad iPhone 20W USB-C ADAPTER', false, null), false), false);
+  assert.equal(seo.seoIsRaw('Refurbished iPhone 13 – Zeer Goed | Microforce', 'Koop', true), false);
   assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 5* M', 'Refurbished iPhone 13 – Zeer Goed', ''), true);
   assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 4* M', 'Refurbished iPhone 13 – Zeer Goed', 'goed getest'), false);
   assert.equal(seo.seoConditionMismatch('iPhone 13 128GB Blue Refurbished 3* M', 'x', 'in conditie Goed'), false);
@@ -317,7 +320,7 @@ test('a replacement is skipped when the SEO text changed after the report; appli
     'gid://shopify/Product/2': { id: 2, title: t, tags: [], descriptionHtml: '', seo: { title: 'Door iemand aangepast', description: 'Oude meta' }, condition: null },
   });
   const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1', 'gid://shopify/Product/2'], kinds: ['seo_replace'], actor: 'a' }, { db, client: fake.client }));
-  assert.deepEqual(r, { applied: 1, skipped: 1, failed: 0 });
+  assert.deepEqual(r, { applied: 1, skipped: 1, failed: 0, noMatch: 0 });
   assert.ok(!fake.calls.some(c => c.name === 'CatalogTagsAdd'), 'skip tag already present');
   const log = plain(writes.filter(w => w.table === 'shopify_catalog_fixes').flatMap(w => w.rows));
   assert.deepEqual(log[0].old_value, { title: 'Oud', description: 'Oude meta', skipTagAdded: false });
@@ -387,6 +390,16 @@ test('undo restores the old SEO texts and hands the product back to TinySEO, onc
     const { run } = await load(db);
     await assert.rejects(run.revertCatalogFix({ fixId: 7, actor: 'a' }, { db, client: fakeClient({}).client }), /kan niet/);
   }
+});
+
+test('selected products without a proposal of the chosen kind are counted, not silently dropped', async () => {
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'seo', title: 'T', description: 'D' }])] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['seo_replace'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 0, skipped: 0, failed: 0, noMatch: 1 });
+  assert.equal(fake.calls.length, 0);
+  assert.equal(writes.length, 0);
 });
 
 test('only the chosen kinds are applied and the batch size is limited', async () => {

@@ -32,7 +32,7 @@ export async function applyFixesAction(formData: FormData) {
   let target: string;
   try {
     const r = await applyCatalogFixes({ reportId, productIds: formData.getAll('ids').map(String), kinds, actor: String(user.email ?? 'admin') });
-    target = back({ ...keep, applied: String(r.applied), skipped: String(r.skipped), failed: String(r.failed) });
+    target = back({ ...keep, applied: String(r.applied), skipped: String(r.skipped), failed: String(r.failed), nomatch: String(r.noMatch) });
   } catch (error) {
     target = back({ ...keep, error: error instanceof Error ? error.message.slice(0, 300) : 'Aanpassen mislukt.' });
   }
