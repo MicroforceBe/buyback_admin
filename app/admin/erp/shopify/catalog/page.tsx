@@ -12,7 +12,7 @@ export const maxDuration = 300;
 
 const PATH = '/admin/erp/shopify/catalog';
 const PAGE_SIZE = 200;
-const FIX_LABEL: Record<Fix['kind'], string> = { condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving', heading: 'Koppen', clean: 'Opschonen' };
+const FIX_LABEL: Record<Fix['kind'], string> = { condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving', heading: 'Koppen', clean: 'Opschonen', alt_photo: 'Alt foto\'s', alt_text: 'Alt beschrijving' };
 const fixText = (f: Fix) => {
   switch (f.kind) {
     case 'condition': return `Uiterlijk → ${f.value}`;
@@ -21,6 +21,8 @@ const fixText = (f: Fix) => {
     case 'seo_replace': return `SEO vervangen — titel: "${f.oldTitle}" → "${f.title}" · meta: "${f.oldDescription}" → "${f.description}"`;
     case 'description': return `Beschrijving overnemen van "${f.fromTitle}"`;
     case 'heading': return `${f.count} H1-kop${f.count === 1 ? '' : 'pen'} in de beschrijving → H2`;
+    case 'alt_photo': return `${f.count} productfoto${f.count === 1 ? '' : "'s"} → alt-tekst, bv. "${f.example}"`;
+    case 'alt_text': return `${f.count} afbeelding${f.count === 1 ? '' : 'en'} in de beschrijving → alt-tekst`;
     case 'clean': return `Opschonen: ${[f.scripts ? `${f.scripts} verborgen code-blok${f.scripts === 1 ? '' : 'ken'} weg` : '', f.names ? `${f.names}× [Bedrijfsnaam] → Microforce` : '', f.images ? `${f.images} lege afbeelding${f.images === 1 ? '' : 'en'} weg` : ''].filter(Boolean).join(' · ')}`;
   }
 };
@@ -117,6 +119,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="seo_replace" /> <b>SEO vervangen</b> <span className="text-xs text-slate-500">(oude tekst bewaard)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="description" /> <b>Beschrijving</b> <span className="text-xs text-slate-500">(alleen lege)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="heading" /> <b>Koppen</b> <span className="text-xs text-slate-500">(H1 → H2)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="alt_photo" /> <b>Alt foto's</b> <span className="text-xs text-slate-500">(lege alt-teksten)</span></label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="alt_text" /> <b>Alt beschrijving</b> <span className="text-xs text-slate-500">(lege alt-teksten)</span></label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="kind" value="clean" /> <b>Opschonen</b> <span className="text-xs text-slate-500">(verborgen code en lege afbeeldingen weg, [Bedrijfsnaam] → Microforce)</span></label>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -165,8 +169,8 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
               <table className="mt-2 min-w-full text-left text-sm">
                 <tbody className="divide-y">
                   {(fixLog ?? []).map(l => (
-                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{({ condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving', heading: 'Koppen', clean: 'Opschonen', revert: 'Teruggedraaid' } as Record<string, string>)[l.kind] ?? l.kind}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td>
-                      <td className="pl-3">{(l.kind === 'seo' || l.kind === 'seo_replace' || l.kind === 'heading' || l.kind === 'clean') && l.result === 'ok' && (reverted.has(l.id) ? <span className="text-xs text-slate-400">teruggedraaid</span> : (
+                    <tr key={l.id}><td className="py-1.5 pr-4">{fmt(l.created_at)}</td><td className="pr-4">{l.title}</td><td className="pr-4">{({ condition: 'Uiterlijk', category: 'Categorie', seo: 'SEO invullen', seo_replace: 'SEO vervangen', description: 'Beschrijving', heading: 'Koppen', clean: 'Opschonen', alt_photo: 'Alt foto\'s', alt_text: 'Alt beschrijving', revert: 'Teruggedraaid' } as Record<string, string>)[l.kind] ?? l.kind}</td><td className={`pr-4 ${l.result === 'ok' ? 'text-green-700' : l.result === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{{ ok: 'gelukt', skipped: 'overgeslagen', failed: 'mislukt' }[l.result as string] ?? l.result}</td><td className="text-slate-600">{l.detail} · {l.actor}</td>
+                      <td className="pl-3">{(l.kind === 'seo' || l.kind === 'seo_replace' || l.kind === 'heading' || l.kind === 'clean' || l.kind === 'alt_photo' || l.kind === 'alt_text') && l.result === 'ok' && (reverted.has(l.id) ? <span className="text-xs text-slate-400">teruggedraaid</span> : (
                         <form action={revertFixAction}><input type="hidden" name="report" value={report.id} /><input type="hidden" name="fix" value={l.id} /><button className="rounded border px-2 py-0.5 text-xs hover:bg-slate-50">Terugdraaien</button></form>
                       ))}</td></tr>
                   ))}
