@@ -174,3 +174,10 @@ export const APP_SCOPES = `query AppScopes { currentAppInstallation { accessScop
 export const REFERENCE_METAFIELDS = `query ReferenceMetafields($ids: [ID!]!) {
   nodes(ids: $ids) { ... on Product { id metafields(first: 100) { nodes { namespace key type value } } media(first: 20) { nodes { ... on MediaImage { image { url width height altText } } } } } }
 }`;
+
+// ---------- catalogue report fixes ----------
+export const CATALOG_PRODUCT = `query CatalogProduct($id: ID!) {
+  product(id: $id) { id title tags condition: metafield(namespace: "magento", key: "conditie") { value } }
+}`;
+export const TAGS_ADD = `mutation CatalogTagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`;
+export const TAGS_REMOVE = `mutation CatalogTagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { field message } } }`;

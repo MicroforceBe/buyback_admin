@@ -112,3 +112,30 @@ Er worden alleen foto's gebruikt die al in de eigen Shopify-winkel staan. Foto's
   Kleinere of vreemde formaten worden niet overgenomen.
 - **Alt-tekst:** de alt-tekst van het bronproduct, met de nieuwe titel. De SEO-tekst "kopen bij Microforce …" blijft behouden.
 - **Geen geschikte foto:** het concept krijgt de tag `geen-afbeelding`.
+
+## Catalogusrapport
+
+`/admin/erp/shopify/catalog` (link rechtsboven op de Shopify-syncpagina). Een beheerder maakt een rapport met één bulk-query over alle actieve producten en concepten (1 à 2 minuten); de laatste 10 rapporten blijven bewaard (`shopify_catalog_reports`).
+
+Controles per product:
+
+| Code | Betekenis |
+|---|---|
+| Geen foto / geen foto van goede kwaliteit | Geen afbeelding, of geen enkele afbeelding van ≥1000 px lange zijde, ≥500 px korte zijde, verhouding ≤3:1 |
+| Onbruikbare foto | Kleiner dan 200 px of een strook (verhouding >6:1) |
+| Geen categorie-tag / lege tag `cat_` / geen collectie | Product is niet vindbaar via het menu |
+| Uiterlijk ontbreekt / klopt niet | `magento.conditie` past niet bij de sterren (3*/4*/5*) in de titel |
+| Kleur ontbreekt | Refurbished product zonder `magento.colour_of_product` |
+| main_sku past niet | Tag `main_sku_…` verwijst naar een SKU die geen variant van het product is (kan menselijk of door een oude import zijn) |
+| Dubbele titel | Meerdere actieve/concept-producten met dezelfde titel |
+
+Producten met voorraad staan bovenaan. Elke regel linkt naar het product in Shopify.
+
+Automatisch herstellen (alleen beheerder, max. 200 per keer, met bevestiging):
+
+- **Uiterlijk** volgens de sterren in de titel.
+- **Categorie-tags** gekopieerd van het meest gelijkende product (zelfde SKU-familie en titelbegin); een lege `cat_`-tag wordt dan verwijderd.
+
+Elk product wordt vlak voor de wijziging opnieuw gelezen; als de titel sindsdien veranderd is of het probleem al opgelost is, wordt het overgeslagen. Foto's, kleur en `main_sku` worden nooit automatisch gewijzigd. Elke poging staat in het logboek `shopify_catalog_fixes` (alleen toevoegen, niet wijzigen of wissen).
+
+SQL: `security/sql/shopify-catalog.sql` (test: `test-shopify-catalog.sql`).
