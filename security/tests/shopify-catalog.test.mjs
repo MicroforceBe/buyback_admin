@@ -691,6 +691,11 @@ test('images without a src are removed by the clean-up (with an otherwise empty 
   assert.equal(pc.names, 2);
   assert.equal(pc.html, '<img src="a.jpg" alt="Microforce"><picture><img alt="Microforce x"></picture>');
   assert.equal(seo.undoClean(pc.html, pc.edits), ph);
+  const ps = '<picture><img src="a.jpg"><script type="application/ld+json">{"@type":"Product"}</script></picture>';
+  const psc = plain(seo.cleanDescription(ps));
+  assert.equal(psc.scripts, 1);
+  assert.equal(psc.html, '<picture><img src="a.jpg"></picture>');
+  assert.equal(seo.undoClean(psc.html, psc.edits), ps);
   const quoted = '<img alt="a > b"><p>x</p>';
   assert.equal(plain(seo.cleanDescription(quoted)).html, '<p>x</p>');
   const { issues } = plain(catalog.analyseCatalog([P(1, { descriptionEmptyImage: true, descriptionEmptyImages: 2 })]));

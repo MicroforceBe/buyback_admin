@@ -242,14 +242,15 @@ export function cleanDescription(html: string): { html: string; edits: Descripti
   for (const m of html.matchAll(re)) {
     out += html.slice(last, m.index);
     last = (m.index ?? 0) + m[0].length;
-    // A <picture>, or an image with a source, stays; only company-name placeholders inside it are replaced.
+    // A <picture>, or an image with a source, stays; scripts and company-name placeholders inside it are still handled.
     if (/^<picture\b/i.test(m[0]) || (/^<(p|img)\b/i.test(m[0]) && !isEmptyImageTag(m[0]))) {
       let kept = 0;
-      for (const n of m[0].matchAll(new RegExp(NAME_PLACEHOLDER.source, 'gi'))) {
+      for (const n of m[0].matchAll(new RegExp(`${SCRIPT_BLOCK.source}|${NAME_PLACEHOLDER.source}`, 'gi'))) {
         out += m[0].slice(kept, n.index);
-        names++;
-        edits.push({ at: out.length, removed: n[0], inserted: BRAND });
-        out += BRAND;
+        const isName = !n[0].startsWith('<');
+        if (isName) names++; else scripts++;
+        edits.push({ at: out.length, removed: n[0], inserted: isName ? BRAND : '' });
+        out += isName ? BRAND : '';
         kept = (n.index ?? 0) + n[0].length;
       }
       out += m[0].slice(kept);
