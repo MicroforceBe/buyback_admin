@@ -500,6 +500,25 @@ test('a heading fix after a description fix works on the newly copied text', asy
   assert.match(stored, /^<h2 data-mf-h1="[^"]+">Bron<\/h2><p>tekst/);
 });
 
+test('a failing check read after a heading write still logs the fix as applied, with its undo token', async () => {
+  const t = 'iPhone 13 128GB Zwart 5*';
+  let reads = 0;
+  const { db, writes } = fakeDb({ issues: [issue(1, [{ kind: 'heading', count: 1 }], t)] });
+  const { run } = await load(db);
+  const fake = fakeClient({});
+  fake.client.graphql = async (q, v) => {
+    if (q.includes('CatalogProductUpdate')) return { productUpdate: { userErrors: [] } };
+    if (q.includes('CatalogProduct(')) { if (reads++) throw new Error('netwerk'); return { product: { id: 1, title: t, tags: [], descriptionHtml: '<h1>A</h1>', seo: null, condition: null } }; }
+    throw new Error('unexpected');
+  };
+  const r = plain(await run.applyCatalogFixes({ reportId: 'R1', productIds: ['gid://shopify/Product/1'], kinds: ['heading'], actor: 'a' }, { db, client: fake.client }));
+  assert.deepEqual(r, { applied: 1, skipped: 0, failed: 0, noMatch: 0 });
+  const row = plain(writes[0].rows)[0];
+  assert.equal(row.result, 'ok');
+  assert.equal(row.old_value.token, 'key-1-abcdef');
+  assert.match(row.detail, /niet gecontroleerd/);
+});
+
 test('SEO texts set by the tool that were overwritten or lost their skip tag are reported', async () => {
   const { catalog } = await load();
   const own = { title: 'Mijn titel', description: 'Mijn meta' };

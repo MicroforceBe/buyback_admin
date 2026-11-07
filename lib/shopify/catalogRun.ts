@@ -137,9 +137,14 @@ export async function applyCatalogFixes(input: { reportId: string; productIds: s
           await updateProduct(client, { id, descriptionHtml: html });
           product = { ...product!, descriptionHtml: html };
           // Undo relies on the marker; if Shopify did not keep it, say so instead of offering an undo that cannot work.
-          const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
-          const kept = (after?.descriptionHtml ?? '').includes(`${DEMOTED_H1_ATTR}="${token}"`);
-          log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? '' : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
+          // The write succeeded: a failing check read never turns this into a failure or drops the undo token
+          // (undo only acts on headings that still carry the token, so keeping it is always safe).
+          let kept = true, unchecked = false;
+          try {
+            const { product: after } = await client.graphql<{ product: { descriptionHtml: string | null } | null }>(CATALOG_PRODUCT, { id });
+            kept = (after?.descriptionHtml ?? '').includes(`${DEMOTED_H1_ATTR}="${token}"`);
+          } catch { unchecked = true; }
+          log.push({ ...base, result: 'ok', detail: `${count} H1-kop${count === 1 ? '' : 'pen'} in de beschrijving → H2${kept ? (unchecked ? ' (markering niet gecontroleerd)' : '') : ' (terugdraaien niet mogelijk: markering niet bewaard)'}`,
             old_value: kept ? { headings: count, token } : null, new_value: kept ? { headings: count, token } : null });
         } else if (fix.kind === 'description') {
           const { product: source } = await client.graphql<{ product: { id: string; title: string; descriptionHtml: string | null } | null }>(CATALOG_DESCRIPTION_SOURCE, { id: fix.fromProductId });
