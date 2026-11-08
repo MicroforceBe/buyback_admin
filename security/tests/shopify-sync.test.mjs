@@ -761,3 +761,14 @@ test('colour words never become part of a capacity-free model (Space-Grey = SG)'
   assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'));
   assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), 'apple watch series 8 45mm');
 });
+
+test('products whose ERP variants disagree are listed as conflicted', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({
+    desired: [plan.desiredFromRow(csvRow({ Status: 'Draft' })), plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'SKU2', Title: 'Other', Status: 'Draft' }))],
+    current: [current(), current({ sku: 'SKU2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })],
+    locations: LOCS,
+  });
+  assert.deepEqual([...p.conflictedProducts], ['gid://shopify/Product/1']);
+  assert.equal(p.productUpdates.length, 0);
+});

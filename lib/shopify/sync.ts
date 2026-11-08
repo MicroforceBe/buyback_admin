@@ -325,9 +325,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // changed). Shadow mode only counts. Publications count toward the emergency brake. A failing scan or
     // publish never fails the run: it is reported in the counts.
     const managed = erpMatchedProducts(desired.map(d => d.sku), state.variants);
+    const conflicted = new Set(plan.conflictedProducts);
     const ensureOnStore = async (live: boolean, exclude: Set<string>, max?: number) => {
       try {
-        const onlyProducts = new Set([...managed].filter(id => !exclude.has(id)));
+        const onlyProducts = new Set([...managed].filter(id => !exclude.has(id) && !conflicted.has(id)));
         const r = await publishActiveOnOnlineStore(client, { dryRun: !live, onlyProducts, max, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
         Object.assign(counts, publishCounts(r));
         return r;
