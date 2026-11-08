@@ -83,6 +83,8 @@ export type Change = {
 export type UnmatchedSku = { sku: string; title: string; productId?: string; inventory: Record<string, number>; status?: ProductStatus };
 export type Plan = {
   changes: Change[];
+  /** Products whose ERP variants disagree on product fields; left untouched (and never auto-published). */
+  conflictedProducts: string[];
   /** SKUs that are not synced, so they can be listed and filtered in the admin page. */
   /** shopifyOnly excludes archived products; those are in shopifyOnlyArchived. */
   unmatched: { erpOnly: UnmatchedSku[]; shopifyOnly: UnmatchedSku[]; shopifyOnlyArchived: UnmatchedSku[]; duplicate: UnmatchedSku[] };
@@ -229,7 +231,7 @@ export function planSync(input: {
   invalidRows?: number;
 }): Plan {
   const plan: Plan = {
-    changes: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
+    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
     counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0 },
   };
 
@@ -337,6 +339,7 @@ export function planSync(input: {
 
   // Products whose variants disagree on product fields are left untouched (and reported).
   plan.counts.productConflicts = conflicted.size;
+  plan.conflictedProducts = [...conflicted];
   for (const [productId, { update, sku }] of productFields) {
     if (conflicted.has(productId)) {
       plan.changes = plan.changes.filter(c => !(c.scope === 'product' && c.sku === sku));

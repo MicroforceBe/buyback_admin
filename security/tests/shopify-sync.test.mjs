@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/publish': 'lib/shopify/publish.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -760,4 +760,15 @@ test('colour words never become part of a capacity-free model (Space-Grey = SG)'
   const e = await loadEnrich();
   assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), e.modelOf('Apple Watch Series 8 45mm SG Refurbished 5*'));
   assert.equal(e.modelOf('Apple Watch Series 8 45mm Space-Grey Refurbished 4*'), 'apple watch series 8 45mm');
+});
+
+test('products whose ERP variants disagree are listed as conflicted', async () => {
+  const { plan } = await loadModules();
+  const p = plan.planSync({
+    desired: [plan.desiredFromRow(csvRow({ Status: 'Draft' })), plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': 'SKU2', Title: 'Other', Status: 'Draft' }))],
+    current: [current(), current({ sku: 'SKU2', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112' })],
+    locations: LOCS,
+  });
+  assert.deepEqual([...p.conflictedProducts], ['gid://shopify/Product/1']);
+  assert.equal(p.productUpdates.length, 0);
 });
