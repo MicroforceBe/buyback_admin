@@ -14,6 +14,8 @@ export const PUBLISH_ON_STORE = `mutation PublishOnStore($id: ID!, $pub: ID!) { 
 export const MAX_PUBLISH_PER_RUN = 200;
 const REQUIRED = ['read_publications', 'write_publications'];
 
+type ActivePage = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; onStore: boolean }[] } };
+
 export type PublishResult =
   | { status: 'skipped'; reason: string }
   | { status: 'done'; candidates: number; published: number; failed: { productId: string; title: string; reason: string }[]; remaining: number };
@@ -39,7 +41,8 @@ export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { 
   // so a page limit would hide everything past it); the loop only stops when Shopify returns no new cursor.
   let after: string | null = null;
   for (;;) {
-    const { products } = await client.graphql<{ products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; onStore: boolean }[] } }>(ACTIVE_ON_STORE, { pub, after });
+    const page: ActivePage = await client.graphql<ActivePage>(ACTIVE_ON_STORE, { pub, after });
+    const { products } = page;
     // Only products that come from the ERP: a product made by hand in Shopify keeps its own channels.
     for (const p of products.nodes) if (!p.onStore && (!opts.onlyProducts || opts.onlyProducts.has(p.id))) hidden.push({ id: p.id, title: p.title });
     if (!products.pageInfo.hasNextPage || !products.pageInfo.endCursor || products.pageInfo.endCursor === after) break;
