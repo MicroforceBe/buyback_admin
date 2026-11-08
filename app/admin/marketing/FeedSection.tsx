@@ -31,6 +31,7 @@ export default async function FeedSection({ isAdmin }: { isAdmin: boolean }) {
         <h2 className="text-lg font-semibold">Eigen Google-feed</h2>
         {isAdmin && settings.mode !== 'off' && <form action={runFeedAction}><button className="text-sm text-sky-700 hover:underline">Nu uitvoeren</button></form>}
       </div>
+      <p className="text-xs text-slate-500"><a href="/admin/marketing/gtin" className="text-sky-700 hover:underline">Modellen & GTIN beheren →</a></p>
       <p className="text-xs text-slate-500">Vervangt Channable: actieve refurbished producten uit de webshop gaan elk kwartier rechtstreeks naar Merchant Center, met productgroepen (labels 0–4: soort, kwaliteit, prijsklasse, merk, voorraad).</p>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border bg-white p-5 text-sm shadow-sm">

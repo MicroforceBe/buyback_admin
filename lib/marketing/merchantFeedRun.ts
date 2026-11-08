@@ -131,10 +131,18 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
   try {
     const test = mode === 'test';
     const products = await loadProducts(client, mode, (settings.test_products as string[]) ?? []);
+    // GTIN per model (marketing → Modellen & GTIN); a small table, read whole.
+    const gtins = new Map<string, string>();
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('model_gtins').select('model_key,gtin').order('model_key', { ascending: true }).range(from, from + 999);
+      if (error) throw new Error('GTIN-tabel kon niet worden geladen.');
+      for (const r of data ?? []) gtins.set(r.model_key as string, r.gtin as string);
+      if (!data || data.length < 1000) break;
+    }
     const offers: FeedOffer[] = [];
     const skipped: Skip[] = [];
     for (const p of products) {
-      const r = productOffers(p, { test, storeCodes });
+      const r = productOffers(p, { test, storeCodes, gtins });
       offers.push(...r.offers);
       if (r.skip) skipped.push(r.skip);
     }

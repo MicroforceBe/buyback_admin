@@ -223,6 +223,23 @@ export function highlightsOf(kind: string, brand: string | undefined, stars: str
   return out;
 }
 
+/**
+ * Model key: the title without the condition part, so all quality grades of one model share one GTIN.
+ * "iPhone 13 128GB Midnight Refurbished 5* M" -> "iphone 13 128gb midnight".
+ */
+export function modelKey(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\s*[-(]?\s*nieuw\b.*$/, '')
+    .replace(/\s+(refurbished|refurb|refur|ref)\b.*$/, '')
+    .replace(/\s+[1-5]\s*\*.*$/, '')
+    .replace(/\bnaturel\b/g, 'natural')
+    .replace(/\btitan\.(?=\s|\/|$)/g, 'titanium')
+    .replace(/\bspacegrey\b/g, 'space grey')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const variantLink = (url: string, variantId: string, many: boolean) => many ? `${url}${url.includes('?') ? '&' : '?'}variant=${variantId}` : url;
 
 export function offerHash(input: ProductInput): string {
@@ -233,7 +250,7 @@ export function offerHash(input: ProductInput): string {
  * Offers for one Shopify product, or the reason it is not sent. Test offers carry the test prefix and
  * are excluded from every destination, so they can be checked in Merchant Center without being shown.
  */
-export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes }): { offers: FeedOffer[]; skip?: Skip } {
+export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes; gtins?: Map<string, string> }): { offers: FeedOffer[]; skip?: Skip } {
   const skip = (reason: string) => ({ offers: [], skip: { productId: p.id, title: p.title, reason } });
   if (p.status !== 'ACTIVE') return skip('niet actief');
   if (p.refurbished?.value !== 'true') return skip('niet refurbished');
@@ -254,7 +271,8 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
     const selling = Number(v.price);
     // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
-    const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
+    // The variant's own barcode first; otherwise the GTIN of the model (one per model, every grade).
+    const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? validGtin(opts.gtins?.get(modelKey(p.title))) ?? null;
     // The variant's own title (e.g. "256GB / Blue") wins over the product title; per field.
     const variantTitle = v.title && v.title !== 'Default Title' ? v.title : '';
     const color = (variantTitle && colorOf(variantTitle)) || colorOf(p.title);
