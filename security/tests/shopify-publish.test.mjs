@@ -104,3 +104,12 @@ test('the scan follows every page, also far beyond 40 pages', async () => {
   assert.equal(r.candidates, 1);
   assert.deepEqual(f.published, ['X55']);
 });
+
+test('duplicate SKUs are never on the publish allowlist', async () => {
+  const pub = await load();
+  const r = pub.erpMatchedProducts(['A', 'B', 'C'], [
+    { sku: 'A', productId: 'P1' }, { sku: 'B', productId: 'P2' }, { sku: 'B', productId: 'P3' },
+    { sku: 'Z', productId: 'P4' }, { sku: null, productId: 'P5' },
+  ]);
+  assert.deepEqual([...r].sort(), ['P1']);
+});

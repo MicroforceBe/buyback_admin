@@ -68,3 +68,15 @@ export function publishCounts(r: PublishResult): Record<string, unknown> {
   return { onlineStoreHidden: r.candidates, onlineStorePublished: r.published, onlineStorePublishFailed: r.failed.length,
     ...(r.failed.length ? { onlineStorePublishErrors: r.failed.slice(0, 10).map(f => `${f.title}: ${f.reason}`) } : {}) };
 }
+
+/**
+ * Products the sync really manages: at least one variant whose SKU is in the ERP and occurs
+ * only once in Shopify. Duplicate SKUs are ambiguous and skipped by planSync, so they are never
+ * published automatically either.
+ */
+export function erpMatchedProducts(erpSkus: Iterable<string>, variants: { sku: string | null; productId: string }[]): Set<string> {
+  const erp = new Set(erpSkus);
+  const seen = new Map<string, number>();
+  for (const v of variants) if (v.sku) seen.set(v.sku, (seen.get(v.sku) ?? 0) + 1);
+  return new Set(variants.filter(v => v.sku && erp.has(v.sku) && seen.get(v.sku) === 1).map(v => v.productId));
+}

@@ -7,7 +7,7 @@ import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFI
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
-import { publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
+import { erpMatchedProducts, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
 import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -325,8 +325,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // changed). Shadow mode only counts. A failure here never fails the run: it is reported in the counts.
     const ensureOnStore = async (live: boolean) => {
       try {
-        const erpSkus = new Set(desired.map(d => d.sku));
-        const erpProducts = new Set(state.variants.filter(v => erpSkus.has(v.sku)).map(v => v.productId));
+        const erpProducts = erpMatchedProducts(desired.map(d => d.sku), state.variants);
         const r = await publishActiveOnOnlineStore(client, { dryRun: !live, onlyProducts: erpProducts, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
         Object.assign(counts, publishCounts(r));
       } catch (e) {
