@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ISSUE_LABELS, type CatalogIssue, type IssueCode } from '@/lib/shopify/catalog';
 import { COLLECTION_ISSUE_LABELS, type CollectionIssueCode } from '@/lib/shopify/collections';
 import GoogleSection from './GoogleSection';
+import FeedSection from './FeedSection';
 import { loadGoogle } from './googleLoad';
 import { merchantIssueLabel, shopifyProductIdOf } from '@/lib/marketing/googleData';
 import { shopifyConfig } from '@/lib/shopify/client';
@@ -99,6 +100,8 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
       {params.ok && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.ok}</div>}
 
       <GoogleSection isAdmin={isAdmin} />
+
+      <FeedSection isAdmin={isAdmin} />
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between"><h2 className="text-lg font-semibold">Eerst aanpakken</h2><span className="text-xs text-slate-500">producten op voorraad, uit het rapport van {products[0] ? fmt(products[0].created_at) : '—'}</span></div>
