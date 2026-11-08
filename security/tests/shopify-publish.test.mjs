@@ -89,11 +89,15 @@ test('publishing stops when the sync is switched off mid-run', async () => {
   assert.equal(r.remaining, 2);
 });
 
-test('the sync run publishes in shadow (count only), when nothing changed, and after writes', () => {
+test('the sync run counts in shadow, applies the brake to publications, skips failed products', () => {
   const sync = read('lib/shopify/sync.ts');
-  assert.match(sync, /await ensureOnStore\(mode !== 'shadow'\);\s*return await finish\('succeeded', counts\);/);
-  assert.match(sync, /await ensureOnStore\(true\);/);
-  assert.match(sync, /onlyProducts: erpProducts/);
+  assert.match(sync, /if \(mode === 'shadow'\) \{\s*await ensureOnStore\(false, new Set\(\)\);\s*return await finish\('succeeded', counts\);/);
+  assert.match(sync, /if \(plan\.changes\.length \+ toPublish > settings\.max_changes\)/);
+  const brake = sync.indexOf('plan.changes.length + toPublish > settings.max_changes');
+  assert.ok(brake > 0 && brake < sync.indexOf('await ensureOnStore(true'), 'brake before any publish');
+  assert.match(sync, /ensureOnStore\(true, new Set\(\), settings\.max_changes\)/);
+  assert.match(sync, /ensureOnStore\(true, failedProducts\(failures\.map\(f => f\.id\), state\.variants\), settings\.max_changes - plan\.changes\.length\)/);
+  assert.match(sync, /erpMatchedProducts\(desired\.map\(d => d\.sku\), state\.variants\)/);
 });
 
 test('the scan follows every page, also far beyond 40 pages', async () => {
@@ -112,4 +116,24 @@ test('duplicate SKUs are never on the publish allowlist', async () => {
     { sku: 'Z', productId: 'P4' }, { sku: null, productId: 'P5' },
   ]);
   assert.deepEqual([...r].sort(), ['P1']);
+});
+
+test('max limits the publications written in one run', async () => {
+  const pub = await load();
+  const f = fakeClient({ products: [{ id: 'A', title: 'a', onStore: false }, { id: 'B', title: 'b', onStore: false }, { id: 'C', title: 'c', onStore: false }] });
+  const r = plain(await pub.publishActiveOnOnlineStore(f.client, { dryRun: false, max: 1 }));
+  assert.equal(r.published, 1);
+  assert.equal(r.remaining, 2);
+  assert.equal(pub.plannedPublications({ status: 'done', candidates: 500, published: 0, failed: [], remaining: 500 }), 200);
+  assert.equal(pub.plannedPublications({ status: 'skipped', reason: 'x' }), 0);
+});
+
+test('products with a failed write are mapped back from variant and inventory ids', async () => {
+  const pub = await load();
+  const r = pub.failedProducts(['V2', 'I3', 'unknown'], [
+    { productId: 'P1', variantId: 'V1', inventoryItemId: 'I1' },
+    { productId: 'P2', variantId: 'V2', inventoryItemId: 'I2' },
+    { productId: 'P3', variantId: 'V3', inventoryItemId: 'I3' },
+  ]);
+  assert.deepEqual([...r].sort(), ['P2', 'P3']);
 });

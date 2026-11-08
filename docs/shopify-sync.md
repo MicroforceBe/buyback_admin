@@ -15,7 +15,7 @@ Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicat
 ## Modi (`/admin/erp/shopify`)
 - **Uit** (standaard): niets.
 - **Schaduw**: vergelijkt en logt wat zou veranderen, schrijft niets naar Shopify.
-- **Live**: schrijft de verschillen in batches. **Noodrem**: meer wijzigingen dan het maximum → de run schrijft niets.
+- **Live**: schrijft de verschillen in batches. **Noodrem**: meer wijzigingen (inclusief producten die in de webshop gezet moeten worden) dan het maximum → de run schrijft niets.
 - Noodstop-knop zet alles uit (iedereen met ERP-schrijfrecht). Modus wijzigen en handmatig starten: alleen beheerders.
 
 ## Configuratie (Vercel-omgevingsvariabelen, door de eigenaar)
@@ -188,4 +188,4 @@ SQL: `security/sql/shopify-collections.sql` (kolom `scope`, extra soorten in het
 
 ## Zichtbaar in de webshop
 
-Elke run (ook zonder andere wijzigingen) zoekt de actieve producten uit het ERP die niet op het kanaal Online Store staan en publiceert ze daar (max. 200 per run; schaduwmodus telt alleen). Producten die met de hand in Shopify gemaakt zijn, blijven ongemoeid, net als de andere kanalen (Google, Facebook, Shop, POS). Zonder de rechten `read_publications` en `write_publications` wordt dit overgeslagen en staat de reden bij de run. Code: `lib/shopify/publish.ts`.
+Elke run (ook zonder andere wijzigingen) zoekt de actieve producten uit het ERP die niet op het kanaal Online Store staan en publiceert ze daar (max. 200 per run; schaduwmodus telt alleen). Producten die met de hand in Shopify gemaakt zijn, blijven ongemoeid, net als de andere kanalen (Google, Facebook, Shop, POS). Niet gepubliceerd: producten met een dubbele SKU in Shopify en producten waarvan een schrijfactie in deze run mislukte (prijs, voorraad, status); die volgen bij een volgende geslaagde run. De publicaties tellen mee voor de noodrem. Zonder de rechten `read_publications` en `write_publications` wordt dit overgeslagen en staat de reden bij de run. Code: `lib/shopify/publish.ts`.

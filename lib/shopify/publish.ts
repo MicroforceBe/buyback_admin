@@ -22,7 +22,7 @@ export type PublishResult =
  * onlyProducts, only those products (the ones the ERP sync manages).
  * Read-only in shadow mode: only the number that would be published is returned.
  */
-export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { dryRun: boolean; stillLive?: () => Promise<boolean>; onlyProducts?: Set<string> }): Promise<PublishResult> {
+export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { dryRun: boolean; stillLive?: () => Promise<boolean>; onlyProducts?: Set<string>; max?: number }): Promise<PublishResult> {
   const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
   const have = new Set((currentAppInstallation?.accessScopes ?? []).map(s => s.handle));
   const missing = REQUIRED.filter(s => !have.has(s));
@@ -46,7 +46,7 @@ export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { 
   }
   if (opts.dryRun) return { status: 'done', candidates: hidden.length, published: 0, failed: [], remaining: hidden.length };
 
-  const batch = hidden.slice(0, MAX_PUBLISH_PER_RUN);
+  const batch = hidden.slice(0, Math.max(0, Math.min(MAX_PUBLISH_PER_RUN, opts.max ?? MAX_PUBLISH_PER_RUN)));
   const failed: { productId: string; title: string; reason: string }[] = [];
   let published = 0;
   for (const p of batch) {
@@ -74,6 +74,20 @@ export function publishCounts(r: PublishResult): Record<string, unknown> {
  * only once in Shopify. Duplicate SKUs are ambiguous and skipped by planSync, so they are never
  * published automatically either.
  */
+/** How many publications a run would write: at most MAX_PUBLISH_PER_RUN. */
+export function plannedPublications(r: PublishResult): number {
+  return r.status === 'done' ? Math.min(r.candidates, MAX_PUBLISH_PER_RUN) : 0;
+}
+
+/** Product ids touched by failed writes (failures may name a product, variant or inventory item). */
+export function failedProducts(failureIds: Iterable<string>, variants: { productId: string; variantId: string; inventoryItemId: string }[]): Set<string> {
+  const byId = new Map<string, string>();
+  for (const v of variants) { byId.set(v.productId, v.productId); byId.set(v.variantId, v.productId); byId.set(v.inventoryItemId, v.productId); }
+  const out = new Set<string>();
+  for (const id of failureIds) { const p = byId.get(id); if (p) out.add(p); }
+  return out;
+}
+
 export function erpMatchedProducts(erpSkus: Iterable<string>, variants: { sku: string | null; productId: string }[]): Set<string> {
   const erp = new Set(erpSkus);
   const seen = new Map<string, number>();
