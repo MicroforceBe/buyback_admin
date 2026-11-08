@@ -192,15 +192,23 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
       if (used + cost > localBudget) break;
       localUpdates.push(plan.local[i]); used += cost;
     }
+    const previousStores = new Map(sentRows.map(r => [r.offer_id, r.local_stores ?? []]));
     await inBatches(localUpdates, async ({ offer: o, removeStores }) => {
+      // Stores Google has stock for, kept up to date write by write, so a partial failure is still known.
+      const published = new Set(previousStores.get(o.input.offerId) ?? []);
       try {
         const name = `${CONTENT_LANGUAGE}~${FEED_LABEL}~${o.input.offerId}`;
-        for (const code of removeStores) await removeLocal(google, name, code);
-        for (const inv of o.local) await insertLocal(google, name, inv);
+        for (const code of removeStores) { await removeLocal(google, name, code); published.delete(code); }
+        for (const inv of o.local) { await insertLocal(google, name, inv); published.add(inv.storeCode); }
         const { error } = await db.from('merchant_feed_items').update({ local_hash: o.localHash || null, local_stores: o.local.map(l => l.storeCode), local_sent_at: new Date().toISOString() }).eq('offer_id', o.input.offerId);
         if (error) throw new Error('logboek niet bijgewerkt');
         localSent++;
-      } catch (e) { failed.push({ offerId: o.input.offerId, reason: `winkelvoorraad: ${errorText(e)}` }); }
+      } catch (e) {
+        failed.push({ offerId: o.input.offerId, reason: `winkelvoorraad: ${errorText(e)}` });
+        // Hash and timestamp stay pending (retried next run); the stores already written are remembered,
+        // so a store that loses its code later is still removed at Google.
+        await db.from('merchant_feed_items').update({ local_stores: [...published].sort() }).eq('offer_id', o.input.offerId);
+      }
     });
     Object.assign(counts, { sent, refreshed: refreshes.length, removed, localSent, localRemaining: plan.local.length - localUpdates.length, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
     return await finish(failed.length ? 'failed' : 'succeeded', failed.length ? `${failed.length} product(en) konden niet naar Google; zie de details.` : undefined);

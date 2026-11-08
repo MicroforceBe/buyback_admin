@@ -358,3 +358,25 @@ test('stock levels beyond the first page of locations are fetched before plannin
   assert.equal(r.status, 'succeeded');
   assert.deepEqual(sent, [['ANTWERPEN', '1'], ['OUDENAARDE', '3']]);
 });
+
+test('a partial store failure still remembers the stores written, for later removal', async () => {
+  const run = await runModule();
+  const f = await feed();
+  const codes = { [ANT]: 'ANTWERPEN', [GENT]: 'GENTBRUGGE' };
+  const p = product({ variants: { nodes: [{ ...product().variants.nodes[0], inventoryItem: levels(1, 1, 0) }] } });
+  const offer = f.productOffers(p, { test: false, storeCodes: codes }).offers[0];
+  const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes },
+    [{ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString(), local_hash: null, local_stores: [] }]);
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => {}, remove: async () => {},
+    insertLocal: async (g, n, inv) => { if (inv.storeCode === 'GENTBRUGGE') throw new Error('Google zegt nee'); } }));
+  assert.equal(r.status, 'failed');
+  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), ['ANTWERPEN']);
+  assert.equal(tables.merchant_feed_items[0].local_hash, null);
+  // All codes cleared: Antwerpen's stock is removed at Google.
+  tables.merchant_feed_settings[0].store_codes = {};
+  const removed = [];
+  const again = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => {}, remove: async () => {}, insertLocal: async () => {}, removeLocal: async (g, n, code) => { removed.push(code); } }));
+  assert.equal(again.status, 'succeeded');
+  assert.deepEqual(removed, ['ANTWERPEN']);
+  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), []);
+});
