@@ -98,6 +98,8 @@ test('the sync run counts in shadow, applies the brake to publications, skips fa
   assert.match(sync, /ensureOnStore\(true, new Set\(\), settings\.max_changes\)/);
   assert.match(sync, /ensureOnStore\(true, failedProducts\(failures\.map\(f => f\.id\), state\.variants\), settings\.max_changes - plan\.changes\.length\)/);
   assert.match(sync, /erpMatchedProducts\(desired\.map\(d => d\.sku\), state\.variants\)/);
+  assert.match(sync, /const preview = await ensureOnStore\(false, deactivating\)/);
+  assert.match(sync, /plan\.productUpdates\.filter\(u => u\.status && u\.status !== 'ACTIVE'\)/);
   assert.match(sync, /const conflicted = new Set\(plan\.conflictedProducts\)/);
   assert.match(sync, /!exclude\.has\(id\) && !conflicted\.has\(id\)/);
 });

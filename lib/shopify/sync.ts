@@ -343,7 +343,9 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       return await finish('succeeded', counts);
     }
 
-    const preview = await ensureOnStore(false, new Set());
+    // Budget against the status after this run: products about to become draft/archived are not counted.
+    const deactivating = new Set(plan.productUpdates.filter(u => u.status && u.status !== 'ACTIVE').map(u => u.id));
+    const preview = await ensureOnStore(false, deactivating);
     const toPublish = preview ? plannedPublications(preview) : 0;
     if (plan.changes.length + toPublish > settings.max_changes) {
       return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen${toPublish ? ` en ${toPublish} producten in de webshop zetten` : ''} is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
