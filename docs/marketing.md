@@ -38,6 +38,16 @@ Actieve, refurbished producten die in de webshop staan, gaan elk kwartier (cron 
 - **Modi:** *Uit*; *Test*: alleen de opgegeven producten (max. 20), als `test-…`-aanbiedingen die op geen enkel Google-kanaal getoond worden; *Live*: de volledige feed, ruimt ook de testaanbiedingen op. Live vraagt een bevestiging dat de Google-kanalen in Channable uit staan en hun gegevensbron uit Merchant Center verwijderd is (anders staan de producten er dubbel).
 - **Gegevensbron:** eenmalig aangemaakt met de knop op de marketingpagina (Nederlands, feedlabel BE, land België). Het serviceaccount heeft de rol Beheerder in Merchant Center.
 
+- **Voorraad per winkel** (Free local listings / lokale advertenties): per Shopify-locatie een winkelcode uit Google Bedrijfsprofiel (⋮ → Bedrijfsprofielinstellingen → Geavanceerde instellingen → Winkelcode), in te vullen op de marketingpagina. Per aanbieding gaat de beschikbare voorraad per winkel mee (`localInventories:insert`), pas vanaf de run nadat Google het product kent, en alleen als ze veranderde (`local_hash`), na 20 dagen (`local_sent_at`, eigen verversing), of als een winkel zijn code verloor: dan wordt de voorraad van die winkel bij Google verwijderd (`local_stores` onthoudt naar welke winkels ze ging). Een winkel zonder code krijgt niets. Winkelcodes voegt men niet via een spreadsheet-import toe: dat maakt een dubbele locatie aan. Na een nieuwe winkelcode duurt het tot 24 uur voor Merchant Center ze kent. SQL: `security/sql/merchant-feed-local.sql`.
+
 Overschakelen: test → controleren in Merchant Center (de testaanbiedingen en hun problemen) → Channable-kanalen uitzetten en hun gegevensbron verwijderen → live → na een dag de afkeuringen vergelijken → Channable opzeggen.
 
 SQL: `security/sql/merchant-feed.sql`. Code: `lib/marketing/merchantFeed.ts` (puur), `lib/marketing/merchantFeedRun.ts` (run), `app/admin/marketing/FeedSection.tsx`. Tests: `security/tests/merchant-feed.test.mjs`.
+
+## Marketingplan: nog te doen
+
+- **Google Bedrijfsprofiel opwaarderen** (Antwerpen, Gent; Oudenaarde bij heropening): profielsterkte naar 100% ("Profiel voltooien"), socialemediaprofielen koppelen (Facebook, Instagram, LinkedIn), producten en diensten invullen, regelmatig posts, reviews vragen en beantwoorden, "Automatisch aanvullen" (adressen bij het afrekenen) bekijken. Winkelcodes: ANTWERPEN, GENTBRUGGE, Oudenaarde 12821811782628512507.
+- **Nagemaakte website** `getmicroforce.shop` (gebruikt naam en tekst van Microforce): melden en opvolgen; daarna geregeld zoeken naar nieuwe nagemaakte domeinen.
+- **Google Ads**: Shopping-campagnes op de productgroepen van de eigen feed; MacBook-Shopping zonder rendement en afgekeurde advertenties in de merkcampagnes opruimen.
+- **Meta**: welke producten via het Facebook-kanaal naar Meta gaan (alleen refurbished?).
+- **Fase 1c**: Mailchimp, Trustpilot, Judge.me.

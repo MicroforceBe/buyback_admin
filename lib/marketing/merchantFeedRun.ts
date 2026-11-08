@@ -5,9 +5,9 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
-import { deleteProductInput, googleSettings, insertProductInput } from '@/lib/marketing/google';
+import { deleteLocalInventory, deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type SentRow, type Skip } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -27,6 +27,8 @@ type Deps = {
   google?: Google | null;
   insert?: (g: Google, input: unknown) => Promise<void>;
   remove?: (g: Google, productInput: string) => Promise<void>;
+  insertLocal?: (g: Google, productInput: string, inventory: LocalInventory) => Promise<void>;
+  removeLocal?: (g: Google, productInput: string, storeCode: string) => Promise<void>;
 };
 
 /** Completes the variant list of a product with more than one page of variants. */
@@ -43,8 +45,33 @@ async function allVariants(client: ShopifyClient, p: FeedProduct): Promise<FeedP
   return { ...p, variants: { nodes } };
 }
 
+/** Completes the stock levels of a variant stocked at more than one page of locations. */
+async function allLevels(client: ShopifyClient, v: FeedVariant): Promise<FeedVariant> {
+  const item = v.inventoryItem;
+  let info = item?.inventoryLevels.pageInfo;
+  if (!item?.id || !info?.hasNextPage) return v;
+  const nodes = [...item.inventoryLevels.nodes];
+  while (info?.hasNextPage && info.endCursor) {
+    const after: string = info.endCursor;
+    const page: { inventoryItem: { inventoryLevels: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedLevel[] } } | null } = await client.graphql(FEED_MORE_LEVELS, { id: item.id, after });
+    if (!page.inventoryItem) throw new Error('Voorraad per locatie kon niet volledig worden geladen.');
+    nodes.push(...page.inventoryItem.inventoryLevels.nodes);
+    info = page.inventoryItem.inventoryLevels.pageInfo.endCursor === after ? undefined : page.inventoryItem.inventoryLevels.pageInfo;
+  }
+  return { ...v, inventoryItem: { ...item, inventoryLevels: { nodes } } };
+}
+
 async function loadProducts(client: ShopifyClient, mode: 'test' | 'live', testProducts: string[]): Promise<FeedProduct[]> {
-  const complete = async (list: FeedProduct[]) => { const out: FeedProduct[] = []; for (const p of list) out.push(p.variants.pageInfo?.hasNextPage ? await allVariants(client, p) : p); return out; };
+  const complete = async (list: FeedProduct[]) => {
+    const out: FeedProduct[] = [];
+    for (const p of list) {
+      const full = p.variants.pageInfo?.hasNextPage ? await allVariants(client, p) : p;
+      const variants: FeedVariant[] = [];
+      for (const v of full.variants.nodes) variants.push(await allLevels(client, v));
+      out.push({ ...full, variants: { ...full.variants, nodes: variants } });
+    }
+    return out;
+  };
   if (mode === 'test') {
     if (!testProducts.length) return [];
     const { nodes } = await client.graphql<{ nodes: (FeedProduct | null)[] }>(FEED_PRODUCTS_BY_ID, { ids: testProducts });
@@ -70,7 +97,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : 'onbekende f
 /** Runs the feed once. Safe from cron and the admin page: a second concurrent run is refused by the database. */
 export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor: string }, deps: Deps = {}): Promise<FeedResult> {
   const db = deps.db ?? supabaseAdmin;
-  const { data: settings, error: settingsError } = await db.from('merchant_feed_settings').select('mode,data_source,test_products,max_changes').eq('id', true).maybeSingle();
+  const { data: settings, error: settingsError } = await db.from('merchant_feed_settings').select('mode,data_source,test_products,max_changes,store_codes').eq('id', true).maybeSingle();
   if (settingsError || !settings) throw new Error('Feed-instellingen konden niet worden geladen.');
   const mode = settings.mode as FeedMode;
   if (mode === 'off') return { status: 'skipped', reason: 'off' };
@@ -83,6 +110,9 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
   if (!client || !google) return { status: 'skipped', reason: 'not_configured' };
   const insert = deps.insert ?? ((g: Google, body: unknown) => insertProductInput(g.sa, g.account, g.dataSource, body));
   const remove = deps.remove ?? ((g: Google, name: string) => deleteProductInput(g.sa, g.account, g.dataSource, name));
+  const insertLocal = deps.insertLocal ?? ((g: Google, name: string, inv: LocalInventory) => insertLocalInventory(g.sa, g.account, name, inv));
+  const removeLocal = deps.removeLocal ?? ((g: Google, name: string, code: string) => deleteLocalInventory(g.sa, g.account, name, code));
+  const storeCodes = (settings.store_codes ?? {}) as StoreCodes;
 
   await db.from('merchant_feed_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error: 'Afgebroken: de run duurde te lang of de server stopte.' })
     .eq('status', 'running').lt('started_at', new Date(Date.now() - STALE_RUN_MINUTES * 60_000).toISOString());
@@ -104,21 +134,21 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
     const offers: FeedOffer[] = [];
     const skipped: Skip[] = [];
     for (const p of products) {
-      const r = productOffers(p, { test });
+      const r = productOffers(p, { test, storeCodes });
       offers.push(...r.offers);
       if (r.skip) skipped.push(r.skip);
     }
     // The whole ledger, page by page (Supabase returns at most 1000 rows per request).
     const sentRows: SentRow[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await db.from('merchant_feed_items').select('offer_id,hash,test,sent_at').order('offer_id', { ascending: true }).range(from, from + 999);
+      const { data, error } = await db.from('merchant_feed_items').select('offer_id,hash,test,sent_at,local_hash,local_stores,local_sent_at').order('offer_id', { ascending: true }).range(from, from + 999);
       if (error) throw new Error('Verzonden producten konden niet worden geladen.');
       sentRows.push(...((data ?? []) as SentRow[]));
       if (!data || data.length < 1000) break;
     }
     const plan = planFeed(offers, sentRows, { test });
     Object.assign(counts, {
-      products: products.length, offers: offers.length, unchanged: plan.unchanged, toSend: plan.upserts.length, toRefresh: plan.refreshes.length, toRemove: plan.deletes.length,
+      products: products.length, offers: offers.length, unchanged: plan.unchanged, toSend: plan.upserts.length, toRefresh: plan.refreshes.length, toRemove: plan.deletes.length, localToSend: plan.local.length, stores: Object.values(storeCodes).length,
       skipped: skipped.length, skippedReasons: Object.fromEntries([...skipped.reduce((m, s) => m.set(s.reason, (m.get(s.reason) ?? 0) + 1), new Map<string, number>())]),
       ...(test ? { skippedList: skipped.slice(0, 20) } : {}),
     });
@@ -151,7 +181,37 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
         sent++;
       } catch (e) { failed.push({ offerId: o.input.offerId, reason: errorText(e) }); }
     });
-    Object.assign(counts, { sent, refreshed: refreshes.length, removed, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
+    // Stock per store, for offers Google already had before this run: stores that lost their code are
+    // removed first, then every store with a code is (re)sent. Within the budget; the rest stays pending
+    // (the ledger only moves on after success), so it follows in the next run.
+    let localSent = 0;
+    const localBudget = Math.max(0, MAX_WRITES_PER_RUN - deletes.length - upserts.length);
+    const localUpdates: LocalUpdate[] = [];
+    for (let used = 0, i = 0; i < plan.local.length; i++) {
+      const cost = plan.local[i].removeStores.length + plan.local[i].offer.local.length;
+      if (used + cost > localBudget) break;
+      localUpdates.push(plan.local[i]); used += cost;
+    }
+    const previousStores = new Map(sentRows.map(r => [r.offer_id, r.local_stores ?? []]));
+    await inBatches(localUpdates, async ({ offer: o, removeStores }) => {
+      // Stores Google has stock for, kept up to date write by write, so a partial failure is still known.
+      const published = new Set(previousStores.get(o.input.offerId) ?? []);
+      try {
+        const name = `${CONTENT_LANGUAGE}~${FEED_LABEL}~${o.input.offerId}`;
+        for (const code of removeStores) { await removeLocal(google, name, code); published.delete(code); }
+        for (const inv of o.local) { await insertLocal(google, name, inv); published.add(inv.storeCode); }
+        const { error } = await db.from('merchant_feed_items').update({ local_hash: o.localHash || null, local_stores: o.local.map(l => l.storeCode), local_sent_at: new Date().toISOString() }).eq('offer_id', o.input.offerId);
+        if (error) throw new Error('logboek niet bijgewerkt');
+        localSent++;
+      } catch (e) {
+        failed.push({ offerId: o.input.offerId, reason: `winkelvoorraad: ${errorText(e)}` });
+        // Pending: retried next run; the stores already written are remembered,
+        // so a store that loses its code later is still removed at Google.
+        // The hash is cleared, so the next run always repairs Google's (now partly updated) stock.
+        await db.from('merchant_feed_items').update({ local_stores: [...published].sort(), local_hash: null }).eq('offer_id', o.input.offerId);
+      }
+    });
+    Object.assign(counts, { sent, refreshed: refreshes.length, removed, localSent, localRemaining: plan.local.length - localUpdates.length, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
     return await finish(failed.length ? 'failed' : 'succeeded', failed.length ? `${failed.length} product(en) konden niet naar Google; zie de details.` : undefined);
   } catch (e) {
     return await finish('failed', errorText(e));
