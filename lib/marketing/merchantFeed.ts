@@ -37,7 +37,7 @@ ${variantFragment()}`;
 }
 
 function variantFragment() {
-  return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 3) { nodes { value } } price compareAtPrice inventoryQuantity }`;
+  return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 3) { nodes { value } } price compareAtPrice inventoryQuantity sellableOnlineQuantity }`;
 }
 
 /** The variants after the first page, for the rare product with more than 20. */
@@ -46,7 +46,7 @@ export const FEED_MORE_VARIANTS = `query FeedMoreVariants($id: ID!, $after: Stri
 }
 ${variantFragment()}`;
 
-export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null };
+export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null; sellableOnlineQuantity?: number | null };
 export type FeedProduct = {
   id: string; legacyResourceId: string; title: string; status: string; vendor: string | null; productType: string | null; descriptionHtml: string | null; onlineStoreUrl: string | null;
   category: { name: string; fullName: string } | null;
@@ -174,7 +174,8 @@ export function productOffers(p: FeedProduct, opts: { test: boolean }): { offers
   const offers = variants.map(v => {
     const selling = Number(v.price);
     const onSale = isPositive(v.compareAtPrice) && Number(v.compareAtPrice) > selling;
-    const qty = v.inventoryQuantity ?? 0;
+    // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
+    const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
     const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
     const title = (many && v.title && v.title !== 'Default Title' ? `${p.title} - ${v.title}` : p.title).slice(0, 150);
     const input: ProductInput = {

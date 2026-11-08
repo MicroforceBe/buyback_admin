@@ -264,3 +264,12 @@ test('products with more than one page of variants are completed before planning
   assert.equal(r.status, 'succeeded');
   assert.deepEqual(sent.sort(), ['31', '32', '33']);
 });
+
+test('availability follows what the webshop can sell, not the total over all stores', async () => {
+  const f = await feed();
+  const base = product().variants.nodes[0];
+  const a = q => plain(f.productOffers(product({ variants: { nodes: [{ ...base, ...q }] } }), { test: false })).offers[0].input.productAttributes;
+  assert.equal(a({ inventoryQuantity: 3, sellableOnlineQuantity: 0 }).availability, 'OUT_OF_STOCK');
+  assert.equal(a({ inventoryQuantity: 3, sellableOnlineQuantity: 0 }).customLabel4, 'uitverkocht');
+  assert.equal(a({ inventoryQuantity: 0, sellableOnlineQuantity: 2 }).availability, 'IN_STOCK');
+});
