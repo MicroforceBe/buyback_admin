@@ -28,17 +28,20 @@ export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { 
   const missing = REQUIRED.filter(s => !have.has(s));
   if (missing.length) return { status: 'skipped', reason: `de app mist het recht ${missing.join(' en ')}` };
 
-  const { publications } = await client.graphql<{ publications: { nodes: { id: string; channels: { nodes: { handle: string }[] } }[] } }>(ONLINE_STORE_PUBLICATION);
-  const pub = publications.nodes.find(p => p.channels.nodes.some(c => c.handle === 'online_store'))?.id;
+  // channels is nullable in the schema: a publication without it is simply not the Online Store.
+  const { publications } = await client.graphql<{ publications: { nodes: { id: string; channels: { nodes: { handle: string }[] } | null }[] } }>(ONLINE_STORE_PUBLICATION);
+  const pub = publications.nodes.find(p => p.channels?.nodes?.some(c => c.handle === 'online_store'))?.id;
   if (!pub) return { status: 'skipped', reason: 'geen Online Store-kanaal gevonden' };
 
   const hidden: { id: string; title: string }[] = [];
+  // The whole active catalogue is scanned every run (already-published products are part of the result,
+  // so a page limit would hide everything past it); the loop only stops when Shopify returns no new cursor.
   let after: string | null = null;
-  for (let page = 0; page < 40; page++) {
+  for (;;) {
     const { products } = await client.graphql<{ products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; onStore: boolean }[] } }>(ACTIVE_ON_STORE, { pub, after });
     // Only products that come from the ERP: a product made by hand in Shopify keeps its own channels.
     for (const p of products.nodes) if (!p.onStore && (!opts.onlyProducts || opts.onlyProducts.has(p.id))) hidden.push({ id: p.id, title: p.title });
-    if (!products.pageInfo.hasNextPage) break;
+    if (!products.pageInfo.hasNextPage || !products.pageInfo.endCursor || products.pageInfo.endCursor === after) break;
     after = products.pageInfo.endCursor;
   }
   if (opts.dryRun) return { status: 'done', candidates: hidden.length, published: 0, failed: [], remaining: hidden.length };

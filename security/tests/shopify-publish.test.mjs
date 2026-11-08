@@ -29,14 +29,16 @@ async function load() {
 
 function fakeClient({ scopes = ['read_publications', 'write_publications'], products, fail = new Set() } = {}) {
   const published = [];
-  const pages = [products.slice(0, 2), products.slice(2)];
+  // One product per page: also proves the scan follows every page.
+  const pages = products.map(p => [p]);
   return { published, client: { graphql: async (q, v = {}) => {
     if (q.includes('AppScopes')) return { currentAppInstallation: { accessScopes: scopes.map(handle => ({ handle })) } };
-    if (q.includes('OnlineStorePublication')) return { publications: { nodes: [{ id: 'P-POS', channels: { nodes: [{ handle: 'pos' }] } }, { id: 'P-WEB', channels: { nodes: [{ handle: 'online_store' }] } }] } };
+    if (q.includes('OnlineStorePublication')) return { publications: { nodes: [{ id: 'P-NULL', channels: null }, { id: 'P-POS', channels: { nodes: [{ handle: 'pos' }] } }, { id: 'P-WEB', channels: { nodes: [{ handle: 'online_store' }] } }] } };
     if (q.includes('ActiveOnStore')) {
       assert.equal(v.pub, 'P-WEB');
-      const i = v.after ? 1 : 0;
-      return { products: { pageInfo: { hasNextPage: i === 0, endCursor: i === 0 ? 'c1' : null }, nodes: pages[i] } };
+      const i = v.after ? Number(v.after.slice(1)) : 0;
+      const last = i === pages.length - 1;
+      return { products: { pageInfo: { hasNextPage: !last, endCursor: last ? null : `c${i + 1}` }, nodes: pages[i] } };
     }
     if (q.includes('PublishOnStore')) {
       assert.equal(v.pub, 'P-WEB');
@@ -92,4 +94,13 @@ test('the sync run publishes in shadow (count only), when nothing changed, and a
   assert.match(sync, /await ensureOnStore\(mode !== 'shadow'\);\s*return await finish\('succeeded', counts\);/);
   assert.match(sync, /await ensureOnStore\(true\);/);
   assert.match(sync, /onlyProducts: erpProducts/);
+});
+
+test('the scan follows every page, also far beyond 40 pages', async () => {
+  const pub = await load();
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: `X${i}`, title: `p${i}`, onStore: i !== 55 }));
+  const f = fakeClient({ products: many });
+  const r = plain(await pub.publishActiveOnOnlineStore(f.client, { dryRun: false }));
+  assert.equal(r.candidates, 1);
+  assert.deepEqual(f.published, ['X55']);
 });
