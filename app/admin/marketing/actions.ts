@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath, revalidateTag } from 'next/cache';
 import { requireAccess } from '@/lib/security/access';
 import { createFeedDataSource, googleSettings, registerMerchant } from '@/lib/marketing/google';
-import { COUNTRY, CONTENT_LANGUAGE, FEED_LABEL, parseProductIds } from '@/lib/marketing/merchantFeed';
+import { COUNTRY, CONTENT_LANGUAGE, FEED_LABEL, modelKey, parseProductIds, validGtin } from '@/lib/marketing/merchantFeed';
 import { runMerchantFeed } from '@/lib/marketing/merchantFeedRun';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -119,5 +119,43 @@ export async function saveStoreCodesAction(form: FormData) {
     target = back({ error: (error instanceof Error ? error.message : 'Bewaren mislukt.').slice(0, 300) });
   }
   revalidatePath(PATH);
+  redirect(target);
+}
+
+/** Bulk GTIN per model: "model ; gtin ; source-url" per line. An empty GTIN removes the model's code. */
+export async function saveGtinsAction(form: FormData) {
+  const user = await requireAccess('erp', 'write', true);
+  const GTIN_PATH = '/admin/marketing/gtin';
+  const backTo = (p: Record<string, string>) => `${GTIN_PATH}?${new URLSearchParams(p)}`;
+  let target: string;
+  try {
+    const lines = String(form.get('lines') ?? '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) throw new Error('Geen regels ingevuld.');
+    if (lines.length > 500) throw new Error('Maximaal 500 regels per keer.');
+    const upserts: { model_key: string; gtin: string; source_url: string | null; updated_at: string; updated_by: string }[] = [];
+    const removals: string[] = [];
+    for (const [i, line] of lines.entries()) {
+      const [rawKey = '', rawGtin = '', rawUrl = ''] = line.split(';').map(x => x.trim());
+      const key = modelKey(rawKey);
+      if (key.length < 3) throw new Error(`Regel ${i + 1}: geen model.`);
+      if (!rawGtin) { removals.push(key); continue; }
+      const gtin = validGtin(rawGtin.replace(/\s/g, ''));
+      if (!gtin) throw new Error(`Regel ${i + 1}: "${rawGtin.slice(0, 20)}" is geen geldige GTIN (controlecijfer).`);
+      if (rawUrl && !/^https:\/\/\S{3,490}$/.test(rawUrl)) throw new Error(`Regel ${i + 1}: de bron moet een https-link zijn.`);
+      upserts.push({ model_key: key, gtin, source_url: rawUrl || null, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'beheerder') });
+    }
+    if (upserts.length) {
+      const { error } = await supabaseAdmin.from('model_gtins').upsert(upserts, { onConflict: 'model_key' });
+      if (error) throw new Error('GTIN\'s konden niet worden bewaard.');
+    }
+    if (removals.length) {
+      const { error } = await supabaseAdmin.from('model_gtins').delete().in('model_key', removals);
+      if (error) throw new Error('GTIN\'s konden niet worden verwijderd.');
+    }
+    target = backTo({ ok: `${upserts.length} GTIN('s) bewaard${removals.length ? `, ${removals.length} verwijderd` : ''}. De feed stuurt ze bij de volgende run mee.` });
+  } catch (error) {
+    target = backTo({ error: (error instanceof Error ? error.message : 'Bewaren mislukt.').slice(0, 300) });
+  }
+  revalidatePath('/admin/marketing/gtin');
   redirect(target);
 }

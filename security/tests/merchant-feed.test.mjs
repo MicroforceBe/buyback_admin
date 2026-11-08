@@ -147,7 +147,7 @@ test('unchanged offers are re-sent before Google lets them expire, oldest first'
 
 // Minimal in-memory Supabase for the run.
 function fakeDb(settings, items = []) {
-  const tables = { merchant_feed_settings: [{ id: true, ...settings }], merchant_feed_items: items.map(r => ({ ...r })), merchant_feed_runs: [] };
+  const tables = { merchant_feed_settings: [{ id: true, ...settings }], merchant_feed_items: items.map(r => ({ ...r })), merchant_feed_runs: [], model_gtins: [] };
   const from = name => {
     const t = tables[name];
     let filters = [], op = 'select', payload = null, single = false, rangeOf = null;
@@ -227,7 +227,7 @@ test('wiring: cron route needs the secret, runs 5 minutes after the Shopify sync
   const crons = JSON.parse(read('vercel.json')).crons;
   assert.ok(crons.some(c => c.path === '/api/merchant-feed' && c.schedule === '10-59/15 * * * *'));
   const actions = read('app/admin/marketing/actions.ts');
-  for (const name of ['createFeedDataSourceAction', 'saveFeedSettingsAction', 'runFeedAction', 'saveStoreCodesAction']) {
+  for (const name of ['createFeedDataSourceAction', 'saveFeedSettingsAction', 'runFeedAction', 'saveStoreCodesAction', 'saveGtinsAction']) {
     const body = actions.slice(actions.indexOf(`export async function ${name}`));
     assert.match(body.slice(0, 200), /requireAccess\('erp', 'write', true\)/, name);
   }
@@ -426,4 +426,46 @@ test('a single variant with a meaningful title also wins for colour and storage'
   assert.equal(a.color, 'Blue');
   assert.equal(a.productDetails[0].attributeValue, '256 GB');
   assert.equal(a.title, 'iPhone 13 128GB Midnight Refurbished 5*'); // the offer title stays the product title for a single variant
+});
+
+test('model key: every grade of one model shares one key', async () => {
+  const f = await feed();
+  const same = ['iPhone 13 128GB Midnight Refurbished 5* M', 'iPhone 13 128GB Midnight Refurbished 4*', 'iPhone 13 128GB Midnight Refurbished 3* M'];
+  assert.deepEqual([...new Set(same.map(f.modelKey))], ['iphone 13 128gb midnight']);
+  assert.equal(f.modelKey('iPhone 15 Pro Max 256GB Naturel Titanium Refurbished 4*'), 'iphone 15 pro max 256gb natural titanium');
+  assert.equal(f.modelKey('Apple Watch Series 10 Alu 46mm Silver/Wit GPS 4G Refur 4*M'), 'apple watch series 10 alu 46mm silver/wit gps 4g');
+  assert.equal(f.modelKey('Apple Watch Series Ultra3 49mm Black Titan./Black GPS 5G 5*M'), 'apple watch series ultra3 49mm black titanium/black gps 5g');
+  assert.equal(f.modelKey('APPLE MAGIC MOUSE 2 REFURBISHED'), 'apple magic mouse 2');
+  assert.equal(f.modelKey('MacBook Air 15" L23 M2 16GB 1TB SSD SG (Nieuw In Box)'), 'macbook air 15" l23 m2 16gb 1tb ssd sg');
+  assert.equal(f.modelKey('iPad Air 6 11" 2024 M2 512GB Wifi Blue - Nieuw'), 'ipad air 6 11" 2024 m2 512gb wifi blue');
+  assert.equal(f.modelKey('iPad Pro 11" 2022 256GB Wifi SpaceGrey Refurbished 5* M'), 'ipad pro 11" 2022 256gb wifi space grey');
+});
+
+test('the model GTIN is used when the variant has no barcode; the own barcode wins', async () => {
+  const f = await feed();
+  const gtins = new Map([['iphone 13 128gb midnight', '0194252707289']]);
+  const base = product().variants.nodes[0];
+  const none = plain(f.productOffers(product({ variants: { nodes: [{ ...base, barcodes: { nodes: [] } }] } }), { test: false, gtins })).offers[0].input.productAttributes;
+  assert.deepEqual(none.gtins, ['0194252707289']);
+  assert.equal(none.identifierExists, undefined);
+  const own = plain(f.productOffers(product(), { test: false, gtins })).offers[0].input.productAttributes;
+  assert.deepEqual(own.gtins, ['885909627417']);
+  const other = plain(f.productOffers(product({ variants: { nodes: [{ ...base, title: '256GB / Blue', barcodes: { nodes: [] } }] } }), { test: false, gtins })).offers[0].input.productAttributes;
+  assert.equal(other.gtins, undefined); // a variant with its own configuration never gets the title model's GTIN
+  assert.equal(other.identifierExists, false);
+  const bad = plain(f.productOffers(product({ variants: { nodes: [{ ...base, barcodes: { nodes: [] } }] } }), { test: false, gtins: new Map([['iphone 13 128gb midnight', '1234']]) })).offers[0].input.productAttributes;
+  assert.equal(bad.identifierExists, false);
+});
+
+test('the run reads the model GTINs', async () => {
+  const run = await runModule();
+  const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100 });
+  tables.model_gtins.push({ model_key: 'iphone 13 128gb midnight', gtin: '0194252707289' });
+  const base = product().variants.nodes[0];
+  const sent = [];
+  await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([product({ variants: { nodes: [{ ...base, barcodes: { nodes: [] } }] } })]), google, insert: async (g, i) => { sent.push(i.productAttributes.gtins); }, remove: async () => {} });
+  assert.deepEqual(plain(sent), [['0194252707289']]);
+  const actions = read('app/admin/marketing/actions.ts');
+  assert.match(actions, /validGtin\(rawGtin/);
+  assert.match(read('security/sql/model-gtins.sql'), /enable row level security/);
 });
