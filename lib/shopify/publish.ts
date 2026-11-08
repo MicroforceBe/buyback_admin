@@ -7,6 +7,7 @@ export const ONLINE_STORE_PUBLICATION = `query OnlineStorePublication { publicat
 export const ACTIVE_ON_STORE = `query ActiveOnStore($pub: ID!, $after: String) {
   products(first: 250, after: $after, query: "status:active") { pageInfo { hasNextPage endCursor } nodes { id title onStore: publishedOnPublication(publicationId: $pub) } }
 }`;
+export const PRODUCTS_ON_STORE = `query ProductsOnStore($ids: [ID!]!, $pub: ID!) { nodes(ids: $ids) { ... on Product { id title onStore: publishedOnPublication(publicationId: $pub) } } }`;
 export const PUBLISH_ON_STORE = `mutation PublishOnStore($id: ID!, $pub: ID!) { publishablePublish(id: $id, input: [{ publicationId: $pub }]) { userErrors { field message } } }`;
 
 /** At most this many products are published per run; the rest follow in the next run. */
@@ -22,7 +23,7 @@ export type PublishResult =
  * onlyProducts, only those products (the ones the ERP sync manages).
  * Read-only in shadow mode: only the number that would be published is returned.
  */
-export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { dryRun: boolean; stillLive?: () => Promise<boolean>; onlyProducts?: Set<string>; max?: number }): Promise<PublishResult> {
+export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { dryRun: boolean; stillLive?: () => Promise<boolean>; onlyProducts?: Set<string>; max?: number; activating?: Set<string> }): Promise<PublishResult> {
   const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
   const have = new Set((currentAppInstallation?.accessScopes ?? []).map(s => s.handle));
   const missing = REQUIRED.filter(s => !have.has(s));
@@ -43,6 +44,15 @@ export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { 
     for (const p of products.nodes) if (!p.onStore && (!opts.onlyProducts || opts.onlyProducts.has(p.id))) hidden.push({ id: p.id, title: p.title });
     if (!products.pageInfo.hasNextPage || !products.pageInfo.endCursor || products.pageInfo.endCursor === after) break;
     after = products.pageInfo.endCursor;
+  }
+  // Preview only: products this run is about to activate are not active yet, but will need publishing too.
+  if (opts.dryRun && opts.activating?.size) {
+    const known = new Set(hidden.map(h => h.id));
+    const ids = [...opts.activating].filter(id => !known.has(id) && (!opts.onlyProducts || opts.onlyProducts.has(id)));
+    for (let i = 0; i < ids.length; i += 250) {
+      const { nodes } = await client.graphql<{ nodes: ({ id: string; title: string; onStore: boolean } | null)[] }>(PRODUCTS_ON_STORE, { ids: ids.slice(i, i + 250), pub });
+      for (const n of nodes) if (n && n.id && !n.onStore) hidden.push({ id: n.id, title: n.title });
+    }
   }
   if (opts.dryRun) return { status: 'done', candidates: hidden.length, published: 0, failed: [], remaining: hidden.length };
 

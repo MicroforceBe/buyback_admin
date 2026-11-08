@@ -27,7 +27,7 @@ async function load() {
   return (await ld('lib/shopify/publish.ts')).namespace;
 }
 
-function fakeClient({ scopes = ['read_publications', 'write_publications'], products, fail = new Set() } = {}) {
+function fakeClient({ scopes = ['read_publications', 'write_publications'], products, fail = new Set(), drafts = [] } = {}) {
   const published = [];
   // One product per page: also proves the scan follows every page.
   const pages = products.map(p => [p]);
@@ -39,6 +39,10 @@ function fakeClient({ scopes = ['read_publications', 'write_publications'], prod
       const i = v.after ? Number(v.after.slice(1)) : 0;
       const last = i === pages.length - 1;
       return { products: { pageInfo: { hasNextPage: !last, endCursor: last ? null : `c${i + 1}` }, nodes: pages[i] } };
+    }
+    if (q.includes('ProductsOnStore')) {
+      assert.equal(v.pub, 'P-WEB');
+      return { nodes: v.ids.map(id => drafts.find(d => d.id === id) ?? null) };
     }
     if (q.includes('PublishOnStore')) {
       assert.equal(v.pub, 'P-WEB');
@@ -98,7 +102,7 @@ test('the sync run counts in shadow, applies the brake to publications, skips fa
   assert.match(sync, /ensureOnStore\(true, new Set\(\), settings\.max_changes\)/);
   assert.match(sync, /ensureOnStore\(true, failedProducts\(failures\.map\(f => f\.id\), state\.variants\), settings\.max_changes - plan\.changes\.length\)/);
   assert.match(sync, /erpMatchedProducts\(desired\.map\(d => d\.sku\), state\.variants\)/);
-  assert.match(sync, /const preview = await ensureOnStore\(false, deactivating\)/);
+  assert.match(sync, /const preview = await ensureOnStore\(false, deactivating, undefined, activating\)/);
   assert.match(sync, /plan\.productUpdates\.filter\(u => u\.status && u\.status !== 'ACTIVE'\)/);
   assert.match(sync, /const conflicted = new Set\(plan\.conflictedProducts\)/);
   assert.match(sync, /!exclude\.has\(id\) && !conflicted\.has\(id\)/);
@@ -140,4 +144,14 @@ test('products with a failed write are mapped back from variant and inventory id
     { productId: 'P3', variantId: 'V3', inventoryItemId: 'I3' },
   ]);
   assert.deepEqual([...r].sort(), ['P2', 'P3']);
+});
+
+test('the preview also counts products this run will activate', async () => {
+  const pub = await load();
+  const f = fakeClient({ products: [{ id: 'A', title: 'a', onStore: false }], drafts: [{ id: 'D1', title: 'd1', onStore: false }, { id: 'D2', title: 'd2', onStore: true }] });
+  const r = plain(await pub.publishActiveOnOnlineStore(f.client, { dryRun: true, activating: new Set(['A', 'D1', 'D2', 'GONE']) }));
+  assert.equal(r.candidates, 2);
+  const only = plain(await pub.publishActiveOnOnlineStore(f.client, { dryRun: true, onlyProducts: new Set(['A']), activating: new Set(['D1']) }));
+  assert.equal(only.candidates, 1);
+  assert.deepEqual(f.published, []);
 });

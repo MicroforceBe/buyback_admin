@@ -326,10 +326,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // publish never fails the run: it is reported in the counts.
     const managed = erpMatchedProducts(desired.map(d => d.sku), state.variants);
     const conflicted = new Set(plan.conflictedProducts);
-    const ensureOnStore = async (live: boolean, exclude: Set<string>, max?: number) => {
+    const ensureOnStore = async (live: boolean, exclude: Set<string>, max?: number, activating?: Set<string>) => {
       try {
         const onlyProducts = new Set([...managed].filter(id => !exclude.has(id) && !conflicted.has(id)));
-        const r = await publishActiveOnOnlineStore(client, { dryRun: !live, onlyProducts, max, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
+        const r = await publishActiveOnOnlineStore(client, { dryRun: !live, onlyProducts, max, activating, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
         Object.assign(counts, publishCounts(r));
         return r;
       } catch (e) {
@@ -343,9 +343,11 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       return await finish('succeeded', counts);
     }
 
-    // Budget against the status after this run: products about to become draft/archived are not counted.
+    // Budget against the status after this run: products about to become draft/archived are not counted,
+    // products about to become active (and not yet on the Online Store) are.
     const deactivating = new Set(plan.productUpdates.filter(u => u.status && u.status !== 'ACTIVE').map(u => u.id));
-    const preview = await ensureOnStore(false, deactivating);
+    const activating = new Set(plan.productUpdates.filter(u => u.status === 'ACTIVE').map(u => u.id));
+    const preview = await ensureOnStore(false, deactivating, undefined, activating);
     const toPublish = preview ? plannedPublications(preview) : 0;
     if (plan.changes.length + toPublish > settings.max_changes) {
       return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen${toPublish ? ` en ${toPublish} producten in de webshop zetten` : ''} is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
