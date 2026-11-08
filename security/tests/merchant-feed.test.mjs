@@ -418,3 +418,12 @@ test('variant title wins for colour and storage; full titanium finish names', as
   assert.equal(b.color, 'Midnight');
   assert.equal(b.productDetails[0].attributeValue, '128 GB');
 });
+
+test('a single variant with a meaningful title also wins for colour and storage', async () => {
+  const f = await feed();
+  const base = product().variants.nodes[0];
+  const a = plain(f.productOffers(product({ variants: { nodes: [{ ...base, title: '256GB / Blue' }] } }), { test: false })).offers[0].input.productAttributes;
+  assert.equal(a.color, 'Blue');
+  assert.equal(a.productDetails[0].attributeValue, '256 GB');
+  assert.equal(a.title, 'iPhone 13 128GB Midnight Refurbished 5*'); // the offer title stays the product title for a single variant
+});

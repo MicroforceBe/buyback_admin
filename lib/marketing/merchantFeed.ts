@@ -256,7 +256,7 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
     const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
     // The variant's own title (e.g. "256GB / Blue") wins over the product title; per field.
-    const variantTitle = many && v.title && v.title !== 'Default Title' ? v.title : '';
+    const variantTitle = v.title && v.title !== 'Default Title' ? v.title : '';
     const color = (variantTitle && colorOf(variantTitle)) || colorOf(p.title);
     const own = variantTitle ? specsOf(variantTitle, kind) : {};
     const base = specsOf(p.title, kind);
