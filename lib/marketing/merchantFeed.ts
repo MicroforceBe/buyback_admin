@@ -31,9 +31,20 @@ function feedFragment() {
   refurbished: metafield(namespace: "custom", key: "refurbished_product") { value }
   manufacturer: metafield(namespace: "magento", key: "manufacturer") { value }
   media(first: 10) { nodes { ... on MediaImage { image { url } } } }
-  variants(first: 20) { nodes { id legacyResourceId title sku barcodes(first: 3) { nodes { value } } price compareAtPrice inventoryQuantity } }
-}`;
+  variants(first: 20) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } }
 }
+${variantFragment()}`;
+}
+
+function variantFragment() {
+  return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 3) { nodes { value } } price compareAtPrice inventoryQuantity }`;
+}
+
+/** The variants after the first page, for the rare product with more than 20. */
+export const FEED_MORE_VARIANTS = `query FeedMoreVariants($id: ID!, $after: String) {
+  product(id: $id) { variants(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } } }
+}
+${variantFragment()}`;
 
 export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null };
 export type FeedProduct = {
@@ -41,7 +52,7 @@ export type FeedProduct = {
   category: { name: string; fullName: string } | null;
   refurbished: { value: string } | null; manufacturer: { value: string } | null;
   media: { nodes: ({ image?: { url: string } | null } | null)[] };
-  variants: { nodes: FeedVariant[] };
+  variants: { pageInfo?: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedVariant[] };
 };
 
 type Price = { amountMicros: string; currencyCode: string };

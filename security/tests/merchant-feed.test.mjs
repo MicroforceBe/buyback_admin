@@ -183,7 +183,7 @@ async function runModule() {
   });
 }
 const google = { sa: {}, account: '1', dataSource: 'accounts/1/dataSources/2' };
-const shop = products => ({ graphql: async (q, v) => q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
+const shop = (products, more = {}) => ({ graphql: async (q, v) => q.includes('FeedMoreVariants') ? { product: more[v.id]?.[v.after] ?? null } : q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
 
 test('live run sends new offers, removes gone ones, and records what was sent', async () => {
   const run = await runModule();
@@ -250,4 +250,17 @@ test('the ledger is read page by page, so a large feed is never treated as new',
   assert.equal(r.counts.toRemove, 2500);
   assert.equal(r.counts.unchanged, 1);
   assert.equal(r.counts.toSend, 0);
+});
+
+test('products with more than one page of variants are completed before planning', async () => {
+  const run = await runModule();
+  const base = product();
+  const v = id => ({ ...base.variants.nodes[0], id: `V${id}`, legacyResourceId: id });
+  const p = product({ variants: { pageInfo: { hasNextPage: true, endCursor: 'c1' }, nodes: [v('31')] } });
+  const more = { [p.id]: { c1: { variants: { pageInfo: { hasNextPage: true, endCursor: 'c2' }, nodes: [v('32')] } }, c2: { variants: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [v('33')] } } } };
+  const { db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100 });
+  const sent = [];
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p], more), google, insert: async (g, i) => { sent.push(i.offerId); }, remove: async () => {} }));
+  assert.equal(r.status, 'succeeded');
+  assert.deepEqual(sent.sort(), ['31', '32', '33']);
 });

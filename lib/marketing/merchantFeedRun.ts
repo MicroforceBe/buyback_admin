@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { deleteProductInput, googleSettings, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type SentRow, type Skip } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type SentRow, type Skip } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -29,11 +29,26 @@ type Deps = {
   remove?: (g: Google, productInput: string) => Promise<void>;
 };
 
+/** Completes the variant list of a product with more than one page of variants. */
+async function allVariants(client: ShopifyClient, p: FeedProduct): Promise<FeedProduct> {
+  let info = p.variants.pageInfo;
+  const nodes = [...p.variants.nodes];
+  while (info?.hasNextPage && info.endCursor) {
+    const after: string = info.endCursor;
+    const page: { product: { variants: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedProduct['variants']['nodes'] } } | null } = await client.graphql(FEED_MORE_VARIANTS, { id: p.id, after });
+    if (!page.product) break;
+    nodes.push(...page.product.variants.nodes);
+    info = page.product.variants.pageInfo.endCursor === after ? undefined : page.product.variants.pageInfo;
+  }
+  return { ...p, variants: { nodes } };
+}
+
 async function loadProducts(client: ShopifyClient, mode: 'test' | 'live', testProducts: string[]): Promise<FeedProduct[]> {
+  const complete = async (list: FeedProduct[]) => { const out: FeedProduct[] = []; for (const p of list) out.push(p.variants.pageInfo?.hasNextPage ? await allVariants(client, p) : p); return out; };
   if (mode === 'test') {
     if (!testProducts.length) return [];
     const { nodes } = await client.graphql<{ nodes: (FeedProduct | null)[] }>(FEED_PRODUCTS_BY_ID, { ids: testProducts });
-    return nodes.filter((n): n is FeedProduct => !!n && !!n.id);
+    return complete(nodes.filter((n): n is FeedProduct => !!n && !!n.id));
   }
   const all: FeedProduct[] = [];
   let after: string | null = null;
@@ -43,7 +58,7 @@ async function loadProducts(client: ShopifyClient, mode: 'test' | 'live', testPr
     if (!page.products.pageInfo.hasNextPage || !page.products.pageInfo.endCursor || page.products.pageInfo.endCursor === after) break;
     after = page.products.pageInfo.endCursor;
   }
-  return all;
+  return complete(all);
 }
 
 async function inBatches<T>(items: T[], fn: (item: T) => Promise<void>) {
