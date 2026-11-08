@@ -179,7 +179,7 @@ async function runModule() {
     '@supabase/supabase-js': {},
     '@/lib/supabaseAdmin': { supabaseAdmin: null },
     '@/lib/shopify/client': { createShopifyClient: () => null, shopifyConfig: () => null },
-    '@/lib/marketing/google': { deleteProductInput: async () => {}, googleSettings: () => ({}), insertLocalInventory: async () => {}, insertProductInput: async () => {} },
+    '@/lib/marketing/google': { deleteProductInput: async () => {}, googleSettings: () => ({}), deleteLocalInventory: async () => {}, insertLocalInventory: async () => {}, insertProductInput: async () => {} },
   });
 }
 const google = { sa: {}, account: '1', dataSource: 'accounts/1/dataSources/2' };
@@ -294,17 +294,20 @@ test('stock per store only for stores with a store code, stable order', async ()
   assert.notEqual(a.localHash, b.localHash);
 });
 
-test('plan: stock per store only for offers Google already has, when it changed or with a refresh', async () => {
+test('plan: stock per store only for offers Google already has; changed, removed store or ageing', async () => {
   const f = await feed();
-  const o = (id, hash, localHash) => ({ productId: 'P', hash, localHash, local: [{}], input: { offerId: id } });
+  const inv = code => ({ storeCode: code, localInventoryAttributes: { availability: 'IN_STOCK', quantity: '1' } });
+  const o = (id, localHash, codes) => ({ productId: 'P', hash: 'h', localHash, local: codes.map(inv), input: { offerId: id } });
   const now = new Date('2026-11-30T00:00:00Z');
-  const sent = [
-    { offer_id: 'same', hash: 'h', test: false, sent_at: '2026-11-29T00:00:00Z', local_hash: 'L' },
-    { offer_id: 'moved', hash: 'h', test: false, sent_at: '2026-11-29T00:00:00Z', local_hash: 'L' },
-    { offer_id: 'old', hash: 'h', test: false, sent_at: '2026-11-01T00:00:00Z', local_hash: 'L' },
-  ];
-  const p = plain(f.planFeed([o('same', 'h', 'L'), o('moved', 'h', 'M'), o('old', 'h', 'L'), o('new', 'h', 'L'), { ...o('nocode', 'h', ''), local: [] }], sent, { test: false, now }));
-  assert.deepEqual(p.local.map(x => x.input.offerId).sort(), ['moved', 'old']);
+  const recent = '2026-11-29T00:00:00Z', old = '2026-11-01T00:00:00Z';
+  const row = (id, extra) => ({ offer_id: id, hash: 'h', test: false, sent_at: recent, local_hash: 'L', local_stores: ['A'], local_sent_at: recent, ...extra });
+  const sent = [row('same'), row('moved'), row('localOld', { local_sent_at: old }), row('productOld', { sent_at: old }), row('codeGone'), row('codeChanged')];
+  const p = plain(f.planFeed([o('same', 'L', ['A']), o('moved', 'M', ['A']), o('localOld', 'L', ['A']), o('productOld', 'L', ['A']), o('codeGone', '', []), o('codeChanged', 'N', ['B']), o('new', 'L', ['A'])], sent, { test: false, now }));
+  const byId = Object.fromEntries(p.local.map(u => [u.offer.input.offerId, u.removeStores]));
+  assert.deepEqual(Object.keys(byId).sort(), ['codeChanged', 'codeGone', 'localOld', 'moved']);
+  assert.deepEqual(byId.codeGone, ['A']);
+  assert.deepEqual(byId.codeChanged, ['A']);
+  assert.deepEqual(byId.moved, []);
 });
 
 test('run sends the stock per store for offers sent earlier and remembers it', async () => {
@@ -320,9 +323,19 @@ test('run sends the stock per store for offers sent earlier and remembers it', a
   assert.equal(r.status, 'succeeded');
   assert.deepEqual(local, [['nl~BE~11', 'ANTWERPEN', 'OUT_OF_STOCK'], ['nl~BE~11', 'GENTBRUGGE', 'IN_STOCK']]);
   assert.equal(tables.merchant_feed_items[0].local_hash, offer.localHash);
+  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), ['ANTWERPEN', 'GENTBRUGGE']);
+  assert.ok(tables.merchant_feed_items[0].local_sent_at);
   assert.equal(r.counts.localSent, 1);
-  // Next run: nothing changed, nothing sent.
-  const again = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => { throw new Error('x'); }, remove: async () => {}, insertLocal: async () => { throw new Error('no local resend'); } }));
+  // A store that loses its code: its stock is removed at Google, the other store is sent again.
+  const removed = [], sentAgain = [];
+  const one = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: { from: n => n === 'merchant_feed_settings' ? fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: { [GENT]: 'GENTBRUGGE' } }).db.from(n) : db.from(n) }, client: shop([p]), google, insert: async () => {}, remove: async () => {}, insertLocal: async (g, n, inv) => { sentAgain.push(inv.storeCode); }, removeLocal: async (g, n, code) => { removed.push(code); } }));
+  assert.equal(one.status, 'succeeded');
+  assert.deepEqual(removed, ['ANTWERPEN']);
+  assert.deepEqual(sentAgain, ['GENTBRUGGE']);
+  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), ['GENTBRUGGE']);
+  // Same codes as last time and nothing changed: nothing is sent.
+  tables.merchant_feed_settings[0].store_codes = { [GENT]: 'GENTBRUGGE' };
+  const again = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => { throw new Error('x'); }, remove: async () => {}, insertLocal: async () => { throw new Error('no local resend'); }, removeLocal: async () => { throw new Error('no removal'); } }));
   assert.equal(again.status, 'succeeded');
   // A new offer gets its stock per store only in a later run (Google must know the product first).
   const fresh = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes });

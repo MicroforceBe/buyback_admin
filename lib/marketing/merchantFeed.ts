@@ -233,7 +233,8 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
   return { offers };
 }
 
-export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: string; local_hash?: string | null };
+export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: string; local_hash?: string | null; local_stores?: string[] | null; local_sent_at?: string | null };
+export type LocalUpdate = { offer: FeedOffer; removeStores: string[] };
 /** Google lets offers expire 30 days after their last upload; unchanged offers are re-sent after this many days. */
 export const REFRESH_AFTER_DAYS = 20;
 
@@ -251,10 +252,17 @@ export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boo
     .filter(o => { const r = byId.get(o.input.offerId); return r && r.hash === o.hash && new Date(r.sent_at).getTime() < staleBefore; })
     .sort((a, b) => new Date(byId.get(a.input.offerId)!.sent_at).getTime() - new Date(byId.get(b.input.offerId)!.sent_at).getTime());
   const deletes = sent.filter(r => !wanted.has(r.offer_id) && (opts.test ? r.test : true)).map(r => r.offer_id);
-  // Stock per store only for offers Google already has (sent in an earlier run): when it changed, or with
-  // the refresh of the offer (local stock expires like the offer itself).
-  const refreshing = new Set(refreshes.map(r => r.input.offerId));
-  const local = offers.filter(o => { const r = byId.get(o.input.offerId); return r && o.localHash && (r.local_hash !== o.localHash || refreshing.has(o.input.offerId)); });
+  // Stock per store only for offers Google already has (sent in an earlier run): when it changed, when a
+  // store lost its code (that store's stock is removed at Google), or when it gets old (it expires too).
+  const local: LocalUpdate[] = [];
+  for (const o of offers) {
+    const r = byId.get(o.input.offerId);
+    if (!r) continue;
+    const now = new Set((o.local ?? []).map(l => l.storeCode));
+    const removeStores = (r.local_stores ?? []).filter(code => !now.has(code));
+    const ageing = !!o.localHash && (!r.local_sent_at || new Date(r.local_sent_at).getTime() < staleBefore);
+    if ((o.localHash && r.local_hash !== o.localHash) || removeStores.length || ageing) local.push({ offer: o, removeStores });
+  }
   return { upserts, refreshes, deletes, local, unchanged: offers.length - upserts.length - refreshes.length };
 }
 

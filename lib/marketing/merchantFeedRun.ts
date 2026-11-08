@@ -5,9 +5,9 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
-import { deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
+import { deleteLocalInventory, deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type LocalInventory, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -28,6 +28,7 @@ type Deps = {
   insert?: (g: Google, input: unknown) => Promise<void>;
   remove?: (g: Google, productInput: string) => Promise<void>;
   insertLocal?: (g: Google, productInput: string, inventory: LocalInventory) => Promise<void>;
+  removeLocal?: (g: Google, productInput: string, storeCode: string) => Promise<void>;
 };
 
 /** Completes the variant list of a product with more than one page of variants. */
@@ -85,6 +86,7 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
   const insert = deps.insert ?? ((g: Google, body: unknown) => insertProductInput(g.sa, g.account, g.dataSource, body));
   const remove = deps.remove ?? ((g: Google, name: string) => deleteProductInput(g.sa, g.account, g.dataSource, name));
   const insertLocal = deps.insertLocal ?? ((g: Google, name: string, inv: LocalInventory) => insertLocalInventory(g.sa, g.account, name, inv));
+  const removeLocal = deps.removeLocal ?? ((g: Google, name: string, code: string) => deleteLocalInventory(g.sa, g.account, name, code));
   const storeCodes = (settings.store_codes ?? {}) as StoreCodes;
 
   await db.from('merchant_feed_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error: 'Afgebroken: de run duurde te lang of de server stopte.' })
@@ -114,7 +116,7 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
     // The whole ledger, page by page (Supabase returns at most 1000 rows per request).
     const sentRows: SentRow[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await db.from('merchant_feed_items').select('offer_id,hash,test,sent_at,local_hash').order('offer_id', { ascending: true }).range(from, from + 999);
+      const { data, error } = await db.from('merchant_feed_items').select('offer_id,hash,test,sent_at,local_hash,local_stores,local_sent_at').order('offer_id', { ascending: true }).range(from, from + 999);
       if (error) throw new Error('Verzonden producten konden niet worden geladen.');
       sentRows.push(...((data ?? []) as SentRow[]));
       if (!data || data.length < 1000) break;
@@ -154,20 +156,28 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
         sent++;
       } catch (e) { failed.push({ offerId: o.input.offerId, reason: errorText(e) }); }
     });
-    // Stock per store, for offers Google already had before this run; one write per store, within the budget.
+    // Stock per store, for offers Google already had before this run: stores that lost their code are
+    // removed first, then every store with a code is (re)sent. Within the budget; the rest stays pending
+    // (the ledger only moves on after success), so it follows in the next run.
     let localSent = 0;
     const localBudget = Math.max(0, MAX_WRITES_PER_RUN - deletes.length - upserts.length);
-    const localOffers: FeedOffer[] = [];
-    for (let used = 0, i = 0; i < plan.local.length && used + plan.local[i].local.length <= localBudget; i++) { localOffers.push(plan.local[i]); used += plan.local[i].local.length; }
-    await inBatches(localOffers, async o => {
+    const localUpdates: LocalUpdate[] = [];
+    for (let used = 0, i = 0; i < plan.local.length; i++) {
+      const cost = plan.local[i].removeStores.length + plan.local[i].offer.local.length;
+      if (used + cost > localBudget) break;
+      localUpdates.push(plan.local[i]); used += cost;
+    }
+    await inBatches(localUpdates, async ({ offer: o, removeStores }) => {
       try {
-        for (const inv of o.local) await insertLocal(google, `${CONTENT_LANGUAGE}~${FEED_LABEL}~${o.input.offerId}`, inv);
-        const { error } = await db.from('merchant_feed_items').update({ local_hash: o.localHash }).eq('offer_id', o.input.offerId);
+        const name = `${CONTENT_LANGUAGE}~${FEED_LABEL}~${o.input.offerId}`;
+        for (const code of removeStores) await removeLocal(google, name, code);
+        for (const inv of o.local) await insertLocal(google, name, inv);
+        const { error } = await db.from('merchant_feed_items').update({ local_hash: o.localHash || null, local_stores: o.local.map(l => l.storeCode), local_sent_at: new Date().toISOString() }).eq('offer_id', o.input.offerId);
         if (error) throw new Error('logboek niet bijgewerkt');
         localSent++;
       } catch (e) { failed.push({ offerId: o.input.offerId, reason: `winkelvoorraad: ${errorText(e)}` }); }
     });
-    Object.assign(counts, { sent, refreshed: refreshes.length, removed, localSent, localRemaining: plan.local.length - localOffers.length, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
+    Object.assign(counts, { sent, refreshed: refreshes.length, removed, localSent, localRemaining: plan.local.length - localUpdates.length, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
     return await finish(failed.length ? 'failed' : 'succeeded', failed.length ? `${failed.length} product(en) konden niet naar Google; zie de details.` : undefined);
   } catch (e) {
     return await finish('failed', errorText(e));
