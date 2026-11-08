@@ -71,7 +71,7 @@ export type ProductInput = {
   offerId: string; contentLanguage: string; feedLabel: string;
   productAttributes: {
     title: string; description: string; link: string; imageLink: string; additionalImageLinks?: string[];
-    availability: 'IN_STOCK' | 'OUT_OF_STOCK'; price: Price; salePrice?: Price; condition: 'REFURBISHED';
+    availability: 'IN_STOCK' | 'OUT_OF_STOCK'; price: Price; condition: 'REFURBISHED';
     brand?: string; gtins?: string[]; identifierExists?: boolean; googleProductCategory?: string; productTypes?: string[]; itemGroupId?: string;
     customLabel0: string; customLabel1: string; customLabel2: string; customLabel3: string; customLabel4: string;
     excludedDestinations?: string[];
@@ -202,7 +202,6 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
 
   const offers = variants.map(v => {
     const selling = Number(v.price);
-    const onSale = isPositive(v.compareAtPrice) && Number(v.compareAtPrice) > selling;
     // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
     const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
@@ -218,8 +217,9 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
         imageLink: images[0],
         ...(images.length > 1 ? { additionalImageLinks: images.slice(1, 11) } : {}),
         availability: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK',
-        price: { amountMicros: micros(onSale ? v.compareAtPrice! : v.price), currencyCode: CURRENCY },
-        ...(onSale ? { salePrice: { amountMicros: micros(v.price), currencyCode: CURRENCY } } : {}),
+        // Only the selling price: the Shopify compare-at price is often the new-device price, which was
+        // never asked; Google (and Belgian law) only allow a struck-through price that was really charged.
+        price: { amountMicros: micros(v.price), currencyCode: CURRENCY },
         condition: 'REFURBISHED',
         ...(brand ? { brand: brand.slice(0, 70) } : {}),
         ...(gtin ? { gtins: [gtin] } : { identifierExists: false }),

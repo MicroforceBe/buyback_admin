@@ -199,7 +199,13 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
       try {
         const name = `${CONTENT_LANGUAGE}~${FEED_LABEL}~${o.input.offerId}`;
         for (const code of removeStores) { await removeLocal(google, name, code); published.delete(code); }
-        for (const inv of o.local) { await insertLocal(google, name, inv); published.add(inv.storeCode); }
+        // Every store is tried, also when another store fails (e.g. a store code Google does not know yet).
+        const storeErrors: string[] = [];
+        for (const inv of o.local) {
+          try { await insertLocal(google, name, inv); published.add(inv.storeCode); }
+          catch (e) { storeErrors.push(`${inv.storeCode}: ${errorText(e)}`); }
+        }
+        if (storeErrors.length) throw new Error(storeErrors.join('; '));
         const { error } = await db.from('merchant_feed_items').update({ local_hash: o.localHash || null, local_stores: o.local.map(l => l.storeCode), local_sent_at: new Date().toISOString() }).eq('offer_id', o.input.offerId);
         if (error) throw new Error('logboek niet bijgewerkt');
         localSent++;
