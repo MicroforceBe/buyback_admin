@@ -95,3 +95,29 @@ export async function runFeedAction() {
   revalidatePath(PATH);
   redirect(target);
 }
+
+/** Store codes per Shopify location (Google Business Profile → Advanced settings → Store code). */
+export async function saveStoreCodesAction(form: FormData) {
+  const user = await requireAccess('erp', 'write', true);
+  let target: string;
+  try {
+    const codes: Record<string, string> = {};
+    for (const [key, value] of form.entries()) {
+      if (!key.startsWith('store:')) continue;
+      const location = key.slice('store:'.length);
+      const code = String(value).trim();
+      if (!/^gid:\/\/shopify\/Location\/\d+$/.test(location)) throw new Error('Ongeldige locatie.');
+      if (!code) continue;
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(code)) throw new Error(`Ongeldige winkelcode "${code.slice(0, 64)}": alleen letters, cijfers, - en _.`);
+      codes[location] = code;
+    }
+    if (new Set(Object.values(codes)).size !== Object.values(codes).length) throw new Error('Elke winkel heeft een eigen winkelcode nodig.');
+    const { error } = await supabaseAdmin.from('merchant_feed_settings').update({ store_codes: codes, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'beheerder') }).eq('id', true);
+    if (error) throw new Error('Winkelcodes konden niet worden bewaard.');
+    target = back({ ok: `Winkelcodes bewaard (${Object.keys(codes).length} winkel(s)).` });
+  } catch (error) {
+    target = back({ error: (error instanceof Error ? error.message : 'Bewaren mislukt.').slice(0, 300) });
+  }
+  revalidatePath(PATH);
+  redirect(target);
+}

@@ -124,4 +124,9 @@ export async function deleteProductInput(sa: ServiceAccount, account: string, da
   }
 }
 
+/** Inserts (or replaces) the stock of one product in one store (storeCode from Google Business Profile). */
+export async function insertLocalInventory(sa: ServiceAccount, account: string, productInput: string, inventory: unknown, deps: { fetch?: Fetch } = {}) {
+  await call(sa, `https://merchantapi.googleapis.com/inventories/v1/accounts/${accountId(account)}/products/${encodeURIComponent(productInput)}/localInventories:insert`, inventory, deps);
+}
+
 export { isMerchantUnregistered };

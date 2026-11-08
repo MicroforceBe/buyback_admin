@@ -160,7 +160,7 @@ function fakeDb(settings, items = []) {
         try {
           const match = r => filters.every(f => f(r));
           if (op === 'insert') { const row = { id: 'run' + (t.length + 1), status: 'running', ...payload }; t.push(row); return Promise.resolve({ data: single ? row : [row], error: null }).then(res, rej); }
-          if (op === 'upsert') { const i = t.findIndex(r => r.offer_id === payload.offer_id); if (i >= 0) t[i] = payload; else t.push(payload); return Promise.resolve({ error: null }).then(res, rej); }
+          if (op === 'upsert') { const i = t.findIndex(r => r.offer_id === payload.offer_id); if (i >= 0) t[i] = { ...t[i], ...payload }; else t.push({ ...payload }); return Promise.resolve({ error: null }).then(res, rej); }
           if (op === 'update') { t.filter(match).forEach(r => Object.assign(r, payload)); return Promise.resolve({ error: null }).then(res, rej); }
           if (op === 'delete') { for (let i = t.length - 1; i >= 0; i--) if (match(t[i])) t.splice(i, 1); return Promise.resolve({ error: null }).then(res, rej); }
           let rows = t.filter(match);
@@ -179,7 +179,7 @@ async function runModule() {
     '@supabase/supabase-js': {},
     '@/lib/supabaseAdmin': { supabaseAdmin: null },
     '@/lib/shopify/client': { createShopifyClient: () => null, shopifyConfig: () => null },
-    '@/lib/marketing/google': { deleteProductInput: async () => {}, googleSettings: () => ({}), insertProductInput: async () => {} },
+    '@/lib/marketing/google': { deleteProductInput: async () => {}, googleSettings: () => ({}), insertLocalInventory: async () => {}, insertProductInput: async () => {} },
   });
 }
 const google = { sa: {}, account: '1', dataSource: 'accounts/1/dataSources/2' };
@@ -227,7 +227,7 @@ test('wiring: cron route needs the secret, runs 5 minutes after the Shopify sync
   const crons = JSON.parse(read('vercel.json')).crons;
   assert.ok(crons.some(c => c.path === '/api/merchant-feed' && c.schedule === '10-59/15 * * * *'));
   const actions = read('app/admin/marketing/actions.ts');
-  for (const name of ['createFeedDataSourceAction', 'saveFeedSettingsAction', 'runFeedAction']) {
+  for (const name of ['createFeedDataSourceAction', 'saveFeedSettingsAction', 'runFeedAction', 'saveStoreCodesAction']) {
     const body = actions.slice(actions.indexOf(`export async function ${name}`));
     assert.match(body.slice(0, 200), /requireAccess\('erp', 'write', true\)/, name);
   }
@@ -272,4 +272,61 @@ test('availability follows what the webshop can sell, not the total over all sto
   assert.equal(a({ inventoryQuantity: 3, sellableOnlineQuantity: 0 }).availability, 'OUT_OF_STOCK');
   assert.equal(a({ inventoryQuantity: 3, sellableOnlineQuantity: 0 }).customLabel4, 'uitverkocht');
   assert.equal(a({ inventoryQuantity: 0, sellableOnlineQuantity: 2 }).availability, 'IN_STOCK');
+});
+
+const ANT = 'gid://shopify/Location/1', GENT = 'gid://shopify/Location/2', OUD = 'gid://shopify/Location/3';
+const levels = (a, g, o) => ({ inventoryLevels: { nodes: [[ANT, a], [GENT, g], [OUD, o]].map(([id, q]) => ({ location: { id }, quantities: [{ name: 'available', quantity: q }] })) } });
+
+test('stock per store only for stores with a store code, stable order', async () => {
+  const f = await feed();
+  const v = { ...product().variants.nodes[0], inventoryItem: levels(0, 2, -1) };
+  assert.deepEqual(plain(f.localInventories(v, { [GENT]: 'GENTBRUGGE', [ANT]: 'ANTWERPEN' })), [
+    { storeCode: 'ANTWERPEN', localInventoryAttributes: { availability: 'OUT_OF_STOCK', quantity: '0' } },
+    { storeCode: 'GENTBRUGGE', localInventoryAttributes: { availability: 'IN_STOCK', quantity: '2' } },
+  ]);
+  const none = plain(f.productOffers(product(), { test: false }));
+  assert.deepEqual(none.offers[0].local, []);
+  assert.equal(none.offers[0].localHash, '');
+  // The stock per store is not part of the offer hash: a stock move between stores does not resend the offer.
+  const a = f.productOffers(product({ variants: { nodes: [{ ...product().variants.nodes[0], inventoryItem: levels(1, 0, 0) }] } }), { test: false, storeCodes: { [ANT]: 'ANTWERPEN', [GENT]: 'GENTBRUGGE' } }).offers[0];
+  const b = f.productOffers(product({ variants: { nodes: [{ ...product().variants.nodes[0], inventoryItem: levels(0, 1, 0) }] } }), { test: false, storeCodes: { [ANT]: 'ANTWERPEN', [GENT]: 'GENTBRUGGE' } }).offers[0];
+  assert.equal(a.hash, b.hash);
+  assert.notEqual(a.localHash, b.localHash);
+});
+
+test('plan: stock per store only for offers Google already has, when it changed or with a refresh', async () => {
+  const f = await feed();
+  const o = (id, hash, localHash) => ({ productId: 'P', hash, localHash, local: [{}], input: { offerId: id } });
+  const now = new Date('2026-11-30T00:00:00Z');
+  const sent = [
+    { offer_id: 'same', hash: 'h', test: false, sent_at: '2026-11-29T00:00:00Z', local_hash: 'L' },
+    { offer_id: 'moved', hash: 'h', test: false, sent_at: '2026-11-29T00:00:00Z', local_hash: 'L' },
+    { offer_id: 'old', hash: 'h', test: false, sent_at: '2026-11-01T00:00:00Z', local_hash: 'L' },
+  ];
+  const p = plain(f.planFeed([o('same', 'h', 'L'), o('moved', 'h', 'M'), o('old', 'h', 'L'), o('new', 'h', 'L'), { ...o('nocode', 'h', ''), local: [] }], sent, { test: false, now }));
+  assert.deepEqual(p.local.map(x => x.input.offerId).sort(), ['moved', 'old']);
+});
+
+test('run sends the stock per store for offers sent earlier and remembers it', async () => {
+  const run = await runModule();
+  const f = await feed();
+  const codes = { [ANT]: 'ANTWERPEN', [GENT]: 'GENTBRUGGE' };
+  const p = product({ variants: { nodes: [{ ...product().variants.nodes[0], inventoryItem: levels(0, 1, 0) }] } });
+  const offer = f.productOffers(p, { test: false, storeCodes: codes }).offers[0];
+  const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes },
+    [{ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString(), local_hash: null }]);
+  const local = [];
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => { throw new Error('unchanged'); }, remove: async () => {}, insertLocal: async (g, name, inv) => { local.push([name, inv.storeCode, inv.localInventoryAttributes.availability]); } }));
+  assert.equal(r.status, 'succeeded');
+  assert.deepEqual(local, [['nl~BE~11', 'ANTWERPEN', 'OUT_OF_STOCK'], ['nl~BE~11', 'GENTBRUGGE', 'IN_STOCK']]);
+  assert.equal(tables.merchant_feed_items[0].local_hash, offer.localHash);
+  assert.equal(r.counts.localSent, 1);
+  // Next run: nothing changed, nothing sent.
+  const again = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => { throw new Error('x'); }, remove: async () => {}, insertLocal: async () => { throw new Error('no local resend'); } }));
+  assert.equal(again.status, 'succeeded');
+  // A new offer gets its stock per store only in a later run (Google must know the product first).
+  const fresh = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes });
+  const first = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p]), google, insert: async () => {}, remove: async () => {}, insertLocal: async () => { throw new Error('too early'); } }));
+  assert.equal(first.status, 'succeeded');
+  assert.equal(first.counts.localToSend, 0);
 });

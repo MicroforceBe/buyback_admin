@@ -13,7 +13,7 @@ export const TEST_PREFIX = 'test-';
 export const TEST_EXCLUDED_DESTINATIONS = ['SHOPPING_ADS', 'DISPLAY_ADS', 'LOCAL_INVENTORY_ADS', 'FREE_LISTINGS', 'FREE_LOCAL_LISTINGS', 'YOUTUBE_SHOPPING'];
 
 export const FEED_PRODUCTS = `query FeedProducts($after: String) {
-  products(first: 15, after: $after, query: "status:active") {
+  products(first: 10, after: $after, query: "status:active") {
     pageInfo { hasNextPage endCursor }
     nodes { ...FeedProduct }
   }
@@ -31,22 +31,25 @@ function feedFragment() {
   refurbished: metafield(namespace: "custom", key: "refurbished_product") { value }
   manufacturer: metafield(namespace: "magento", key: "manufacturer") { value }
   media(first: 10) { nodes { ... on MediaImage { image { url } } } }
-  variants(first: 20) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } }
+  variants(first: 5) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } }
 }
 ${variantFragment()}`;
 }
 
 function variantFragment() {
-  return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 3) { nodes { value } } price compareAtPrice inventoryQuantity sellableOnlineQuantity }`;
+  return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 2) { nodes { value } } price compareAtPrice inventoryQuantity sellableOnlineQuantity
+  inventoryItem { inventoryLevels(first: 5) { nodes { location { id } quantities(names: ["available"]) { name quantity } } } } }`;
 }
 
-/** The variants after the first page, for the rare product with more than 20. */
+/** The variants after the first page, for the rare product with more than 5. */
 export const FEED_MORE_VARIANTS = `query FeedMoreVariants($id: ID!, $after: String) {
-  product(id: $id) { variants(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } } }
+  product(id: $id) { variants(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } } }
 }
 ${variantFragment()}`;
 
-export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null; sellableOnlineQuantity?: number | null };
+export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null; sellableOnlineQuantity?: number | null;
+  inventoryItem?: { inventoryLevels: { nodes: { location: { id: string }; quantities: { name: string; quantity: number }[] }[] } } | null;
+};
 export type FeedProduct = {
   id: string; legacyResourceId: string; title: string; status: string; vendor: string | null; productType: string | null; descriptionHtml: string | null; onlineStoreUrl: string | null;
   category: { name: string; fullName: string } | null;
@@ -66,7 +69,25 @@ export type ProductInput = {
     excludedDestinations?: string[];
   };
 };
-export type FeedOffer = { productId: string; input: ProductInput; hash: string };
+export type LocalInventory = { storeCode: string; localInventoryAttributes: { availability: 'IN_STOCK' | 'OUT_OF_STOCK'; quantity: string } };
+/** local: the stock per store (only stores with a store code); localHash '' when there is none. */
+export type FeedOffer = { productId: string; input: ProductInput; hash: string; local: LocalInventory[]; localHash: string };
+/** Shopify location ID -> Google Business Profile store code. */
+export type StoreCodes = Record<string, string>;
+
+/** Stock per store for one variant, for the stores that have a store code; sorted for a stable hash. */
+export function localInventories(v: FeedVariant, storeCodes: StoreCodes): LocalInventory[] {
+  const out: LocalInventory[] = [];
+  for (const level of v.inventoryItem?.inventoryLevels.nodes ?? []) {
+    const code = storeCodes[level.location.id];
+    if (!code) continue;
+    const qty = Math.max(0, level.quantities.find(q => q.name === 'available')?.quantity ?? 0);
+    out.push({ storeCode: code, localInventoryAttributes: { availability: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK', quantity: String(qty) } });
+  }
+  return out.sort((a, b) => a.storeCode.localeCompare(b.storeCode));
+}
+
+const localHashOf = (local: LocalInventory[]) => local.length ? createHash('sha256').update(JSON.stringify(local)).digest('hex').slice(0, 32) : '';
 export type Skip = { productId: string; title: string; reason: string };
 
 const micros = (s: string) => String(Math.round(Number(s) * 1_000_000));
@@ -155,7 +176,7 @@ export function offerHash(input: ProductInput): string {
  * Offers for one Shopify product, or the reason it is not sent. Test offers carry the test prefix and
  * are excluded from every destination, so they can be checked in Merchant Center without being shown.
  */
-export function productOffers(p: FeedProduct, opts: { test: boolean }): { offers: FeedOffer[]; skip?: Skip } {
+export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes }): { offers: FeedOffer[]; skip?: Skip } {
   const skip = (reason: string) => ({ offers: [], skip: { productId: p.id, title: p.title, reason } });
   if (p.status !== 'ACTIVE') return skip('niet actief');
   if (p.refurbished?.value !== 'true') return skip('niet refurbished');
@@ -206,12 +227,13 @@ export function productOffers(p: FeedProduct, opts: { test: boolean }): { offers
         ...(opts.test ? { excludedDestinations: TEST_EXCLUDED_DESTINATIONS } : {}),
       },
     };
-    return { productId: p.id, input, hash: offerHash(input) };
+    const local = localInventories(v, opts.storeCodes ?? {});
+    return { productId: p.id, input, hash: offerHash(input), local, localHash: localHashOf(local) };
   });
   return { offers };
 }
 
-export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: string };
+export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: string; local_hash?: string | null };
 /** Google lets offers expire 30 days after their last upload; unchanged offers are re-sent after this many days. */
 export const REFRESH_AFTER_DAYS = 20;
 
@@ -229,7 +251,11 @@ export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boo
     .filter(o => { const r = byId.get(o.input.offerId); return r && r.hash === o.hash && new Date(r.sent_at).getTime() < staleBefore; })
     .sort((a, b) => new Date(byId.get(a.input.offerId)!.sent_at).getTime() - new Date(byId.get(b.input.offerId)!.sent_at).getTime());
   const deletes = sent.filter(r => !wanted.has(r.offer_id) && (opts.test ? r.test : true)).map(r => r.offer_id);
-  return { upserts, refreshes, deletes, unchanged: offers.length - upserts.length - refreshes.length };
+  // Stock per store only for offers Google already has (sent in an earlier run): when it changed, or with
+  // the refresh of the offer (local stock expires like the offer itself).
+  const refreshing = new Set(refreshes.map(r => r.input.offerId));
+  const local = offers.filter(o => { const r = byId.get(o.input.offerId); return r && o.localHash && (r.local_hash !== o.localHash || refreshing.has(o.input.offerId)); });
+  return { upserts, refreshes, deletes, local, unchanged: offers.length - upserts.length - refreshes.length };
 }
 
 /** Shopify product IDs from what an admin types: numbers, GIDs or admin URLs, separated by spaces or commas. */
