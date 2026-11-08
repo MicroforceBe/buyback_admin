@@ -450,6 +450,9 @@ test('the model GTIN is used when the variant has no barcode; the own barcode wi
   assert.equal(none.identifierExists, undefined);
   const own = plain(f.productOffers(product(), { test: false, gtins })).offers[0].input.productAttributes;
   assert.deepEqual(own.gtins, ['885909627417']);
+  const other = plain(f.productOffers(product({ variants: { nodes: [{ ...base, title: '256GB / Blue', barcodes: { nodes: [] } }] } }), { test: false, gtins })).offers[0].input.productAttributes;
+  assert.equal(other.gtins, undefined); // a variant with its own configuration never gets the title model's GTIN
+  assert.equal(other.identifierExists, false);
   const bad = plain(f.productOffers(product({ variants: { nodes: [{ ...base, barcodes: { nodes: [] } }] } }), { test: false, gtins: new Map([['iphone 13 128gb midnight', '1234']]) })).offers[0].input.productAttributes;
   assert.equal(bad.identifierExists, false);
 });

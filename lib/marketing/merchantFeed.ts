@@ -271,8 +271,10 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
     const selling = Number(v.price);
     // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
-    // The variant's own barcode first; otherwise the GTIN of the model (one per model, every grade).
-    const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? validGtin(opts.gtins?.get(modelKey(p.title))) ?? null;
+    // The variant's own barcode first; otherwise the GTIN of the model (one per model, every grade), but
+    // only for a variant without its own configuration: "256GB / Blue" is not the model in the title.
+    const plainVariant = !v.title || v.title === 'Default Title';
+    const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? (plainVariant ? validGtin(opts.gtins?.get(modelKey(p.title))) : null) ?? null;
     // The variant's own title (e.g. "256GB / Blue") wins over the product title; per field.
     const variantTitle = v.title && v.title !== 'Default Title' ? v.title : '';
     const color = (variantTitle && colorOf(variantTitle)) || colorOf(p.title);
