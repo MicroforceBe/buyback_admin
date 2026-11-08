@@ -183,7 +183,7 @@ async function runModule() {
   });
 }
 const google = { sa: {}, account: '1', dataSource: 'accounts/1/dataSources/2' };
-const shop = (products, more = {}) => ({ graphql: async (q, v) => q.includes('FeedMoreVariants') ? { product: more[v.id]?.[v.after] ?? null } : q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
+const shop = (products, more = {}, levels = {}) => ({ graphql: async (q, v) => q.includes('FeedMoreLevels') ? { inventoryItem: levels[v.id]?.[v.after] ?? null } : q.includes('FeedMoreVariants') ? { product: more[v.id]?.[v.after] ?? null } : q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
 
 test('live run sends new offers, removes gone ones, and records what was sent', async () => {
   const run = await runModule();
@@ -342,4 +342,19 @@ test('run sends the stock per store for offers sent earlier and remembers it', a
   const first = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p]), google, insert: async () => {}, remove: async () => {}, insertLocal: async () => { throw new Error('too early'); } }));
   assert.equal(first.status, 'succeeded');
   assert.equal(first.counts.localToSend, 0);
+});
+
+test('stock levels beyond the first page of locations are fetched before planning the stores', async () => {
+  const run = await runModule();
+  const codes = { [ANT]: 'ANTWERPEN', [OUD]: 'OUDENAARDE' };
+  const lvl = (id, q) => ({ location: { id }, quantities: [{ name: 'available', quantity: q }] });
+  const v = { ...product().variants.nodes[0], inventoryItem: { id: 'I1', inventoryLevels: { pageInfo: { hasNextPage: true, endCursor: 'k1' }, nodes: [lvl(ANT, 1)] } } };
+  const p = product({ variants: { nodes: [v] } });
+  const levels = { I1: { k1: { inventoryLevels: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [lvl(OUD, 3)] } } } };
+  const fresh = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes });
+  await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p], {}, levels), google, insert: async () => {}, remove: async () => {} });
+  const sent = [];
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p], {}, levels), google, insert: async () => {}, remove: async () => {}, insertLocal: async (g, n, inv) => { sent.push([inv.storeCode, inv.localInventoryAttributes.quantity]); }, removeLocal: async () => { throw new Error('nothing to remove'); } }));
+  assert.equal(r.status, 'succeeded');
+  assert.deepEqual(sent, [['ANTWERPEN', '1'], ['OUDENAARDE', '3']]);
 });

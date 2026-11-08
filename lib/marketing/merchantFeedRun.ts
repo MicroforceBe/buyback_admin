@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { deleteLocalInventory, deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedOffer, type FeedProduct, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -45,8 +45,33 @@ async function allVariants(client: ShopifyClient, p: FeedProduct): Promise<FeedP
   return { ...p, variants: { nodes } };
 }
 
+/** Completes the stock levels of a variant stocked at more than one page of locations. */
+async function allLevels(client: ShopifyClient, v: FeedVariant): Promise<FeedVariant> {
+  const item = v.inventoryItem;
+  let info = item?.inventoryLevels.pageInfo;
+  if (!item?.id || !info?.hasNextPage) return v;
+  const nodes = [...item.inventoryLevels.nodes];
+  while (info?.hasNextPage && info.endCursor) {
+    const after: string = info.endCursor;
+    const page: { inventoryItem: { inventoryLevels: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedLevel[] } } | null } = await client.graphql(FEED_MORE_LEVELS, { id: item.id, after });
+    if (!page.inventoryItem) throw new Error('Voorraad per locatie kon niet volledig worden geladen.');
+    nodes.push(...page.inventoryItem.inventoryLevels.nodes);
+    info = page.inventoryItem.inventoryLevels.pageInfo.endCursor === after ? undefined : page.inventoryItem.inventoryLevels.pageInfo;
+  }
+  return { ...v, inventoryItem: { ...item, inventoryLevels: { nodes } } };
+}
+
 async function loadProducts(client: ShopifyClient, mode: 'test' | 'live', testProducts: string[]): Promise<FeedProduct[]> {
-  const complete = async (list: FeedProduct[]) => { const out: FeedProduct[] = []; for (const p of list) out.push(p.variants.pageInfo?.hasNextPage ? await allVariants(client, p) : p); return out; };
+  const complete = async (list: FeedProduct[]) => {
+    const out: FeedProduct[] = [];
+    for (const p of list) {
+      const full = p.variants.pageInfo?.hasNextPage ? await allVariants(client, p) : p;
+      const variants: FeedVariant[] = [];
+      for (const v of full.variants.nodes) variants.push(await allLevels(client, v));
+      out.push({ ...full, variants: { ...full.variants, nodes: variants } });
+    }
+    return out;
+  };
   if (mode === 'test') {
     if (!testProducts.length) return [];
     const { nodes } = await client.graphql<{ nodes: (FeedProduct | null)[] }>(FEED_PRODUCTS_BY_ID, { ids: testProducts });

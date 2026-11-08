@@ -38,8 +38,15 @@ ${variantFragment()}`;
 
 function variantFragment() {
   return `fragment FeedVariant on ProductVariant { id legacyResourceId title sku barcodes(first: 2) { nodes { value } } price compareAtPrice inventoryQuantity sellableOnlineQuantity
-  inventoryItem { inventoryLevels(first: 5) { nodes { location { id } quantities(names: ["available"]) { name quantity } } } } }`;
+  inventoryItem { id inventoryLevels(first: 5) { pageInfo { hasNextPage endCursor } nodes { ...FeedLevel } } } }
+fragment FeedLevel on InventoryLevel { location { id } quantities(names: ["available"]) { name quantity } }`;
 }
+
+/** The stock levels after the first page, for an item stocked at more than 5 locations. */
+export const FEED_MORE_LEVELS = `query FeedMoreLevels($id: ID!, $after: String) {
+  inventoryItem(id: $id) { inventoryLevels(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...FeedLevel } } }
+}
+fragment FeedLevel on InventoryLevel { location { id } quantities(names: ["available"]) { name quantity } }`;
 
 /** The variants after the first page, for the rare product with more than 5. */
 export const FEED_MORE_VARIANTS = `query FeedMoreVariants($id: ID!, $after: String) {
@@ -47,8 +54,9 @@ export const FEED_MORE_VARIANTS = `query FeedMoreVariants($id: ID!, $after: Stri
 }
 ${variantFragment()}`;
 
+export type FeedLevel = { location: { id: string }; quantities: { name: string; quantity: number }[] };
 export type FeedVariant = { id: string; legacyResourceId: string; title: string; sku: string | null; barcodes: { nodes: { value: string }[] }; price: string; compareAtPrice: string | null; inventoryQuantity: number | null; sellableOnlineQuantity?: number | null;
-  inventoryItem?: { inventoryLevels: { nodes: { location: { id: string }; quantities: { name: string; quantity: number }[] }[] } } | null;
+  inventoryItem?: { id?: string; inventoryLevels: { pageInfo?: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedLevel[] } } | null;
 };
 export type FeedProduct = {
   id: string; legacyResourceId: string; title: string; status: string; vendor: string | null; productType: string | null; descriptionHtml: string | null; onlineStoreUrl: string | null;
