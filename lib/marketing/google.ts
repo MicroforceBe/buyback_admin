@@ -27,9 +27,9 @@ export async function accessToken(sa: ServiceAccount, deps: { fetch?: Fetch; now
   return body.access_token;
 }
 
-async function call<T>(sa: ServiceAccount, url: string, body: unknown, deps: { fetch?: Fetch } = {}): Promise<T> {
+async function call<T>(sa: ServiceAccount, url: string, body: unknown, deps: { fetch?: Fetch } = {}, method: 'POST' | 'DELETE' = 'POST'): Promise<T> {
   const token = await accessToken(sa, deps);
-  const res = await (deps.fetch ?? fetch)(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
+  const res = await (deps.fetch ?? fetch)(url, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(method === 'POST' ? { body: JSON.stringify(body) } : {}), cache: 'no-store' });
   const json = await res.json().catch(() => ({})) as T & { error?: { message?: string } };
   if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
   return json;
@@ -88,6 +88,40 @@ export async function registerMerchant(sa: ServiceAccount, account: string, deve
   if (!/^\d+$/.test(account)) throw new Error('MERCHANT_CENTER_ID moet het account-ID zijn (alleen cijfers).');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(developerEmail) || /gserviceaccount\.com$/i.test(developerEmail)) throw new Error('Geef het e-mailadres van een persoon als technisch contact.');
   await call(sa, `https://merchantapi.googleapis.com/accounts/v1/accounts/${account}/developerRegistration:registerGcp`, { developerEmail }, deps);
+}
+
+const accountId = (account: string) => {
+  if (!/^\d+$/.test(account)) throw new Error('MERCHANT_CENTER_ID moet het account-ID zijn (alleen cijfers).');
+  return account;
+};
+const dataSourceOf = (account: string, dataSource: string) => {
+  if (!new RegExp(`^accounts/${account}/dataSources/\\d+$`).test(dataSource)) throw new Error('Ongeldige gegevensbron.');
+  return dataSource;
+};
+
+/** Creates the API data source for the own feed (Dutch, feed label BE, targeting Belgium). Returns its name. */
+export async function createFeedDataSource(sa: ServiceAccount, account: string, input: { displayName: string; contentLanguage: string; feedLabel: string; countries: string[] }, deps: { fetch?: Fetch } = {}): Promise<string> {
+  const res = await call<{ name?: string }>(sa, `https://merchantapi.googleapis.com/datasources/v1/accounts/${accountId(account)}/dataSources`, {
+    displayName: input.displayName,
+    primaryProductDataSource: { contentLanguage: input.contentLanguage, feedLabel: input.feedLabel, countries: input.countries },
+  }, deps);
+  if (!res.name) throw new Error('Google gaf geen naam voor de gegevensbron terug.');
+  return dataSourceOf(account, res.name);
+}
+
+/** Inserts (or replaces) one product input in the feed's data source. */
+export async function insertProductInput(sa: ServiceAccount, account: string, dataSource: string, input: unknown, deps: { fetch?: Fetch } = {}) {
+  await call(sa, `https://merchantapi.googleapis.com/products/v1/accounts/${accountId(account)}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceOf(account, dataSource))}`, input, deps);
+}
+
+/** Deletes one product input (language~label~offer) from the feed's data source; already gone counts as done. */
+export async function deleteProductInput(sa: ServiceAccount, account: string, dataSource: string, productInput: string, deps: { fetch?: Fetch } = {}) {
+  try {
+    await call(sa, `https://merchantapi.googleapis.com/products/v1/accounts/${accountId(account)}/productInputs/${encodeURIComponent(productInput)}?dataSource=${encodeURIComponent(dataSourceOf(account, dataSource))}`, null, deps, 'DELETE');
+  } catch (e) {
+    if (e instanceof Error && /not found|404/i.test(e.message)) return;
+    throw e;
+  }
 }
 
 export { isMerchantUnregistered };

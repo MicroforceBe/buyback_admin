@@ -26,3 +26,18 @@ De pagina controleert alleen óf een instelling ingevuld is; waarden worden nooi
 - Elke bron wordt een uur bewaard (`unstable_cache`, tag `marketing-google`); een fout bij één bron toont alleen die fout.
 
 Code: `lib/marketing/google.ts` (API-aanroepen, token), `lib/marketing/googleData.ts` (puur), `app/admin/marketing/GoogleSection.tsx`. Tests: `security/tests/marketing.test.mjs`.
+
+## Eigen Google-feed (vervangt Channable)
+
+Actieve, refurbished producten die in de webshop staan, gaan elk kwartier (cron `/api/merchant-feed`, 5 minuten na de Shopify-sync) rechtstreeks via de Merchant API naar een eigen gegevensbron in Merchant Center.
+
+- **Per variant één aanbieding**; het aanbiedings-ID is het numerieke variant-ID, hetzelfde als Channable gebruikte, zodat Google Ads de historiek per product houdt.
+- **Velden:** titel, platte beschrijving, link (met `?variant=` bij meerdere varianten), foto's (max. 11), voorraad (in/uit voorraad), prijs met doorstreepprijs als `salePrice`, staat refurbished, merk uit het ERP-veld `magento.manufacturer` (OEM = geen merk), GTIN alleen bij een geldige streepjescode (anders `identifierExists: false`), Google-categorie voor smartphone/tablet/laptop/desktop/monitor.
+- **Productgroepen voor Google Ads:** label 0 soort (Smartphone, Laptop, …), label 1 kwaliteit (sterren uit de titel), label 2 prijsklasse, label 3 merk, label 4 voorraad (uitverkocht, laatste stuk, meerdere).
+- **Alleen wat veranderde** wordt verstuurd (`merchant_feed_items` bewaart een hash per aanbieding); wat niet meer in de feed hoort, wordt verwijderd. Max. 400 schrijfacties per run, de rest volgt. **Noodrem:** meer wijzigingen dan het maximum → de run stuurt niets.
+- **Modi:** *Uit*; *Test*: alleen de opgegeven producten (max. 20), als `test-…`-aanbiedingen die op geen enkel Google-kanaal getoond worden; *Live*: de volledige feed, ruimt ook de testaanbiedingen op. Live vraagt een bevestiging dat de Google-kanalen in Channable uit staan en hun gegevensbron uit Merchant Center verwijderd is (anders staan de producten er dubbel).
+- **Gegevensbron:** eenmalig aangemaakt met de knop op de marketingpagina (Nederlands, feedlabel BE, land België). Het serviceaccount heeft de rol Beheerder in Merchant Center.
+
+Overschakelen: test → controleren in Merchant Center (de testaanbiedingen en hun problemen) → Channable-kanalen uitzetten en hun gegevensbron verwijderen → live → na een dag de afkeuringen vergelijken → Channable opzeggen.
+
+SQL: `security/sql/merchant-feed.sql`. Code: `lib/marketing/merchantFeed.ts` (puur), `lib/marketing/merchantFeedRun.ts` (run), `app/admin/marketing/FeedSection.tsx`. Tests: `security/tests/merchant-feed.test.mjs`.

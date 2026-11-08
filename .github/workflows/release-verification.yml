@@ -115,6 +115,8 @@ on:
       - app/admin/erp/shopify/**
       - security/tests/shopify-sync.test.mjs
       - security/tests/shopify-publish.test.mjs
+      - security/tests/merchant-feed.test.mjs
+      - app/api/merchant-feed/**
       - security/tests/shopify-cleanup.test.mjs
       - security/tests/shopify-catalog.test.mjs
       - security/tests/shopify-collections.test.mjs
@@ -188,7 +190,7 @@ jobs:
       - name: Verify customer validation, duplicate checks, versioning and access without live services
         run: node --experimental-vm-modules --test security/tests/customers.test.mjs
       - name: Shopify sync tests
-        run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs security/tests/shopify-publish.test.mjs security/tests/shopify-cleanup.test.mjs security/tests/shopify-catalog.test.mjs security/tests/shopify-collections.test.mjs
+        run: node --experimental-vm-modules --test security/tests/shopify-sync.test.mjs security/tests/shopify-publish.test.mjs security/tests/merchant-feed.test.mjs security/tests/shopify-cleanup.test.mjs security/tests/shopify-catalog.test.mjs security/tests/shopify-collections.test.mjs
       - name: Marketing overview tests
         run: node --experimental-vm-modules --test security/tests/marketing.test.mjs
       - name: Check application types against the updated SDK
