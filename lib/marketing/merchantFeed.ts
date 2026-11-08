@@ -73,6 +73,7 @@ export type ProductInput = {
     title: string; description: string; link: string; imageLink: string; additionalImageLinks?: string[];
     availability: 'IN_STOCK' | 'OUT_OF_STOCK'; price: Price; condition: 'REFURBISHED';
     brand?: string; gtins?: string[]; identifierExists?: boolean; googleProductCategory?: string; productTypes?: string[]; itemGroupId?: string;
+    color?: string; productHighlights?: string[]; productDetails?: { sectionName: string; attributeName: string; attributeValue: string }[];
     customLabel0: string; customLabel1: string; customLabel2: string; customLabel3: string; customLabel4: string;
     excludedDestinations?: string[];
   };
@@ -174,6 +175,54 @@ export function googleCategory(kind: string): string | undefined {
   return ({ Smartphone: '267', Tablet: '4745', Laptop: '328', Desktop: '325', Monitor: '397' } as Record<string, string>)[kind];
 }
 
+// Colour names as they appear in the titles (longest first, so "Space Black" wins over "Black").
+const COLORS = ['Natural Titanium', 'White Titanium', 'Black Titanium', 'Blue Titanium', 'Desert Titanium', 'Deep Purple', 'Space Black', 'Space Grey', 'Space Gray', 'Sierra Blue', 'Alpine Green', 'Pacific Blue', 'Marble Grey', 'Onyx Black', 'Rose Gold',
+  'Midnight', 'Starlight', 'Graphite', 'Silver', 'Gold', 'Black', 'White', 'Blue', 'Green', 'Pink', 'Red', 'Purple', 'Yellow', 'Grey', 'Gray', 'Titanium', 'Beige']
+  .sort((a, b) => b.length - a.length);
+
+/** Colour from the title ("SG" is the shop's shorthand for Space Grey); undefined when not clear. */
+export function colorOf(title: string): string | undefined {
+  for (const c of COLORS) if (new RegExp(`\\b${c}\\b`, 'i').test(title)) return c;
+  if (/\bSG\b/.test(title)) return 'Space Grey';
+  return undefined;
+}
+
+/**
+ * Storage and memory from the title. Phones, tablets and watches: the first "128GB" is the storage.
+ * Laptops/desktops: "16GB 512SSD" = 16 GB memory and 512 GB SSD. Only unambiguous patterns are used.
+ */
+export function specsOf(title: string, kind: string): { storage?: string; memory?: string } {
+  const gb = (n: string, unit: string) => `${n} ${unit.toUpperCase()}`;
+  if (kind === 'Laptop' || kind === 'Desktop') {
+    const ssd = title.match(/\b(\d+)\s*(TB|GB)?\s*SSD\b/i);
+    const ram = title.match(/\b(\d+)\s*GB\b(?!\s*SSD)/i);
+    return { ...(ssd ? { storage: `${gb(ssd[1], ssd[2] ?? 'GB')} SSD` } : {}), ...(ram ? { memory: gb(ram[1], 'GB') } : {}) };
+  }
+  if (kind === 'Smartphone' || kind === 'Tablet' || kind === 'Smartwatch') {
+    const m = title.match(/\b(\d+)\s*(GB|TB)\b/i);
+    return m ? { storage: gb(m[1], m[2]) } : {};
+  }
+  return {};
+}
+
+const BATTERY_KINDS = new Set(['Smartphone', 'Tablet', 'Laptop', 'Smartwatch']);
+const DEVICE_KINDS = new Set(['Smartphone', 'Tablet', 'Laptop', 'Desktop', 'Monitor', 'Smartwatch']);
+
+/**
+ * Product highlights: facts that are always true for this kind of refurbished device (Olivier, 2026-11).
+ * Google does not allow price, shipping, returns or other promotional text here, so the return and
+ * trade-in promises are not repeated (returns come from the Merchant Center return policy).
+ */
+export function highlightsOf(kind: string, brand: string | undefined, stars: string | null): string[] {
+  if (!DEVICE_KINDS.has(kind)) return [];
+  const out: string[] = [];
+  if (stars === '4' || stars === '5') out.push('Premium originele kwaliteit');
+  if (BATTERY_KINDS.has(kind)) out.push('Batterij minimaal 85% of kies een nieuwe batterij');
+  if (brand === 'Apple') out.push('2 jaar garantie');
+  out.push('Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie');
+  return out;
+}
+
 const variantLink = (url: string, variantId: string, many: boolean) => many ? `${url}${url.includes('?') ? '&' : '?'}variant=${variantId}` : url;
 
 export function offerHash(input: ProductInput): string {
@@ -196,6 +245,7 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
   const stars = starsOf(p.title);
   const kind = kindOf(p.title, p.category?.fullName);
   const category = googleCategory(kind);
+  const highlights = highlightsOf(kind, brand, stars);
   const variants = p.variants.nodes.filter(v => isPositive(v.price));
   if (!variants.length) return skip('geen prijs');
   const many = p.variants.nodes.length > 1;
@@ -205,6 +255,17 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
     // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
     const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
+    // The variant's own title (e.g. "256GB / Blue") wins over the product title; per field.
+    const variantTitle = v.title && v.title !== 'Default Title' ? v.title : '';
+    const color = (variantTitle && colorOf(variantTitle)) || colorOf(p.title);
+    const own = variantTitle ? specsOf(variantTitle, kind) : {};
+    const base = specsOf(p.title, kind);
+    const specs = { storage: own.storage ?? base.storage, memory: own.memory ?? base.memory };
+    const details = [
+      ...(specs.storage ? [{ sectionName: 'Specificaties', attributeName: 'Opslagcapaciteit', attributeValue: specs.storage }] : []),
+      ...(specs.memory ? [{ sectionName: 'Specificaties', attributeName: 'Werkgeheugen', attributeValue: specs.memory }] : []),
+      ...(stars ? [{ sectionName: 'Staat', attributeName: 'Kwaliteitsklasse', attributeValue: `${stars} sterren` }] : []),
+    ];
     const title = (many && v.title && v.title !== 'Default Title' ? `${p.title} - ${v.title}` : p.title).slice(0, 150);
     const input: ProductInput = {
       offerId: `${opts.test ? TEST_PREFIX : ''}${v.legacyResourceId}`,
@@ -232,6 +293,9 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
         customLabel2: priceBand(selling),
         customLabel3: (brand ?? 'onbekend').slice(0, 100),
         customLabel4: stockBand(qty),
+        ...(color ? { color } : {}),
+        ...(highlights.length >= 2 ? { productHighlights: highlights } : {}),
+        ...(details.length ? { productDetails: details } : {}),
         ...(opts.test ? { excludedDestinations: TEST_EXCLUDED_DESTINATIONS } : {}),
       },
     };

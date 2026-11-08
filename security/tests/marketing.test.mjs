@@ -60,7 +60,7 @@ test('sources are connected only when every setting is present; values are never
   assert.equal(by.trustpilot.connected, false);
   assert.deepEqual(by.trustpilot.missing, ['TRUSTPILOT_BUSINESS_UNIT_ID']);
   assert.doesNotMatch(JSON.stringify(s), /secret-value/);
-  assert.equal(s.length, 8);
+  assert.equal(s.length, 7); // Judge.me dropped (Olivier, 2026-11-08)
 });
 
 test('the marketing page is behind the ERP permission and never prints setting values', () => {
