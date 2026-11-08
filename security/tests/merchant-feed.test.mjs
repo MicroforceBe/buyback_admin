@@ -51,8 +51,8 @@ test('a refurbished webshop product becomes one Google offer with product groups
   assert.equal(offerId, '11'); // same ID as Channable: Google Ads keeps the history
   assert.equal(contentLanguage, 'nl'); assert.equal(feedLabel, 'BE');
   assert.equal(a.description, 'Top toestel & garantie');
-  assert.deepEqual(a.price, { amountMicros: '999000000', currencyCode: 'EUR' });
-  assert.deepEqual(a.salePrice, { amountMicros: '449000000', currencyCode: 'EUR' });
+  assert.deepEqual(a.price, { amountMicros: '449000000', currencyCode: 'EUR' }); // compare-at price (999) is never sent
+  assert.equal(a.salePrice, undefined);
   assert.equal(a.availability, 'IN_STOCK'); assert.equal(a.condition, 'REFURBISHED');
   assert.equal(a.brand, 'Apple'); assert.deepEqual(a.gtins, ['885909627417']);
   assert.equal(a.googleProductCategory, '267');
@@ -81,7 +81,7 @@ test('test offers are prefixed and kept off every Google surface', async () => {
   assert.ok(offers[0].input.productAttributes.excludedDestinations.includes('FREE_LISTINGS'));
 });
 
-test('variants: own link, title, group; no sale price when compare-at is not higher; invalid barcode', async () => {
+test('variants: own link, title, group; no sale price; invalid barcode', async () => {
   const f = await feed();
   const v = (id, title, price, cmp, qty, code) => ({ id: `V${id}`, legacyResourceId: id, title, sku: null, barcodes: { nodes: code ? [{ value: code }] : [] }, price, compareAtPrice: cmp, inventoryQuantity: qty });
   const { offers } = plain(f.productOffers(product({ variants: { nodes: [v('21', '128GB', '1200.00', '1200.00', 0, '1234'), v('22', '256GB', '0', null, 3, null)] } }), { test: false }));
@@ -368,15 +368,17 @@ test('a partial store failure still remembers the stores written, for later remo
   const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes },
     [{ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString(), local_hash: 'previous', local_stores: [], local_sent_at: new Date().toISOString() }]);
   const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => {}, remove: async () => {},
-    insertLocal: async (g, n, inv) => { if (inv.storeCode === 'GENTBRUGGE') throw new Error('Google zegt nee'); } }));
+    insertLocal: async (g, n, inv) => { if (inv.storeCode === 'ANTWERPEN') throw new Error('Google zegt nee'); } }));
   assert.equal(r.status, 'failed');
-  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), ['ANTWERPEN']);
+  assert.match(r.counts.errors[0].reason, /ANTWERPEN: Google zegt nee/);
+  // The failing first store does not stop the second one.
+  assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), ['GENTBRUGGE']);
   assert.equal(tables.merchant_feed_items[0].local_hash, null);
-  // All codes cleared: Antwerpen's stock is removed at Google.
+  // All codes cleared: Gentbrugge's stock is removed at Google.
   tables.merchant_feed_settings[0].store_codes = {};
   const removed = [];
   const again = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => {}, remove: async () => {}, insertLocal: async () => {}, removeLocal: async (g, n, code) => { removed.push(code); } }));
   assert.equal(again.status, 'succeeded');
-  assert.deepEqual(removed, ['ANTWERPEN']);
+  assert.deepEqual(removed, ['GENTBRUGGE']);
   assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), []);
 });
