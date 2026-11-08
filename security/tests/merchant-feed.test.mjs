@@ -405,3 +405,16 @@ test('colour, storage/memory and highlights from the title; only facts that alwa
     { sectionName: 'Staat', attributeName: 'Kwaliteitsklasse', attributeValue: '5 sterren' },
   ]);
 });
+
+test('variant title wins for colour and storage; full titanium finish names', async () => {
+  const f = await feed();
+  assert.equal(f.colorOf('iPhone 16 Pro 256GB White Titanium Refurbished 5* M'), 'White Titanium');
+  assert.equal(f.colorOf('iPhone 16 Pro 128GB Black Titanium Refurbished 4*'), 'Black Titanium');
+  const base = product().variants.nodes[0];
+  const offers = plain(f.productOffers(product({ variants: { nodes: [{ ...base, legacyResourceId: '41', title: '256GB / Blue' }, { ...base, legacyResourceId: '42', title: 'Default variant' }] } }), { test: false })).offers;
+  const a = offers[0].input.productAttributes, b = offers[1].input.productAttributes;
+  assert.equal(a.color, 'Blue');
+  assert.equal(a.productDetails[0].attributeValue, '256 GB');
+  assert.equal(b.color, 'Midnight');
+  assert.equal(b.productDetails[0].attributeValue, '128 GB');
+});

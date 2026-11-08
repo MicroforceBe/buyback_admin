@@ -176,7 +176,7 @@ export function googleCategory(kind: string): string | undefined {
 }
 
 // Colour names as they appear in the titles (longest first, so "Space Black" wins over "Black").
-const COLORS = ['Deep Purple', 'Space Black', 'Space Grey', 'Space Gray', 'Sierra Blue', 'Alpine Green', 'Pacific Blue', 'Marble Grey', 'Onyx Black', 'Rose Gold',
+const COLORS = ['Natural Titanium', 'White Titanium', 'Black Titanium', 'Blue Titanium', 'Desert Titanium', 'Deep Purple', 'Space Black', 'Space Grey', 'Space Gray', 'Sierra Blue', 'Alpine Green', 'Pacific Blue', 'Marble Grey', 'Onyx Black', 'Rose Gold',
   'Midnight', 'Starlight', 'Graphite', 'Silver', 'Gold', 'Black', 'White', 'Blue', 'Green', 'Pink', 'Red', 'Purple', 'Yellow', 'Grey', 'Gray', 'Titanium', 'Beige']
   .sort((a, b) => b.length - a.length);
 
@@ -255,9 +255,12 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
     // What the webshop can sell (locations that fulfil online orders), not the total over all locations.
     const qty = v.sellableOnlineQuantity ?? v.inventoryQuantity ?? 0;
     const gtin = v.barcodes.nodes.map(b => validGtin(b.value)).find(Boolean) ?? null;
-    const fullTitle = many && v.title && v.title !== 'Default Title' ? `${p.title} ${v.title}` : p.title;
-    const color = colorOf(fullTitle);
-    const specs = specsOf(fullTitle, kind);
+    // The variant's own title (e.g. "256GB / Blue") wins over the product title; per field.
+    const variantTitle = many && v.title && v.title !== 'Default Title' ? v.title : '';
+    const color = (variantTitle && colorOf(variantTitle)) || colorOf(p.title);
+    const own = variantTitle ? specsOf(variantTitle, kind) : {};
+    const base = specsOf(p.title, kind);
+    const specs = { storage: own.storage ?? base.storage, memory: own.memory ?? base.memory };
     const details = [
       ...(specs.storage ? [{ sectionName: 'Specificaties', attributeName: 'Opslagcapaciteit', attributeValue: specs.storage }] : []),
       ...(specs.memory ? [{ sectionName: 'Specificaties', attributeName: 'Werkgeheugen', attributeValue: specs.memory }] : []),
