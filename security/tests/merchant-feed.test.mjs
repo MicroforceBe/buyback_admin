@@ -366,7 +366,7 @@ test('a partial store failure still remembers the stores written, for later remo
   const p = product({ variants: { nodes: [{ ...product().variants.nodes[0], inventoryItem: levels(1, 1, 0) }] } });
   const offer = f.productOffers(p, { test: false, storeCodes: codes }).offers[0];
   const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes },
-    [{ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString(), local_hash: null, local_stores: [] }]);
+    [{ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString(), local_hash: 'previous', local_stores: [], local_sent_at: new Date().toISOString() }]);
   const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => {}, remove: async () => {},
     insertLocal: async (g, n, inv) => { if (inv.storeCode === 'GENTBRUGGE') throw new Error('Google zegt nee'); } }));
   assert.equal(r.status, 'failed');
