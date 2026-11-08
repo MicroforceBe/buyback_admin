@@ -199,19 +199,25 @@ export function productOffers(p: FeedProduct, opts: { test: boolean }): { offers
   return { offers };
 }
 
-export type SentRow = { offer_id: string; hash: string; test: boolean };
+export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: string };
+/** Google lets offers expire 30 days after their last upload; unchanged offers are re-sent after this many days. */
+export const REFRESH_AFTER_DAYS = 20;
 
 /**
- * What to send: new or changed offers, and the offers sent earlier that are no longer wanted. Test and
- * live offers are separate; a live run also removes every leftover test offer, a test run never touches
- * live offers.
+ * What to send: new or changed offers, unchanged offers that are getting old (refresh, oldest first), and
+ * the offers sent earlier that are no longer wanted. Test and live offers are separate; a live run also
+ * removes every leftover test offer, a test run never touches live offers.
  */
-export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boolean }) {
+export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boolean; now?: Date }) {
   const byId = new Map(sent.map(r => [r.offer_id, r]));
   const wanted = new Set(offers.map(o => o.input.offerId));
+  const staleBefore = (opts.now ?? new Date()).getTime() - REFRESH_AFTER_DAYS * 86_400_000;
   const upserts = offers.filter(o => byId.get(o.input.offerId)?.hash !== o.hash);
+  const refreshes = offers
+    .filter(o => { const r = byId.get(o.input.offerId); return r && r.hash === o.hash && new Date(r.sent_at).getTime() < staleBefore; })
+    .sort((a, b) => new Date(byId.get(a.input.offerId)!.sent_at).getTime() - new Date(byId.get(b.input.offerId)!.sent_at).getTime());
   const deletes = sent.filter(r => !wanted.has(r.offer_id) && (opts.test ? r.test : true)).map(r => r.offer_id);
-  return { upserts, deletes, unchanged: offers.length - upserts.length };
+  return { upserts, refreshes, deletes, unchanged: offers.length - upserts.length - refreshes.length };
 }
 
 /** Shopify product IDs from what an admin types: numbers, GIDs or admin URLs, separated by spaces or commas. */

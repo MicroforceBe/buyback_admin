@@ -93,11 +93,17 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
       offers.push(...r.offers);
       if (r.skip) skipped.push(r.skip);
     }
-    const { data: sentRows, error: sentError } = await db.from('merchant_feed_items').select('offer_id,hash,test');
-    if (sentError) throw new Error('Verzonden producten konden niet worden geladen.');
-    const plan = planFeed(offers, (sentRows ?? []) as SentRow[], { test });
+    // The whole ledger, page by page (Supabase returns at most 1000 rows per request).
+    const sentRows: SentRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('merchant_feed_items').select('offer_id,hash,test,sent_at').order('offer_id', { ascending: true }).range(from, from + 999);
+      if (error) throw new Error('Verzonden producten konden niet worden geladen.');
+      sentRows.push(...((data ?? []) as SentRow[]));
+      if (!data || data.length < 1000) break;
+    }
+    const plan = planFeed(offers, sentRows, { test });
     Object.assign(counts, {
-      products: products.length, offers: offers.length, unchanged: plan.unchanged, toSend: plan.upserts.length, toRemove: plan.deletes.length,
+      products: products.length, offers: offers.length, unchanged: plan.unchanged, toSend: plan.upserts.length, toRefresh: plan.refreshes.length, toRemove: plan.deletes.length,
       skipped: skipped.length, skippedReasons: Object.fromEntries([...skipped.reduce((m, s) => m.set(s.reason, (m.get(s.reason) ?? 0) + 1), new Map<string, number>())]),
       ...(test ? { skippedList: skipped.slice(0, 20) } : {}),
     });
@@ -106,9 +112,12 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
       return await finish('stopped', `Noodrem: ${plan.upserts.length} producten versturen en ${plan.deletes.length} verwijderen is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Google gestuurd.`);
     }
 
-    // Deletes first (they free offers), then inserts; at most MAX_WRITES_PER_RUN writes, the rest next run.
+    // Deletes first (they free offers), then new/changed offers, then refreshes of ageing offers (these are
+    // not changes, so they do not count for the brake); at most MAX_WRITES_PER_RUN writes, the rest next run.
     const deletes = plan.deletes.slice(0, MAX_WRITES_PER_RUN);
-    const upserts = plan.upserts.slice(0, Math.max(0, MAX_WRITES_PER_RUN - deletes.length));
+    const changed = plan.upserts.slice(0, Math.max(0, MAX_WRITES_PER_RUN - deletes.length));
+    const refreshes = plan.refreshes.slice(0, Math.max(0, MAX_WRITES_PER_RUN - deletes.length - changed.length));
+    const upserts = [...changed, ...refreshes];
     const failed: { offerId: string; reason: string }[] = [];
     let sent = 0, removed = 0;
     await inBatches(deletes, async offerId => {
@@ -127,7 +136,7 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
         sent++;
       } catch (e) { failed.push({ offerId: o.input.offerId, reason: errorText(e) }); }
     });
-    Object.assign(counts, { sent, removed, failed: failed.length, remaining: plan.upserts.length - upserts.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
+    Object.assign(counts, { sent, refreshed: refreshes.length, removed, failed: failed.length, remaining: plan.upserts.length - changed.length + plan.refreshes.length - refreshes.length + plan.deletes.length - deletes.length, ...(failed.length ? { errors: failed.slice(0, 20) } : {}) });
     return await finish(failed.length ? 'failed' : 'succeeded', failed.length ? `${failed.length} product(en) konden niet naar Google; zie de details.` : undefined);
   } catch (e) {
     return await finish('failed', errorText(e));

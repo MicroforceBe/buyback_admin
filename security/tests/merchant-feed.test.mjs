@@ -117,14 +117,32 @@ test('helpers: GTIN check digit, brand, kind, product IDs', async () => {
 test('plan: only changed offers are sent; a test run never removes live offers', async () => {
   const f = await feed();
   const o = (id, hash) => ({ productId: 'P', hash, input: { offerId: id } });
-  const sent = [{ offer_id: '1', hash: 'a', test: false }, { offer_id: '2', hash: 'b', test: false }, { offer_id: 'test-9', hash: 'x', test: true }];
-  const live = plain(f.planFeed([o('1', 'a'), o('3', 'c')], sent, { test: false }));
+  const now = new Date('2026-11-30T00:00:00Z');
+  const recent = '2026-11-25T00:00:00Z';
+  const sent = [{ offer_id: '1', hash: 'a', test: false, sent_at: recent }, { offer_id: '2', hash: 'b', test: false, sent_at: recent }, { offer_id: 'test-9', hash: 'x', test: true, sent_at: recent }];
+  const live = plain(f.planFeed([o('1', 'a'), o('3', 'c')], sent, { test: false, now }));
   assert.deepEqual(live.upserts.map(u => u.input.offerId), ['3']);
   assert.deepEqual(live.deletes.sort(), ['2', 'test-9']);
   assert.equal(live.unchanged, 1);
-  const t = plain(f.planFeed([o('test-8', 'z')], sent, { test: true }));
+  const t = plain(f.planFeed([o('test-8', 'z')], sent, { test: true, now }));
   assert.deepEqual(t.deletes, ['test-9']);
   assert.deepEqual(t.upserts.map(u => u.input.offerId), ['test-8']);
+});
+
+test('unchanged offers are re-sent before Google lets them expire, oldest first', async () => {
+  const f = await feed();
+  const o = (id, hash) => ({ productId: 'P', hash, input: { offerId: id } });
+  const now = new Date('2026-11-30T00:00:00Z');
+  const sent = [
+    { offer_id: 'a', hash: 'h', test: false, sent_at: '2026-11-05T00:00:00Z' },
+    { offer_id: 'b', hash: 'h', test: false, sent_at: '2026-11-01T00:00:00Z' },
+    { offer_id: 'c', hash: 'h', test: false, sent_at: '2026-11-20T00:00:00Z' },
+  ];
+  const p = plain(f.planFeed([o('a', 'h'), o('b', 'h'), o('c', 'h')], sent, { test: false, now }));
+  assert.deepEqual(p.refreshes.map(r => r.input.offerId), ['b', 'a']);
+  assert.equal(p.upserts.length, 0);
+  assert.equal(p.unchanged, 1);
+  assert.equal(f.REFRESH_AFTER_DAYS < 30, true);
 });
 
 // Minimal in-memory Supabase for the run.
@@ -132,9 +150,9 @@ function fakeDb(settings, items = []) {
   const tables = { merchant_feed_settings: [{ id: true, ...settings }], merchant_feed_items: items.map(r => ({ ...r })), merchant_feed_runs: [] };
   const from = name => {
     const t = tables[name];
-    let filters = [], op = 'select', payload = null, single = false;
+    let filters = [], op = 'select', payload = null, single = false, rangeOf = null;
     const q = {
-      select() { return q; }, eq(k, v) { filters.push(r => r[k] === v); return q; }, lt() { filters.push(() => false); return q; },
+      select() { return q; }, order() { return q; }, range(a, b) { rangeOf = [a, b]; return q; }, eq(k, v) { filters.push(r => r[k] === v); return q; }, lt() { filters.push(() => false); return q; },
       maybeSingle() { single = true; return q; }, single() { single = true; return q; },
       update(p) { op = 'update'; payload = p; return q; }, delete() { op = 'delete'; return q; },
       insert(p) { op = 'insert'; payload = p; return q; }, upsert(p) { op = 'upsert'; payload = p; return q; },
@@ -145,7 +163,8 @@ function fakeDb(settings, items = []) {
           if (op === 'upsert') { const i = t.findIndex(r => r.offer_id === payload.offer_id); if (i >= 0) t[i] = payload; else t.push(payload); return Promise.resolve({ error: null }).then(res, rej); }
           if (op === 'update') { t.filter(match).forEach(r => Object.assign(r, payload)); return Promise.resolve({ error: null }).then(res, rej); }
           if (op === 'delete') { for (let i = t.length - 1; i >= 0; i--) if (match(t[i])) t.splice(i, 1); return Promise.resolve({ error: null }).then(res, rej); }
-          const rows = t.filter(match);
+          let rows = t.filter(match);
+          if (rangeOf) rows = rows.slice(rangeOf[0], rangeOf[1] + 1);
           return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null }).then(res, rej);
         } catch (e) { return Promise.reject(e).then(res, rej); }
       },
@@ -168,7 +187,7 @@ const shop = products => ({ graphql: async (q, v) => q.includes('FeedProductsByI
 
 test('live run sends new offers, removes gone ones, and records what was sent', async () => {
   const run = await runModule();
-  const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100 }, [{ offer_id: 'old', product_id: 'P', hash: 'h', test: false }]);
+  const { tables, db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100 }, [{ offer_id: 'old', product_id: 'P', hash: 'h', test: false, sent_at: new Date().toISOString() }]);
   const inserted = [], removed = [];
   const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([product(), product({ id: 'gid://shopify/Product/2', refurbished: { value: 'false' } })]), google, insert: async (g, i) => { inserted.push(i.offerId); }, remove: async (g, n) => { removed.push(n); } }));
   assert.equal(r.status, 'succeeded');
@@ -195,7 +214,7 @@ test('the brake stops a run before anything is sent; off mode does nothing', asy
 
 test('test run only loads the listed products and failures are reported per offer', async () => {
   const run = await runModule();
-  const { tables, db } = fakeDb({ mode: 'test', data_source: google.dataSource, test_products: ['gid://shopify/Product/1'], max_changes: 100 }, [{ offer_id: '55', product_id: 'P', hash: 'h', test: false }]);
+  const { tables, db } = fakeDb({ mode: 'test', data_source: google.dataSource, test_products: ['gid://shopify/Product/1'], max_changes: 100 }, [{ offer_id: '55', product_id: 'P', hash: 'h', test: false, sent_at: new Date().toISOString() }]);
   const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([product()]), google, insert: async () => { throw new Error('Google zegt nee'); }, remove: async () => { throw new Error('live offer must stay'); } }));
   assert.equal(r.status, 'failed');
   assert.deepEqual(r.counts.errors, [{ offerId: 'test-11', reason: 'Google zegt nee' }]);
@@ -216,4 +235,19 @@ test('wiring: cron route needs the secret, runs 5 minutes after the Shopify sync
   const sql = read('security/sql/merchant-feed.sql');
   assert.match(sql, /mode text not null default 'off'/);
   assert.match(sql, /enable row level security/);
+});
+
+test('the ledger is read page by page, so a large feed is never treated as new', async () => {
+  const run = await runModule();
+  const p = product();
+  const f = await feed();
+  const offer = f.productOffers(p, { test: false }).offers[0];
+  const many = Array.from({ length: 2500 }, (_, i) => ({ offer_id: `z${String(i).padStart(5, '0')}`, product_id: 'P', hash: 'h', test: false, sent_at: new Date().toISOString() }));
+  many.push({ offer_id: '11', product_id: p.id, hash: offer.hash, test: false, sent_at: new Date().toISOString() });
+  const { db } = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 5000 }, many);
+  const removed = [];
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db, client: shop([p]), google, insert: async () => { throw new Error('unchanged offer must not be sent'); }, remove: async (g, n) => { removed.push(n); } }));
+  assert.equal(r.counts.toRemove, 2500);
+  assert.equal(r.counts.unchanged, 1);
+  assert.equal(r.counts.toSend, 0);
 });
