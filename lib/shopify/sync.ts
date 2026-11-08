@@ -7,6 +7,7 @@ import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFI
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
+import { publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
 import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -320,7 +321,23 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     }
     counts.recordedChanges = recorded.length;
 
-    if (mode === 'shadow' || plan.changes.length === 0) return await finish('succeeded', counts);
+    // Every active product must be visible in the Online Store (existing ones too, also when nothing else
+    // changed). Shadow mode only counts. A failure here never fails the run: it is reported in the counts.
+    const ensureOnStore = async (live: boolean) => {
+      try {
+        const erpSkus = new Set(desired.map(d => d.sku));
+        const erpProducts = new Set(state.variants.filter(v => erpSkus.has(v.sku)).map(v => v.productId));
+        const r = await publishActiveOnOnlineStore(client, { dryRun: !live, onlyProducts: erpProducts, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
+        Object.assign(counts, publishCounts(r));
+      } catch (e) {
+        counts.onlineStorePublish = `mislukt: ${(e instanceof Error ? e.message : 'onbekende fout').slice(0, 300)}`;
+      }
+    };
+
+    if (mode === 'shadow' || plan.changes.length === 0) {
+      await ensureOnStore(mode !== 'shadow');
+      return await finish('succeeded', counts);
+    }
 
     if (plan.changes.length > settings.max_changes) {
       return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
@@ -359,6 +376,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     }
     const failedSkus = [...new Set([...failed.values()].map(f => f.sku))];
     counts.failedSkus = failedSkus.length;
+    // After the writes, so products the ERP just activated are published in the same run.
+    await ensureOnStore(true);
     return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);
   } catch (error) {
     if (error instanceof StoppedByOperator) {

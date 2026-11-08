@@ -21,7 +21,7 @@ Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicat
 ## Configuratie (Vercel-omgevingsvariabelen, door de eigenaar)
 - `SHOPIFY_STORE_DOMAIN` – bv. `microforce-test.myshopify.com`
 - `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` – van de Dev Dashboard-app "Microforce ERP Sync"
-- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`
+- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, plus `read_publications, write_publications` (actieve producten in de webshop zetten)
 
 ## Uitrol
 1. `security/sql/shopify-sync.sql` op productie (staat al op test).
@@ -185,3 +185,7 @@ Aanpassingen (admin, bevestigen, collectie eerst opnieuw gelezen, terugdraaien k
 - **Koppen**: H1 → H2 met een eigen markering per aanpassing (zoals bij producten).
 
 SQL: `security/sql/shopify-collections.sql` (kolom `scope`, extra soorten in het logboek).
+
+## Zichtbaar in de webshop
+
+Elke run (ook zonder andere wijzigingen) zoekt de actieve producten uit het ERP die niet op het kanaal Online Store staan en publiceert ze daar (max. 200 per run; schaduwmodus telt alleen). Producten die met de hand in Shopify gemaakt zijn, blijven ongemoeid, net als de andere kanalen (Google, Facebook, Shop, POS). Zonder de rechten `read_publications` en `write_publications` wordt dit overgeslagen en staat de reden bij de run. Code: `lib/shopify/publish.ts`.

@@ -1,0 +1,67 @@
+// Keeps every active product visible in the Online Store: the ERP decides the status, but Shopify only
+// shows a product on a channel it is published to, and products created or activated through the API
+// are not published anywhere by themselves. Needs the app permissions read_publications and write_publications.
+import { APP_SCOPES, type ShopifyClient } from '@/lib/shopify/client';
+
+export const ONLINE_STORE_PUBLICATION = `query OnlineStorePublication { publications(first: 50) { nodes { id channels(first: 5) { nodes { handle } } } } }`;
+export const ACTIVE_ON_STORE = `query ActiveOnStore($pub: ID!, $after: String) {
+  products(first: 250, after: $after, query: "status:active") { pageInfo { hasNextPage endCursor } nodes { id title onStore: publishedOnPublication(publicationId: $pub) } }
+}`;
+export const PUBLISH_ON_STORE = `mutation PublishOnStore($id: ID!, $pub: ID!) { publishablePublish(id: $id, input: [{ publicationId: $pub }]) { userErrors { field message } } }`;
+
+/** At most this many products are published per run; the rest follow in the next run. */
+export const MAX_PUBLISH_PER_RUN = 200;
+const REQUIRED = ['read_publications', 'write_publications'];
+
+export type PublishResult =
+  | { status: 'skipped'; reason: string }
+  | { status: 'done'; candidates: number; published: number; failed: { productId: string; title: string; reason: string }[]; remaining: number };
+
+/**
+ * Finds active products that are not on the Online Store and (unless dryRun) publishes them; with
+ * onlyProducts, only those products (the ones the ERP sync manages).
+ * Read-only in shadow mode: only the number that would be published is returned.
+ */
+export async function publishActiveOnOnlineStore(client: ShopifyClient, opts: { dryRun: boolean; stillLive?: () => Promise<boolean>; onlyProducts?: Set<string> }): Promise<PublishResult> {
+  const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
+  const have = new Set((currentAppInstallation?.accessScopes ?? []).map(s => s.handle));
+  const missing = REQUIRED.filter(s => !have.has(s));
+  if (missing.length) return { status: 'skipped', reason: `de app mist het recht ${missing.join(' en ')}` };
+
+  const { publications } = await client.graphql<{ publications: { nodes: { id: string; channels: { nodes: { handle: string }[] } }[] } }>(ONLINE_STORE_PUBLICATION);
+  const pub = publications.nodes.find(p => p.channels.nodes.some(c => c.handle === 'online_store'))?.id;
+  if (!pub) return { status: 'skipped', reason: 'geen Online Store-kanaal gevonden' };
+
+  const hidden: { id: string; title: string }[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 40; page++) {
+    const { products } = await client.graphql<{ products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; onStore: boolean }[] } }>(ACTIVE_ON_STORE, { pub, after });
+    // Only products that come from the ERP: a product made by hand in Shopify keeps its own channels.
+    for (const p of products.nodes) if (!p.onStore && (!opts.onlyProducts || opts.onlyProducts.has(p.id))) hidden.push({ id: p.id, title: p.title });
+    if (!products.pageInfo.hasNextPage) break;
+    after = products.pageInfo.endCursor;
+  }
+  if (opts.dryRun) return { status: 'done', candidates: hidden.length, published: 0, failed: [], remaining: hidden.length };
+
+  const batch = hidden.slice(0, MAX_PUBLISH_PER_RUN);
+  const failed: { productId: string; title: string; reason: string }[] = [];
+  let published = 0;
+  for (const p of batch) {
+    if (opts.stillLive && !(await opts.stillLive())) break;
+    try {
+      const { publishablePublish } = await client.graphql<{ publishablePublish: { userErrors: { message: string }[] } }>(PUBLISH_ON_STORE, { id: p.id, pub });
+      if (publishablePublish.userErrors.length) failed.push({ productId: p.id, title: p.title, reason: publishablePublish.userErrors.map(e => e.message).join('; ').slice(0, 300) });
+      else published++;
+    } catch (e) {
+      failed.push({ productId: p.id, title: p.title, reason: (e instanceof Error ? e.message : 'onbekende fout').slice(0, 300) });
+    }
+  }
+  return { status: 'done', candidates: hidden.length, published, failed, remaining: hidden.length - published - failed.length };
+}
+
+/** Run counts for the sync overview. */
+export function publishCounts(r: PublishResult): Record<string, unknown> {
+  if (r.status === 'skipped') return { onlineStorePublish: `overgeslagen: ${r.reason}` };
+  return { onlineStoreHidden: r.candidates, onlineStorePublished: r.published, onlineStorePublishFailed: r.failed.length,
+    ...(r.failed.length ? { onlineStorePublishErrors: r.failed.slice(0, 10).map(f => `${f.title}: ${f.reason}`) } : {}) };
+}
