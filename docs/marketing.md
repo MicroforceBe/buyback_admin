@@ -9,7 +9,7 @@ Toegang: recht `erp` (lezen); vernieuwen en Merchant-registratie alleen voor beh
 | Search Console | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GSC_SITE_URL` (bv. `sc-domain:microforce.be`) | 1b |
 | Analytics 4 | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GA4_PROPERTY_ID` (cijfers) | 1b |
 | Merchant Center | `GOOGLE_SERVICE_ACCOUNT_JSON`, `MERCHANT_CENTER_ID` (cijfers) | 1b |
-| Mailchimp, Trustpilot, Judge.me | zie de tegels op de pagina | 1c |
+| Mailchimp, Trustpilot | zie de tegels op de pagina | 1c |
 | Google Ads, Meta Ads | zie de tegels op de pagina | 1d |
 
 De pagina controleert alleen óf een instelling ingevuld is; waarden worden nooit getoond of gelogd.
@@ -33,6 +33,7 @@ Actieve, refurbished producten die in de webshop staan, gaan elk kwartier (cron 
 
 - **Per variant één aanbieding**; het aanbiedings-ID is het numerieke variant-ID, hetzelfde als Channable gebruikte, zodat Google Ads de historiek per product houdt.
 - **Velden:** titel, platte beschrijving, link (met `?variant=` bij meerdere varianten), foto's (max. 11), voorraad (in/uit voorraad), alleen de verkoopprijs (de vergelijkingsprijs uit Shopify gaat niet mee: vaak de nieuwprijs, die nooit gevraagd werd), staat refurbished, merk uit het ERP-veld `magento.manufacturer` (OEM = geen merk), GTIN alleen bij een geldige streepjescode (anders `identifierExists: false`), Google-categorie voor smartphone/tablet/laptop/desktop/monitor.
+- **Kleur, opslag en werkgeheugen** uit de titel (`color`, `productDetails`), en de kwaliteitsklasse. **Productkenmerken** (`productHighlights`) alleen voor toestellen en alleen wat altijd waar is: premium originele kwaliteit (4–5 sterren), batterij min. 85% of nieuwe batterij (smartphone, tablet, laptop, smartwatch), 2 jaar garantie (Apple), gecontroleerd op 50 punten, kwaliteitsgarantie. Prijs, verzending, retour en inruil horen er volgens Google niet in (retour komt uit het retourbeleid in Merchant Center).
 - **Productgroepen voor Google Ads:** label 0 soort (Smartphone, Laptop, …), label 1 kwaliteit (sterren uit de titel), label 2 prijsklasse, label 3 merk, label 4 voorraad (uitverkocht, laatste stuk, meerdere).
 - **Alleen wat veranderde** wordt verstuurd (`merchant_feed_items` bewaart een hash per aanbieding); wat niet meer in de feed hoort, wordt verwijderd. Max. 400 schrijfacties per run, de rest volgt. **Noodrem:** meer wijzigingen dan het maximum → de run stuurt niets.
 - **Modi:** *Uit*; *Test*: alleen de opgegeven producten (max. 20), als `test-…`-aanbiedingen die op geen enkel Google-kanaal getoond worden; *Live*: de volledige feed, ruimt ook de testaanbiedingen op. Live vraagt een bevestiging dat de Google-kanalen in Channable uit staan en hun gegevensbron uit Merchant Center verwijderd is (anders staan de producten er dubbel).
@@ -50,4 +51,4 @@ SQL: `security/sql/merchant-feed.sql`. Code: `lib/marketing/merchantFeed.ts` (pu
 - **Nagemaakte website** `getmicroforce.shop` (gebruikt naam en tekst van Microforce): melden en opvolgen; daarna geregeld zoeken naar nieuwe nagemaakte domeinen.
 - **Google Ads**: Shopping-campagnes op de productgroepen van de eigen feed; MacBook-Shopping zonder rendement en afgekeurde advertenties in de merkcampagnes opruimen.
 - **Meta**: welke producten via het Facebook-kanaal naar Meta gaan (alleen refurbished?).
-- **Fase 1c**: Mailchimp, Trustpilot, Judge.me.
+- **Fase 1c**: Mailchimp, Trustpilot. (Judge.me valt weg op vraag van Olivier.)

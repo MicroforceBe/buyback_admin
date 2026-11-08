@@ -382,3 +382,26 @@ test('a partial store failure still remembers the stores written, for later remo
   assert.deepEqual(removed, ['GENTBRUGGE']);
   assert.deepEqual(plain(tables.merchant_feed_items[0].local_stores), []);
 });
+
+test('colour, storage/memory and highlights from the title; only facts that always hold', async () => {
+  const f = await feed();
+  assert.equal(f.colorOf('iPhone 14 Pro 256GB Space Black Refurbished 4*'), 'Space Black');
+  assert.equal(f.colorOf('iPhone 13 128GB Midnight Refurbished 5* M'), 'Midnight');
+  assert.equal(f.colorOf('MacBook Air 13" L20 M1 8GB 256SSD SG Refurbished 4*'), 'Space Grey');
+  assert.equal(f.colorOf('Dell Latitude 5320 I5 8GB 256SSD 13" W11 Refurbished 4*'), undefined);
+  assert.deepEqual(plain(f.specsOf('iPhone 13 128GB Midnight Refurbished 5*', 'Smartphone')), { storage: '128 GB' });
+  assert.deepEqual(plain(f.specsOf('MacBook Pro 16" E23 M2- Pro 16GB 1TB SSD SG Refurbished 4*', 'Laptop')), { storage: '1 TB SSD', memory: '16 GB' });
+  assert.deepEqual(plain(f.specsOf('Dell Latitude 5320 I5 8GB 256SSD 13" W11 Refurbished 4*', 'Laptop')), { storage: '256 GB SSD', memory: '8 GB' });
+  assert.deepEqual(plain(f.specsOf('APPLE MAGIC MOUSE 2 REFURBISHED', 'Accessoire/overig')), {});
+  assert.deepEqual(plain(f.highlightsOf('Smartphone', 'Apple', '5')), ['Premium originele kwaliteit', 'Batterij minimaal 85% of kies een nieuwe batterij', '2 jaar garantie', 'Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie']);
+  assert.deepEqual(plain(f.highlightsOf('Laptop', 'Dell', '3')), ['Batterij minimaal 85% of kies een nieuwe batterij', 'Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie']);
+  assert.deepEqual(plain(f.highlightsOf('Accessoire/overig', 'Apple', '5')), []);
+  for (const h of f.highlightsOf('Smartphone', 'Apple', '5')) assert.doesNotMatch(h, /verzend|retour|€|gratis|prijs/i); // Google: no price/shipping/returns
+  const a = plain(f.productOffers(product(), { test: false })).offers[0].input.productAttributes;
+  assert.equal(a.color, 'Midnight');
+  assert.equal(a.productHighlights.length, 5);
+  assert.deepEqual(a.productDetails, [
+    { sectionName: 'Specificaties', attributeName: 'Opslagcapaciteit', attributeValue: '128 GB' },
+    { sectionName: 'Staat', attributeName: 'Kwaliteitsklasse', attributeValue: '5 sterren' },
+  ]);
+});

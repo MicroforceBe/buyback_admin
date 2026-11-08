@@ -80,7 +80,6 @@ export const SOURCES: Source[] = [
   { key: 'meta_ads', name: 'Meta Ads (Facebook/Instagram)', group: 'Advertenties', shows: 'Uitgaven, bereik en opbrengst per campagne', settings: ['META_ACCESS_TOKEN', 'META_AD_ACCOUNT_ID'], phase: '1d' },
   { key: 'mailchimp', name: 'Mailchimp', group: 'E-mail', shows: 'Lijstgrootte, open- en klikratio, resultaat per campagne', settings: ['MAILCHIMP_API_KEY'], phase: '1c' },
   { key: 'trustpilot', name: 'Trustpilot', group: 'Reputatie', shows: 'Score, aantal reviews, reviews zonder antwoord', settings: ['TRUSTPILOT_API_KEY', 'TRUSTPILOT_BUSINESS_UNIT_ID'], phase: '1c' },
-  { key: 'judgeme', name: 'Judge.me', group: 'Reputatie', shows: 'Productreviews: score, aantal, nieuwe reviews', settings: ['JUDGEME_API_TOKEN'], phase: '1c' },
 ];
 
 /** Connected = every setting is present. Only presence is checked: values are never read or shown. */
