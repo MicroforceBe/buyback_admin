@@ -136,7 +136,12 @@ export function suggestSeoDescription(title: string, refurbished: boolean, warra
     ...batteryPhrases(title).flatMap(([long, short]) => [`Kies voor ${quality} kwaliteit, ${w} en ${long}.`, `${Quality} kwaliteit, ${w} en ${long}.`, `${Quality} kwaliteit, ${w}, ${short}.`]),
     `Kies voor ${quality} kwaliteit en ${w}.`, `${Quality} kwaliteit en ${w}.`, `Met ${w}.`,
   ];
-  for (const q of questions) for (const p of promises) { const t = `${q} ${p}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+  // Distinguishing specs (products sharing a title) matter more than the question form: a compact lead
+  // that keeps them comes before the question without them.
+  const compact = withSpecs ? [`Refurbished ${name}${withSpecs}${cond}, ${w}.`, `Refurbished ${name}${withSpecs}, ${w}.`, `Refurbished ${name}${withSpecs}.`] : [];
+  for (const p of promises) { const t = `${questions[0]} ${p}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+  for (const t of compact) if (t.length <= SEO_DESCRIPTION_MAX) return t;
+  for (const q of questions.slice(1)) for (const p of promises) { const t = `${q} ${p}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
   return cutAtWord(`Refurbished ${name}${cond} bij ${BRAND} met ${w}.`, SEO_DESCRIPTION_MAX);
 }
 

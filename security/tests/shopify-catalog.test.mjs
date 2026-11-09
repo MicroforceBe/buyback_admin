@@ -128,6 +128,12 @@ test('SEO title and meta description follow the shop style and stay within the l
   assert.deepEqual([...seo.conditionMentions('in zeer goede staat')], ['4']);
   assert.deepEqual([...seo.conditionMentions('in goede staat')], ['3']);
   assert.deepEqual([...seo.conditionMentions('in nieuwstaat')], ['5']);
+  // Distinguishing specs survive a long name: two products sharing a title keep different descriptions.
+  const mb = 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD Space Grey Refurbished 4*';
+  const [a, b] = [['10-core CPU', '32-core GPU'], ['8-core CPU', '24-core GPU']].map(x => seo.suggestSeoDescription(mb, true, '24 maanden', x));
+  assert.notEqual(a, b);
+  assert.ok(a.length <= 155 && b.length <= 155);
+  assert.match(a, /10-core CPU/);
   // Ordinary wording is not a condition.
   assert.deepEqual([...seo.conditionMentions('in goede staat voor een zeer goede prijs')], ['3']);
   assert.deepEqual([...seo.conditionMentions('zeer goede batterijduur')], []);
