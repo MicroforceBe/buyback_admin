@@ -4,6 +4,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { gtinsByModel, modelKey } from '@/lib/marketing/merchantFeed';
 import { runModelBarcodesAction, saveGtinsAction } from '../actions';
+import PendingButton from '@/components/ui/PendingButton';
 
 export const dynamic = 'force-dynamic';
 type Row = { key: string; titles: Set<string>; skus: number; stock: number };
@@ -54,7 +55,7 @@ export default async function GtinPage({ searchParams }: { searchParams: Promise
             <h2 className="font-semibold text-slate-900">Barcodes in Shopify</h2>
             Elk uur zet de tool de GTIN van het model in de barcode van refurbished producten <strong>zonder</strong> barcode, zodat hij ook op de productpagina staat (gestructureerde data). Een bestaande barcode wordt nooit overschreven; alleen een code die de tool zelf zette, wordt aangepast als je de GTIN van het model wijzigt.
           </div>
-          <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Nu invullen</button>
+          <PendingButton pendingText="Barcodes worden ingevuld…" hint="Alle producten worden overlopen; kan een minuut duren." className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Nu invullen</PendingButton>
         </form>
       )}
       {isAdmin && (

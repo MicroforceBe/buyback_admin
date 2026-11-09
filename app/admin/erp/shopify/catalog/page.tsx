@@ -6,6 +6,7 @@ import { shopifyConfig } from '@/lib/shopify/client';
 import { ISSUE_GROUPS, ISSUE_LABELS, type CatalogIssue, type Fix, type IssueCode } from '@/lib/shopify/catalog';
 import { applyFixesAction, generateReportAction, revertFixAction } from './actions';
 import { SelectAll, SelectionCount } from './Selection';
+import PendingButton from '@/components/ui/PendingButton';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -62,7 +63,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         <div className="flex justify-between text-xs"><Link href="/admin/erp/shopify" className="text-slate-400 hover:text-white">← Shopify-sync</Link><Link href="/admin/erp/shopify/collections" className="text-sky-300 hover:text-white">Collectierapport →</Link></div>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Catalogusrapport</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Actieve producten en concepten met zwakke foto&apos;s, ontbrekende categorie of collectie, ontbrekende of verkeerde eigenschappen en tags die niet kloppen. Producten met voorraad staan bovenaan. Veilige aanpassingen (Uiterlijk volgens de sterren, categorie zoals een gelijkend product) kan een beheerder hier uitvoeren.</p>
-        {isAdmin && <form action={generateReportAction} className="mt-4"><button className="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-900">Nieuw rapport maken</button><span className="ml-3 text-xs text-slate-400">Duurt 1 à 2 minuten.</span></form>}
+        {isAdmin && <form action={generateReportAction} className="mt-4"><PendingButton dark pendingText="Rapport wordt gemaakt…" hint="Duurt 1 à 2 minuten." className="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-900">Nieuw rapport maken</PendingButton><span className="ml-3 text-xs text-slate-400">Duurt 1 à 2 minuten.</span></form>}
       </div>
 
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
@@ -127,7 +128,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
-                    <button className="rounded-lg bg-slate-900 px-4 py-1.5 font-semibold text-white">Aanpassen</button>
+                    <PendingButton pendingText="Wordt aangepast…" hint="Producten worden één voor één in Shopify aangepast. Bij 200 producten kan dit enkele minuten duren." className="rounded-lg bg-slate-900 px-4 py-1.5 font-semibold text-white">Aanpassen</PendingButton>
                     <details className="text-xs text-slate-600"><summary className="cursor-pointer">Wat wordt er precies gedaan?</summary>
                       <p className="mt-1 max-w-3xl">Elk product wordt eerst opnieuw gelezen. Er wordt alleen iets gewijzigd als de titel sinds het rapport niet veranderd is en het probleem nog bestaat. Foto&apos;s, alt-teksten, kleur, bestaande beschrijvingen en tags zoals main_sku worden nooit automatisch aangepast. Uiterlijk volgt de sterren in de titel; Categorie neemt de tags van het meest gelijkende product over; SEO invullen vult alleen lege velden; SEO vervangen vervangt een slechte tekst (oud wordt bewaard, terugdraaien kan in het logboek); Beschrijving neemt een lege beschrijving over van hetzelfde model. Producten met een SEO-tekst van deze tool krijgen de tag <code>tinyimg_metadata_skip</code>, zodat TinySEO ze niet meer overschrijft.</p>
                     </details>

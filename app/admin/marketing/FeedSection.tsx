@@ -2,6 +2,7 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig } from '@/lib/shopify/client';
 import { createFeedDataSourceAction, runFeedAction, saveFeedSettingsAction, saveStoreCodesAction } from './actions';
+import PendingButton from '@/components/ui/PendingButton';
 
 /** Active Shopify locations (name -> id), or null when Shopify is not reachable. */
 async function shopifyLocations(): Promise<Record<string, string> | null> {
@@ -29,7 +30,7 @@ export default async function FeedSection({ isAdmin }: { isAdmin: boolean }) {
     <section className="space-y-3">
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">Eigen Google-feed</h2>
-        {isAdmin && settings.mode !== 'off' && <form action={runFeedAction}><button className="text-sm text-sky-700 hover:underline">Nu uitvoeren</button></form>}
+        {isAdmin && settings.mode !== 'off' && <form action={runFeedAction}><PendingButton pendingText="Feed loopt…" hint="Kan een paar minuten duren." className="text-sm text-sky-700 hover:underline">Nu uitvoeren</PendingButton></form>}
       </div>
       <p className="text-xs text-slate-500"><a href="/admin/marketing/gtin" className="text-sky-700 hover:underline">Modellen & GTIN beheren →</a></p>
       <p className="text-xs text-slate-500">Vervangt Channable: actieve refurbished producten uit de webshop gaan elk kwartier rechtstreeks naar Merchant Center, met productgroepen (labels 0–4: soort, kwaliteit, prijsklasse, merk, voorraad).</p>
