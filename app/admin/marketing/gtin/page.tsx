@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { modelKey } from '@/lib/marketing/merchantFeed';
+import { gtinsByModel, modelKey } from '@/lib/marketing/merchantFeed';
 import { saveGtinsAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
@@ -25,13 +25,15 @@ export default async function GtinPage({ searchParams }: { searchParams: Promise
     }
     if (!data || data.length < 1000) break;
   }
-  const gtins = new Map<string, { gtin: string; source_url: string | null; updated_by: string }>();
+  const gtinRows: { model_key: string; gtin: string; source_url: string | null; updated_by: string }[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabaseAdmin.from('model_gtins').select('model_key,gtin,source_url,updated_by').order('model_key').range(from, from + 999);
     if (error) break;
-    for (const g of data ?? []) gtins.set(g.model_key, g);
+    gtinRows.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
+  // Rows stored under an older spelling of the model key stay visible under the current key.
+  const gtins = gtinsByModel(gtinRows);
   const list = [...models.values()].sort((a, b) => (b.stock > 0 ? 1 : 0) - (a.stock > 0 ? 1 : 0) || a.key.localeCompare(b.key));
   const inStock = list.filter(r => r.stock > 0);
   const covered = inStock.filter(r => gtins.has(r.key)).length;

@@ -250,6 +250,19 @@ export function modelKey(title: string): string {
     .trim();
 }
 
+/**
+ * Stored GTIN rows keyed by the current model key. Rows saved under an older spelling ("rood") stay
+ * reachable; when two rows meet on one key, the row already stored under that exact key wins.
+ */
+export function gtinsByModel<T extends { model_key: string }>(rows: T[]): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const r of rows) {
+    const key = modelKey(r.model_key);
+    if (!out.has(key) || r.model_key === key) out.set(key, r);
+  }
+  return out;
+}
+
 const variantLink = (url: string, variantId: string, many: boolean) => many ? `${url}${url.includes('?') ? '&' : '?'}variant=${variantId}` : url;
 
 export function offerHash(input: ProductInput): string {

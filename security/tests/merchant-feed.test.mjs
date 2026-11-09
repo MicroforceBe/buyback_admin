@@ -436,6 +436,8 @@ test('model key: every grade of one model shares one key', async () => {
   assert.equal(f.modelKey('Apple Watch Series 10 Alu 46mm Silver/Wit GPS 4G Refur 4*M'), 'apple watch series 10 alu 46mm silver/white gps 4g');
   assert.equal(f.modelKey('iPhone 13 128GB Rood Refurbished 4*'), f.modelKey('iPhone 13 128GB Red Refurbished 5* M'));
   assert.equal(f.modelKey('iPhone 13 256GB Sterrenlicht Refurbished'), 'iphone 13 256gb starlight');
+  const byModel = f.gtinsByModel([{ model_key: 'iphone 13 128gb rood', gtin: '1' }, { model_key: 'iphone 13 128gb red', gtin: '2' }, { model_key: 'iphone 14 128gb rood', gtin: '3' }]);
+  assert.deepEqual([...byModel].map(([k, r]) => [k, r.gtin]).sort(), [['iphone 13 128gb red', '2'], ['iphone 14 128gb red', '3']]);
   assert.equal(f.modelKey('iPhone SE 2022 256GB Midhight Refurbished 5*'), 'iphone se 2022 256gb midnight');
   assert.equal(f.modelKey('iPhone 12 Mini 128 Black Refurbished 4*'), 'iphone 12 mini 128gb black');
   assert.equal(f.modelKey('iPhone 16 Pro 256 GB Black Titanium Refurbished'), 'iphone 16 pro 256gb black titanium');
