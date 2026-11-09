@@ -12,9 +12,11 @@ export const ADS_QUERIES = {
     FROM campaign WHERE segments.date DURING LAST_30_DAYS AND campaign.status != 'REMOVED' AND campaign.advertising_channel_type IN ('SEARCH', 'SHOPPING')`,
   devices: `SELECT segments.device, metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions, metrics.conversions_value
     FROM campaign WHERE segments.date DURING LAST_30_DAYS`,
+  // Rows are per ad group; they are summed per campaign + term before judging (a term that converts in one ad
+  // group is no waste), and only then limited. Terms under EUR 1 per ad group are left out to bound the size.
   searchTerms: `SELECT search_term_view.search_term, campaign.name, metrics.cost_micros, metrics.clicks, metrics.conversions
-    FROM search_term_view WHERE segments.date DURING LAST_30_DAYS AND metrics.cost_micros > 5000000
-    ORDER BY metrics.cost_micros DESC LIMIT 50`,
+    FROM search_term_view WHERE segments.date DURING LAST_30_DAYS AND metrics.cost_micros > 1000000
+    ORDER BY metrics.cost_micros DESC LIMIT 5000`,
   products: `SELECT segments.product_item_id, segments.product_title, metrics.cost_micros, metrics.clicks, metrics.conversions, metrics.conversions_value
     FROM shopping_performance_view WHERE segments.date DURING LAST_30_DAYS
     ORDER BY metrics.cost_micros DESC LIMIT 25`,
@@ -77,11 +79,22 @@ export function adsDevices(rows: { segments?: { device?: string }; metrics?: Met
 
 export type SearchTerm = { term: string; campaign: string; cost: number; clicks: number; conversions: number };
 
-/** Search terms with at least EUR 5 cost; `waste` = those without any conversion, most expensive first. */
+/**
+ * Search terms per campaign (summed over its ad groups) with at least EUR 5 cost; `waste` = those without any
+ * conversion in that campaign, most expensive first, at most 50.
+ */
 export function adsSearchTerms(rows: { searchTermView?: { searchTerm?: string }; campaign?: { name?: string }; metrics?: Metrics }[]): { all: SearchTerm[]; waste: SearchTerm[] } {
-  const all = rows.map(r => ({ term: r.searchTermView?.searchTerm ?? '', campaign: r.campaign?.name ?? '', cost: eur(r.metrics?.costMicros), clicks: n(r.metrics?.clicks), conversions: n(r.metrics?.conversions) }))
-    .filter(t => t.term);
-  return { all, waste: all.filter(t => t.conversions === 0).sort((a, b) => b.cost - a.cost) };
+  const by = new Map<string, SearchTerm>();
+  for (const r of rows) {
+    const term = r.searchTermView?.searchTerm ?? '';
+    if (!term) continue;
+    const campaign = r.campaign?.name ?? '';
+    const key = `${campaign}\u0000${term}`;
+    const cur = by.get(key) ?? { term, campaign, cost: 0, clicks: 0, conversions: 0 };
+    by.set(key, { ...cur, cost: Math.round((cur.cost + eur(r.metrics?.costMicros)) * 100) / 100, clicks: cur.clicks + n(r.metrics?.clicks), conversions: cur.conversions + n(r.metrics?.conversions) });
+  }
+  const all = [...by.values()].filter(t => t.cost >= 5).sort((a, b) => b.cost - a.cost);
+  return { all, waste: all.filter(t => t.conversions === 0).slice(0, 50) };
 }
 
 export function adsProducts(rows: { segments?: { productItemId?: string; productTitle?: string }; metrics?: Metrics }[]): (Totals & { offerId: string; title: string })[] {

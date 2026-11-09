@@ -207,6 +207,14 @@ test('Google Ads: campaigns, devices, wasted search terms and conversion actions
   assert.deepEqual(d.map(x => [x.label, x.cost, x.impressions, x.convRate]), [['Mobiel', 2, 15, 0.5]]);
   const s = plain(ads.adsSearchTerms([{ searchTermView: { searchTerm: 'gratis iphone' }, campaign: { name: 'Merk' }, metrics: { costMicros: '12000000', clicks: '9', conversions: 0 } }, { searchTermView: { searchTerm: 'microforce' }, metrics: { costMicros: '6000000', conversions: 3 } }]));
   assert.deepEqual(s.waste.map(w => [w.term, w.cost]), [['gratis iphone', 12]]);
+  // Summed per campaign over ad groups: a term that converts in one ad group is not waste; small rows add up.
+  const g = plain(ads.adsSearchTerms([
+    { searchTermView: { searchTerm: 'iphone 13' }, campaign: { name: 'A' }, metrics: { costMicros: '9000000', conversions: 0 } },
+    { searchTermView: { searchTerm: 'iphone 13' }, campaign: { name: 'A' }, metrics: { costMicros: '2000000', conversions: 1 } },
+    { searchTermView: { searchTerm: 'hoesje' }, campaign: { name: 'A' }, metrics: { costMicros: '3000000', conversions: 0 } },
+    { searchTermView: { searchTerm: 'hoesje' }, campaign: { name: 'A' }, metrics: { costMicros: '2500000', conversions: 0 } }]));
+  assert.deepEqual(g.waste.map(w => [w.term, w.cost]), [['hoesje', 5.5]]);
+  assert.match(read('lib/marketing/googleAdsData.ts'), /cost_micros > 1000000\s+ORDER BY metrics\.cost_micros DESC LIMIT 5000/);
   assert.deepEqual(plain(ads.adsConversionActions([{ conversionAction: { name: 'Pagina bekeken', category: 'PAGE_VIEW' } }, { conversionAction: { name: 'Aankoop', category: 'PURCHASE', primaryForGoal: true } }])).map(x => [x.name, x.primary]), [['Aankoop', true], ['Pagina bekeken', false]]);
   assert.equal(ads.adsCustomerId('215-899-7052'), '2158997052');
   assert.equal(ads.adsCustomerId('21589'), null);
