@@ -14,7 +14,7 @@ const REDIRECTS_BY_TARGET = `query RedirectsByTarget($q: String!) { urlRedirects
 const REDIRECT_CREATE = `mutation RedirectCreate($path: String!, $target: String!) { urlRedirectCreate(urlRedirect: { path: $path, target: $target }) { urlRedirect { id } userErrors { message } } }`;
 const REDIRECT_UPDATE = `mutation RedirectUpdate($id: ID!, $target: String!) { urlRedirectUpdate(id: $id, urlRedirect: { target: $target }) { urlRedirect { id } userErrors { message } } }`;
 const REDIRECT_DELETE = `mutation RedirectDelete($id: ID!) { urlRedirectDelete(id: $id) { deletedUrlRedirectId userErrors { message } } }`;
-const SIBLINGS = `query Siblings($q: String!) { products(first: 20, query: $q) { nodes { handle title status totalInventory onlineStoreUrl } } }`;
+const SIBLINGS = `query Siblings($q: String!, $after: String) { products(first: 50, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes { handle title status totalInventory onlineStoreUrl } } }`;
 
 const errors = (e: UserError[]) => e.map(x => x.message).join('; ');
 const message = (error: unknown) => (error instanceof Error ? error.message : 'onbekende fout').slice(0, 300);
@@ -34,13 +34,23 @@ export async function redirectProduct(client: ShopifyClient, id: string): Promis
   return product ? { id: product.id, title: product.title, handle: product.handle, collectionHandle: product.collections.nodes[0]?.handle ?? null } : null;
 }
 
-async function siblings(client: ShopifyClient, title: string): Promise<RedirectCandidate[]> {
+// The search is broader than the final check (publication, normalised words), so pages are read until an
+// eligible sibling turns up or the results end (at most 10 pages of 50).
+async function siblings(client: ShopifyClient, product: RedirectProduct): Promise<RedirectCandidate[]> {
+  const found: RedirectCandidate[] = [];
+  let after: string | null = null;
   try {
-    const { products } = await client.graphql<{ products: { nodes: { handle: string; title: string; status: string; totalInventory: number | null; onlineStoreUrl: string | null }[] } }>(SIBLINGS, { q: siblingQuery(title) });
-    return products.nodes.map(n => ({ handle: n.handle, title: n.title, status: n.status, stock: n.totalInventory ?? 0, online: !!n.onlineStoreUrl }));
+    for (let page = 0; page < 10; page++) {
+      type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { handle: string; title: string; status: string; totalInventory: number | null; onlineStoreUrl: string | null }[] } };
+      const data: Page = await client.graphql<Page>(SIBLINGS, { q: siblingQuery(product.title), after });
+      found.push(...data.products.nodes.map(n => ({ handle: n.handle, title: n.title, status: n.status, stock: n.totalInventory ?? 0, online: !!n.onlineStoreUrl })));
+      if (chooseRedirectTarget(product, found).startsWith('/products/') || !data.products.pageInfo.hasNextPage) break;
+      after = data.products.pageInfo.endCursor;
+    }
   } catch {
-    return []; // no sibling search: fall back to the collection
+    // no (further) sibling search: decide with what was found, else the collection
   }
+  return found;
 }
 
 /**
@@ -50,7 +60,7 @@ async function siblings(client: ShopifyClient, title: string): Promise<RedirectC
 export async function redirectArchived(client: ShopifyClient, p: RedirectProduct): Promise<RedirectOutcome> {
   const path = `/products/${p.handle}`;
   try {
-    const target = chooseRedirectTarget(p, await siblings(client, p.title));
+    const target = chooseRedirectTarget(p, await siblings(client, p));
     const { urlRedirects } = await client.graphql<{ urlRedirects: { nodes: { id: string; path: string; target: string }[] } }>(REDIRECT_BY_PATH, { q: `path:"${path}"` });
     const existing = urlRedirects.nodes.find(r => r.path === path); // the search is fuzzy: exact match only
     if (existing) {

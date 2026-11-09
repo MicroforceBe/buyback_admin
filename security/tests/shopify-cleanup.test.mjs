@@ -130,7 +130,7 @@ function fakeClient(nodes, { scopes = [], redirects = [], siblings = [] } = {}) 
         if (name === 'RedirectCreate') { redirects.push({ id: 'r' + nextId++, path: vars.path, target: vars.target }); return { urlRedirectCreate: { userErrors: [] } }; }
         if (name === 'RedirectUpdate') { redirects.find(r => r.id === vars.id).target = vars.target; return { urlRedirectUpdate: { userErrors: [] } }; }
         if (name === 'RedirectDelete') { redirects.splice(redirects.findIndex(r => r.id === vars.id), 1); return { urlRedirectDelete: { deletedUrlRedirectId: vars.id, userErrors: [] } }; }
-        if (name === 'Siblings') return { products: { nodes: siblings } };
+        if (name === 'Siblings') { const pages = Array.isArray(siblings[0]) ? siblings : [siblings]; const i = vars.after ? Number(vars.after) : 0; return { products: { pageInfo: { hasNextPage: i + 1 < pages.length, endCursor: String(i + 1) }, nodes: pages[i] ?? [] } }; }
         throw new Error('unexpected ' + name);
       },
     },
@@ -290,4 +290,16 @@ test('the catch-up resumes where the previous click stopped, so the whole backlo
   const second = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3, after: first.cursor }));
   assert.deepEqual([second.created, second.existing, second.remaining], [2, 1, false]);
   assert.match(read('app/admin/erp/shopify/page.tsx'), /name="after" value=\{params\.after\}/);
+});
+
+test('the sibling search reads further pages until an eligible sibling turns up', async () => {
+  const { db } = fakeDb();
+  const { cleanup } = await load(db);
+  const other = i => ({ handle: 'x-' + i, title: 'Iets anders ' + i, status: 'ACTIVE', totalInventory: 5, onlineStoreUrl: 'https://shop/x' });
+  const pages = [Array.from({ length: 50 }, (_, i) => other(i)), [{ handle: 'product-1-b', title: 'Product 1 Refurbished 5*', status: 'ACTIVE', totalInventory: 1, onlineStoreUrl: 'https://shop/p' }], [other(99)]];
+  const redirects = [];
+  const fake = fakeClient([node(1)], { scopes: ['write_online_store_navigation'], redirects, siblings: pages });
+  await cleanup.runRemoval({ action: 'archive', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client });
+  assert.equal(plain(redirects)[0].target, '/products/product-1-b');
+  assert.equal(fake.calls.filter(c => c[0] === 'Siblings').length, 2);
 });
