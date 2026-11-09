@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as nodeCrypto from 'node:crypto';
 const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/publish': 'lib/shopify/publish.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/publish': 'lib/shopify/publish.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts', '@/lib/shopify/redirects': 'lib/shopify/redirects.ts', '@/lib/shopify/redirectTarget': 'lib/shopify/redirectTarget.ts', '@/lib/marketing/merchantFeed': 'lib/marketing/merchantFeed.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -18,7 +19,7 @@ async function loadModules(db = null) {
     modules.set(path, m);
     await m.link(async spec => {
       if (internal[spec]) return load(internal[spec]);
-      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'key-' + ++n }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
+      const e = { 'server-only': {}, 'node:crypto': { randomUUID: () => 'key-' + ++n, createHash: nodeCrypto.createHash }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
       assert.ok(e, 'unexpected import ' + spec);
       return new vm.SyntheticModule(Object.keys(e), function () { for (const [k, v] of Object.entries(e)) this.setExport(k, v); }, { context });
     });
@@ -486,6 +487,30 @@ test('an article no longer in the ERP gets stock 0 first; after 24 hours without
     assert.equal(!!removalLog, archived);
     if (archived) assert.equal(plain(removalLog.row).actor, 'synchronisatie');
   }
+});
+
+test('an automatic archive gets its 301 right away when the app may write redirects', async () => {
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 0 } });
+  const { db, log } = fakeDb({ mode: 'live', handleMissing: true, missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - 25 * 3_600_000).toISOString() }] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current(), gone]);
+  const base = fake.client.graphql;
+  const created = [];
+  fake.client.graphql = async (query, vars, options) => {
+    const name = query.match(/(?:query|mutation) (\w+)/)?.[1];
+    if (name === 'AppScopes') return { currentAppInstallation: { accessScopes: [{ handle: 'write_online_store_navigation' }] } };
+    if (name === 'ProductInfo') return { product: { id: vars.id, title: 'Oud toestel', handle: 'oud-toestel', collections: { nodes: [{ handle: 'iphone' }] } } };
+    if (name === 'Siblings') return { products: { nodes: [] } };
+    if (name === 'RedirectByPath' || name === 'RedirectsByTarget') return { urlRedirects: { nodes: [] } };
+    if (name === 'RedirectCreate') { created.push(plain(vars)); return { urlRedirectCreate: { userErrors: [] } }; }
+    return base(query, vars, options);
+  };
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(r.status, 'succeeded');
+  assert.deepEqual(created, [{ path: '/products/oud-toestel', target: '/collections/iphone' }]);
+  const row = plain(log.find(l => l.table === 'shopify_product_removals' && l.op === 'insert').row);
+  assert.equal(row.redirect, '/products/oud-toestel → /collections/iphone');
+  assert.equal(row.detail, 'automatisch: niet meer in het ERP');
 });
 
 test('missing articles are only tracked, not changed, while the setting is off; erp-negeren is respected', async () => {

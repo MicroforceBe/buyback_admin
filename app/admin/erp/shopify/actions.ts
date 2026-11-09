@@ -7,6 +7,8 @@ import { requireAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { runShopifySync } from '@/lib/shopify/sync';
 import { runRemoval } from '@/lib/shopify/cleanup';
+import { createShopifyClient, shopifyConfig } from '@/lib/shopify/client';
+import { redirectArchivedBacklog } from '@/lib/shopify/redirects';
 import { MODES, PATH, back } from './modes';
 
 export async function saveSettingsAction(formData: FormData) {
@@ -88,4 +90,22 @@ export async function releaseMissingAction(formData: FormData) {
   revalidatePath(PATH);
   if (updateError) redirect(back({ error: 'Vrijgeven mislukt.' }));
   redirect(back({ saved: 'released' }));
+}
+
+/** One-off: a 301 for every archived product page that has none yet (admin only, at most 60 per click). */
+export async function redirectBacklogAction() {
+  await requireAccess('erp', 'write', true);
+  const cfg = shopifyConfig();
+  if (!cfg) redirect(back({ error: 'Shopify is niet gekoppeld.' }));
+  let params: Record<string, string>;
+  try {
+    const r = await redirectArchivedBacklog(createShopifyClient(cfg));
+    params = r.scope
+      ? { backlog: '1', created: String(r.created), existing: String(r.existing), failed: String(r.failed), remaining: r.remaining ? '1' : '0', ...(r.notes.length ? { error: r.notes.join(' · ').slice(0, 400) } : {}) }
+      : { error: 'Geen doorverwijzingen mogelijk: de Shopify-app mist het recht write_online_store_navigation.' };
+  } catch (error) {
+    params = { error: error instanceof Error ? error.message.slice(0, 300) : 'Doorverwijzingen aanmaken mislukt.' };
+  }
+  revalidatePath(PATH);
+  redirect(back(params));
 }

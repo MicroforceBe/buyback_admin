@@ -4,7 +4,7 @@ import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { shopifyConfig } from '@/lib/shopify/client';
 import { MODES, PATH, back, type Mode } from './modes';
-import { releaseMissingAction, removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
+import { redirectBacklogAction, releaseMissingAction, removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
 import { DELETE_AFTER_DAYS, MAX_PER_ACTION } from '@/lib/shopify/removal';
 
 export const dynamic = 'force-dynamic';
@@ -88,7 +88,10 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
       {params.removed && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
         {{ archive: 'Gearchiveerd', restore: 'Teruggezet als concept', delete: 'Definitief verwijderd' }[params.removed] ?? 'Uitgevoerd'}: {params.ok} · overgeslagen: {params.refused} · mislukt: {params.failed}
-        {params.removed === 'delete' && (params.scope === '1' ? ` · doorverwijzingen: ${params.redirects}` : ' · geen doorverwijzingen (recht write_online_store_navigation ontbreekt nog)')}. Details staan in het logboek onderaan.
+        {(params.removed === 'delete' || params.removed === 'archive') && (params.scope === '1' ? ` · doorverwijzingen: ${params.redirects}` : ' · geen doorverwijzingen (recht write_online_store_navigation ontbreekt nog)')}. Details staan in het logboek onderaan.
+      </div>}
+      {params.backlog && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+        Doorverwijzingen aangemaakt: {params.created} · had er al een: {params.existing} · mislukt: {params.failed}{params.remaining === '1' ? '. Er zijn er nog meer: klik nog eens.' : '.'}
       </div>}
       {params.saved && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.saved === 'stop' ? 'De synchronisatie staat uit.' : params.saved === 'released' ? 'De vastgehouden artikelen zijn vrijgegeven.' : 'Instellingen opgeslagen.'}</div>}
 
@@ -160,7 +163,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Run van {fmt(selected.started_at)}</h2>
           {selected.error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{selected.error}</p>}
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked], ['Niet meer in ERP: voorraad → 0', c.missingStockZeroed], ['Niet meer in ERP: gearchiveerd', c.missingArchived], ['Niet meer in ERP: vastgehouden', c.missingHeld], ['Uit ERP-export (oud in database)', c.notInExport], ['Actief, niet in webshop', c.onlineStoreHidden], ['In webshop gezet', c.onlineStorePublished], ['Webshop: mislukt', c.onlineStorePublishFailed]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
+            {([['ERP-regels', c.erpRows], ['Gekoppeld', c.matched], ['Ongewijzigd', c.unchanged], ['Wijzigingen', c.changes, null], ['Alleen in ERP', c.erpOnly, 'erpOnly'], ['Alleen in Shopify', c.shopifyOnly, 'shopifyOnly'], ['Alleen in Shopify, gearchiveerd', c.shopifyOnlyArchived, 'shopifyArchived'], ['Dubbele SKU in Shopify', c.duplicateSkus, 'duplicate'], ['Dubbele titels in ERP', c.duplicateTitles, 'dupTitles'], ['Niet op locatie', c.notStocked], ['Productconflicten', c.productConflicts], ['Ongeldige rijen', c.invalidRows], ['Mislukte SKU’s', c.failedSkus], ['Nieuwe concepten', c.newDrafts], ['Concepten met dubbele titel', c.newDuplicateTitles], ['Concepten zonder categorie', c.newWithoutCategory], ['Status vergrendeld (erp-nieuw)', c.statusLocked], ['Niet meer in ERP: voorraad → 0', c.missingStockZeroed], ['Niet meer in ERP: gearchiveerd', c.missingArchived], ['Niet meer in ERP: doorverwezen', c.missingRedirects], ['Niet meer in ERP: vastgehouden', c.missingHeld], ['Uit ERP-export (oud in database)', c.notInExport], ['Actief, niet in webshop', c.onlineStoreHidden], ['In webshop gezet', c.onlineStorePublished], ['Webshop: mislukt', c.onlineStorePublishFailed]] as [string, unknown, (ListKey | null)?][]).map(([label, value, target]) => {
               const body = <><dt className="text-xs text-slate-500">{label}</dt><dd className="text-lg font-bold">{value === undefined ? '—' : String(value)}</dd></>;
               if (target === undefined) return <div key={label} className="rounded-xl border p-3">{body}</div>;
               const active = (target ?? null) === view;
@@ -272,7 +275,10 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
       {isAdmin && (
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold">Gearchiveerd via deze tool ({archivedList.length})</h2>
-          <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Als het recht voor doorverwijzingen actief is, wordt de oude productpagina doorverwezen naar de collectie.</p>
+          <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Bij het archiveren krijgt de oude productpagina meteen een 301-doorverwijzing: naar hetzelfde model in een andere graad dat op voorraad is, anders naar de collectie. Terugzetten haalt die doorverwijzing weer weg.</p>
+          <form action={redirectBacklogAction} className="mt-3">
+            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing</button>
+          </form>
           <form action={removalAction} className="mt-4">
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
