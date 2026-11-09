@@ -477,3 +477,9 @@ test('the run reads the model GTINs', async () => {
   assert.match(actions, /validGtin\(rawGtin/);
   assert.match(read('security/sql/model-gtins.sql'), /enable row level security/);
 });
+
+test('saving or withdrawing a GTIN also removes rows stored under an older spelling of that model', () => {
+  const actions = fs.readFileSync(new URL('../../app/admin/marketing/actions.ts', import.meta.url), 'utf8');
+  assert.match(actions, /if \(k !== modelKey\(k\) && touched\.has\(modelKey\(k\)\)\) legacy\.push\(k\)/);
+  assert.match(actions, /const toDelete = \[\.\.\.new Set\(\[\.\.\.removals, \.\.\.legacy\]\)\];/);
+});
