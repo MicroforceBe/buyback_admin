@@ -227,6 +227,11 @@ export function highlightsOf(kind: string, brand: string | undefined, stars: str
  * Model key: the title without the condition part, so all quality grades of one model share one GTIN.
  * "iPhone 13 128GB Midnight Refurbished 5* M" -> "iphone 13 128gb midnight".
  */
+const DUTCH_COLOURS: Record<string, string> = {
+  rood: 'red', groen: 'green', roze: 'pink', blauw: 'blue', goud: 'gold', zilver: 'silver', zwart: 'black', wit: 'white',
+  paars: 'purple', geel: 'yellow', sterrenlicht: 'starlight', middernacht: 'midnight', midhight: 'midnight', spacegrijs: 'space grey', grafiet: 'graphite',
+};
+
 export function modelKey(title: string): string {
   return title
     .toLowerCase()
@@ -236,6 +241,11 @@ export function modelKey(title: string): string {
     .replace(/\bnaturel\b/g, 'natural')
     .replace(/\btitan\.(?=\s|\/|$)/g, 'titanium')
     .replace(/\bspacegrey\b/g, 'space grey')
+    // One model, one key: Dutch colour names and common typos map to the English Apple/Samsung name,
+    // and a bare capacity ("128", "256 gb") gets its unit, so "Rood" and "Red" share their GTIN.
+    .replace(/\b(rood|groen|roze|blauw|goud|zilver|zwart|wit|paars|geel|sterrenlicht|middernacht|midhight|spacegrijs|grafiet)\b/g, w => DUTCH_COLOURS[w] ?? w)
+    .replace(/\b(32|64|128|256|512)\s*gb?\b/g, '$1gb')
+    .replace(/\b(32|64|128|256|512)(?=\s)(?!\s*(gb|tb)\b)/g, '$1gb')
     .replace(/\s+/g, ' ')
     .trim();
 }
