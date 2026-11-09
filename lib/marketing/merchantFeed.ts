@@ -78,20 +78,32 @@ export type ProductInput = {
     excludedDestinations?: string[];
   };
 };
-export type LocalInventory = { storeCode: string; localInventoryAttributes: { availability: 'IN_STOCK' | 'OUT_OF_STOCK'; quantity: string } };
+export type LocalInventory = { storeCode: string; localInventoryAttributes: { availability: 'IN_STOCK' | 'OUT_OF_STOCK'; quantity: string; pickupMethod?: 'BUY'; pickupSla?: 'SAME_DAY' } };
+
+/** Shopify locations with local pickup switched on (the checkout offers "afhalen" there). */
+export const PICKUP_LOCATIONS = `query PickupLocations { locations(first: 50) { nodes { id isActive localPickupSettingsV2 { pickupTime } } } }`;
+export function pickupLocations(nodes: { id: string; isActive: boolean; localPickupSettingsV2: { pickupTime: string } | null }[]): Set<string> {
+  return new Set(nodes.filter(n => n.isActive && n.localPickupSettingsV2).map(n => n.id));
+}
 /** local: the stock per store (only stores with a store code); localHash '' when there is none. */
 export type FeedOffer = { productId: string; input: ProductInput; hash: string; local: LocalInventory[]; localHash: string };
 /** Shopify location ID -> Google Business Profile store code. */
 export type StoreCodes = Record<string, string>;
 
 /** Stock per store for one variant, for the stores that have a store code; sorted for a stable hash. */
-export function localInventories(v: FeedVariant, storeCodes: StoreCodes): LocalInventory[] {
+// Pickup (Olivier, 2026-11): an online order is ready in the store the same day, within the hour. Google then
+// shows "ophalen vandaag" ("pick up today"). Only for a store that has the item and where Shopify's checkout
+// offers local pickup, so the promise in Google always matches the checkout.
+export function localInventories(v: FeedVariant, storeCodes: StoreCodes, pickup: Set<string> = new Set()): LocalInventory[] {
   const out: LocalInventory[] = [];
   for (const level of v.inventoryItem?.inventoryLevels.nodes ?? []) {
     const code = storeCodes[level.location.id];
     if (!code) continue;
     const qty = Math.max(0, level.quantities.find(q => q.name === 'available')?.quantity ?? 0);
-    out.push({ storeCode: code, localInventoryAttributes: { availability: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK', quantity: String(qty) } });
+    out.push({ storeCode: code, localInventoryAttributes: {
+      availability: qty > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK', quantity: String(qty),
+      ...(qty > 0 && pickup.has(level.location.id) ? { pickupMethod: 'BUY' as const, pickupSla: 'SAME_DAY' as const } : {}),
+    } });
   }
   return out.sort((a, b) => a.storeCode.localeCompare(b.storeCode));
 }
@@ -273,7 +285,7 @@ export function offerHash(input: ProductInput): string {
  * Offers for one Shopify product, or the reason it is not sent. Test offers carry the test prefix and
  * are excluded from every destination, so they can be checked in Merchant Center without being shown.
  */
-export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes; gtins?: Map<string, string> }): { offers: FeedOffer[]; skip?: Skip } {
+export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes; gtins?: Map<string, string>; pickup?: Set<string> }): { offers: FeedOffer[]; skip?: Skip } {
   const skip = (reason: string) => ({ offers: [], skip: { productId: p.id, title: p.title, reason } });
   if (p.status !== 'ACTIVE') return skip('niet actief');
   if (p.refurbished?.value !== 'true') return skip('niet refurbished');
@@ -342,7 +354,7 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
         ...(opts.test ? { excludedDestinations: TEST_EXCLUDED_DESTINATIONS } : {}),
       },
     };
-    const local = localInventories(v, opts.storeCodes ?? {});
+    const local = localInventories(v, opts.storeCodes ?? {}, opts.pickup);
     return { productId: p.id, input, hash: offerHash(input), local, localHash: localHashOf(local) };
   });
   return { offers };

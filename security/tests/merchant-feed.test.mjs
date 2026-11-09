@@ -183,7 +183,7 @@ async function runModule() {
   });
 }
 const google = { sa: {}, account: '1', dataSource: 'accounts/1/dataSources/2' };
-const shop = (products, more = {}, levels = {}) => ({ graphql: async (q, v) => q.includes('FeedMoreLevels') ? { inventoryItem: levels[v.id]?.[v.after] ?? null } : q.includes('FeedMoreVariants') ? { product: more[v.id]?.[v.after] ?? null } : q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
+const shop = (products, more = {}, levels = {}, pickup = []) => ({ graphql: async (q, v) => q.includes('PickupLocations') ? { locations: { nodes: pickup } } : q.includes('FeedMoreLevels') ? { inventoryItem: levels[v.id]?.[v.after] ?? null } : q.includes('FeedMoreVariants') ? { product: more[v.id]?.[v.after] ?? null } : q.includes('FeedProductsById') ? { nodes: v.ids.map(id => products.find(p => p.id === id) ?? null) } : { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } } });
 
 test('live run sends new offers, removes gone ones, and records what was sent', async () => {
   const run = await runModule();
@@ -277,6 +277,23 @@ test('availability follows what the webshop can sell, not the total over all sto
 const ANT = 'gid://shopify/Location/1', GENT = 'gid://shopify/Location/2', OUD = 'gid://shopify/Location/3';
 const levels = (a, g, o) => ({ inventoryLevels: { nodes: [[ANT, a], [GENT, g], [OUD, o]].map(([id, q]) => ({ location: { id }, quantities: [{ name: 'available', quantity: q }] })) } });
 
+test('pickup today only in stock, at stores whose checkout offers local pickup', async () => {
+  const f = await feed();
+  const v = { ...product().variants.nodes[0], inventoryItem: levels(3, 2, 0) };
+  const pickup = f.pickupLocations([
+    { id: ANT, isActive: true, localPickupSettingsV2: { pickupTime: 'ONE_HOUR' } },
+    { id: GENT, isActive: true, localPickupSettingsV2: null },
+    { id: OUD, isActive: true, localPickupSettingsV2: { pickupTime: 'ONE_HOUR' } },
+    { id: 'gid://shopify/Location/9', isActive: false, localPickupSettingsV2: { pickupTime: 'ONE_HOUR' } },
+  ]);
+  assert.deepEqual([...pickup], [ANT, OUD]);
+  assert.deepEqual(plain(f.localInventories(v, { [ANT]: 'ANTWERPEN', [GENT]: 'GENTBRUGGE', [OUD]: 'OUDENAARDE' }, pickup)), [
+    { storeCode: 'ANTWERPEN', localInventoryAttributes: { availability: 'IN_STOCK', quantity: '3', pickupMethod: 'BUY', pickupSla: 'SAME_DAY' } },
+    { storeCode: 'GENTBRUGGE', localInventoryAttributes: { availability: 'IN_STOCK', quantity: '2' } },
+    { storeCode: 'OUDENAARDE', localInventoryAttributes: { availability: 'OUT_OF_STOCK', quantity: '0' } },
+  ]);
+});
+
 test('stock per store only for stores with a store code, stable order', async () => {
   const f = await feed();
   const v = { ...product().variants.nodes[0], inventoryItem: levels(0, 2, -1) };
@@ -354,9 +371,10 @@ test('stock levels beyond the first page of locations are fetched before plannin
   const fresh = fakeDb({ mode: 'live', data_source: google.dataSource, test_products: [], max_changes: 100, store_codes: codes });
   await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p], {}, levels), google, insert: async () => {}, remove: async () => {} });
   const sent = [];
-  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p], {}, levels), google, insert: async () => {}, remove: async () => {}, insertLocal: async (g, n, inv) => { sent.push([inv.storeCode, inv.localInventoryAttributes.quantity]); }, removeLocal: async () => { throw new Error('nothing to remove'); } }));
+  const pickupAt = [{ id: OUD, isActive: true, localPickupSettingsV2: { pickupTime: 'ONE_HOUR' } }];
+  const r = plain(await run.runMerchantFeed({ trigger: 'manual', actor: 't' }, { db: fresh.db, client: shop([p], {}, levels, pickupAt), google, insert: async () => {}, remove: async () => {}, insertLocal: async (g, n, inv) => { sent.push([inv.storeCode, inv.localInventoryAttributes.quantity, inv.localInventoryAttributes.pickupSla ?? '-']); }, removeLocal: async () => { throw new Error('nothing to remove'); } }));
   assert.equal(r.status, 'succeeded');
-  assert.deepEqual(sent, [['ANTWERPEN', '1'], ['OUDENAARDE', '3']]);
+  assert.deepEqual(sent, [['ANTWERPEN', '1', '-'], ['OUDENAARDE', '3', 'SAME_DAY']]);
 });
 
 test('a partial store failure still remembers the stores written, for later removal', async () => {

@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { deleteLocalInventory, deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, gtinsByModel, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, gtinsByModel, PICKUP_LOCATIONS, pickupLocations, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -140,10 +140,13 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
       if (!data || data.length < 1000) break;
     }
     const gtins = new Map([...gtinsByModel(gtinRows)].map(([k, r]) => [k, r.gtin]));
+    // Stores where the checkout offers local pickup: those get "ophalen vandaag" in Google.
+    const { locations } = await client.graphql<{ locations: { nodes: { id: string; isActive: boolean; localPickupSettingsV2: { pickupTime: string } | null }[] } }>(PICKUP_LOCATIONS);
+    const pickup = pickupLocations(locations.nodes);
     const offers: FeedOffer[] = [];
     const skipped: Skip[] = [];
     for (const p of products) {
-      const r = productOffers(p, { test, storeCodes, gtins });
+      const r = productOffers(p, { test, storeCodes, gtins, pickup });
       offers.push(...r.offers);
       if (r.skip) skipped.push(r.skip);
     }
