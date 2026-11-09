@@ -8,7 +8,7 @@ import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldV
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -26,6 +26,8 @@ const MAX_NEW_CANDIDATES = 200;
 const MAX_REFERENCES = 15;
 const REFERENCE_BATCH = 5;
 const ARCHIVE_MISSING_AFTER_HOURS = 24;
+// An active product without any SKU in the ERP goes to draft after this delay (a single incomplete import does no harm).
+const DEACTIVATE_MISSING_AFTER_HOURS = 1;
 // More than this many articles disappearing within an hour looks like a broken export: do nothing.
 const MAX_NEWLY_MISSING = 100;
 export const CREATE_FIELD = 'nieuw artikel (draft)';
@@ -313,6 +315,19 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       counts.missingArchived = m.archive.length;
       counts.missingKept = m.kept;
     }
+    // Always: an active product that no longer has any SKU in the ERP goes to draft (stock 0); archiving
+    // stays a manual step unless the cleanup setting above is on.
+    let missingDeactivations: { productId: string; title: string; skus: string[] }[] = [];
+    if (settings.handle_missing !== true) {
+      const heldProducts = new Set(missingCurrent.filter(v => missingInfo.get(v.sku)?.held === true).map(v => v.productId));
+      const firstMissing = new Map([...missingInfo.entries()].map(([sku, i]) => [sku, i.since]));
+      const d = planDeactivateMissing({ missing: missingCurrent.filter(v => !heldProducts.has(v.productId)), all: state.variants, erpSkus: new Set(desired.map(d => d.sku)), firstMissing, now: new Date(), locations, afterHours: DEACTIVATE_MISSING_AFTER_HOURS });
+      plan.inventory.push(...d.inventory);
+      plan.productUpdates.push(...d.deactivate.map(a => ({ id: a.productId, status: 'DRAFT' as const })));
+      plan.changes.push(...d.changes);
+      missingDeactivations = d.deactivate;
+      counts.missingDeactivated = d.deactivate.length;
+    }
     counts.changes = plan.changes.length;
 
     const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
@@ -391,7 +406,19 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       const { error } = await db.from('shopify_product_removals').insert({ product_id: a.productId, title: a.title.slice(0, 255), skus: a.skus, action: 'archive', result: 'ok', redirect, detail: `automatisch: niet meer in het ERP${note ? `; ${note}` : ''}`.slice(0, 1000), actor: 'synchronisatie' });
       if (error) throw new Error(`"${a.title}" is gearchiveerd maar kon niet in het opruimlogboek. Zet het terug als concept en archiveer het opnieuw via Alleen in Shopify.`);
     };
-    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, logArchive);
+    // A product put on draft is a 404 as well: it gets the same 301 (Shopify ignores it again as soon as
+    // the page is live). A redirect problem never fails the run.
+    const deactivatedIds = new Set(missingDeactivations.map(a => a.productId));
+    const afterProductUpdate = async (productId: string) => {
+      await logArchive(productId);
+      if (!deactivatedIds.has(productId)) return;
+      redirectScope ??= await hasRedirectScope(client);
+      if (!redirectScope) return;
+      const product = await redirectProduct(client, productId).catch(() => null);
+      const r = product ? await redirectArchived(client, product) : null;
+      if (r?.redirect) counts.missingRedirects = Number(counts.missingRedirects ?? 0) + 1;
+    };
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate);
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });

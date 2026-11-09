@@ -51,6 +51,12 @@ In de lijst "Alleen in Shopify" kan een beheerder producten selecteren en:
 - **Terugzetten als concept**: maakt het archiveren ongedaan. Het product krijgt de status draft.
 - **Definitief verwijderen** (sectie "Gearchiveerd via deze tool"): pas 30 dagen na het archiveren, na het intypen van `VERWIJDER`.
 
+### Actief zonder ERP-artikel: altijd naar concept
+Ook als het automatisch opruimen uit staat, mag een product niet actief blijven als **geen enkele** SKU ervan nog in het
+ERP-bestand zit. Na 1 uur zet de synchronisatie zo'n product op **concept** en de voorraad op 0, met dezelfde 301-doorverwijzing
+als bij archiveren. Archiveren en verwijderen blijven manueel. Producten met de tag `erp-negeren` en vastgehouden artikelen
+(verdacht veel tegelijk verdwenen) blijven ongemoeid. Komt de SKU terug in het ERP, dan volgt het product weer de ERP-status.
+
 ### Doorverwijzingen (301) voor productpagina's die verdwijnen
 Een gearchiveerd product geeft in de webshop een 404. Daarom krijgt de oude URL `/products/<handle>` een 301-doorverwijzing
 **op het moment van archiveren** (handmatig of automatisch door de synchronisatie), niet pas bij het verwijderen:
