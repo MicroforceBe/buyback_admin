@@ -236,6 +236,8 @@ test('the redirect goes to the same model in stock, else the collection, never a
   assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: 'frontpage' }, []), '/collections/all');
   assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: null }, [c(p.handle, p.title, 5)]), '/collections/all');
   assert.match(target.siblingQuery(p.title), /^status:active inventory_total:>0 title:"iphone" title:"13" title:"128gb" title:"midnight"$/);
+  assert.equal(target.siblingQuery('iPhone 15 Pro Max 256GB Naturel Titanium Refurbished 4*'), 'status:active inventory_total:>0 title:"iphone" title:"15" title:"pro" title:"max" title:"256gb" title:"titanium"');
+  assert.equal(target.siblingQuery('iPad Pro 11" 2022 256GB Wifi SpaceGrey Refurbished 5* M'), 'status:active inventory_total:>0 title:"ipad" title:"pro" title:"11" title:"2022" title:"256gb" title:"wifi"');
 });
 
 test('archiving makes the 301 right away and re-points redirects that pointed to the archived page', async () => {

@@ -22,8 +22,14 @@ export function chooseRedirectTarget(
   return '/collections/all';
 }
 
-/** Search words for Shopify's product search: the model key's words, quoted, so siblings are found cheaply. */
+/**
+ * Search words for Shopify's product search: the model key's words that also appear as-is in the raw
+ * title. Words the key normalises (Naturel → natural, SpaceGrey → space grey, Titan. → titanium) are left
+ * out, because Shopify ANDs the clauses and would miss siblings spelled the other way; the exact model
+ * match happens afterwards in chooseRedirectTarget.
+ */
 export function siblingQuery(title: string): string {
-  const words = modelKey(title).split(' ').map(w => w.replace(/["\\]/g, '')).filter(w => w.length > 0).slice(0, 8);
+  const raw = new Set(title.toLowerCase().split(/[\s/,()]+/).filter(Boolean));
+  const words = modelKey(title).split(' ').filter(w => w && raw.has(w)).map(w => w.replace(/["\\]/g, '')).filter(Boolean).slice(0, 8);
   return ['status:active', 'inventory_total:>0', ...words.map(w => `title:"${w}"`)].join(' ');
 }
