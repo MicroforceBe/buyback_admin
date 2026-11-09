@@ -25,7 +25,7 @@ async function load(db = null) {
     if (m.status === 'linked') await m.evaluate();
     return m;
   }
-  return { removal: (await mod('lib/shopify/removal.ts')).namespace, target: (await mod('lib/shopify/redirectTarget.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null };
+  return { removal: (await mod('lib/shopify/removal.ts')).namespace, target: (await mod('lib/shopify/redirectTarget.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null, redirects: db ? (await mod('lib/shopify/redirects.ts')).namespace : null };
 }
 
 const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', positiveStock: 0, skus: ['OLD' + n], allVariantsChecked: true, collectionHandle: null, ...over });
@@ -228,10 +228,11 @@ test('the removal log is append-only for the application', () => {
 test('the redirect goes to the same model in stock, else the collection, never a generic one', async () => {
   const { target } = await load();
   const p = { handle: 'iphone-13-128gb-midnight-4', title: 'iPhone 13 128GB Midnight Refurbished 4* M', collectionHandle: 'iphone' };
-  const c = (handle, title, stock, status = 'ACTIVE') => ({ handle, title, stock, status });
+  const c = (handle, title, stock, status = 'ACTIVE', online = true) => ({ handle, title, stock, status, online });
   assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-blue-5', 'iPhone 13 128GB Blue Refurbished 5*', 3), c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5* M', 1)]), '/products/iphone-13-128gb-midnight-5');
   assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 0)]), '/collections/iphone');
   assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 2, 'DRAFT')]), '/collections/iphone');
+  assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 2, 'ACTIVE', false)]), '/collections/iphone');
   assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: 'frontpage' }, []), '/collections/all');
   assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: null }, [c(p.handle, p.title, 5)]), '/collections/all');
   assert.match(target.siblingQuery(p.title), /^status:active inventory_total:>0 title:"iphone" title:"13" title:"128gb" title:"midnight"$/);
@@ -241,7 +242,7 @@ test('archiving makes the 301 right away and re-points redirects that pointed to
   const { db, writes } = fakeDb();
   const { cleanup } = await load(db);
   const redirects = [{ id: 'old', path: '/products/older-one', target: '/products/product-1' }];
-  const fake = fakeClient([node(1)], { scopes: ['write_online_store_navigation'], redirects, siblings: [{ handle: 'product-1-b', title: 'Product 1 Refurbished 5*', status: 'ACTIVE', totalInventory: 2 }] });
+  const fake = fakeClient([node(1)], { scopes: ['write_online_store_navigation'], redirects, siblings: [{ handle: 'product-1-b', title: 'Product 1 Refurbished 5*', status: 'ACTIVE', totalInventory: 2, onlineStoreUrl: 'https://shop/products/product-1-b' }, { handle: 'product-1-c', title: 'Product 1 Refurbished 4*', status: 'ACTIVE', totalInventory: 9, onlineStoreUrl: null }] });
   const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client }));
   assert.equal(r.ok, 1);
   assert.equal(r.redirects, 1);
@@ -270,4 +271,21 @@ test('an existing redirect for the path is updated, never duplicated', async () 
   await cleanup.runRemoval({ action: 'delete', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client, now: () => NOW });
   assert.equal(redirects.length, 1);
   assert.equal(fake.calls.filter(c => c[0] === 'RedirectCreate').length, 0);
+});
+
+test('the catch-up resumes where the previous click stopped, so the whole backlog gets done', async () => {
+  const { db } = fakeDb();
+  const { redirects: mod } = await load(db);
+  const archived = Array.from({ length: 5 }, (_, i) => ({ id: 'gid://shopify/Product/' + i, title: 'Oud ' + i, handle: 'oud-' + i, collections: { nodes: [] } }));
+  const fake = fakeClient([], { scopes: ['write_online_store_navigation'] });
+  const base = fake.client.graphql;
+  fake.client.graphql = async (q, v, o) => {
+    if (q.includes('ArchivedProducts')) { const start = v.after ? Number(v.after) : 0; return { products: { pageInfo: { hasNextPage: start + 2 < archived.length, endCursor: String(start + 2) }, nodes: archived.slice(start, start + 2) } }; }
+    return base(q, v, o);
+  };
+  const first = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3 }));
+  assert.deepEqual([first.created, first.remaining, first.cursor], [3, true, '2']);
+  const second = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3, after: first.cursor }));
+  assert.deepEqual([second.created, second.existing, second.remaining], [2, 1, false]);
+  assert.match(read('app/admin/erp/shopify/page.tsx'), /name="after" value=\{params\.after\}/);
 });

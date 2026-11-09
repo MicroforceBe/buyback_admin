@@ -277,6 +277,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <h2 className="text-lg font-semibold">Gearchiveerd via deze tool ({archivedList.length})</h2>
           <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Bij het archiveren krijgt de oude productpagina meteen een 301-doorverwijzing: naar hetzelfde model in een andere graad dat op voorraad is, anders naar de collectie. Terugzetten haalt die doorverwijzing weer weg.</p>
           <form action={redirectBacklogAction} className="mt-3">
+            {params.backlog && params.remaining === '1' && params.after && <input type="hidden" name="after" value={params.after} />}
             <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing</button>
           </form>
           <form action={removalAction} className="mt-4">
