@@ -50,8 +50,20 @@ In de lijst "Alleen in Shopify" kan een beheerder producten selecteren en:
 - **Archiveren**: direct en omkeerbaar. Het product verdwijnt uit de webshop en de verkoopkanalen.
 - **Terugzetten als concept**: maakt het archiveren ongedaan. Het product krijgt de status draft.
 - **Definitief verwijderen** (sectie "Gearchiveerd via deze tool"): pas 30 dagen na het archiveren, na het intypen van `VERWIJDER`.
-  Als de app het recht `write_online_store_navigation` heeft, wordt `/products/<handle>` doorverwezen naar de eerste collectie van het product
-  (anders naar `/collections/all`).
+
+### Doorverwijzingen (301) voor productpagina's die verdwijnen
+Een gearchiveerd product geeft in de webshop een 404. Daarom krijgt de oude URL `/products/<handle>` een 301-doorverwijzing
+**op het moment van archiveren** (handmatig of automatisch door de synchronisatie), niet pas bij het verwijderen:
+1. naar een ander actief product van **hetzelfde model** (zelfde titel zonder graad) dat op voorraad is;
+2. anders naar de eerste collectie van het product (niet `all` of `frontpage`);
+3. anders naar `/collections/all`.
+
+Bestaande doorverwijzingen die naar de gearchiveerde pagina wezen, worden mee omgezet, zodat er geen keten op een dode pagina eindigt.
+**Terugzetten als concept** verwijdert de doorverwijzing weer. Bij definitief verwijderen wordt de bestaande doorverwijzing bijgewerkt.
+De knop "Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing" (sectie "Gearchiveerd via deze tool")
+maakt ze eenmalig aan voor producten die vroeger al gearchiveerd werden (maximaal 60 per klik).
+Alles vraagt het recht `write_online_store_navigation`; ontbreekt dat, dan wordt er niets doorverwezen en staat dat in het logboek.
+Een probleem met een doorverwijzing laat het archiveren of verwijderen nooit mislukken.
 
 Beveiligingen:
 - vlak voor elke actie wordt opnieuw gecontroleerd in Shopify en in de laatste ERP-import;

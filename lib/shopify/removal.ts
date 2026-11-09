@@ -58,5 +58,3 @@ export function checkRemoval(input: {
   return { ok, refused };
 }
 
-/** Where the old product URL should point after deletion: its collection, else the shop's catalogue. */
-export const redirectTarget = (p: ShopifyProductInfo) => (p.collectionHandle ? `/collections/${p.collectionHandle}` : '/collections/all');

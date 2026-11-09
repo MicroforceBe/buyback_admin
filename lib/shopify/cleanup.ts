@@ -2,8 +2,9 @@ import 'server-only';
 // Archives, restores or deletes Shopify products that are no longer in the ERP, with fresh checks at
 // the moment of the action and a log line per product.
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { APP_SCOPES, createShopifyClient, PRODUCT_DELETE, PRODUCT_INFO, PRODUCT_SET_STATUS, shopifyConfig, URL_REDIRECT_CREATE, type ShopifyClient } from '@/lib/shopify/client';
-import { checkRemoval, redirectTarget, type RemovalAction, type ShopifyProductInfo } from '@/lib/shopify/removal';
+import { createShopifyClient, PRODUCT_DELETE, PRODUCT_INFO, PRODUCT_SET_STATUS, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
+import { checkRemoval, type RemovalAction, type ShopifyProductInfo } from '@/lib/shopify/removal';
+import { hasRedirectScope, redirectArchived, removeRedirect } from '@/lib/shopify/redirects';
 
 type Db = typeof supabaseAdmin;
 type UserError = { message: string };
@@ -80,13 +81,8 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
 
   const check = checkRemoval({ action: input.action, requestedIds: ids, products, erpSkus: skus, includeStock: input.includeStock, archivedAt: await archivedAt(db, ids), now: deps.now?.() ?? new Date() });
 
-  let redirectScope = false;
-  if (input.action === 'delete' && check.ok.length) {
-    try {
-      const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
-      redirectScope = currentAppInstallation.accessScopes.some(s => s.handle === 'write_online_store_navigation');
-    } catch { redirectScope = false; }
-  }
+  // Archive and delete point the old URL elsewhere (301); restore removes that redirect again.
+  const redirectScope = check.ok.length ? await hasRedirectScope(client) : false;
 
   // The log is functional state (it drives the 30-day delete flow), so every outcome is stored right
   // after its Shopify call; if storing fails, the run stops and the operator gets a recovery hint.
@@ -105,26 +101,24 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
       if (input.action === 'delete') {
         const { productDelete } = await client.graphql<{ productDelete: { deletedProductId: string | null; userErrors: UserError[] } }>(PRODUCT_DELETE, { id: p.id }, { retryServerErrors: false });
         if (productDelete.userErrors.length || !productDelete.deletedProductId) throw new Error(productDelete.userErrors.map(e => e.message).join('; ') || 'niet verwijderd');
-        let redirect: string | null = null;
-        let note: string | null = redirectScope ? null : 'geen doorverwijzing: recht write_online_store_navigation ontbreekt';
-        if (redirectScope) {
-          // The product is already gone: a redirect problem never turns the deletion into a failure.
-          const target = redirectTarget(p);
-          try {
-            const { urlRedirectCreate } = await client.graphql<{ urlRedirectCreate: { userErrors: UserError[] } }>(URL_REDIRECT_CREATE, { path: `/products/${p.handle}`, target });
-            if (urlRedirectCreate.userErrors.length) note = 'doorverwijzing mislukt: ' + urlRedirectCreate.userErrors.map(e => e.message).join('; ');
-            else { redirect = `/products/${p.handle} → ${target}`; redirects++; }
-          } catch (error) {
-            note = 'doorverwijzing mislukt: ' + (error instanceof Error ? error.message : 'onbekende fout');
-          }
-        }
+        // The product is already gone: a redirect problem never turns the deletion into a failure.
+        const r = redirectScope ? await redirectArchived(client, p) : { redirect: null, note: 'geen doorverwijzing: recht write_online_store_navigation ontbreekt' };
+        if (r.redirect) redirects++;
+        const { redirect, note } = r;
         row = { ...base, result: 'ok', redirect, detail: note };
       } else {
         // Restore puts the product back as draft: the ERP or a person decides when it goes live again.
         const status = input.action === 'archive' ? 'ARCHIVED' : 'DRAFT';
         const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_SET_STATUS, { product: { id: p.id, status } });
         if (productUpdate.userErrors.length) throw new Error(productUpdate.userErrors.map(e => e.message).join('; '));
-        row = { ...base, result: 'ok' };
+        if (input.action === 'archive') {
+          const r = redirectScope ? await redirectArchived(client, p) : { redirect: null, note: 'geen doorverwijzing: recht write_online_store_navigation ontbreekt' };
+          if (r.redirect) redirects++;
+          row = { ...base, result: 'ok', redirect: r.redirect, detail: r.note };
+        } else {
+          const note = redirectScope ? await removeRedirect(client, p.handle) : null;
+          row = { ...base, result: 'ok', detail: note };
+        }
       }
       ok++;
     } catch (error) {

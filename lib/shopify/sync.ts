@@ -9,6 +9,7 @@ import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
 import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
 export type SyncResult =
@@ -371,10 +372,23 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // Archived because no longer in the ERP: logged right away like a manual archive, so the 30-day
     // delete flow applies. If logging fails the run stops (with a recovery hint) before more writes.
     const archiveById = new Map(missingArchives.map(a => [a.productId, a]));
+    // The archived page gets its 301 right away (an archived product is a 404 otherwise); a redirect
+    // problem is noted in the log line and never fails the run.
+    let redirectScope: boolean | undefined;
     const logArchive = async (productId: string) => {
       const a = archiveById.get(productId);
       if (!a) return;
-      const { error } = await db.from('shopify_product_removals').insert({ product_id: a.productId, title: a.title.slice(0, 255), skus: a.skus, action: 'archive', result: 'ok', detail: 'automatisch: niet meer in het ERP', actor: 'synchronisatie' });
+      let redirect: string | null = null;
+      let note: string | null = null;
+      redirectScope ??= await hasRedirectScope(client);
+      if (redirectScope) {
+        const product = await redirectProduct(client, productId).catch(() => null);
+        const r = product ? await redirectArchived(client, product) : { redirect: null, note: 'doorverwijzing mislukt: product niet gevonden' };
+        redirect = r.redirect;
+        note = r.note;
+        if (redirect) counts.missingRedirects = Number(counts.missingRedirects ?? 0) + 1;
+      } else note = 'geen doorverwijzing: recht write_online_store_navigation ontbreekt';
+      const { error } = await db.from('shopify_product_removals').insert({ product_id: a.productId, title: a.title.slice(0, 255), skus: a.skus, action: 'archive', result: 'ok', redirect, detail: `automatisch: niet meer in het ERP${note ? `; ${note}` : ''}`.slice(0, 1000), actor: 'synchronisatie' });
       if (error) throw new Error(`"${a.title}" is gearchiveerd maar kon niet in het opruimlogboek. Zet het terug als concept en archiveer het opnieuw via Alleen in Shopify.`);
     };
     const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, logArchive);

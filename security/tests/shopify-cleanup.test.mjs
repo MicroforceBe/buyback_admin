@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as nodeCrypto from 'node:crypto';
 const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function load(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/removal': 'lib/shopify/removal.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/cleanup': 'lib/shopify/cleanup.ts' };
+  const internal = { '@/lib/shopify/removal': 'lib/shopify/removal.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/cleanup': 'lib/shopify/cleanup.ts', '@/lib/shopify/redirects': 'lib/shopify/redirects.ts', '@/lib/shopify/redirectTarget': 'lib/shopify/redirectTarget.ts', '@/lib/marketing/merchantFeed': 'lib/marketing/merchantFeed.ts' };
   async function mod(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -17,14 +18,14 @@ async function load(db = null) {
     modules.set(path, m);
     await m.link(async spec => {
       if (internal[spec]) return mod(internal[spec]);
-      const e = { 'server-only': {}, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
+      const e = { 'server-only': {}, 'node:crypto': { createHash: nodeCrypto.createHash }, '@/lib/supabaseAdmin': { supabaseAdmin: db } }[spec];
       assert.ok(e, 'unexpected import ' + spec);
       return new vm.SyntheticModule(Object.keys(e), function () { for (const [k, v] of Object.entries(e)) this.setExport(k, v); }, { context });
     });
     if (m.status === 'linked') await m.evaluate();
     return m;
   }
-  return { removal: (await mod('lib/shopify/removal.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null };
+  return { removal: (await mod('lib/shopify/removal.ts')).namespace, target: (await mod('lib/shopify/redirectTarget.ts')).namespace, cleanup: db ? (await mod('lib/shopify/cleanup.ts')).namespace : null, redirects: db ? (await mod('lib/shopify/redirects.ts')).namespace : null };
 }
 
 const P = (n, over = {}) => ({ id: 'gid://shopify/Product/' + n, title: 'Product ' + n, handle: 'product-' + n, status: 'ACTIVE', positiveStock: 0, skus: ['OLD' + n], allVariantsChecked: true, collectionHandle: null, ...over });
@@ -111,8 +112,9 @@ function fakeDb({ erpCount = 600, log = [], failInsertAfter = Infinity } = {}) {
   };
   return { db: { from }, writes };
 }
-function fakeClient(nodes, { scopes = [] } = {}) {
+function fakeClient(nodes, { scopes = [], redirects = [], siblings = [] } = {}) {
   const calls = [];
+  let nextId = 1;
   return {
     calls,
     client: {
@@ -123,7 +125,12 @@ function fakeClient(nodes, { scopes = [] } = {}) {
         if (name === 'AppScopes') return { currentAppInstallation: { accessScopes: scopes.map(handle => ({ handle })) } };
         if (name === 'SetProductStatus') return { productUpdate: { userErrors: [] } };
         if (name === 'DeleteProduct') return { productDelete: { deletedProductId: vars.id, userErrors: [] } };
-        if (name === 'CreateRedirect') return { urlRedirectCreate: { userErrors: [] } };
+        if (name === 'RedirectByPath') return { urlRedirects: { nodes: redirects.filter(r => vars.q === 'path:"' + r.path + '"') } };
+        if (name === 'RedirectsByTarget') return { urlRedirects: { nodes: redirects.filter(r => vars.q === 'target:"' + r.target + '"') } };
+        if (name === 'RedirectCreate') { redirects.push({ id: 'r' + nextId++, path: vars.path, target: vars.target }); return { urlRedirectCreate: { userErrors: [] } }; }
+        if (name === 'RedirectUpdate') { redirects.find(r => r.id === vars.id).target = vars.target; return { urlRedirectUpdate: { userErrors: [] } }; }
+        if (name === 'RedirectDelete') { redirects.splice(redirects.findIndex(r => r.id === vars.id), 1); return { urlRedirectDelete: { deletedUrlRedirectId: vars.id, userErrors: [] } }; }
+        if (name === 'Siblings') { const pages = Array.isArray(siblings[0]) ? siblings : [siblings]; const i = vars.after ? Number(vars.after) : 0; return { products: { pageInfo: { hasNextPage: i + 1 < pages.length, endCursor: String(i + 1) }, nodes: pages[i] ?? [] } }; }
         throw new Error('unexpected ' + name);
       },
     },
@@ -189,7 +196,7 @@ test('delete without retries, with a redirect only when the scope is granted', a
     assert.equal(r.ok, 1);
     const del = fake.calls.find(c => c[0] === 'DeleteProduct');
     assert.deepEqual(del[2], { retryServerErrors: false });
-    const redirect = fake.calls.find(c => c[0] === 'CreateRedirect');
+    const redirect = fake.calls.find(c => c[0] === 'RedirectCreate');
     if (scopes.length) {
       assert.deepEqual(redirect[1], { path: '/products/product-1', target: '/collections/iphones' });
       assert.equal(plain(writes[0].rows)[0].redirect, '/products/product-1 → /collections/iphones');
@@ -216,4 +223,83 @@ test('the removal log is append-only for the application', () => {
   const sql = read('security/sql/shopify-product-removals.sql');
   assert.match(sql, /grant select, insert on public\.shopify_product_removals to service_role;/);
   assert.doesNotMatch(sql, /grant[^;]*(update|delete)[^;]*shopify_product_removals/i);
+});
+
+test('the redirect goes to the same model in stock, else the collection, never a generic one', async () => {
+  const { target } = await load();
+  const p = { handle: 'iphone-13-128gb-midnight-4', title: 'iPhone 13 128GB Midnight Refurbished 4* M', collectionHandle: 'iphone' };
+  const c = (handle, title, stock, status = 'ACTIVE', online = true) => ({ handle, title, stock, status, online });
+  assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-blue-5', 'iPhone 13 128GB Blue Refurbished 5*', 3), c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5* M', 1)]), '/products/iphone-13-128gb-midnight-5');
+  assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 0)]), '/collections/iphone');
+  assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 2, 'DRAFT')]), '/collections/iphone');
+  assert.equal(target.chooseRedirectTarget(p, [c('iphone-13-128gb-midnight-5', 'iPhone 13 128GB Midnight Refurbished 5*', 2, 'ACTIVE', false)]), '/collections/iphone');
+  assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: 'frontpage' }, []), '/collections/all');
+  assert.equal(target.chooseRedirectTarget({ ...p, collectionHandle: null }, [c(p.handle, p.title, 5)]), '/collections/all');
+  assert.match(target.siblingQuery(p.title), /^status:active inventory_total:>0 title:"iphone" title:"13" title:"128gb" title:"midnight"$/);
+  assert.equal(target.siblingQuery('iPhone 15 Pro Max 256GB Naturel Titanium Refurbished 4*'), 'status:active inventory_total:>0 title:"iphone" title:"15" title:"pro" title:"max" title:"256gb" title:"titanium"');
+  assert.equal(target.siblingQuery('iPad Pro 11" 2022 256GB Wifi SpaceGrey Refurbished 5* M'), 'status:active inventory_total:>0 title:"ipad" title:"pro" title:"11" title:"2022" title:"256gb" title:"wifi"');
+});
+
+test('archiving makes the 301 right away and re-points redirects that pointed to the archived page', async () => {
+  const { db, writes } = fakeDb();
+  const { cleanup } = await load(db);
+  const redirects = [{ id: 'old', path: '/products/older-one', target: '/products/product-1' }];
+  const fake = fakeClient([node(1)], { scopes: ['write_online_store_navigation'], redirects, siblings: [{ handle: 'product-1-b', title: 'Product 1 Refurbished 5*', status: 'ACTIVE', totalInventory: 2, onlineStoreUrl: 'https://shop/products/product-1-b' }, { handle: 'product-1-c', title: 'Product 1 Refurbished 4*', status: 'ACTIVE', totalInventory: 9, onlineStoreUrl: null }] });
+  const r = plain(await cleanup.runRemoval({ action: 'archive', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client }));
+  assert.equal(r.ok, 1);
+  assert.equal(r.redirects, 1);
+  assert.deepEqual(plain(redirects).map(x => [x.path, x.target]).sort(), [['/products/older-one', '/products/product-1-b'], ['/products/product-1', '/products/product-1-b']]);
+  assert.equal(plain(writes[0].rows)[0].redirect, '/products/product-1 → /products/product-1-b');
+});
+
+test('restoring removes the redirect so the page is reachable again; without the scope nothing is touched', async () => {
+  for (const scopes of [['write_online_store_navigation'], []]) {
+    const { db } = fakeDb();
+    const { cleanup } = await load(db);
+    const redirects = [{ id: 'r9', path: '/products/product-1', target: '/collections/iphones' }];
+    const fake = fakeClient([node(1, { status: 'ARCHIVED' })], { scopes, redirects });
+    const r = plain(await cleanup.runRemoval({ action: 'restore', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client }));
+    assert.equal(r.ok, 1);
+    assert.equal(redirects.length, scopes.length ? 0 : 1);
+  }
+});
+
+test('an existing redirect for the path is updated, never duplicated', async () => {
+  const log = [{ product_id: node(1).id, action: 'archive', created_at: '2026-10-01T00:00:00Z' }];
+  const { db } = fakeDb({ log });
+  const { cleanup } = await load(db);
+  const redirects = [{ id: 'r1', path: '/products/product-1', target: '/collections/iphones' }];
+  const fake = fakeClient([node(1, { status: 'ARCHIVED' })], { scopes: ['write_online_store_navigation'], redirects });
+  await cleanup.runRemoval({ action: 'delete', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client, now: () => NOW });
+  assert.equal(redirects.length, 1);
+  assert.equal(fake.calls.filter(c => c[0] === 'RedirectCreate').length, 0);
+});
+
+test('the catch-up resumes where the previous click stopped, so the whole backlog gets done', async () => {
+  const { db } = fakeDb();
+  const { redirects: mod } = await load(db);
+  const archived = Array.from({ length: 5 }, (_, i) => ({ id: 'gid://shopify/Product/' + i, title: 'Oud ' + i, handle: 'oud-' + i, collections: { nodes: [] } }));
+  const fake = fakeClient([], { scopes: ['write_online_store_navigation'] });
+  const base = fake.client.graphql;
+  fake.client.graphql = async (q, v, o) => {
+    if (q.includes('ArchivedProducts')) { const start = v.after ? Number(v.after) : 0; return { products: { pageInfo: { hasNextPage: start + 2 < archived.length, endCursor: String(start + 2) }, nodes: archived.slice(start, start + 2) } }; }
+    return base(q, v, o);
+  };
+  const first = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3 }));
+  assert.deepEqual([first.created, first.remaining, first.cursor], [3, true, '2']);
+  const second = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3, after: first.cursor }));
+  assert.deepEqual([second.created, second.existing, second.remaining], [2, 1, false]);
+  assert.match(read('app/admin/erp/shopify/page.tsx'), /name="after" value=\{params\.after\}/);
+});
+
+test('the sibling search reads further pages until an eligible sibling turns up', async () => {
+  const { db } = fakeDb();
+  const { cleanup } = await load(db);
+  const other = i => ({ handle: 'x-' + i, title: 'Iets anders ' + i, status: 'ACTIVE', totalInventory: 5, onlineStoreUrl: 'https://shop/x' });
+  const pages = [Array.from({ length: 50 }, (_, i) => other(i)), [{ handle: 'product-1-b', title: 'Product 1 Refurbished 5*', status: 'ACTIVE', totalInventory: 1, onlineStoreUrl: 'https://shop/p' }], [other(99)]];
+  const redirects = [];
+  const fake = fakeClient([node(1)], { scopes: ['write_online_store_navigation'], redirects, siblings: pages });
+  await cleanup.runRemoval({ action: 'archive', ids: [node(1).id], includeStock: false, actor: 'a' }, { db, client: fake.client });
+  assert.equal(plain(redirects)[0].target, '/products/product-1-b');
+  assert.equal(fake.calls.filter(c => c[0] === 'Siblings').length, 2);
 });
