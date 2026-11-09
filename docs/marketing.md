@@ -53,3 +53,14 @@ SQL: `security/sql/merchant-feed.sql`. Code: `lib/marketing/merchantFeed.ts` (pu
 - **Google Ads**: Shopping-campagnes op de productgroepen van de eigen feed; MacBook-Shopping zonder rendement en afgekeurde advertenties in de merkcampagnes opruimen.
 - **Meta**: welke producten via het Facebook-kanaal naar Meta gaan (alleen refurbished?).
 - **Fase 1c**: Mailchimp, Trustpilot. (Judge.me valt weg op vraag van Olivier.)
+
+## Google Ads-audit (alleen lezen)
+Pagina **Marketing → Google Ads-audit** (`/admin/marketing/ads`), laatste 30 dagen: totalen, campagnes (met vertoningsaandeel en
+verlies door budget/rang voor Zoeken en Shopping), per apparaat, conversieacties, zoektermen die geld kosten zonder conversie
+en de duurste producten. Elke vraag apart: één geweigerde vraag verbergt de rest niet. Cijfers worden een uur bewaard.
+
+- Toegang via hetzelfde serviceaccount als Merchant Center, met de scope `adwords`. Het serviceaccount is in Google Ads
+  toegevoegd met **Alleen-lezen**; de code doet ook alleen `googleAds:search`.
+- Google Ads API-toegang hangt sinds september 2026 aan het Cloud-project (Explorer-niveau, 2.880 bewerkingen per dag);
+  er is geen developer token of beheerdersaccount nodig.
+- Instelling: `GOOGLE_ADS_CUSTOMER_ID` = het klant-ID (10 cijfers, met of zonder streepjes).

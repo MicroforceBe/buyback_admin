@@ -100,6 +100,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
       {params.ok && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.ok}</div>}
 
       <GoogleSection isAdmin={isAdmin} />
+      <p className="text-sm"><a href="/admin/marketing/ads" className="text-sky-700 hover:underline">Google Ads-audit (laatste 30 dagen) →</a></p>
 
       <FeedSection isAdmin={isAdmin} />
 
