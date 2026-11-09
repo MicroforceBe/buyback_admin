@@ -113,11 +113,23 @@ test('run: an empty GTIN table writes nothing (no accidental clears)', async () 
   assert.equal(f.writes.length, 0);
 });
 
-test('clear sends an empty barcode set and keeps the theme fallback rules', async () => {
-  const { syncModelBarcodes } = await load();
+test('clear sends an empty barcode set and marks the code as withdrawn in the same mutation', async () => {
+  const { syncModelBarcodes, MARKER, WITHDRAWN, planModelBarcodes } = await load();
   const f = fakeClient([product({}, [variant({ barcodes: { nodes: [{ value: GTIN }] }, marker: { value: GTIN } })])]);
   await syncModelBarcodes(f.client, new Map([['other', OTHER]]), { dryRun: false });
-  assert.deepEqual(f.writes[0].variants, [{ id: 'V1', barcodes: [] }]);
+  assert.deepEqual(f.writes[0].variants, [{ id: 'V1', barcodes: [], metafields: [{ ...plain(MARKER), value: WITHDRAWN }] }]);
+  // A code typed in again later is not ours anymore.
+  assert.equal(planModelBarcodes([product({}, [variant({ barcodes: { nodes: [{ value: GTIN }] }, marker: { value: WITHDRAWN } })])], new Map([['other', OTHER]])).length, 0);
+});
+
+test('run: pages past 100 pages and fails loudly at the safety stop', async () => {
+  const { syncModelBarcodes } = await load();
+  const many = Array.from({ length: 150 }, (_, i) => product({ id: 'P' + i }, [variant({ id: 'V' + i })]));
+  const f = fakeClient(many);
+  const r = plain(await syncModelBarcodes(f.client, gtins(), { dryRun: true }));
+  assert.equal(r.candidates, 150);
+  const endless = { graphql: async (q, v) => ({ products: { pageInfo: { hasNextPage: true, endCursor: String(Number(v.after ?? 0) + 1) }, nodes: [] } }) };
+  await assert.rejects(syncModelBarcodes(endless, gtins(), { dryRun: true }), /pagina's/);
 });
 
 test('cron route is scheduled and protected; the button is admin-only', () => {

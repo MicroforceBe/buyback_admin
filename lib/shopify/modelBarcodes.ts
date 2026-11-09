@@ -11,7 +11,10 @@ import { gtinsByModel, modelKey, validGtin } from '@/lib/marketing/merchantFeed'
 export const MARKER = { namespace: 'microforce', key: 'model_gtin', type: 'single_line_text_field' } as const;
 /** At most this many variants are written per run; the rest follow in the next run. */
 export const MAX_BARCODE_WRITES = 200;
-const MAX_PAGES = 100;
+/** Safety stop against a looping cursor (50,000 products); reaching it fails the run instead of silently skipping. */
+const MAX_PAGES = 1000;
+/** Marker value after a withdrawal: never equal to a barcode, so a code typed in later is never seen as ours. */
+export const WITHDRAWN = 'ingetrokken';
 
 export const BARCODE_PRODUCTS = `query ModelBarcodeProducts($after: String) {
   products(first: 50, after: $after, query: "-status:archived") {
@@ -75,7 +78,8 @@ export async function syncModelBarcodes(client: ShopifyClient, gtins: Map<string
   if (!gtins.size) return { status: 'skipped', reason: 'geen GTIN\'s in de tabel' };
   const products: BarcodeProduct[] = [];
   let after: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; ; page++) {
+    if (page >= MAX_PAGES) throw new Error(`Meer dan ${MAX_PAGES} pagina's producten; de barcode-run is gestopt zonder iets te schrijven.`);
     const r: { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: BarcodeProduct[] } } = await client.graphql(BARCODE_PRODUCTS, { after });
     products.push(...r.products.nodes);
     if (!r.products.pageInfo.hasNextPage || !r.products.pageInfo.endCursor || r.products.pageInfo.endCursor === after) break;
@@ -96,7 +100,8 @@ export async function syncModelBarcodes(client: ShopifyClient, gtins: Map<string
       const variants = list.map(c => ({
         id: c.variantId,
         barcodes: c.to ? [{ value: c.to }] : [],
-        ...(c.to ? { metafields: [{ ...MARKER, value: c.to }] } : {}),
+        // In the same mutation as the barcode: a withdrawn code no longer counts as ours.
+        metafields: [{ ...MARKER, value: c.to ?? WITHDRAWN }],
       }));
       const r = await client.graphql<{ productVariantsBulkUpdate: { userErrors: { field: string[] | null; message: string }[] } }>(VARIANTS_UPDATE, { productId, variants });
       const errors = r.productVariantsBulkUpdate?.userErrors ?? [];
