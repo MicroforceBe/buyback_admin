@@ -106,17 +106,37 @@ test('SEO title and meta description follow the shop style and stay within the l
     assert.ok(seo.suggestSeoDescription(t, true, '24 maanden').length <= 155);
   }
   const d = seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 4* M', true, '24 maanden');
-  assert.equal(d, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.');
+  assert.equal(d, 'Op zoek naar een refurbished iPhone 13 128GB Blue in zeer goede staat? Premium kwaliteit, 24 maanden garantie, batterij min. 85% of een nieuwe.');
   assert.doesNotMatch(d, /€/);
-  // Premium only for 4* and 5*; other grades get checked quality; new products get no quality line.
-  assert.match(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 5* M', true, '24 maanden'), /Premium kwaliteit/);
-  assert.match(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 3* M', true, '24 maanden'), /Gecontroleerde kwaliteit aan een scherpe prijs\.$/);
+  // Premium only for 4* and 5*; other grades get checked quality; new products keep the plain sentence.
+  assert.match(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 5* M', true, '24 maanden'), /in nieuwstaat\? .*premium kwaliteit/i);
+  assert.match(seo.suggestSeoDescription('Samsung Galaxy S23 128GB Black Refurbished 3* M', true, '12 maanden'), /in goede staat\? .*Gecontroleerde kwaliteit, 12 maanden garantie/i);
   assert.doesNotMatch(seo.suggestSeoDescription('iPhone 13 128GB Blue Refurbished 3* M', true, '24 maanden'), /premium/i);
-  assert.doesNotMatch(seo.suggestSeoDescription('Apple USB-C kabel 1M', false, null), /kwaliteit/);
-  // With a long name the short form keeps condition and warranty in.
+  assert.doesNotMatch(seo.suggestSeoDescription('Apple USB-C kabel 1M', false, null), /kwaliteit|batterij/);
+  // Battery (Olivier, 2026-11): at least 85% for devices with a battery; a new one by choice only for iPhone and MacBook.
+  assert.match(seo.suggestSeoDescription('iPhone 12 256GB Purple Refurbished 4* M', true, '12 maanden'), /85% of een nieuwe\.$/);
+  assert.doesNotMatch(seo.suggestSeoDescription('Samsung Galaxy S23 128GB Black Refurbished 3* M', true, '12 maanden'), /nieuwe\.$/);
+  assert.match(seo.suggestSeoDescription('Samsung Galaxy S23 128GB Black Refurbished 3* M', true, '12 maanden'), /85%\.$/);
+  assert.doesNotMatch(seo.suggestSeoDescription('iMac 24" M1 8GB 256GB Blue Refurbished 4*', true, '12 maanden'), /batterij/);
+  // The warranty comes from the product field, as given.
+  assert.match(seo.suggestSeoDescription('iPhone 13 mini 128GB Midnight Refurbished 4* M', true, '2 jaar'), /2 jaar garantie/);
+  // With a long name the model, condition and warranty stay; the battery promise shortens or goes first.
   const lng = seo.suggestSeoDescription('MacBook Pro 14" M4 16GB 512GB Space Black Refurbished 5*', true, '24 maanden');
   assert.ok(lng.length <= 155);
-  assert.match(lng, /conditie Als nieuw.*24 maanden garantie\. Premium kwaliteit/i);
+  assert.match(lng, /MacBook Pro 14" M4 16GB 512GB Space Black in nieuwstaat\? Premium kwaliteit, 24 maanden garantie/);
+  // The new condition wording is recognised by the condition check.
+  assert.deepEqual([...seo.conditionMentions('in zeer goede staat')], ['4']);
+  assert.deepEqual([...seo.conditionMentions('in goede staat')], ['3']);
+  assert.deepEqual([...seo.conditionMentions('in nieuwstaat')], ['5']);
+  // Distinguishing specs survive a long name: two products sharing a title keep different descriptions.
+  const mb = 'MacBook Pro 16" L21 M1 Max 64GB 2TB SSD Space Grey Refurbished 4*';
+  const [a, b] = [['10-core CPU', '32-core GPU'], ['8-core CPU', '24-core GPU']].map(x => seo.suggestSeoDescription(mb, true, '24 maanden', x));
+  assert.notEqual(a, b);
+  assert.ok(a.length <= 155 && b.length <= 155);
+  assert.match(a, /10-core CPU/);
+  // Ordinary wording is not a condition.
+  assert.deepEqual([...seo.conditionMentions('in goede staat voor een zeer goede prijs')], ['3']);
+  assert.deepEqual([...seo.conditionMentions('zeer goede batterijduur')], []);
 });
 
 test('SEO texts the tool placed and that are still unchanged get a replacement proposal when the proposal changed', async () => {
@@ -137,7 +157,7 @@ test('SEO texts the tool placed and that are still unchanged get a replacement p
     P(4, { ...base, seoTitle: 'Eigen titel', seoDescription: 'Koop refurbished vier.' }), P(5, { ...base, seoDescription: 'Eigen meta vijf.' })], managed));
   const by = Object.fromEntries(issues.map(i => [i.productId.split('/').pop(), i]));
   assert.ok(by[1].issues.includes('seo_outdated'));
-  assert.deepEqual(by[1].fixes.find(f => f.kind === 'seo_replace').description, 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.');
+  assert.deepEqual(by[1].fixes.find(f => f.kind === 'seo_replace').description, 'Op zoek naar een refurbished iPhone 13 128GB Blue in zeer goede staat? Premium kwaliteit, 24 maanden garantie, batterij min. 85% of een nieuwe.');
   // Not placed by the tool (2), or changed since (3): no replacement on this ground.
   for (const n of [2, 3, 5]) assert.ok(!(by[n]?.fixes ?? []).some(f => f.kind === 'seo_replace'), String(n));
   const four = by[4].fixes.find(f => f.kind === 'seo_replace');
@@ -196,7 +216,7 @@ test('SEO and description issues are reported with fix proposals', async () => {
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
   assert.deepEqual(by[1].issues, ['seo_title_missing', 'seo_description_missing', 'description_empty', 'alt_missing']);
   assert.deepEqual(by[1].fixes, [
-    { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.' },
+    { kind: 'seo', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Op zoek naar een refurbished iPhone 13 128GB Blue in zeer goede staat? Premium kwaliteit, 24 maanden garantie, batterij min. 85% of een nieuwe.' },
     { kind: 'description', fromProductId: 'gid://shopify/Product/2', fromTitle: 'iPhone 13 256GB Black Refurbished 5* M' },
     { kind: 'alt_photo', count: 1, example: 'Refurbished iPhone 13 128GB Blue' },
   ]);
@@ -341,7 +361,7 @@ test('weak SEO texts are recognised and get a replacement proposal with the old 
   ]));
   const by = Object.fromEntries(r.issues.map(i => [i.productId.split('/').pop(), i]));
   assert.deepEqual(by[1].issues, ['seo_raw']);
-  assert.deepEqual(by[1].fixes, [{ kind: 'seo_replace', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Koop refurbished iPhone 13 128GB Blue in conditie Zeer Goed bij Microforce met 24 maanden garantie. Premium kwaliteit aan een scherpe prijs.', oldTitle: `${t} kopen - Microforce`, oldDescription: 'Koop vanaf €299 bij Microforce met garantie!' }]);
+  assert.deepEqual(by[1].fixes, [{ kind: 'seo_replace', title: 'Refurbished iPhone 13 128GB Blue – Zeer Goed | Microforce', description: 'Op zoek naar een refurbished iPhone 13 128GB Blue in zeer goede staat? Premium kwaliteit, 24 maanden garantie, batterij min. 85% of een nieuwe.', oldTitle: `${t} kopen - Microforce`, oldDescription: 'Koop vanaf €299 bij Microforce met garantie!' }]);
   assert.deepEqual(by[2].issues, ['seo_description_duplicate']);
   assert.equal(by[2].fixes[0].kind, 'seo_replace');
 });
@@ -597,7 +617,7 @@ test('the report only updates SEO fields the tool generated, not a kept hand-wri
   await run.generateCatalogReport('a', { db, client: { bulkQuery: async () => line } });
   const fix = writes[0].issues.find(i => i.productId === 'gid://shopify/Product/9').fixes.find(f => f.kind === 'seo_replace');
   assert.equal(fix.title, 'Eigen titel');
-  assert.match(fix.description, /Premium kwaliteit aan een scherpe prijs\.$/);
+  assert.match(fix.description, /Premium kwaliteit, .*garantie/);
 });
 
 test('a replacement that kept a hand-written title is logged as such, so the next report keeps it too', async () => {

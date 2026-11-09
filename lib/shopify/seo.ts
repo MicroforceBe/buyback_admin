@@ -91,33 +91,58 @@ export function suggestSeoTitle(title: string, refurbished: boolean, extras: str
   return options.find(o => o.length <= SEO_TITLE_MAX) ?? cutAtWord(plain, SEO_TITLE_MAX);
 }
 
-/**
- * The shop's promise for refurbished products, long and short form: "premium" only for condition 4* and 5*
- * (no visible wear); other grades, or no grade in the title, get "gecontroleerde kwaliteit".
- */
-export function qualityLine(title: string): [string, string] {
-  const stars = starsOf(title);
-  const word = stars === '4' || stars === '5' ? 'Premium' : 'Gecontroleerde';
-  return [`${word} kwaliteit aan een scherpe prijs.`, `${word} kwaliteit, scherpe prijs.`];
-}
-
 const PICKUP = ['Gratis afhalen in Gentbrugge, Antwerpen & Oudenaarde of snelle levering in België.', 'Gratis afhalen of snelle levering in België.'];
 
-/** Suggested meta description (max. 155 characters), only from facts the shop already states. No prices: they change. */
+/** "in zeer goede staat": the condition as the customer says it (5* "nieuwstaat", 4* "zeer goede staat", 3* "goede staat"). */
+const CONDITION_PHRASE: Record<string, string> = { '5': 'in nieuwstaat', '4': 'in zeer goede staat', '3': 'in goede staat' };
+
+/**
+ * The battery promise (Olivier, 2026-11): every refurbished device with a battery has at least 85%;
+ * for iPhones and MacBooks the customer can choose a new battery. Longest form first; none for devices
+ * without a battery (desktops, monitors, accessories).
+ */
+export function batteryPhrases(title: string): [string, string][] {
+  const t = title.toLowerCase();
+  // [long, short] forms.
+  if (/\b(iphone|macbook)\b/.test(t)) return [['een batterij van minstens 85% of een nieuwe', 'batterij min. 85% of een nieuwe'], ['een batterij van minstens 85%', 'batterij min. 85%']];
+  if (/\b(imac|mac mini|mac studio|mac pro|desktop|all-in-one|optiplex|monitor|beeldscherm)\b/.test(t)) return [];
+  if (/\b(phone|smartphone|galaxy|pixel|ipad|tablet|tab|watch|laptop|notebook|chromebook|latitude|thinkpad|elitebook|probook|surface|airpods)\b/.test(t)) return [['een batterij van minstens 85%', 'batterij min. 85%']];
+  return [];
+}
+
+/**
+ * Suggested meta description (max. 155 characters), only from facts the shop states, as a question to the
+ * customer: "Op zoek naar een refurbished iPhone 12 256GB Purple in zeer goede staat? Kies voor premium
+ * kwaliteit, 12 maanden garantie en een batterij van minstens 85%." Warranty from the product's own
+ * field. When too long, the battery promise gets shorter first, then goes; the model is never cut first.
+ * No prices: they change.
+ */
 export function suggestSeoDescription(title: string, refurbished: boolean, warranty: string | null, extras: string[] = []): string {
   const name = seoName(title);
-  const cond = conditionLabel(title);
+  const stars = starsOf(title);
   const w = warranty?.trim() ? `${warranty.trim()} garantie` : 'garantie';
   const withSpecs = extras.length ? ` met ${extras.join(' en ')}` : '';
-  const leads = refurbished
-    ? [`Koop refurbished ${name}${withSpecs}${cond ? ` in conditie ${cond}` : ''} bij ${BRAND} met ${w}.`, `Koop refurbished ${name}${withSpecs} bij ${BRAND} met ${w}.`, ...(withSpecs ? [`Refurbished ${name}${withSpecs} bij ${BRAND}.`] : [])]
-    : [`Koop ${name}${withSpecs} bij ${BRAND} met garantie.`];
-  // Condition and warranty matter most, then the quality line, then the pickup sentence: a fuller lead
-  // without tail beats a shorter lead with one.
-  const quality = refurbished ? qualityLine(title) : null;
-  const tails = quality ? [...PICKUP.map(p => `${quality[0]} ${p}`), ...quality, ...PICKUP, ''] : [...PICKUP, ''];
-  for (const lead of leads) for (const tail of tails) { const t = tail ? `${lead} ${tail}` : lead; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
-  return cutAtWord(leads[leads.length - 1], SEO_DESCRIPTION_MAX);
+  if (!refurbished) {
+    const lead = `Koop ${name}${withSpecs} bij ${BRAND} met garantie.`;
+    for (const tail of [...PICKUP, '']) { const t = tail ? `${lead} ${tail}` : lead; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+    return cutAtWord(lead, SEO_DESCRIPTION_MAX);
+  }
+  const cond = stars && CONDITION_PHRASE[stars] ? ` ${CONDITION_PHRASE[stars]}` : '';
+  const quality = stars === '4' || stars === '5' ? 'premium' : 'gecontroleerde';
+  const questions = [`Op zoek naar een refurbished ${name}${withSpecs}${cond}?`, ...(withSpecs ? [`Op zoek naar een refurbished ${name}${cond}?`] : [])];
+  const Quality = quality[0].toUpperCase() + quality.slice(1);
+  // Per battery form: the full sentence, then the compact one; without battery last.
+  const promises = [
+    ...batteryPhrases(title).flatMap(([long, short]) => [`Kies voor ${quality} kwaliteit, ${w} en ${long}.`, `${Quality} kwaliteit, ${w} en ${long}.`, `${Quality} kwaliteit, ${w}, ${short}.`]),
+    `Kies voor ${quality} kwaliteit en ${w}.`, `${Quality} kwaliteit en ${w}.`, `Met ${w}.`,
+  ];
+  // Distinguishing specs (products sharing a title) matter more than the question form: a compact lead
+  // that keeps them comes before the question without them.
+  const compact = withSpecs ? [`Refurbished ${name}${withSpecs}${cond}, ${w}.`, `Refurbished ${name}${withSpecs}, ${w}.`, `Refurbished ${name}${withSpecs}.`] : [];
+  for (const p of promises) { const t = `${questions[0]} ${p}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+  for (const t of compact) if (t.length <= SEO_DESCRIPTION_MAX) return t;
+  for (const q of questions.slice(1)) for (const p of promises) { const t = `${q} ${p}`; if (t.length <= SEO_DESCRIPTION_MAX) return t; }
+  return cutAtWord(`Refurbished ${name}${cond} bij ${BRAND} met ${w}.`, SEO_DESCRIPTION_MAX);
 }
 
 /**
@@ -141,10 +166,10 @@ export function pickDescription<T extends { title: string; descriptionHtml?: str
 export function conditionMentions(text: string): Set<string> {
   const t = ` ${text.toLowerCase()} `;
   const out = new Set<string>([...t.matchAll(/\b([345])\s*\*/g)].map(m => m[1]));
-  if (/\bals nieuw\b/.test(t)) out.add('5');
-  if (/\bzeer goed\b/.test(t)) out.add('4');
-  // "Goed" alone is a common word; only "conditie goed" counts as the 3* label.
-  if (/\bconditie goed\b/.test(t)) out.add('3');
+  if (/\bals nieuw\b|\bnieuwstaat\b/.test(t)) out.add('5');
+  if (/\bzeer goed\b|\bzeer goede staat\b/.test(t)) out.add('4');
+  // "Goed" alone is a common word; only "conditie goed" and "(in) goede staat" (not "zeer goede staat") count as the 3* label.
+  if (/\bconditie goed\b|(?<!zeer )\bgoede staat\b/.test(t)) out.add('3');
   return out;
 }
 
