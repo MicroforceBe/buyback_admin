@@ -128,6 +128,9 @@ test('SEO title and meta description follow the shop style and stay within the l
   assert.deepEqual([...seo.conditionMentions('in zeer goede staat')], ['4']);
   assert.deepEqual([...seo.conditionMentions('in goede staat')], ['3']);
   assert.deepEqual([...seo.conditionMentions('in nieuwstaat')], ['5']);
+  // Ordinary wording is not a condition.
+  assert.deepEqual([...seo.conditionMentions('in goede staat voor een zeer goede prijs')], ['3']);
+  assert.deepEqual([...seo.conditionMentions('zeer goede batterijduur')], []);
 });
 
 test('SEO texts the tool placed and that are still unchanged get a replacement proposal when the proposal changed', async () => {

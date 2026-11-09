@@ -162,7 +162,7 @@ export function conditionMentions(text: string): Set<string> {
   const t = ` ${text.toLowerCase()} `;
   const out = new Set<string>([...t.matchAll(/\b([345])\s*\*/g)].map(m => m[1]));
   if (/\bals nieuw\b|\bnieuwstaat\b/.test(t)) out.add('5');
-  if (/\bzeer goede?\b/.test(t)) out.add('4');
+  if (/\bzeer goed\b|\bzeer goede staat\b/.test(t)) out.add('4');
   // "Goed" alone is a common word; only "conditie goed" and "(in) goede staat" (not "zeer goede staat") count as the 3* label.
   if (/\bconditie goed\b|(?<!zeer )\bgoede staat\b/.test(t)) out.add('3');
   return out;
