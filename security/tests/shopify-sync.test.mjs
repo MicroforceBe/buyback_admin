@@ -797,3 +797,55 @@ test('products whose ERP variants disagree are listed as conflicted', async () =
   assert.deepEqual([...p.conflictedProducts], ['gid://shopify/Product/1']);
   assert.equal(p.productUpdates.length, 0);
 });
+
+test('cleanup setting off: an active product without any SKU in the ERP goes to draft (stock 0) after an hour', async () => {
+  const mk = (over = {}) => current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 4, 'Microforce Antwerpen': 0 }, ...over });
+  for (const [hours, over, drafted, zeroed = drafted] of [[0.5, {}, false], [2, {}, true], [2, { status: 'DRAFT' }, false, true], [2, { status: 'ARCHIVED' }, false], [2, { tags: ['erp-negeren'] }, false]]) {
+    const { db } = fakeDb({ mode: 'live', missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - hours * 3_600_000).toISOString() }] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current(), mk(over)]);
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const productUpdates = fake.mutations.filter(m => m[0] === 'SyncProduct').map(m => m[1].product);
+    assert.deepEqual(productUpdates, drafted ? [{ id: 'gid://shopify/Product/7', status: 'DRAFT' }] : [], JSON.stringify([hours, over]));
+    const inv = fake.mutations.find(m => m[0] === 'SyncInventory');
+    assert.equal(!!inv, zeroed);
+    if (zeroed) assert.deepEqual(inv[1].input.quantities.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
+  }
+});
+
+test('a product that still has one SKU in the ERP is never put on draft; held articles are left alone', async () => {
+  const keep = current({ sku: 'SKU1', productId: 'gid://shopify/Product/7' });
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777' });
+  const old = new Date(Date.now() - 5 * 3_600_000).toISOString();
+  let { db } = fakeDb({ mode: 'live', missing: [{ sku: 'GONE', first_missing_at: old }] });
+  let { sync } = await loadModules(db);
+  let fake = fakeClient([keep, gone]);
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+  assert.equal(fake.mutations.filter(m => m[0] === 'SyncProduct' && m[1].product.status === 'DRAFT').length, 0);
+  ({ db } = fakeDb({ mode: 'live', missing: [{ sku: 'GONE', first_missing_at: old, held: true }] }));
+  ({ sync } = await loadModules(db));
+  fake = fakeClient([current(), current({ sku: 'GONE', productId: 'gid://shopify/Product/8', variantId: 'gid://shopify/ProductVariant/88', inventoryItemId: 'gid://shopify/InventoryItem/888' })]);
+  await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+  assert.equal(fake.mutations.filter(m => m[0] === 'SyncProduct').length, 0);
+});
+
+test('a product put on draft because it left the ERP gets a 301 when the app may write redirects', async () => {
+  const gone = current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777' });
+  const { db } = fakeDb({ mode: 'live', missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - 2 * 3_600_000).toISOString() }] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current(), gone]);
+  const base = fake.client.graphql;
+  const created = [];
+  fake.client.graphql = async (query, vars, options) => {
+    const name = query.match(/(?:query|mutation) (\w+)/)?.[1];
+    if (name === 'AppScopes') return { currentAppInstallation: { accessScopes: [{ handle: 'write_online_store_navigation' }] } };
+    if (name === 'ProductInfo') return { product: { id: vars.id, title: 'Oud toestel', handle: 'oud-toestel', collections: { nodes: [] } } };
+    if (name === 'Siblings') return { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } };
+    if (name === 'RedirectByPath' || name === 'RedirectsByTarget') return { urlRedirects: { nodes: [] } };
+    if (name === 'RedirectCreate') { created.push(plain(vars)); return { urlRedirectCreate: { userErrors: [] } }; }
+    return base(query, vars, options);
+  };
+  const r = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(r.status, 'succeeded');
+  assert.deepEqual(created, [{ path: '/products/oud-toestel', target: '/collections/all' }]);
+});

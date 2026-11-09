@@ -470,6 +470,48 @@ export function planCreates(candidates: DesiredState[], locations: Record<string
 export const KEEP_TAG = 'erp-negeren';
 
 /**
+ * Always on, also when the cleanup setting is off: an ACTIVE product of which no SKU is in the ERP any
+ * more may not stay for sale. Once all its variants have been missing for afterHours it goes to draft
+ * and its positive stock to 0 (a draft that still holds stock gets the stock reset only). Archiving and
+ * deleting stay manual. erp-negeren is respected.
+ */
+export function planDeactivateMissing(input: {
+  missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
+  locations: Record<string, string>; afterHours: number;
+}): { inventory: Plan['inventory']; deactivate: { productId: string; title: string; skus: string[] }[]; changes: Change[] } {
+  const inventory: Plan['inventory'] = [];
+  const changes: Change[] = [];
+  const deactivate: { productId: string; title: string; skus: string[] }[] = [];
+  const byProduct = new Map<string, CurrentState[]>();
+  for (const v of input.all) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
+  const seen = new Set<string>();
+  for (const v of input.missing) {
+    if (seen.has(v.productId)) continue;
+    seen.add(v.productId);
+    if (v.status === 'ARCHIVED' || v.tags.includes(KEEP_TAG)) continue;
+    const variants = byProduct.get(v.productId) ?? [v];
+    const allGone = variants.every(x => !input.erpSkus.has(x.sku)
+      && (input.now.getTime() - (input.firstMissing.get(x.sku)?.getTime() ?? input.now.getTime())) >= input.afterHours * 3_600_000);
+    if (!allGone) continue;
+    // A draft that still holds stock (an earlier stock write failed, or it was already a draft) only gets
+    // the stock reset, so a partial failure always recovers in a later run.
+    if (v.status === 'ACTIVE') {
+      deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
+      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'DRAFT' });
+    }
+    for (const x of variants) {
+      for (const [location, quantity] of Object.entries(x.inventory)) {
+        const locationId = input.locations[location];
+        if (!locationId || quantity <= 0) continue;
+        inventory.push({ inventoryItemId: x.inventoryItemId, locationId, quantity: 0 });
+        changes.push({ sku: x.sku, scope: 'inventory', field: location, oldValue: String(quantity), newValue: '0' });
+      }
+    }
+  }
+  return { inventory, deactivate, changes };
+}
+
+/**
  * Articles that are no longer in the ERP but still in Shopify (active or draft): stock to 0 at every
  * location right away, and archive the product once all its variants have been missing for
  * archiveAfterHours and no longer have stock. Products with the tag erp-negeren are left alone.
