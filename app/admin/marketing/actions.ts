@@ -6,6 +6,7 @@ import { requireAccess } from '@/lib/security/access';
 import { createFeedDataSource, googleSettings, registerMerchant } from '@/lib/marketing/google';
 import { COUNTRY, CONTENT_LANGUAGE, FEED_LABEL, modelKey, parseProductIds, validGtin } from '@/lib/marketing/merchantFeed';
 import { runMerchantFeed } from '@/lib/marketing/merchantFeedRun';
+import { runModelBarcodes } from '@/lib/shopify/modelBarcodesRun';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 const PATH = '/admin/marketing';
@@ -168,5 +169,24 @@ export async function saveGtinsAction(form: FormData) {
     target = backTo({ error: (error instanceof Error ? error.message : 'Bewaren mislukt.').slice(0, 300) });
   }
   revalidatePath('/admin/marketing/gtin');
+  redirect(target);
+}
+
+/** Writes the model GTINs into the barcode of refurbished variants now (same rules as the hourly run). */
+export async function runModelBarcodesAction() {
+  await requireAccess('erp', 'write', true);
+  const GTIN_PATH = '/admin/marketing/gtin';
+  let target: string;
+  try {
+    const r = await runModelBarcodes();
+    const msg = r.status === 'skipped'
+      ? `Niets gedaan: ${r.reason}.`
+      : r.dryRun
+        ? `Schaduwmodus: ${r.filled} barcodes zouden ingevuld worden, ${r.fixed} aangepast, ${r.cleared} verwijderd. Er is niets geschreven.`
+        : `${r.filled} barcodes ingevuld, ${r.fixed} aangepast, ${r.cleared} verwijderd${r.failed.length ? `, ${r.failed.length} mislukt (${r.failed.slice(0, 3).map(f => f.sku).join(', ')})` : ''}${r.remaining ? `; nog ${r.remaining} bij de volgende run` : ''}.`;
+    target = `${GTIN_PATH}?${new URLSearchParams(r.status === 'done' && r.failed.length ? { error: msg } : { ok: msg })}`;
+  } catch (error) {
+    target = `${GTIN_PATH}?${new URLSearchParams({ error: (error instanceof Error ? error.message : 'Barcodes invullen mislukt.').slice(0, 300) })}`;
+  }
   redirect(target);
 }

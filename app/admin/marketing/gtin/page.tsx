@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { gtinsByModel, modelKey } from '@/lib/marketing/merchantFeed';
-import { saveGtinsAction } from '../actions';
+import { runModelBarcodesAction, saveGtinsAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
 type Row = { key: string; titles: Set<string>; skus: number; stock: number };
@@ -48,6 +48,15 @@ export default async function GtinPage({ searchParams }: { searchParams: Promise
       </div>
       {params.ok && <div className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{params.ok}</div>}
       {params.error && <div className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{params.error}</div>}
+      {isAdmin && (
+        <form action={runModelBarcodesAction} className="flex flex-wrap items-center gap-3 rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="min-w-0 flex-1 text-sm text-slate-600">
+            <h2 className="font-semibold text-slate-900">Barcodes in Shopify</h2>
+            Elk uur zet de tool de GTIN van het model in de barcode van refurbished producten <strong>zonder</strong> barcode, zodat hij ook op de productpagina staat (gestructureerde data). Een bestaande barcode wordt nooit overschreven; alleen een code die de tool zelf zette, wordt aangepast als je de GTIN van het model wijzigt.
+          </div>
+          <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Nu invullen</button>
+        </form>
+      )}
       {isAdmin && (
         <form action={saveGtinsAction} className="space-y-2 rounded-2xl border bg-white p-5 shadow-sm">
           <h2 className="font-semibold">GTIN's toevoegen of wijzigen</h2>
