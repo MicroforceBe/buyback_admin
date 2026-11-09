@@ -53,7 +53,7 @@ In de lijst "Alleen in Shopify" kan een beheerder producten selecteren en:
 
 ### Actief zonder ERP-artikel: altijd naar concept
 Ook als het automatisch opruimen uit staat, mag een product niet actief blijven als **geen enkele** SKU ervan nog in het
-ERP-bestand zit. Na 1 uur zet de synchronisatie zo'n product op **concept** en de voorraad op 0, met dezelfde 301-doorverwijzing
+ERP-bestand zit. Na 1 uur zet de synchronisatie zo'n product op **concept** en de voorraad op 0 (een concept dat nog voorraad heeft, krijgt alleen de voorraad op 0), met dezelfde 301-doorverwijzing
 als bij archiveren. Archiveren en verwijderen blijven manueel. Producten met de tag `erp-negeren` en vastgehouden artikelen
 (verdacht veel tegelijk verdwenen) blijven ongemoeid. Komt de SKU terug in het ERP, dan volgt het product weer de ERP-status.
 

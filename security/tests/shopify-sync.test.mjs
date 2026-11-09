@@ -800,7 +800,7 @@ test('products whose ERP variants disagree are listed as conflicted', async () =
 
 test('cleanup setting off: an active product without any SKU in the ERP goes to draft (stock 0) after an hour', async () => {
   const mk = (over = {}) => current({ sku: 'GONE', productId: 'gid://shopify/Product/7', variantId: 'gid://shopify/ProductVariant/77', inventoryItemId: 'gid://shopify/InventoryItem/777', inventory: { 'Microforce Gentbrugge': 4, 'Microforce Antwerpen': 0 }, ...over });
-  for (const [hours, over, drafted] of [[0.5, {}, false], [2, {}, true], [2, { status: 'DRAFT' }, false], [2, { tags: ['erp-negeren'] }, false]]) {
+  for (const [hours, over, drafted, zeroed = drafted] of [[0.5, {}, false], [2, {}, true], [2, { status: 'DRAFT' }, false, true], [2, { status: 'ARCHIVED' }, false], [2, { tags: ['erp-negeren'] }, false]]) {
     const { db } = fakeDb({ mode: 'live', missing: [{ sku: 'GONE', first_missing_at: new Date(Date.now() - hours * 3_600_000).toISOString() }] });
     const { sync } = await loadModules(db);
     const fake = fakeClient([current(), mk(over)]);
@@ -808,8 +808,8 @@ test('cleanup setting off: an active product without any SKU in the ERP goes to 
     const productUpdates = fake.mutations.filter(m => m[0] === 'SyncProduct').map(m => m[1].product);
     assert.deepEqual(productUpdates, drafted ? [{ id: 'gid://shopify/Product/7', status: 'DRAFT' }] : [], JSON.stringify([hours, over]));
     const inv = fake.mutations.find(m => m[0] === 'SyncInventory');
-    assert.equal(!!inv, drafted);
-    if (drafted) assert.deepEqual(inv[1].input.quantities.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
+    assert.equal(!!inv, zeroed);
+    if (zeroed) assert.deepEqual(inv[1].input.quantities.map(q => [q.inventoryItemId, q.quantity]), [['gid://shopify/InventoryItem/777', 0]]);
   }
 });
 

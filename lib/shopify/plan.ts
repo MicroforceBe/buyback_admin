@@ -472,7 +472,8 @@ export const KEEP_TAG = 'erp-negeren';
 /**
  * Always on, also when the cleanup setting is off: an ACTIVE product of which no SKU is in the ERP any
  * more may not stay for sale. Once all its variants have been missing for afterHours it goes to draft
- * and its positive stock to 0. Archiving and deleting stay manual. erp-negeren is respected.
+ * and its positive stock to 0 (a draft that still holds stock gets the stock reset only). Archiving and
+ * deleting stay manual. erp-negeren is respected.
  */
 export function planDeactivateMissing(input: {
   missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
@@ -487,13 +488,17 @@ export function planDeactivateMissing(input: {
   for (const v of input.missing) {
     if (seen.has(v.productId)) continue;
     seen.add(v.productId);
-    if (v.status !== 'ACTIVE' || v.tags.includes(KEEP_TAG)) continue;
+    if (v.status === 'ARCHIVED' || v.tags.includes(KEEP_TAG)) continue;
     const variants = byProduct.get(v.productId) ?? [v];
     const allGone = variants.every(x => !input.erpSkus.has(x.sku)
       && (input.now.getTime() - (input.firstMissing.get(x.sku)?.getTime() ?? input.now.getTime())) >= input.afterHours * 3_600_000);
     if (!allGone) continue;
-    deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
-    changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'DRAFT' });
+    // A draft that still holds stock (an earlier stock write failed, or it was already a draft) only gets
+    // the stock reset, so a partial failure always recovers in a later run.
+    if (v.status === 'ACTIVE') {
+      deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
+      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'DRAFT' });
+    }
     for (const x of variants) {
       for (const [location, quantity] of Object.entries(x.inventory)) {
         const locationId = input.locations[location];

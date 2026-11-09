@@ -327,6 +327,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       plan.changes.push(...d.changes);
       missingDeactivations = d.deactivate;
       counts.missingDeactivated = d.deactivate.length;
+      counts.missingStockZeroed = d.inventory.length;
     }
     counts.changes = plan.changes.length;
 
