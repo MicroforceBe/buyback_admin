@@ -6,6 +6,7 @@ import { shopifyConfig } from '@/lib/shopify/client';
 import { COLLECTION_ISSUE_LABELS, type CollectionFix, type CollectionIssue, type CollectionIssueCode } from '@/lib/shopify/collections';
 import { applyCollectionFixesAction, generateCollectionReportAction, revertCollectionFixAction } from './actions';
 import { SelectAll, SelectionCount } from '../catalog/Selection';
+import PendingButton from '@/components/ui/PendingButton';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -54,7 +55,7 @@ export default async function CollectionsPage({ searchParams }: { searchParams: 
         <div className="flex justify-between text-xs"><Link href="/admin/erp/shopify" className="text-slate-400 hover:text-white">← Shopify-sync</Link><Link href="/admin/erp/shopify/catalog" className="text-sky-300 hover:text-white">Catalogusrapport →</Link></div>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Collectierapport</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Categorie- en modelpagina&apos;s zonder SEO-titel, meta-description of tekst, extra H1-koppen, lege of dubbele collecties en interne collecties die Google kan tonen. Pagina&apos;s met producten op voorraad staan bovenaan.</p>
-        {isAdmin && <form action={generateCollectionReportAction} className="mt-4"><button className="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-900">Nieuw rapport maken</button><span className="ml-3 text-xs text-slate-400">Duurt ongeveer een minuut.</span></form>}
+        {isAdmin && <form action={generateCollectionReportAction} className="mt-4"><PendingButton dark pendingText="Rapport wordt gemaakt…" hint="Duurt ongeveer een minuut." className="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-900">Nieuw rapport maken</PendingButton><span className="ml-3 text-xs text-slate-400">Duurt ongeveer een minuut.</span></form>}
       </div>
 
       {params.error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{params.error}</div>}
@@ -106,7 +107,7 @@ export default async function CollectionsPage({ searchParams }: { searchParams: 
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-1.5"><input type="checkbox" name="confirm" required /> Ik bevestig deze aanpassing</label>
-                    <button className="rounded-lg bg-slate-900 px-4 py-1.5 font-semibold text-white">Aanpassen</button>
+                    <PendingButton pendingText="Wordt aangepast…" hint="Collecties worden één voor één in Shopify aangepast." className="rounded-lg bg-slate-900 px-4 py-1.5 font-semibold text-white">Aanpassen</PendingButton>
                     <span className="text-xs text-slate-500">Elke collectie wordt eerst opnieuw gelezen; bestaande SEO-teksten worden nooit overschreven. Elke aanpassing kan in het logboek teruggedraaid worden.</span>
                   </div>
                 </div>

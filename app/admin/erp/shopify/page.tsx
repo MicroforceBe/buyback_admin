@@ -6,6 +6,7 @@ import { shopifyConfig } from '@/lib/shopify/client';
 import { MODES, PATH, back, type Mode } from './modes';
 import { redirectBacklogAction, releaseMissingAction, removalAction, runNowAction, saveSettingsAction, stopAction } from './actions';
 import { DELETE_AFTER_DAYS, MAX_PER_ACTION } from '@/lib/shopify/removal';
+import PendingButton from '@/components/ui/PendingButton';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -131,7 +132,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Recente runs</h2>
-            {isAdmin && mode !== 'off' && <form action={runNowAction}><button className="rounded-lg border px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Nu uitvoeren</button></form>}
+            {isAdmin && mode !== 'off' && <form action={runNowAction}><PendingButton pendingText="Sync loopt…" hint="Kan enkele minuten duren." className="rounded-lg border px-3 py-1.5 text-sm font-semibold hover:bg-slate-50">Nu uitvoeren</PendingButton></form>}
           </div>
           <div className="mt-3 flex flex-wrap gap-3 text-xs">
             <Link href={back({ ...(params.runs ? { runs: params.runs } : {}), ...(params.only === 'changes' ? {} : { only: 'changes' }) })} className="text-sky-700 hover:underline">{params.only === 'changes' ? 'Alle runs tonen' : 'Alleen met wijzigingen of fouten'}</Link>
@@ -238,8 +239,8 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                     {view === 'shopifyOnly' && <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad archiveren</label>}
                     <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
                     <div className="flex flex-wrap gap-2">
-                      {view === 'shopifyOnly' && <button name="removal" value="archive" className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Archiveren</button>}
-                      <button name="removal" value="restore" className="rounded-lg border px-4 py-2 font-semibold hover:bg-white">Terugzetten als concept</button>
+                      {view === 'shopifyOnly' && <PendingButton name="removal" value="archive" pendingText="Wordt gearchiveerd…" className="rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Archiveren</PendingButton>}
+                      <PendingButton name="removal" value="restore" pendingText="Wordt teruggezet…" className="rounded-lg border px-4 py-2 font-semibold hover:bg-white">Terugzetten als concept</PendingButton>
                     </div>
                   </div>
                 </form>
@@ -278,7 +279,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
           <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Bij het archiveren krijgt de oude productpagina meteen een 301-doorverwijzing: naar hetzelfde model in een andere graad dat op voorraad is, anders naar de collectie. Terugzetten haalt die doorverwijzing weer weg.</p>
           <form action={redirectBacklogAction} className="mt-3">
             {params.backlog && params.remaining === '1' && params.after && <input type="hidden" name="after" value={params.after} />}
-            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing</button>
+            <PendingButton pendingText="Doorverwijzingen worden aangemaakt…" className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing</PendingButton>
           </form>
           <form action={removalAction} className="mt-4">
             <div className="overflow-x-auto">
@@ -308,9 +309,9 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
                 <label className="flex items-center gap-2"><input type="checkbox" name="include_stock" /> Ook producten met voorraad verwijderen</label>
                 <label className="flex items-center gap-2"><input type="checkbox" name="confirm" required /> Ik bevestig deze actie</label>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button name="removal" value="restore" className="rounded-lg border bg-white px-4 py-2 font-semibold">Terugzetten als concept</button>
+                  <PendingButton name="removal" value="restore" pendingText="Wordt teruggezet…" className="rounded-lg border bg-white px-4 py-2 font-semibold">Terugzetten als concept</PendingButton>
                   <input name="confirm_text" placeholder="Typ VERWIJDER" className="rounded-lg border px-3 py-2" autoComplete="off" />
-                  <button name="removal" value="delete" className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700">Definitief verwijderen</button>
+                  <PendingButton name="removal" value="delete" pendingText="Wordt verwijderd…" className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700">Definitief verwijderen</PendingButton>
                 </div>
               </div>
             )}
