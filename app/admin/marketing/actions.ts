@@ -144,12 +144,23 @@ export async function saveGtinsAction(form: FormData) {
       if (rawUrl && !/^https:\/\/\S{3,490}$/.test(rawUrl)) throw new Error(`Regel ${i + 1}: de bron moet een https-link zijn.`);
       upserts.push({ model_key: key, gtin, source_url: rawUrl || null, updated_at: new Date().toISOString(), updated_by: String(user.email ?? 'beheerder') });
     }
+    // Rows stored under an older spelling of the same model ("rood" for "red") are removed along with a
+    // change, so a saved or withdrawn code is never shadowed or resurrected by a legacy row.
+    const touched = new Set([...upserts.map(u => u.model_key), ...removals]);
+    const legacy: string[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabaseAdmin.from('model_gtins').select('model_key').order('model_key').range(from, from + 999);
+      if (error) throw new Error('GTIN-tabel kon niet worden gelezen.');
+      for (const r of data ?? []) { const k = String(r.model_key); if (k !== modelKey(k) && touched.has(modelKey(k))) legacy.push(k); }
+      if (!data || data.length < 1000) break;
+    }
     if (upserts.length) {
       const { error } = await supabaseAdmin.from('model_gtins').upsert(upserts, { onConflict: 'model_key' });
       if (error) throw new Error('GTIN\'s konden niet worden bewaard.');
     }
-    if (removals.length) {
-      const { error } = await supabaseAdmin.from('model_gtins').delete().in('model_key', removals);
+    const toDelete = [...new Set([...removals, ...legacy])];
+    if (toDelete.length) {
+      const { error } = await supabaseAdmin.from('model_gtins').delete().in('model_key', toDelete);
       if (error) throw new Error('GTIN\'s konden niet worden verwijderd.');
     }
     target = backTo({ ok: `${upserts.length} GTIN('s) bewaard${removals.length ? `, ${removals.length} verwijderd` : ''}. De feed stuurt ze bij de volgende run mee.` });

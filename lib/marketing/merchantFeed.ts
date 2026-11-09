@@ -227,6 +227,11 @@ export function highlightsOf(kind: string, brand: string | undefined, stars: str
  * Model key: the title without the condition part, so all quality grades of one model share one GTIN.
  * "iPhone 13 128GB Midnight Refurbished 5* M" -> "iphone 13 128gb midnight".
  */
+const DUTCH_COLOURS: Record<string, string> = {
+  rood: 'red', groen: 'green', roze: 'pink', blauw: 'blue', goud: 'gold', zilver: 'silver', zwart: 'black', wit: 'white',
+  paars: 'purple', geel: 'yellow', sterrenlicht: 'starlight', middernacht: 'midnight', midhight: 'midnight', spacegrijs: 'space grey', grafiet: 'graphite',
+};
+
 export function modelKey(title: string): string {
   return title
     .toLowerCase()
@@ -236,8 +241,26 @@ export function modelKey(title: string): string {
     .replace(/\bnaturel\b/g, 'natural')
     .replace(/\btitan\.(?=\s|\/|$)/g, 'titanium')
     .replace(/\bspacegrey\b/g, 'space grey')
+    // One model, one key: Dutch colour names and common typos map to the English Apple/Samsung name,
+    // and a bare capacity ("128", "256 gb") gets its unit, so "Rood" and "Red" share their GTIN.
+    .replace(/\b(rood|groen|roze|blauw|goud|zilver|zwart|wit|paars|geel|sterrenlicht|middernacht|midhight|spacegrijs|grafiet)\b/g, w => DUTCH_COLOURS[w] ?? w)
+    .replace(/\b(32|64|128|256|512)\s*gb?\b/g, '$1gb')
+    .replace(/\b(32|64|128|256|512)(?=\s)(?!\s*(gb|tb)\b)/g, '$1gb')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Stored GTIN rows keyed by the current model key. Rows saved under an older spelling ("rood") stay
+ * reachable; when two rows meet on one key, the row already stored under that exact key wins.
+ */
+export function gtinsByModel<T extends { model_key: string }>(rows: T[]): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const r of rows) {
+    const key = modelKey(r.model_key);
+    if (!out.has(key) || r.model_key === key) out.set(key, r);
+  }
+  return out;
 }
 
 const variantLink = (url: string, variantId: string, many: boolean) => many ? `${url}${url.includes('?') ? '&' : '?'}variant=${variantId}` : url;

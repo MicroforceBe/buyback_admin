@@ -7,7 +7,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { deleteLocalInventory, deleteProductInput, googleSettings, insertLocalInventory, insertProductInput } from '@/lib/marketing/google';
 import type { ServiceAccount } from '@/lib/marketing/googleData';
-import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
+import { CONTENT_LANGUAGE, FEED_LABEL, FEED_MORE_LEVELS, FEED_MORE_VARIANTS, FEED_PRODUCTS, FEED_PRODUCTS_BY_ID, gtinsByModel, planFeed, productOffers, type FeedLevel, type FeedOffer, type FeedProduct, type FeedVariant, type LocalInventory, type LocalUpdate, type SentRow, type Skip, type StoreCodes } from '@/lib/marketing/merchantFeed';
 
 export type FeedMode = 'off' | 'test' | 'live';
 export type FeedResult =
@@ -132,13 +132,14 @@ export async function runMerchantFeed(input: { trigger: 'cron' | 'manual'; actor
     const test = mode === 'test';
     const products = await loadProducts(client, mode, (settings.test_products as string[]) ?? []);
     // GTIN per model (marketing → Modellen & GTIN); a small table, read whole.
-    const gtins = new Map<string, string>();
+    const gtinRows: { model_key: string; gtin: string }[] = [];
     for (let from = 0; ; from += 1000) {
       const { data, error } = await db.from('model_gtins').select('model_key,gtin').order('model_key', { ascending: true }).range(from, from + 999);
       if (error) throw new Error('GTIN-tabel kon niet worden geladen.');
-      for (const r of data ?? []) gtins.set(r.model_key as string, r.gtin as string);
+      for (const r of data ?? []) gtinRows.push({ model_key: r.model_key as string, gtin: r.gtin as string });
       if (!data || data.length < 1000) break;
     }
+    const gtins = new Map([...gtinsByModel(gtinRows)].map(([k, r]) => [k, r.gtin]));
     const offers: FeedOffer[] = [];
     const skipped: Skip[] = [];
     for (const p of products) {

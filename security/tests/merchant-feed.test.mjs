@@ -433,7 +433,15 @@ test('model key: every grade of one model shares one key', async () => {
   const same = ['iPhone 13 128GB Midnight Refurbished 5* M', 'iPhone 13 128GB Midnight Refurbished 4*', 'iPhone 13 128GB Midnight Refurbished 3* M'];
   assert.deepEqual([...new Set(same.map(f.modelKey))], ['iphone 13 128gb midnight']);
   assert.equal(f.modelKey('iPhone 15 Pro Max 256GB Naturel Titanium Refurbished 4*'), 'iphone 15 pro max 256gb natural titanium');
-  assert.equal(f.modelKey('Apple Watch Series 10 Alu 46mm Silver/Wit GPS 4G Refur 4*M'), 'apple watch series 10 alu 46mm silver/wit gps 4g');
+  assert.equal(f.modelKey('Apple Watch Series 10 Alu 46mm Silver/Wit GPS 4G Refur 4*M'), 'apple watch series 10 alu 46mm silver/white gps 4g');
+  assert.equal(f.modelKey('iPhone 13 128GB Rood Refurbished 4*'), f.modelKey('iPhone 13 128GB Red Refurbished 5* M'));
+  assert.equal(f.modelKey('iPhone 13 256GB Sterrenlicht Refurbished'), 'iphone 13 256gb starlight');
+  const byModel = f.gtinsByModel([{ model_key: 'iphone 13 128gb rood', gtin: '1' }, { model_key: 'iphone 13 128gb red', gtin: '2' }, { model_key: 'iphone 14 128gb rood', gtin: '3' }]);
+  assert.deepEqual([...byModel].map(([k, r]) => [k, r.gtin]).sort(), [['iphone 13 128gb red', '2'], ['iphone 14 128gb red', '3']]);
+  assert.equal(f.modelKey('iPhone SE 2022 256GB Midhight Refurbished 5*'), 'iphone se 2022 256gb midnight');
+  assert.equal(f.modelKey('iPhone 12 Mini 128 Black Refurbished 4*'), 'iphone 12 mini 128gb black');
+  assert.equal(f.modelKey('iPhone 16 Pro 256 GB Black Titanium Refurbished'), 'iphone 16 pro 256gb black titanium');
+  assert.equal(f.modelKey('iPad Pro 5 12,9" 2021 128G Wifi 5G Silver Refurbished'), 'ipad pro 5 12,9" 2021 128gb wifi 5g silver');
   assert.equal(f.modelKey('Apple Watch Series Ultra3 49mm Black Titan./Black GPS 5G 5*M'), 'apple watch series ultra3 49mm black titanium/black gps 5g');
   assert.equal(f.modelKey('APPLE MAGIC MOUSE 2 REFURBISHED'), 'apple magic mouse 2');
   assert.equal(f.modelKey('MacBook Air 15" L23 M2 16GB 1TB SSD SG (Nieuw In Box)'), 'macbook air 15" l23 m2 16gb 1tb ssd sg');
@@ -468,4 +476,10 @@ test('the run reads the model GTINs', async () => {
   const actions = read('app/admin/marketing/actions.ts');
   assert.match(actions, /validGtin\(rawGtin/);
   assert.match(read('security/sql/model-gtins.sql'), /enable row level security/);
+});
+
+test('saving or withdrawing a GTIN also removes rows stored under an older spelling of that model', () => {
+  const actions = fs.readFileSync(new URL('../../app/admin/marketing/actions.ts', import.meta.url), 'utf8');
+  assert.match(actions, /if \(k !== modelKey\(k\) && touched\.has\(modelKey\(k\)\)\) legacy\.push\(k\)/);
+  assert.match(actions, /const toDelete = \[\.\.\.new Set\(\[\.\.\.removals, \.\.\.legacy\]\)\];/);
 });
