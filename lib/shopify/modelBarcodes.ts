@@ -16,13 +16,15 @@ const MAX_PAGES = 1000;
 /** Marker value after a withdrawal: never equal to a barcode, so a code typed in later is never seen as ours. */
 export const WITHDRAWN = 'ingetrokken';
 
+// Kept under Shopify's 1,000-point query cost (about 50 × 10). Only a product's single "Default Title"
+// variant counts, so two variants per product are enough to see it; two barcodes show "more than one".
 export const BARCODE_PRODUCTS = `query ModelBarcodeProducts($after: String) {
   products(first: 50, after: $after, query: "-status:archived") {
     pageInfo { hasNextPage endCursor }
     nodes {
       id title status
       refurbished: metafield(namespace: "custom", key: "refurbished_product") { value }
-      variants(first: 20) { nodes { id title sku barcodes(first: 3) { nodes { value } } marker: metafield(namespace: "${MARKER.namespace}", key: "${MARKER.key}") { value } } }
+      variants(first: 2) { nodes { id title sku barcodes(first: 2) { nodes { value } } marker: metafield(namespace: "${MARKER.namespace}", key: "${MARKER.key}") { value } } }
     }
   }
 }`;

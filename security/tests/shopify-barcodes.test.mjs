@@ -132,6 +132,14 @@ test('run: pages past 100 pages and fails loudly at the safety stop', async () =
   await assert.rejects(syncModelBarcodes(endless, gtins(), { dryRun: true }), /pagina's/);
 });
 
+test('product query stays under the Shopify cost limit', async () => {
+  const { BARCODE_PRODUCTS } = await load();
+  const firsts = [...BARCODE_PRODUCTS.matchAll(/first: (\d+)/g)].map(m => Number(m[1]));
+  assert.deepEqual(firsts, [50, 2, 2]);
+  // products × (product + metafield + variants × (variant + barcodes + marker))
+  assert.ok(firsts[0] * (2 + firsts[1] * (1 + firsts[2] + 1)) <= 1000);
+});
+
 test('cron route is scheduled and protected; the button is admin-only', () => {
   const cron = JSON.parse(read('vercel.json')).crons.find(c => c.path === '/api/shopify-barcodes');
   assert.ok(cron);
