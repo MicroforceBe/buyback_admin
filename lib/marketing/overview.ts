@@ -76,7 +76,7 @@ export const SOURCES: Source[] = [
   { key: 'search_console', name: 'Google Search Console', group: 'Google', shows: 'Klikken, vertoningen, positie, top-zoektermen en indexering', settings: ['GOOGLE_SERVICE_ACCOUNT_JSON', 'GSC_SITE_URL'], phase: '1b' },
   { key: 'analytics', name: 'Google Analytics 4', group: 'Google', shows: 'Bezoekers per kanaal en conversie', settings: ['GOOGLE_SERVICE_ACCOUNT_JSON', 'GA4_PROPERTY_ID'], phase: '1b' },
   { key: 'merchant_center', name: 'Google Merchant Center', group: 'Google', shows: 'Goedgekeurde en afgekeurde producten, met de reden', settings: ['GOOGLE_SERVICE_ACCOUNT_JSON', 'MERCHANT_CENTER_ID'], phase: '1b' },
-  { key: 'google_ads', name: 'Google Ads', group: 'Advertenties', shows: 'Uitgaven, opbrengst en kost per verkoop per campagne', settings: ['GOOGLE_ADS_DEVELOPER_TOKEN', 'GOOGLE_ADS_CUSTOMER_ID', 'GOOGLE_ADS_REFRESH_TOKEN'], phase: '1d' },
+  { key: 'google_ads', name: 'Google Ads', group: 'Advertenties', shows: 'Uitgaven, opbrengst en kost per verkoop per campagne', settings: ['GOOGLE_SERVICE_ACCOUNT_JSON', 'GOOGLE_ADS_CUSTOMER_ID'], phase: '1d' },
   { key: 'meta_ads', name: 'Meta Ads (Facebook/Instagram)', group: 'Advertenties', shows: 'Uitgaven, bereik en opbrengst per campagne', settings: ['META_ACCESS_TOKEN', 'META_AD_ACCOUNT_ID'], phase: '1d' },
   { key: 'mailchimp', name: 'Mailchimp', group: 'E-mail', shows: 'Lijstgrootte, open- en klikratio, resultaat per campagne', settings: ['MAILCHIMP_API_KEY'], phase: '1c' },
   { key: 'trustpilot', name: 'Trustpilot', group: 'Reputatie', shows: 'Score, aantal reviews, reviews zonder antwoord', settings: ['TRUSTPILOT_API_KEY', 'TRUSTPILOT_BUSINESS_UNIT_ID'], phase: '1c' },

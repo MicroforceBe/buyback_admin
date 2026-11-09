@@ -77,7 +77,7 @@ async function loadGoogle() {
   const { generateKeyPairSync, createSign, createVerify } = await import('node:crypto');
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, Buffer });
   const modules = new Map();
-  const internal = { '@/lib/marketing/googleData': 'lib/marketing/googleData.ts', '@/lib/marketing/google': 'lib/marketing/google.ts' };
+  const internal = { '@/lib/marketing/googleData': 'lib/marketing/googleData.ts', '@/lib/marketing/google': 'lib/marketing/google.ts', '@/lib/marketing/googleAdsData': 'lib/marketing/googleAdsData.ts' };
   async function ld(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -93,7 +93,7 @@ async function loadGoogle() {
     return m;
   }
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
-  return { data: (await ld('lib/marketing/googleData.ts')).namespace, google: (await ld('lib/marketing/google.ts')).namespace, privateKey, publicKey, createVerify };
+  return { data: (await ld('lib/marketing/googleData.ts')).namespace, google: (await ld('lib/marketing/google.ts')).namespace, ads: (await ld('lib/marketing/googleAdsData.ts')).namespace, privateKey, publicKey, createVerify };
 }
 
 test('service-account settings: parsed, escaped newlines restored, errors never echo the contents', async () => {
@@ -174,4 +174,47 @@ test('Merchant registration refuses a service-account address as technical conta
 test('marketing actions are admin-only', () => {
   const actions = read('app/admin/marketing/actions.ts');
   for (const body of actions.split('export async function').slice(1)) assert.match(body, /^\s*\w+\([^)]*\)\s*\{\s*(const user = )?await requireAccess\('erp', 'write', true\)/);
+});
+
+test('Google Ads: one GAQL search per page against the customer, with the Ads error reason surfaced', async () => {
+  const { data, google, privateKey } = await loadGoogle();
+  const sa = data.parseServiceAccount(JSON.stringify({ type: 'service_account', client_email: 'ads@p.iam.gserviceaccount.com', private_key: privateKey }));
+  const calls = [];
+  const fetch = async (url, init) => {
+    if (url.includes('oauth2')) return { ok: true, json: async () => ({ access_token: 'tok', expires_in: 3600 }) };
+    calls.push({ url, body: JSON.parse(init.body) });
+    return { ok: true, json: async () => (calls.length === 1 ? { results: [{ a: 1 }], nextPageToken: 'n' } : { results: [{ a: 2 }] }) };
+  };
+  const rows = await google.adsSearch(sa, '215-899-7052', 'SELECT  campaign.id\n FROM campaign', { fetch });
+  assert.deepEqual(plain(rows), [{ a: 1 }, { a: 2 }]);
+  assert.match(calls[0].url, /^https:\/\/googleads\.googleapis\.com\/v\d+\/customers\/2158997052\/googleAds:search$/);
+  assert.deepEqual(calls.map(c => c.body), [{ query: 'SELECT campaign.id FROM campaign' }, { query: 'SELECT campaign.id FROM campaign', pageToken: 'n' }]);
+  await assert.rejects(google.adsSearch(sa, '12345', 'x', { fetch }), /10 cijfers/);
+  const failing = async url => (url.includes('oauth2') ? { ok: true, json: async () => ({ access_token: 'tok', expires_in: 3600 }) } : { ok: false, status: 403, json: async () => ({ error: { message: 'The caller does not have permission', details: [{ errors: [{ message: 'User doesn\'t have permission to access customer.' }] }] } }) });
+  await assert.rejects(google.adsSearch(sa, '2158997052', 'x', { fetch: failing }), /User doesn't have permission to access customer/);
+});
+
+test('Google Ads: campaigns, devices, wasted search terms and conversion actions are summarised', async () => {
+  const { ads } = await loadGoogle();
+  const c = plain(ads.adsCampaigns(
+    [{ campaign: { id: '1', name: 'Shopping MacBook', status: 'ENABLED', advertisingChannelType: 'SHOPPING' }, campaignBudget: { amountMicros: '20000000' }, metrics: { costMicros: '150000000', clicks: '100', impressions: '5000', conversions: 2, conversionsValue: 1800 } },
+     { campaign: { id: '2', name: 'Verkopen', status: 'ENABLED', advertisingChannelType: 'PERFORMANCE_MAX' }, metrics: { costMicros: '900000000', clicks: '400', conversions: 10, conversionsValue: 9000 } }],
+    [{ campaign: { id: '1' }, metrics: { searchImpressionShare: 0.09, searchBudgetLostImpressionShare: 0.3, searchRankLostImpressionShare: 0.61 } }]));
+  assert.deepEqual(c.map(x => [x.name, x.cost, x.dailyBudget, x.roas, x.cpa, x.impressionShare, x.lostBudget]), [['Verkopen', 900, 0, 10, 90, null, null], ['Shopping MacBook', 150, 20, 12, 75, 0.09, 0.3]]);
+  const t = plain(ads.adsTotals(c));
+  assert.deepEqual([t.cost, t.conversions, t.value, Math.round(t.roas * 100) / 100], [1050, 12, 10800, 10.29]);
+  const d = plain(ads.adsDevices([{ segments: { device: 'MOBILE' }, metrics: { costMicros: '1000000', impressions: '10', clicks: '2', conversions: 1 } }, { segments: { device: 'MOBILE' }, metrics: { costMicros: '1000000', impressions: '5' } }, { segments: { device: 'DESKTOP' }, metrics: { impressions: '0' } }]));
+  assert.deepEqual(d.map(x => [x.label, x.cost, x.impressions, x.convRate]), [['Mobiel', 2, 15, 0.5]]);
+  const s = plain(ads.adsSearchTerms([{ searchTermView: { searchTerm: 'gratis iphone' }, campaign: { name: 'Merk' }, metrics: { costMicros: '12000000', clicks: '9', conversions: 0 } }, { searchTermView: { searchTerm: 'microforce' }, metrics: { costMicros: '6000000', conversions: 3 } }]));
+  assert.deepEqual(s.waste.map(w => [w.term, w.cost]), [['gratis iphone', 12]]);
+  assert.deepEqual(plain(ads.adsConversionActions([{ conversionAction: { name: 'Pagina bekeken', category: 'PAGE_VIEW' } }, { conversionAction: { name: 'Aankoop', category: 'PURCHASE', primaryForGoal: true } }])).map(x => [x.name, x.primary]), [['Aankoop', true], ['Pagina bekeken', false]]);
+  assert.equal(ads.adsCustomerId('215-899-7052'), '2158997052');
+  assert.equal(ads.adsCustomerId('21589'), null);
+});
+
+test('the Ads audit page is read-only and behind the ERP page guard', () => {
+  const page = read('app/admin/marketing/ads/page.tsx');
+  assert.match(page, /requirePageAccess\('erp'\)/);
+  assert.doesNotMatch(read('lib/marketing/googleAdsData.ts'), /mutate|:mutate/i);
+  assert.doesNotMatch(read('lib/marketing/google.ts'), /googleAds:mutate/);
 });

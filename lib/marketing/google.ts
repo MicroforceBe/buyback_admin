@@ -2,9 +2,11 @@ import 'server-only';
 // Reads Search Console, Analytics 4 and Merchant Center with the Google service account (read-only scopes,
 // plus the Merchant API scope). Settings come from the environment; the key is never logged or returned.
 import { createSign } from 'node:crypto';
+import { ADS_API_VERSION, adsCustomerId } from '@/lib/marketing/googleAdsData';
 import { ga4Channels, gscTop, gscTotals, gscWindows, isMerchantUnregistered, merchantSummary, parseServiceAccount, type Ga4Channel, type GscTop, type GscTotals, type MerchantSummary, type ServiceAccount } from '@/lib/marketing/googleData';
 
-const SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly', 'https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/content'];
+// adwords: the Google Ads API (the service account only holds read-only access in the Ads account).
+const SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly', 'https://www.googleapis.com/auth/analytics.readonly', 'https://www.googleapis.com/auth/content', 'https://www.googleapis.com/auth/adwords'];
 type Fetch = typeof fetch;
 const b64url = (s: string | Buffer) => Buffer.from(s).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
@@ -30,13 +32,15 @@ export async function accessToken(sa: ServiceAccount, deps: { fetch?: Fetch; now
 async function call<T>(sa: ServiceAccount, url: string, body: unknown, deps: { fetch?: Fetch } = {}, method: 'POST' | 'DELETE' = 'POST'): Promise<T> {
   const token = await accessToken(sa, deps);
   const res = await (deps.fetch ?? fetch)(url, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(method === 'POST' ? { body: JSON.stringify(body) } : {}), cache: 'no-store' });
-  const json = await res.json().catch(() => ({})) as T & { error?: { message?: string } };
-  if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+  const json = await res.json().catch(() => ({})) as T & { error?: { message?: string; details?: { errors?: { message?: string }[] }[] } };
+  // The Google Ads API puts the useful reason in details[].errors[]; other APIs only have message.
+  const detail = json.error?.details?.flatMap(d => d.errors ?? []).map(e => e.message).filter(Boolean).join('; ');
+  if (!res.ok) throw new Error(detail || json.error?.message || `HTTP ${res.status}`);
   return json;
 }
 
 export function googleSettings(env: Record<string, string | undefined> = process.env) {
-  return { sa: parseServiceAccount(env.GOOGLE_SERVICE_ACCOUNT_JSON), site: env.GSC_SITE_URL?.trim() || null, ga4: env.GA4_PROPERTY_ID?.trim() || null, merchant: env.MERCHANT_CENTER_ID?.trim() || null };
+  return { sa: parseServiceAccount(env.GOOGLE_SERVICE_ACCOUNT_JSON), site: env.GSC_SITE_URL?.trim() || null, ga4: env.GA4_PROPERTY_ID?.trim() || null, merchant: env.MERCHANT_CENTER_ID?.trim() || null, ads: env.GOOGLE_ADS_CUSTOMER_ID?.trim() || null };
 }
 
 export type SearchConsoleData = { window: { start: string; end: string }; current: GscTotals; previous: GscTotals; queries: GscTop[]; pages: GscTop[] };
@@ -140,3 +144,18 @@ export async function deleteLocalInventory(sa: ServiceAccount, account: string, 
 }
 
 export { isMerchantUnregistered };
+
+/** One GAQL query against the Google Ads account (all pages, at most 20). Read-only. */
+export async function adsSearch<T>(sa: ServiceAccount, customerId: string, query: string, deps: { fetch?: Fetch } = {}): Promise<T[]> {
+  const id = adsCustomerId(customerId);
+  if (!id) throw new Error('GOOGLE_ADS_CUSTOMER_ID moet het klant-ID van 10 cijfers zijn (bv. 123-456-7890).');
+  const rows: T[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < 20; i++) {
+    const page = await call<{ results?: T[]; nextPageToken?: string }>(sa, `https://googleads.googleapis.com/${ADS_API_VERSION}/customers/${id}/googleAds:search`, { query: query.replace(/\s+/g, ' ').trim(), ...(pageToken ? { pageToken } : {}) }, deps);
+    rows.push(...(page.results ?? []));
+    if (!page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
+  return rows;
+}
