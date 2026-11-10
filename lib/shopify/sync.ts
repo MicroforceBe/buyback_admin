@@ -8,7 +8,7 @@ import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldV
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { chunk, desiredFromRow, duplicateTitles, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, isRefurbishedTitle, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -343,6 +343,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // changed). Shadow mode only counts. Publications count toward the emergency brake. A failing scan or
     // publish never fails the run: it is reported in the counts.
     const managed = erpMatchedProducts(desired.map(d => d.sku), state.variants);
+    // An UNLISTED refurbished device must stay reachable, also once its SKUs left the ERP (only the sync
+    // makes products UNLISTED): it is published like the ERP products.
+    for (const a of missingDeactivations) if (a.status === 'UNLISTED') managed.add(a.productId);
+    for (const v of state.variants) if (v.status === 'UNLISTED' && isRefurbishedTitle(v.title)) managed.add(v.productId);
     const conflicted = new Set(plan.conflictedProducts);
     const ensureOnStore = async (live: boolean, exclude: Set<string>, max?: number, activating?: Set<string>) => {
       try {

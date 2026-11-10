@@ -282,15 +282,16 @@ export function planSync(input: {
   const add = (c: Change) => plan.changes.push(c);
   const maxUnlist = input.maxUnlist ?? MAX_UNLIST_PER_RUN;
   let unlisted = 0;
-  // Stock per product after this run, for the sold-out rule: every variant of the product, and per location
-  // the ERP quantity, or Shopify's own when the ERP row does not give one (a missing or blank column is
-  // never read as 0).
+  // Stock per product after this run, for the sold-out rule: every Shopify variant of the product (also
+  // one that is not in the ERP), per location the ERP quantity, or Shopify's own when the ERP does not
+  // give one (a missing or blank column is never read as 0).
+  const desiredBySku = new Map<string, DesiredState>();
+  for (const d of input.desired) if (!duplicate.has(d.sku) && !desiredBySku.has(d.sku)) desiredBySku.set(d.sku, d);
   const productStock = new Map<string, number>();
-  for (const d of input.desired) {
-    const c = bySku.get(d.sku);
-    if (!c) continue;
+  for (const c of input.current) {
+    const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
-    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(d.inventory)])) stock += Math.max(0, d.inventory[location] ?? c.inventory[location] ?? 0);
+    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erp)])) stock += Math.max(0, erp[location] ?? c.inventory[location] ?? 0);
     productStock.set(c.productId, (productStock.get(c.productId) ?? 0) + stock);
   }
 

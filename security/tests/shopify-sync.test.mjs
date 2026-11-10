@@ -875,6 +875,17 @@ test('the sold-out rule looks at every variant of the product, whatever the row 
   for (const desired of [rows, [...rows].reverse()]) {
     assert.equal(plain(plan.planSync({ desired, current: cur, locations: LOCS })).productUpdates[0]?.status, 'DRAFT');
   }
+  // A stocked variant that is not in the ERP counts as well.
+  const onlyShopify = current({ sku: 'C', variantId: 'gid://shopify/ProductVariant/9', inventoryItemId: 'gid://shopify/InventoryItem/9', title: refurb, inventory: { 'Microforce Gentbrugge': 1, 'Microforce Antwerpen': 0 } });
+  assert.equal(plain(plan.planSync({ desired: [rows[0]], current: [cur[0], onlyShopify], locations: LOCS })).productUpdates[0]?.status, 'DRAFT');
+  assert.equal(plain(plan.planSync({ desired: [rows[0]], current: [cur[0]], locations: LOCS })).productUpdates[0]?.status, 'UNLISTED');
+});
+
+test('unlisted refurbished devices stay in the publication scope, also after leaving the ERP', () => {
+  const sync = read('lib/shopify/sync.ts');
+  assert.match(sync, /for \(const a of missingDeactivations\) if \(a\.status === 'UNLISTED'\) managed\.add\(a\.productId\)/);
+  assert.match(sync, /if \(v\.status === 'UNLISTED' && isRefurbishedTitle\(v\.title\)\) managed\.add\(v\.productId\)/);
+  assert.ok(sync.indexOf('managed.add') < sync.indexOf('const ensureOnStore'));
 });
 
 test('old drafts move to UNLISTED a batch per run; a device selling out now is never held back', async () => {
