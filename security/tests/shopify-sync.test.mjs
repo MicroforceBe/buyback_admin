@@ -992,8 +992,8 @@ test('a low max_changes never makes the store catch-up trip the emergency brake'
   const fake = fakeClient(cur);
   const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
   assert.equal(result.status, 'succeeded');
-  assert.equal(result.counts.changes, 10);
-  assert.equal(result.counts.storesDeferred, 20);
+  assert.equal(result.counts.changes, 20);
+  assert.equal(result.counts.storesDeferred, 10);
 });
 
 test('live mode removes the store list of a product that is in no store any more', async () => {

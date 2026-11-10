@@ -346,18 +346,20 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       counts.unlistDeferred = plan.counts.unlistDeferred + d.unlistDeferred;
       counts.missingStockZeroed = d.inventory.length;
     }
-    // Store lists from the stock after every planned write. They use at most half of max_changes (at least 1),
-    // counting the changes already planned, so the catch-up never trips the emergency brake by itself.
-    addStoreLists(plan, { current: state.variants, erpSkus: new Set(desired.map(d => d.sku)), locations, storeChangeBudget: Math.max(1, Math.floor(Number(settings.max_changes) / 2)) });
-    counts.storesDeferred = plan.counts.storesDeferred;
-    counts.changes = plan.changes.length;
-
-    const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
-    for (const batch of chunk(recorded, 500)) {
-      const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
-      if (error) throw new Error('Wijzigingen konden niet worden vastgelegd.');
-    }
-    counts.recordedChanges = recorded.length;
+    // Store lists from the stock after every planned write, only in the room left under max_changes by the other
+    // changes and the publications of this run, so the catch-up never trips the emergency brake by itself.
+    // Then every planned change is recorded.
+    const planStoresAndRecord = async (publications: number) => {
+      addStoreLists(plan, { current: state.variants, erpSkus: new Set(desired.map(d => d.sku)), locations, storeChangeBudget: Math.max(0, Number(settings.max_changes) - publications) });
+      counts.storesDeferred = plan.counts.storesDeferred;
+      counts.changes = plan.changes.length;
+      const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
+      for (const batch of chunk(recorded, 500)) {
+        const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
+        if (error) throw new Error('Wijzigingen konden niet worden vastgelegd.');
+      }
+      counts.recordedChanges = recorded.length;
+    };
 
     // Every active product must be visible in the Online Store (existing ones too, also when nothing else
     // changed). Shadow mode only counts. Publications count toward the emergency brake. A failing scan or
@@ -381,7 +383,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     };
 
     if (mode === 'shadow') {
-      await ensureOnStore(false, new Set());
+      const r = await ensureOnStore(false, new Set());
+      await planStoresAndRecord(r ? plannedPublications(r) : 0);
       return await finish('succeeded', counts);
     }
 
@@ -393,6 +396,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const activating = new Set(plan.productUpdates.filter(u => visible(u.status)).map(u => u.id));
     const preview = await ensureOnStore(false, deactivating, undefined, activating);
     const toPublish = preview ? plannedPublications(preview) : 0;
+    await planStoresAndRecord(toPublish);
     if (plan.changes.length + toPublish > settings.max_changes) {
       return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen${toPublish ? ` en ${toPublish} producten in de webshop zetten` : ''} is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
     }

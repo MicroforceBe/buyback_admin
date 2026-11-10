@@ -13,8 +13,8 @@ Elke 15 minuten schrijft het ERP een CSV naar FTP; `/api/erp-sync` importeert di
   over alle varianten van het product. Het thema gebruikt dit voor "Nu in Gent/Antwerpen" en de winkelfilter. Geen voorraad in
   een winkel: het metaveld wordt verwijderd. Oudenaarde is tijdelijk dicht en telt niet mee (STORE_LOCATIONS in plan.ts).
   Berekend nadat alle voorraadwijzigingen van de run gepland zijn (ook het op 0 zetten van SKU's die uit het ERP verdwenen).
-  Hoogstens 150 producten per run en nooit meer dan de helft van max_changes (minstens 1, min wat al gepland is), zodat de eerste
-  inhaalbeweging zich over enkele runs verspreidt zonder de noodrem. Mislukt de voorraadwijziging van een product, dan wordt
+  Hoogstens 150 producten per run, en alleen in de ruimte die onder max_changes overblijft na de andere wijzigingen en de
+  publicaties van de run, zodat de eerste inhaalbeweging zich over enkele runs verspreidt zonder de noodrem. Mislukt de voorraadwijziging van een product, dan wordt
   zijn winkellijst niet geschreven (en als mislukt gemeld); de volgende run rekent ze opnieuw uit.
 
 Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicatie/kanalen, afbeeldingen.
