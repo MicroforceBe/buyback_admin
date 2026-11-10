@@ -62,12 +62,15 @@ Een uitverkocht refurbished toestel blijft bereikbaar via zijn URL (beslissing O
 dan "Niet meer op voorraad", geen prijs en tot 4 alternatieven op voorraad (thema: `snippets/uitverkocht.liquid`, aangeroepen
 vanuit `snippets/price.liquid`). Daarvoor krijgt het product in Shopify de status **UNLISTED** ("Niet vermeld"): bereikbaar via
 de link, maar niet in collecties, zoekresultaten, aanbevelingen, de sitemap of Google (Shopify zet zelf `noindex`).
-- Regel (`targetStatus` in `lib/shopify/plan.ts`): zegt het ERP **Draft**, is er **geen voorraad** en staat "Refurbished" in de
-  titel, dan wordt het UNLISTED. Al het andere volgt de ERP-status zoals voorheen (accessoires blijven concept). Zegt het ERP
+- Regel (`targetStatus` in `lib/shopify/plan.ts`): zegt het ERP **Draft**, is er **geen voorraad** (over alle varianten, in het
+  ERP én in Shopify) en staat "Refurbished" in de titel, dan wordt het UNLISTED. Heeft Shopify nog voorraad, dan wordt het eerst
+  concept (de run zet de voorraad op 0) en in een volgende run UNLISTED: zo blijft een pagina nooit bereikbaar met voorraad die
+  nog gekocht kan worden als het wegschrijven van de 0 mislukt. Al het andere volgt de ERP-status zoals voorheen (accessoires blijven concept). Zegt het ERP
   weer Active, dan wordt het product terug actief.
-- Een actief refurbished product dat uit het ERP verdwijnt, wordt na 1 uur ook UNLISTED in plaats van concept, zonder
-  doorverwijzing (de pagina blijft bestaan). Andere producten gaan zoals voorheen naar concept met een 301.
-- Bestaande concepten worden in porties omgezet: maximaal 75 per run (`MAX_UNLIST_PER_RUN`), zodat de noodrem niet afgaat;
+- Een refurbished product dat uit het ERP verdwijnt, wordt na 1 uur ook UNLISTED in plaats van concept (zelfde regel: eerst
+  concept zolang Shopify nog voorraad heeft), zonder doorverwijzing (de pagina blijft bestaan). Ook oude concepten die niet meer
+  in het ERP staan, worden zo omgezet. Andere producten gaan zoals voorheen naar concept met een 301.
+- Bestaande concepten worden in porties omgezet: maximaal 75 per run samen (`MAX_UNLIST_PER_RUN`), zodat de noodrem niet afgaat;
   de rest staat bij de run als "volgt in een volgende run". Een toestel dat nu uitverkocht raakt, wacht nooit.
 - UNLISTED-producten worden net als actieve op het kanaal Online Store gezet (anders zou de pagina een 404 geven).
 - De Google-feed neemt alleen actieve producten mee, dus niet-vermelde producten staan er niet in.

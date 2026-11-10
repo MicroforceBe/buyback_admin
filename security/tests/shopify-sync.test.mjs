@@ -857,6 +857,7 @@ test('a sold-out refurbished device becomes UNLISTED (reachable by URL), anythin
   const empty = { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 };
   const status = (row, cur) => plain(plan.planSync({ desired: [plan.desiredFromRow(csvRow(row))], current: [current(cur)], locations: LOCS })).productUpdates[0]?.status;
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, inventory: empty }), 'UNLISTED');
+  assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb }), 'DRAFT', 'Shopify still has stock: draft first, UNLISTED once the 0 is written');
   assert.equal(status({ Title: refurb, Status: 'Draft' }, { title: refurb }), 'DRAFT', 'still stock: the ERP draft stands');
   assert.equal(status({ Title: 'Lightning kabel 2m', Status: 'Draft', ...zero }, { title: 'Lightning kabel 2m', inventory: empty }), 'DRAFT');
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, status: 'UNLISTED', inventory: empty }), undefined, 'already unlisted: no change');
@@ -909,8 +910,17 @@ test('a refurbished device that leaves the ERP becomes UNLISTED without a redire
   const b = current({ sku: 'K1', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/22', inventoryItemId: 'gid://shopify/InventoryItem/222', title: 'Lightning kabel 2m', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 } });
   const d = plain(plan.planDeactivateMissing({ missing: [a, b], all: [a, b], erpSkus: new Set(), firstMissing: new Map([['R1', old], ['K1', old]]), now, locations: LOCS, afterHours: 1 }));
   assert.deepEqual(d.deactivate.map(x => [x.title, x.status]), [['iPad Air 4 64GB Refurbished 5*', 'UNLISTED'], ['Lightning kabel 2m', 'DRAFT']]);
+  // Stock still in Shopify: draft first (the 0 is written in this run); an old draft becomes UNLISTED, a batch per run.
+  const stocked = current({ sku: 'R2', productId: 'gid://shopify/Product/3', variantId: 'gid://shopify/ProductVariant/33', inventoryItemId: 'gid://shopify/InventoryItem/333', title: 'iPad Air 4 64GB Refurbished 4*', inventory: { 'Microforce Gentbrugge': 1, 'Microforce Antwerpen': 0 } });
+  const drafts = [4, 5].map(i => current({ sku: 'D' + i, productId: 'gid://shopify/Product/' + i, variantId: 'gid://shopify/ProductVariant/' + i, inventoryItemId: 'gid://shopify/InventoryItem/' + i, status: 'DRAFT', title: `iPhone 11 64GB Black Refurbished ${i}*`, inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 } }));
+  const all = [stocked, ...drafts];
+  const e = plain(plan.planDeactivateMissing({ missing: all, all, erpSkus: new Set(), firstMissing: new Map(all.map(x => [x.sku, old])), now, locations: LOCS, afterHours: 1, maxUnlist: 1 }));
+  assert.deepEqual(e.deactivate.map(x => [x.title, x.status]), [['iPad Air 4 64GB Refurbished 4*', 'DRAFT'], ['iPhone 11 64GB Black Refurbished 4*', 'UNLISTED']]);
+  assert.equal(e.unlistDeferred, 1);
+  assert.deepEqual(e.inventory.map(x => x.quantity), [0]);
   const sync = read('lib/shopify/sync.ts');
   assert.match(sync, /missingDeactivations\.filter\(a => a\.status === 'DRAFT'\)/);
+  assert.match(sync, /maxUnlist: Math\.max\(0, MAX_UNLIST_PER_RUN - plan\.counts\.unlistedFromDraft\)/);
   assert.match(sync, /status === 'ACTIVE' \|\| status === 'UNLISTED'/);
   assert.match(read('lib/shopify/publish.ts'), /query: "status:active OR status:unlisted"/);
 });

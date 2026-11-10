@@ -8,7 +8,7 @@ import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldV
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { chunk, desiredFromRow, duplicateTitles, isRefurbishedTitle, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { chunk, desiredFromRow, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -322,12 +322,13 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     if (settings.handle_missing !== true) {
       const heldProducts = new Set(missingCurrent.filter(v => missingInfo.get(v.sku)?.held === true).map(v => v.productId));
       const firstMissing = new Map([...missingInfo.entries()].map(([sku, i]) => [sku, i.since]));
-      const d = planDeactivateMissing({ missing: missingCurrent.filter(v => !heldProducts.has(v.productId)), all: state.variants, erpSkus: new Set(desired.map(d => d.sku)), firstMissing, now: new Date(), locations, afterHours: DEACTIVATE_MISSING_AFTER_HOURS });
+      const d = planDeactivateMissing({ missing: missingCurrent.filter(v => !heldProducts.has(v.productId)), all: state.variants, erpSkus: new Set(desired.map(d => d.sku)), firstMissing, now: new Date(), locations, afterHours: DEACTIVATE_MISSING_AFTER_HOURS, maxUnlist: Math.max(0, MAX_UNLIST_PER_RUN - plan.counts.unlistedFromDraft) });
       plan.inventory.push(...d.inventory);
       plan.productUpdates.push(...d.deactivate.map(a => ({ id: a.productId, status: a.status })));
       plan.changes.push(...d.changes);
       missingDeactivations = d.deactivate;
       counts.missingDeactivated = d.deactivate.length;
+      counts.unlistDeferred = plan.counts.unlistDeferred + d.unlistDeferred;
       counts.missingStockZeroed = d.inventory.length;
     }
     counts.changes = plan.changes.length;

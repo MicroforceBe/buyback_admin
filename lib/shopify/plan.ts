@@ -123,6 +123,8 @@ export type Plan = {
     statusLocked: number;
     /** Drafts that should become UNLISTED but wait for a next run (MAX_UNLIST_PER_RUN). */
     unlistDeferred: number;
+    /** Drafts made UNLISTED in this run (counts against MAX_UNLIST_PER_RUN). */
+    unlistedFromDraft: number;
   };
 };
 
@@ -248,7 +250,7 @@ export function planSync(input: {
 }): Plan {
   const plan: Plan = {
     changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0 },
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -287,11 +289,14 @@ export function planSync(input: {
   // give one (a missing or blank column is never read as 0).
   const desiredBySku = new Map<string, DesiredState>();
   for (const d of input.desired) if (!duplicate.has(d.sku) && !desiredBySku.has(d.sku)) desiredBySku.set(d.sku, d);
+  // Shopify's current stock counts too: UNLISTED only once Shopify itself is at 0, so a failed or skipped
+  // stock write never leaves a reachable page that can still be bought. Until then the ERP draft applies;
+  // the next run (stock written) makes it UNLISTED.
   const productStock = new Map<string, number>();
   for (const c of input.current) {
     const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
-    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erp)])) stock += Math.max(0, erp[location] ?? c.inventory[location] ?? 0);
+    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erp)])) stock += Math.max(0, erp[location] ?? c.inventory[location] ?? 0) + Math.max(0, c.inventory[location] ?? 0);
     productStock.set(c.productId, (productStock.get(c.productId) ?? 0) + stock);
   }
 
@@ -319,7 +324,7 @@ export function planSync(input: {
         // Old drafts move to UNLISTED a batch at a time; a product selling out now (ACTIVE) goes right away.
         else if (c.status === 'DRAFT' && wanted === 'UNLISTED' && unlisted >= maxUnlist) plan.counts.unlistDeferred++;
         else {
-          if (c.status === 'DRAFT' && wanted === 'UNLISTED') unlisted++;
+          if (c.status === 'DRAFT' && wanted === 'UNLISTED') { unlisted++; plan.counts.unlistedFromDraft++; }
           update.status = wanted; add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: wanted });
         }
       }
@@ -514,11 +519,14 @@ export const KEEP_TAG = 'erp-negeren';
  */
 export function planDeactivateMissing(input: {
   missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
-  locations: Record<string, string>; afterHours: number;
-}): { inventory: Plan['inventory']; deactivate: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[]; changes: Change[] } {
+  locations: Record<string, string>; afterHours: number; maxUnlist?: number;
+}): { inventory: Plan['inventory']; deactivate: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[]; changes: Change[]; unlistDeferred: number } {
   const inventory: Plan['inventory'] = [];
   const changes: Change[] = [];
   const deactivate: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[] = [];
+  const maxUnlist = input.maxUnlist ?? MAX_UNLIST_PER_RUN;
+  let unlisted = 0;
+  let unlistDeferred = 0;
   const byProduct = new Map<string, CurrentState[]>();
   for (const v of input.all) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
   const seen = new Set<string>();
@@ -532,11 +540,19 @@ export function planDeactivateMissing(input: {
     if (!allGone) continue;
     // A draft that still holds stock (an earlier stock write failed, or it was already a draft) only gets
     // the stock reset, so a partial failure always recovers in a later run.
-    if (v.status === 'ACTIVE') {
-      // A refurbished device stays reachable (UNLISTED, see targetStatus); anything else goes to draft.
-      const status = isRefurbishedTitle(v.title) ? 'UNLISTED' as const : 'DRAFT' as const;
-      deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku), status });
-      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: status });
+    // A refurbished device stays reachable (UNLISTED, see targetStatus), but only once Shopify's stock is
+    // already 0: while stock remains (this run writes the 0) it goes to draft first, and becomes UNLISTED in
+    // a next run, a batch at a time like the other old drafts. Anything else goes to draft.
+    const shopifyStock = variants.reduce((sum, x) => sum + Object.values(x.inventory).reduce((a, q) => a + Math.max(0, q), 0), 0);
+    const unlist = isRefurbishedTitle(v.title) && shopifyStock === 0;
+    if (v.status === 'ACTIVE' || (v.status === 'DRAFT' && unlist && !v.tags.includes(NEW_PRODUCT_TAG))) {
+      const status = unlist ? 'UNLISTED' as const : 'DRAFT' as const;
+      if (v.status === 'DRAFT' && unlisted >= maxUnlist) unlistDeferred++;
+      else {
+        if (v.status === 'DRAFT') unlisted++;
+        deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku), status });
+        changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: status });
+      }
     }
     for (const x of variants) {
       for (const [location, quantity] of Object.entries(x.inventory)) {
@@ -547,7 +563,7 @@ export function planDeactivateMissing(input: {
       }
     }
   }
-  return { inventory, deactivate, changes };
+  return { inventory, deactivate, changes, unlistDeferred };
 }
 
 /**
