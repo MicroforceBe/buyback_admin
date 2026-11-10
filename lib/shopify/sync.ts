@@ -3,12 +3,12 @@ import 'server-only';
 // and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_DELETE, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { chunk, desiredFromRow, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -96,7 +96,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}, productOfItem: Map<string, string> = new Map()): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -122,11 +122,25 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     // Atomic mutation: any error means nothing in this batch was written.
     if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', field: locationNameById.get(q.locationId) ?? q.locationId, reason: errorText(inventorySetQuantities.userErrors) });
   }
-  for (const batch of chunk(plan.metafields, 25)) {
+  // The store list was computed from the planned stock: when a stock write of that product failed, it is not
+  // written (the next run computes it again from the real stock) and the change is reported as failed.
+  const failedInventory = new Set(failed.filter(f => f.scope === 'inventory').map(f => f.id));
+  const failedStockProducts = new Set(plan.inventory.filter(q => failedInventory.has(q.inventoryItemId)).map(q => productOfItem.get(q.inventoryItemId)).filter((id): id is string => !!id));
+  const storeField = metafieldId(STORE_METAFIELD);
+  const skipStore = (m: { ownerId: string; namespace: string; key: string }) => metafieldId(m) === storeField && failedStockProducts.has(m.ownerId);
+  for (const m of [...plan.metafields, ...plan.metafieldDeletes]) if (skipStore(m)) failed.push({ id: m.ownerId, scope: 'metafield', field: storeField, reason: 'Niet geschreven: de voorraadwijziging van dit product mislukte.' });
+  const metafieldSets = plan.metafields.filter(m => !skipStore(m));
+  const metafieldDeletes = plan.metafieldDeletes.filter(m => !skipStore(m));
+  for (const batch of chunk(metafieldSets, 25)) {
     await guard();
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
     // metafieldsSet is atomic: any error means nothing in this batch was written.
     if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsSet.userErrors) });
+  }
+  for (const batch of chunk(metafieldDeletes, 25)) {
+    await guard();
+    const { metafieldsDelete } = await client.graphql<{ metafieldsDelete: { userErrors: UserError[] } }>(METAFIELDS_DELETE, { metafields: batch });
+    if (metafieldsDelete.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsDelete.userErrors) });
   }
   for (const c of creates) {
     await guard();
@@ -226,7 +240,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
     const locations = { ...state.locations, ...apiLocations };
-    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid });
+    // Store lists are added further on, once every stock write of this run is planned.
+    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid, deferStores: true });
     // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
     const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}), ...(u.status ? { status: u.status } : {}) }));
     Object.assign(counts, plan.counts, {
@@ -331,14 +346,20 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       counts.unlistDeferred = plan.counts.unlistDeferred + d.unlistDeferred;
       counts.missingStockZeroed = d.inventory.length;
     }
-    counts.changes = plan.changes.length;
-
-    const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
-    for (const batch of chunk(recorded, 500)) {
-      const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
-      if (error) throw new Error('Wijzigingen konden niet worden vastgelegd.');
-    }
-    counts.recordedChanges = recorded.length;
+    // Store lists from the stock after every planned write, only in the room left under max_changes by the other
+    // changes and the publications of this run, so the catch-up never trips the emergency brake by itself.
+    // Then every planned change is recorded.
+    const planStoresAndRecord = async (publications: number) => {
+      addStoreLists(plan, { current: state.variants, erpSkus: new Set(desired.map(d => d.sku)), locations, storeChangeBudget: Math.max(0, Number(settings.max_changes) - publications) });
+      counts.storesDeferred = plan.counts.storesDeferred;
+      counts.changes = plan.changes.length;
+      const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
+      for (const batch of chunk(recorded, 500)) {
+        const { error } = await db.from('shopify_sync_changes').insert(batch.map(c => ({ run_id: runId, sku: c.sku, scope: c.scope, field: c.field, old_value: c.oldValue, new_value: c.newValue })));
+        if (error) throw new Error('Wijzigingen konden niet worden vastgelegd.');
+      }
+      counts.recordedChanges = recorded.length;
+    };
 
     // Every active product must be visible in the Online Store (existing ones too, also when nothing else
     // changed). Shadow mode only counts. Publications count toward the emergency brake. A failing scan or
@@ -362,7 +383,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     };
 
     if (mode === 'shadow') {
-      await ensureOnStore(false, new Set());
+      const r = await ensureOnStore(false, new Set());
+      await planStoresAndRecord(r ? plannedPublications(r) : 0);
       return await finish('succeeded', counts);
     }
 
@@ -374,6 +396,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const activating = new Set(plan.productUpdates.filter(u => visible(u.status)).map(u => u.id));
     const preview = await ensureOnStore(false, deactivating, undefined, activating);
     const toPublish = preview ? plannedPublications(preview) : 0;
+    await planStoresAndRecord(toPublish);
     if (plan.changes.length + toPublish > settings.max_changes) {
       return await finish('stopped', counts, `Noodrem: ${plan.changes.length} wijzigingen${toPublish ? ` en ${toPublish} producten in de webshop zetten` : ''} is meer dan het ingestelde maximum (${settings.max_changes}). Er is niets naar Shopify geschreven. Controleer de wijzigingen of verhoog het maximum.`);
     }
@@ -428,7 +451,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       const r = product ? await redirectArchived(client, product) : null;
       if (r?.redirect) counts.missingRedirects = Number(counts.missingRedirects ?? 0) + 1;
     };
-    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate);
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate, new Map(state.variants.map(v => [v.inventoryItemId, v.productId])));
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });

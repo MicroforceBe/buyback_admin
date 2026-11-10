@@ -95,7 +95,10 @@ test('publishing stops when the sync is switched off mid-run', async () => {
 
 test('the sync run counts in shadow, applies the brake to publications, skips failed products', () => {
   const sync = read('lib/shopify/sync.ts');
-  assert.match(sync, /if \(mode === 'shadow'\) \{\s*await ensureOnStore\(false, new Set\(\)\);\s*return await finish\('succeeded', counts\);/);
+  assert.match(sync, /if \(mode === 'shadow'\) \{\s*const r = await ensureOnStore\(false, new Set\(\)\);\s*await planStoresAndRecord\(r \? plannedPublications\(r\) : 0\);\s*return await finish\('succeeded', counts\);/);
+  // Store lists only fill the room left by the publications, before the brake.
+  const stores = sync.indexOf('await planStoresAndRecord(toPublish)');
+  assert.ok(stores > sync.indexOf('const toPublish =') && stores < sync.indexOf('plan.changes.length + toPublish > settings.max_changes'));
   assert.match(sync, /if \(plan\.changes\.length \+ toPublish > settings\.max_changes\)/);
   const brake = sync.indexOf('plan.changes.length + toPublish > settings.max_changes');
   assert.ok(brake > 0 && brake < sync.indexOf('await ensureOnStore(true'), 'brake before any publish');
