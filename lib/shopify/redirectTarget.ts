@@ -23,6 +23,16 @@ export function chooseRedirectTarget(
 }
 
 /**
+ * A redirect that only lands on the homepage (old imports did that for thousands of products) is treated
+ * as a soft 404 by Google, so the catch-up replaces it with a real target. Only the bare homepage counts,
+ * also with a language prefix (/fr, /en) or the shop's own domain in front.
+ */
+export function isWeakRedirectTarget(target: string): boolean {
+  const path = target.trim().toLowerCase().replace(/^https?:\/\/(www\.)?microforce\.be(?=\/|$|[?#])/, '').replace(/[?#].*$/, '');
+  return /^(\/(nl|fr|en))?\/?$/.test(path);
+}
+
+/**
  * Search words for Shopify's product search: the model key's words that also appear as-is in the raw
  * title. Words the key normalises (Naturel → natural, SpaceGrey → space grey, Titan. → titanium) are left
  * out, because Shopify ANDs the clauses and would miss siblings spelled the other way; the exact model

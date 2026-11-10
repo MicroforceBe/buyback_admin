@@ -66,8 +66,15 @@ Een gearchiveerd product geeft in de webshop een 404. Daarom krijgt de oude URL 
 
 Bestaande doorverwijzingen die naar de gearchiveerde pagina wezen, worden mee omgezet, zodat er geen keten op een dode pagina eindigt.
 **Terugzetten als concept** verwijdert de doorverwijzing weer. Bij definitief verwijderen wordt de bestaande doorverwijzing bijgewerkt.
-De knop "Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing" (sectie "Gearchiveerd via deze tool")
-maakt ze eenmalig aan voor producten die vroeger al gearchiveerd werden (maximaal 60 per klik).
+**Inhalen** (`redirectBacklog`, cron `/api/shopify-redirects` elk uur op :43, knop "Doorverwijzingen nu aanmaken voor
+concept- en gearchiveerde producten" in de sectie "Gearchiveerd via deze tool"): elk product met status concept of gearchiveerd
+zonder doorverwijzing krijgt er een volgens de regels hierboven, en een bestaande doorverwijzing die alleen naar de homepage gaat
+(`/`, `/fr`, `/en`, ook met `https://www.microforce.be` ervoor; zo deden oude imports het) wordt vervangen, want Google ziet die
+als een zachte 404. Andere bestaande doorverwijzingen blijven ongemoeid. Shopify negeert een doorverwijzing zolang het product
+live staat, dus een concept dat terugkomt heeft er geen last van (ook een teruggezet concept krijgt zo weer een doorverwijzing).
+De cron volgt de schakelaar van de Shopify-sync (uit = niets, schaduw = alleen tellen, live = schrijven), maximaal 150 per run
+en 4 minuten; hij begint telkens vooraan, producten die al een goede doorverwijzing hebben kosten één zoekopdracht per 50.
+De knop doet maximaal 100 per klik en gaat bij de volgende klik verder waar hij stopte.
 Alles vraagt het recht `write_online_store_navigation`; ontbreekt dat, dan wordt er niets doorverwezen en staat dat in het logboek.
 Een probleem met een doorverwijzing laat het archiveren of verwijderen nooit mislukken.
 

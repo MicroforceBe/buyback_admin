@@ -126,6 +126,7 @@ function fakeClient(nodes, { scopes = [], redirects = [], siblings = [] } = {}) 
         if (name === 'SetProductStatus') return { productUpdate: { userErrors: [] } };
         if (name === 'DeleteProduct') return { productDelete: { deletedProductId: vars.id, userErrors: [] } };
         if (name === 'RedirectByPath') return { urlRedirects: { nodes: redirects.filter(r => vars.q === 'path:"' + r.path + '"') } };
+        if (name === 'RedirectsByPaths') { const paths = [...vars.q.matchAll(/path:"([^"]+)"/g)].map(m => m[1]); return { urlRedirects: { nodes: redirects.filter(r => paths.includes(r.path)) } }; }
         if (name === 'RedirectsByTarget') return { urlRedirects: { nodes: redirects.filter(r => vars.q === 'target:"' + r.target + '"') } };
         if (name === 'RedirectCreate') { redirects.push({ id: 'r' + nextId++, path: vars.path, target: vars.target }); return { urlRedirectCreate: { userErrors: [] } }; }
         if (name === 'RedirectUpdate') { redirects.find(r => r.id === vars.id).target = vars.target; return { urlRedirectUpdate: { userErrors: [] } }; }
@@ -282,14 +283,61 @@ test('the catch-up resumes where the previous click stopped, so the whole backlo
   const fake = fakeClient([], { scopes: ['write_online_store_navigation'] });
   const base = fake.client.graphql;
   fake.client.graphql = async (q, v, o) => {
-    if (q.includes('ArchivedProducts')) { const start = v.after ? Number(v.after) : 0; return { products: { pageInfo: { hasNextPage: start + 2 < archived.length, endCursor: String(start + 2) }, nodes: archived.slice(start, start + 2) } }; }
+    if (q.includes('BacklogProducts')) { const start = v.after ? Number(v.after) : 0; return { products: { pageInfo: { hasNextPage: start + 2 < archived.length, endCursor: String(start + 2) }, nodes: archived.slice(start, start + 2) } }; }
     return base(q, v, o);
   };
-  const first = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3 }));
+  const first = plain(await mod.redirectBacklog(fake.client, { max: 3 }));
   assert.deepEqual([first.created, first.remaining, first.cursor], [3, true, '2']);
-  const second = plain(await mod.redirectArchivedBacklog(fake.client, { max: 3, after: first.cursor }));
+  const second = plain(await mod.redirectBacklog(fake.client, { max: 3, after: first.cursor }));
   assert.deepEqual([second.created, second.existing, second.remaining], [2, 1, false]);
   assert.match(read('app/admin/erp/shopify/page.tsx'), /name="after" value=\{params\.after\}/);
+});
+
+test('the catch-up covers drafts and replaces homepage redirects, but leaves good ones alone', async () => {
+  const { db } = fakeDb();
+  const { redirects: mod } = await load(db);
+  const products = ['geen', 'home', 'home-fr', 'goed'].map((h, i) => ({ id: 'gid://shopify/Product/' + i, title: 'Oud ' + h, handle: h, collections: { nodes: [{ handle: 'refurbished-iphone-13' }] } }));
+  const redirects = [
+    { id: 'a', path: '/products/home', target: 'https://www.microforce.be/' },
+    { id: 'b', path: '/products/home-fr', target: '/fr' },
+    { id: 'c', path: '/products/goed', target: '/collections/refurbished-iphone-12' },
+  ];
+  const fake = fakeClient([], { scopes: ['write_online_store_navigation'], redirects });
+  const base = fake.client.graphql;
+  let query = '';
+  fake.client.graphql = async (q, v, o) => {
+    if (q.includes('BacklogProducts')) { query = q; return { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: products } }; }
+    return base(q, v, o);
+  };
+  const dry = plain(await mod.redirectBacklog(fake.client, { dryRun: true }));
+  assert.deepEqual([dry.created, dry.replaced, dry.existing], [1, 2, 1]);
+  assert.equal(redirects.length, 3);
+  const r = plain(await mod.redirectBacklog(fake.client));
+  assert.deepEqual([r.created, r.replaced, r.existing, r.failed], [1, 2, 1, 0]);
+  assert.match(query, /status:archived OR status:draft/);
+  assert.deepEqual(plain(redirects).map(x => [x.path, x.target]).sort(), [
+    ['/products/geen', '/collections/refurbished-iphone-13'],
+    ['/products/goed', '/collections/refurbished-iphone-12'],
+    ['/products/home', '/collections/refurbished-iphone-13'],
+    ['/products/home-fr', '/collections/refurbished-iphone-13'],
+  ]);
+  const again = plain(await mod.redirectBacklog(fake.client));
+  assert.deepEqual([again.created, again.replaced, again.existing], [0, 0, 4]);
+  assert.equal(fake.calls.filter(c => c[0] === 'RedirectsByPaths').length, 3);
+});
+
+test('only a bare homepage counts as a weak redirect target', async () => {
+  const { target } = await load();
+  for (const t of ['/', '', 'https://www.microforce.be/', 'https://microforce.be', 'http://www.microforce.be/?ref=x', '/fr', '/en/', '/nl']) assert.equal(target.isWeakRedirectTarget(t), true, t);
+  for (const t of ['/collections/all', '/products/x', '/fr/collections/iphone', 'https://www.microforce.be/pages/faq', 'https://microforce.be.evil.example/', '/france']) assert.equal(target.isWeakRedirectTarget(t), false, t);
+});
+
+test('the hourly redirect catch-up follows the sync switch and is protected by the cron secret', () => {
+  const run = read('lib/shopify/redirectsRun.ts');
+  assert.match(run, /settings\.mode === 'off'\) return \{ status: 'skipped'/);
+  assert.match(run, /dryRun: settings\.mode !== 'live'/);
+  assert.match(read('app/api/shopify-redirects/route.ts'), /bearerMatches\(request\.headers\.get\('authorization'\), process\.env\.CRON_SECRET\)/);
+  assert.ok(JSON.parse(read('vercel.json')).crons.some(c => c.path === '/api/shopify-redirects'));
 });
 
 test('the sibling search reads further pages until an eligible sibling turns up', async () => {

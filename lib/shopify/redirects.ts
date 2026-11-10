@@ -3,7 +3,7 @@ import 'server-only';
 // no longer resolves, which is the case for an archived product: so the redirect is made at archive time,
 // not only at deletion. A redirect problem never fails the archive, restore or delete it belongs to.
 import { APP_SCOPES, PRODUCT_INFO, type ShopifyClient } from '@/lib/shopify/client';
-import { chooseRedirectTarget, siblingQuery, type RedirectCandidate } from '@/lib/shopify/redirectTarget';
+import { chooseRedirectTarget, isWeakRedirectTarget, siblingQuery, type RedirectCandidate } from '@/lib/shopify/redirectTarget';
 
 type UserError = { message: string };
 export type RedirectProduct = { id: string; title: string; handle: string; collectionHandle: string | null };
@@ -103,29 +103,58 @@ export async function removeRedirect(client: ShopifyClient, handle: string): Pro
   }
 }
 
-const ARCHIVED_PRODUCTS = `query ArchivedProducts($after: String) { products(first: 50, after: $after, query: "status:archived") { pageInfo { hasNextPage endCursor } nodes { id title handle collections(first: 1) { nodes { handle } } } } }`;
+// Archived and draft products are both a 404 in the shop (Shopify ignores a redirect again as soon as the
+// product is live, so a draft that comes back needs nothing).
+const BACKLOG_PRODUCTS = `query BacklogProducts($after: String) { products(first: 50, after: $after, query: "status:archived OR status:draft") { pageInfo { hasNextPage endCursor } nodes { id title handle collections(first: 1) { nodes { handle } } } } }`;
+const REDIRECTS_BY_PATHS = `query RedirectsByPaths($q: String!) { urlRedirects(first: 250, query: $q) { nodes { path target } } }`;
+
+export type BacklogResult = { scope: boolean; dryRun: boolean; created: number; replaced: number; existing: number; failed: number; remaining: boolean; cursor: string | null; notes: string[] };
+type BacklogNode = { id: string; title: string; handle: string; collections: { nodes: { handle: string }[] } };
+
+// Current redirect target per product path: one search for the whole page of products. The search is fuzzy,
+// so only exact paths count; when the answer is full (250), paths it did not return are looked up one by one.
+async function targetsFor(client: ShopifyClient, paths: string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  if (!paths.length) return found;
+  const wanted = new Set(paths);
+  const { urlRedirects } = await client.graphql<{ urlRedirects: { nodes: { path: string; target: string }[] } }>(REDIRECTS_BY_PATHS, { q: paths.map(p => `path:"${p}"`).join(' OR ') });
+  for (const r of urlRedirects.nodes) if (wanted.has(r.path)) found.set(r.path, r.target);
+  if (urlRedirects.nodes.length >= 250) {
+    for (const path of paths) {
+      if (found.has(path)) continue;
+      const { urlRedirects: one } = await client.graphql<{ urlRedirects: { nodes: { path: string; target: string }[] } }>(REDIRECT_BY_PATH, { q: `path:"${path}"` });
+      const hit = one.nodes.find(r => r.path === path);
+      if (hit) found.set(path, hit.target);
+    }
+  }
+  return found;
+}
 
 /**
- * One-off catch-up: every archived product without a redirect gets one. At most `max` new redirects and
- * 40 pages per call, so a click stays within the request time; `cursor` says where the next click resumes
- * (the start of the page that was not finished), so repeated clicks always finish the whole backlog.
+ * Catch-up: every archived or draft product without a redirect gets one, and a redirect that only lands on
+ * the homepage is replaced by a real target (same model in stock, else the collection). At most `max`
+ * changes, `pageLimit` pages and until `deadline` per call; `cursor` says where the next call resumes (the
+ * start of the unfinished page). dryRun only counts.
  */
-export async function redirectArchivedBacklog(client: ShopifyClient, opts: { max?: number; after?: string | null } = {}): Promise<{ scope: boolean; created: number; existing: number; failed: number; remaining: boolean; cursor: string | null; notes: string[] }> {
+export async function redirectBacklog(client: ShopifyClient, opts: { max?: number; after?: string | null; pageLimit?: number; deadline?: number; dryRun?: boolean } = {}): Promise<BacklogResult> {
   const max = opts.max ?? 60;
-  const out = { scope: await hasRedirectScope(client), created: 0, existing: 0, failed: 0, remaining: false, cursor: null as string | null, notes: [] as string[] };
+  const pageLimit = opts.pageLimit ?? 40;
+  const out: BacklogResult = { scope: await hasRedirectScope(client), dryRun: !!opts.dryRun, created: 0, replaced: 0, existing: 0, failed: 0, remaining: false, cursor: null, notes: [] };
   if (!out.scope) return out;
-  type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; handle: string; collections: { nodes: { handle: string }[] } }[] } };
+  type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: BacklogNode[] } };
   let after: string | null = opts.after ?? null;
+  const stop = () => { out.remaining = true; out.cursor = after; return out; };
   for (let page = 0; ; page++) {
-    if (page >= 40) { out.remaining = true; out.cursor = after; return out; }
-    const data: Page = await client.graphql<Page>(ARCHIVED_PRODUCTS, { after });
+    if (page >= pageLimit || (opts.deadline && Date.now() > opts.deadline)) return stop();
+    const data: Page = await client.graphql<Page>(BACKLOG_PRODUCTS, { after });
+    const targets = await targetsFor(client, data.products.nodes.map(n => `/products/${n.handle}`));
     for (const n of data.products.nodes) {
-      const path = `/products/${n.handle}`;
-      const { urlRedirects } = await client.graphql<{ urlRedirects: { nodes: { path: string }[] } }>(REDIRECT_BY_PATH, { q: `path:"${path}"` });
-      if (urlRedirects.nodes.some(r => r.path === path)) { out.existing++; continue; }
-      if (out.created + out.failed >= max) { out.remaining = true; out.cursor = after; return out; }
+      const current = targets.get(`/products/${n.handle}`);
+      if (current !== undefined && !isWeakRedirectTarget(current)) { out.existing++; continue; }
+      if (out.created + out.replaced + out.failed >= max || (opts.deadline && Date.now() > opts.deadline)) return stop();
+      if (out.dryRun) { if (current === undefined) out.created++; else out.replaced++; continue; }
       const r = await redirectArchived(client, { id: n.id, title: n.title, handle: n.handle, collectionHandle: n.collections.nodes[0]?.handle ?? null });
-      if (r.redirect) out.created++;
+      if (r.redirect) { if (current === undefined) out.created++; else out.replaced++; }
       else { out.failed++; if (r.note && out.notes.length < 5) out.notes.push(`${n.title}: ${r.note}`); }
     }
     if (!data.products.pageInfo.hasNextPage) return out;

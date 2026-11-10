@@ -92,7 +92,7 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
         {(params.removed === 'delete' || params.removed === 'archive') && (params.scope === '1' ? ` · doorverwijzingen: ${params.redirects}` : ' · geen doorverwijzingen (recht write_online_store_navigation ontbreekt nog)')}. Details staan in het logboek onderaan.
       </div>}
       {params.backlog && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-        Doorverwijzingen aangemaakt: {params.created} · had er al een: {params.existing} · mislukt: {params.failed}{params.remaining === '1' ? '. Er zijn er nog meer: klik nog eens.' : '.'}
+        Doorverwijzingen aangemaakt: {params.created} · homepage vervangen: {params.replaced ?? 0} · had er al een goede: {params.existing} · mislukt: {params.failed}{params.remaining === '1' ? '. Er zijn er nog meer: klik nog eens.' : '.'}
       </div>}
       {params.saved && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{params.saved === 'stop' ? 'De synchronisatie staat uit.' : params.saved === 'released' ? 'De vastgehouden artikelen zijn vrijgegeven.' : 'Instellingen opgeslagen.'}</div>}
 
@@ -276,10 +276,10 @@ export default async function ShopifySyncPage({ searchParams }: { searchParams: 
       {isAdmin && (
         <section className="rounded-2xl border bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold">Gearchiveerd via deze tool ({archivedList.length})</h2>
-          <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Bij het archiveren krijgt de oude productpagina meteen een 301-doorverwijzing: naar hetzelfde model in een andere graad dat op voorraad is, anders naar de collectie. Terugzetten haalt die doorverwijzing weer weg.</p>
+          <p className="mt-1 text-sm text-slate-600">Definitief verwijderen kan pas {DELETE_AFTER_DAYS} dagen na het archiveren. Verwijderen kan niet ongedaan worden gemaakt; oude bestellingen blijven wel bewaard. Bij het archiveren krijgt de oude productpagina meteen een 301-doorverwijzing: naar hetzelfde model in een andere graad dat op voorraad is, anders naar de collectie. Terugzetten haalt die doorverwijzing weer weg. Elk uur maakt de tool ze ook aan voor concept- en gearchiveerde producten die er nog geen hebben, of alleen een naar de homepage (Google ziet dat als een 404); de knop doet hetzelfde meteen.</p>
           <form action={redirectBacklogAction} className="mt-3">
             {params.backlog && params.remaining === '1' && params.after && <input type="hidden" name="after" value={params.after} />}
-            <PendingButton pendingText="Doorverwijzingen worden aangemaakt…" className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen aanmaken voor gearchiveerde producten zonder doorverwijzing</PendingButton>
+            <PendingButton pendingText="Doorverwijzingen worden aangemaakt…" className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Doorverwijzingen nu aanmaken voor concept- en gearchiveerde producten</PendingButton>
           </form>
           <form action={removalAction} className="mt-4">
             <div className="overflow-x-auto">
