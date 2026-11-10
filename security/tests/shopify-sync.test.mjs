@@ -1012,3 +1012,27 @@ test('the bulk export reads the store list', async () => {
   const { variants } = state.parseBulkVariants(JSON.stringify({ id: 'gid://shopify/ProductVariant/11', sku: 'SKU1', price: '1.00', compareAtPrice: null, taxable: true, inventoryItem: { id: 'gid://shopify/InventoryItem/111' }, product: { id: 'gid://shopify/Product/1', title: 'T', vendor: 'V', productType: 'X', status: 'ACTIVE', mf_custom_stock_per_location_1: { value: '["Gentbrugge"]' } } }));
   assert.equal(variants[0].metafields['custom.stock_per_location_1'], '["Gentbrugge"]');
 });
+
+test('the store list uses the stock after every planned write, also stock zeroed for SKUs that left the ERP', async () => {
+  const { plan } = await loadModules();
+  const empty = { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' };
+  const cur = [
+    current({ inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 }, metafields: { ...empty, 'custom.stock_per_location_1': '["Antwerpen"]' } }),
+    // Second variant of the same product that left the ERP; its Antwerpen stock is zeroed later in the run.
+    current({ sku: 'GONE', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 2 }, metafields: { ...empty, 'custom.stock_per_location_1': '["Antwerpen"]' } }),
+  ];
+  const p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ 'Inventory Available: Microforce Gentbrugge': '0' }))], current: cur, locations: LOCS, deferStores: true });
+  assert.equal(p.metafields.length + p.metafieldDeletes.length, 0);
+  p.inventory.push({ inventoryItemId: 'gid://shopify/InventoryItem/112', locationId: LOCS['Microforce Antwerpen'], quantity: 0 });
+  plan.addStoreLists(p, { current: cur, erpSkus: new Set(['SKU1']), locations: LOCS });
+  assert.deepEqual(plain(p.metafieldDeletes), [{ ownerId: 'gid://shopify/Product/1', namespace: 'custom', key: 'stock_per_location_1' }]);
+});
+
+test('with max_changes 1 a store list is still repaired when nothing else changes', async () => {
+  const { db } = fakeDb({ mode: 'live', maxChanges: 1 });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' } })]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncMetafields']);
+});

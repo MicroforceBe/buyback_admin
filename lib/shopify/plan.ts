@@ -283,6 +283,8 @@ export function planSync(input: {
    * so a low max_changes never makes the catch-up trip the emergency brake. No limit when absent.
    */
   storeChangeBudget?: number;
+  /** Leave the store lists out; the caller adds them with addStoreLists once every stock write is planned. */
+  deferStores?: boolean;
 }): Plan {
   const plan: Plan = {
     changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [],
@@ -329,7 +331,6 @@ export function planSync(input: {
   // stock write never leaves a reachable page that can still be bought. Until then the ERP draft applies;
   // the next run (stock written) makes it UNLISTED.
   const productStock = new Map<string, number>();
-  const matchedSku = new Map<string, string>(); // productId -> first ERP SKU of the product
   for (const c of input.current) {
     const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
@@ -342,7 +343,6 @@ export function planSync(input: {
     const c = bySku.get(d.sku);
     if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '', inventory: { ...d.inventory } }); plan.newCandidates.push(d); continue; }
     plan.counts.matched++;
-    if (!matchedSku.has(c.productId)) matchedSku.set(c.productId, d.sku);
     const before = plan.changes.length;
 
     // Product fields: one product can carry several variants; they must agree.
@@ -416,35 +416,7 @@ export function planSync(input: {
     if (plan.changes.length === before) plan.counts.unchanged++;
   }
 
-  // Store list (custom.stock_per_location_1) of every product with an ERP SKU, from the stock per store after
-  // this run: the ERP quantity where the item is stocked at that location (that is what gets written), else
-  // Shopify's own. Every Shopify variant of the product counts, also one that is not in the ERP.
-  const storeStock = new Map<string, Record<string, number>>();
-  const storeHave = new Map<string, string | null>();
-  for (const c of input.current) {
-    if (!matchedSku.has(c.productId)) continue;
-    if (!storeHave.has(c.productId)) storeHave.set(c.productId, c.metafields[metafieldId(STORE_METAFIELD)] ?? null);
-    const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
-    const stock = storeStock.get(c.productId) ?? {};
-    for (const [location] of STORE_LOCATIONS) {
-      const qty = location in c.inventory ? (erp[location] ?? c.inventory[location]) : 0;
-      stock[location] = (stock[location] ?? 0) + Math.max(0, qty);
-    }
-    storeStock.set(c.productId, stock);
-  }
-  const maxStoreUpdates = Math.min(input.maxStoreUpdates ?? MAX_STORE_UPDATES_PER_RUN,
-    input.storeChangeBudget === undefined ? Infinity : Math.max(0, input.storeChangeBudget - plan.changes.length));
-  let storeUpdates = 0;
-  for (const [productId, stock] of storeStock) {
-    const want = storesValue(stock);
-    const have = storeHave.get(productId) ?? null;
-    if (sameStores(have, want)) continue;
-    if (storeUpdates >= maxStoreUpdates) { plan.counts.storesDeferred++; continue; }
-    storeUpdates++;
-    if (want) plan.metafields.push({ ownerId: productId, ...STORE_METAFIELD, value: want });
-    else plan.metafieldDeletes.push({ ownerId: productId, namespace: STORE_METAFIELD.namespace, key: STORE_METAFIELD.key });
-    add({ sku: matchedSku.get(productId)!, scope: 'metafield', field: metafieldId(STORE_METAFIELD), oldValue: have, newValue: want });
-  }
+  if (!input.deferStores) addStoreLists(plan, { current: input.current, erpSkus: desiredSkus, locations: input.locations, maxStoreUpdates: input.maxStoreUpdates, storeChangeBudget: input.storeChangeBudget });
 
   // Products whose variants disagree on product fields are left untouched (and reported).
   plan.counts.productConflicts = conflicted.size;
@@ -459,6 +431,47 @@ export function planSync(input: {
   for (const [productId, variants] of variantsByProduct) plan.variantUpdates.push({ productId, variants });
   plan.counts.unknownLocations = [...unknownLocations].sort();
   return plan;
+}
+
+/**
+ * Adds the store lists (custom.stock_per_location_1) of every product with an ERP SKU to the plan, from the stock
+ * per store after the run: Shopify's current quantity, or the quantity this plan writes at that location (ERP
+ * stock, and stock zeroed for SKUs that left the ERP). Only locations where the item is stocked count. Every
+ * variant of the product counts. Call it after every stock write is in the plan. At most maxStoreUpdates
+ * updates, and never more than fits in storeChangeBudget together with the changes already planned.
+ */
+export function addStoreLists(plan: Plan, input: { current: CurrentState[]; erpSkus: Set<string>; locations: Record<string, string>; maxStoreUpdates?: number; storeChangeBudget?: number }): void {
+  const skuCount = new Map<string, number>();
+  for (const c of input.current) if (c.sku) skuCount.set(c.sku, (skuCount.get(c.sku) ?? 0) + 1);
+  const matchedSku = new Map<string, string>(); // productId -> first ERP SKU of the product (for the change log)
+  for (const c of input.current) if (c.sku && skuCount.get(c.sku) === 1 && input.erpSkus.has(c.sku) && !matchedSku.has(c.productId)) matchedSku.set(c.productId, c.sku);
+  const planned = new Map(plan.inventory.map(q => [`${q.inventoryItemId} ${q.locationId}`, q.quantity]));
+  const storeStock = new Map<string, Record<string, number>>();
+  const storeHave = new Map<string, string | null>();
+  for (const c of input.current) {
+    if (!matchedSku.has(c.productId)) continue;
+    if (!storeHave.has(c.productId)) storeHave.set(c.productId, c.metafields[metafieldId(STORE_METAFIELD)] ?? null);
+    const stock = storeStock.get(c.productId) ?? {};
+    for (const [location] of STORE_LOCATIONS) {
+      const locationId = input.locations[location];
+      const qty = location in c.inventory ? (planned.get(`${c.inventoryItemId} ${locationId}`) ?? c.inventory[location]) : 0;
+      stock[location] = (stock[location] ?? 0) + Math.max(0, qty);
+    }
+    storeStock.set(c.productId, stock);
+  }
+  const max = Math.min(input.maxStoreUpdates ?? MAX_STORE_UPDATES_PER_RUN,
+    input.storeChangeBudget === undefined ? Infinity : Math.max(0, input.storeChangeBudget - plan.changes.length));
+  let updates = 0;
+  for (const [productId, stock] of storeStock) {
+    const want = storesValue(stock);
+    const have = storeHave.get(productId) ?? null;
+    if (sameStores(have, want)) continue;
+    if (updates >= max) { plan.counts.storesDeferred++; continue; }
+    updates++;
+    if (want) plan.metafields.push({ ownerId: productId, ...STORE_METAFIELD, value: want });
+    else plan.metafieldDeletes.push({ ownerId: productId, namespace: STORE_METAFIELD.namespace, key: STORE_METAFIELD.key });
+    plan.changes.push({ sku: matchedSku.get(productId)!, scope: 'metafield', field: metafieldId(STORE_METAFIELD), oldValue: have, newValue: want });
+  }
 }
 
 export type ProductSetInput = {

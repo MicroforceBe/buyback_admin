@@ -8,7 +8,7 @@ import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldV
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -240,8 +240,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
     const locations = { ...state.locations, ...apiLocations };
-    // Store lists use at most half of max_changes (the rest stays free for the other changes of this run).
-    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid, storeChangeBudget: Math.floor(Number(settings.max_changes) / 2) });
+    // Store lists are added further on, once every stock write of this run is planned.
+    const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid, deferStores: true });
     // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
     const cap = (list: Plan['unmatched']['erpOnly']) => list.slice(0, MAX_UNMATCHED).map(u => ({ sku: u.sku, title: u.title.slice(0, 200), inventory: u.inventory, ...(u.productId ? { productId: u.productId } : {}), ...(u.status ? { status: u.status } : {}) }));
     Object.assign(counts, plan.counts, {
@@ -346,6 +346,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       counts.unlistDeferred = plan.counts.unlistDeferred + d.unlistDeferred;
       counts.missingStockZeroed = d.inventory.length;
     }
+    // Store lists from the stock after every planned write. They use at most half of max_changes (at least 1),
+    // counting the changes already planned, so the catch-up never trips the emergency brake by itself.
+    addStoreLists(plan, { current: state.variants, erpSkus: new Set(desired.map(d => d.sku)), locations, storeChangeBudget: Math.max(1, Math.floor(Number(settings.max_changes) / 2)) });
+    counts.storesDeferred = plan.counts.storesDeferred;
     counts.changes = plan.changes.length;
 
     const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
