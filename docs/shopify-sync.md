@@ -53,9 +53,28 @@ In de lijst "Alleen in Shopify" kan een beheerder producten selecteren en:
 
 ### Actief zonder ERP-artikel: altijd naar concept
 Ook als het automatisch opruimen uit staat, mag een product niet actief blijven als **geen enkele** SKU ervan nog in het
-ERP-bestand zit. Na 1 uur zet de synchronisatie zo'n product op **concept** en de voorraad op 0 (een concept dat nog voorraad heeft, krijgt alleen de voorraad op 0), met dezelfde 301-doorverwijzing
+ERP-bestand zit. Na 1 uur zet de synchronisatie zo'n product op **concept** (een refurbished toestel op **niet vermeld**, zie hieronder) en de voorraad op 0 (een concept dat nog voorraad heeft, krijgt alleen de voorraad op 0), met dezelfde 301-doorverwijzing
 als bij archiveren. Archiveren en verwijderen blijven manueel. Producten met de tag `erp-negeren` en vastgehouden artikelen
 (verdacht veel tegelijk verdwenen) blijven ongemoeid. Komt de SKU terug in het ERP, dan volgt het product weer de ERP-status.
+
+### Uitverkochte refurbished toestellen: "Niet vermeld" in plaats van concept
+Een uitverkocht refurbished toestel blijft bereikbaar via zijn URL (beslissing Olivier, 10 november 2026). De pagina toont
+dan "Niet meer op voorraad", geen prijs en tot 4 alternatieven op voorraad (thema: `snippets/uitverkocht.liquid`, aangeroepen
+vanuit `snippets/price.liquid`). Daarvoor krijgt het product in Shopify de status **UNLISTED** ("Niet vermeld"): bereikbaar via
+de link, maar niet in collecties, zoekresultaten, aanbevelingen, de sitemap of Google (Shopify zet zelf `noindex`).
+- Regel (`targetStatus` in `lib/shopify/plan.ts`): zegt het ERP **Draft**, is er **geen voorraad** (over alle varianten, in het
+  ERP én in Shopify) en staat "Refurbished" in de titel, dan wordt het UNLISTED. Heeft Shopify nog voorraad, dan wordt het eerst
+  concept (de run zet de voorraad op 0) en in een volgende run UNLISTED: zo blijft een pagina nooit bereikbaar met voorraad die
+  nog gekocht kan worden als het wegschrijven van de 0 mislukt. Al het andere volgt de ERP-status zoals voorheen (accessoires blijven concept). Zegt het ERP
+  weer Active, dan wordt het product terug actief.
+- Een refurbished product dat uit het ERP verdwijnt, wordt na 1 uur ook UNLISTED in plaats van concept (zelfde regel: eerst
+  concept zolang Shopify nog voorraad heeft), zonder doorverwijzing (de pagina blijft bestaan). Ook oude concepten die niet meer
+  in het ERP staan, worden zo omgezet. Andere producten gaan zoals voorheen naar concept met een 301.
+- Bestaande concepten worden in porties omgezet: maximaal 75 per run samen (`MAX_UNLIST_PER_RUN`), zodat de noodrem niet afgaat;
+  de rest staat bij de run als "volgt in een volgende run". Een toestel dat nu uitverkocht raakt, wacht nooit.
+- UNLISTED-producten worden net als actieve op het kanaal Online Store gezet (anders zou de pagina een 404 geven).
+- De Google-feed neemt alleen actieve producten mee, dus niet-vermelde producten staan er niet in.
+- Een oude doorverwijzing op de URL doet niets meer zodra de pagina bestaat (Shopify volgt een doorverwijzing alleen bij een 404).
 
 ### Doorverwijzingen (301) voor productpagina's die verdwijnen
 Een gearchiveerd product geeft in de webshop een 404. Daarom krijgt de oude URL `/products/<handle>` een 301-doorverwijzing
