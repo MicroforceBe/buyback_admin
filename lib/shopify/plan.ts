@@ -278,6 +278,11 @@ export function planSync(input: {
   invalidRows?: number;
   maxUnlist?: number;
   maxStoreUpdates?: number;
+  /**
+   * Store-list updates only fill the room up to this number of changes (counting the changes planned before them),
+   * so a low max_changes never makes the catch-up trip the emergency brake. No limit when absent.
+   */
+  storeChangeBudget?: number;
 }): Plan {
   const plan: Plan = {
     changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [],
@@ -427,7 +432,8 @@ export function planSync(input: {
     }
     storeStock.set(c.productId, stock);
   }
-  const maxStoreUpdates = input.maxStoreUpdates ?? MAX_STORE_UPDATES_PER_RUN;
+  const maxStoreUpdates = Math.min(input.maxStoreUpdates ?? MAX_STORE_UPDATES_PER_RUN,
+    input.storeChangeBudget === undefined ? Infinity : Math.max(0, input.storeChangeBudget - plan.changes.length));
   let storeUpdates = 0;
   for (const [productId, stock] of storeStock) {
     const want = storesValue(stock);

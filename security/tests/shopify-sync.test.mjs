@@ -266,18 +266,19 @@ test('live mode writes the changes and records per-SKU errors', async () => {
   const { sync } = await loadModules(db);
   const fake = fakeClient([current()], { failInventory: true });
   const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client, idempotencyKey: () => 'k1' }));
-  // Antwerpen gets stock, so the store list is updated as well.
-  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncVariants', 'SyncInventory', 'SyncMetafields']);
+  // Antwerpen would get stock, but that stock write fails: the store list is not written either.
+  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncVariants', 'SyncInventory']);
   const inv = fake.mutations[1][1];
   assert.equal(inv.key, 'k1');
   assert.equal(inv.input.quantities[0].changeFromQuantity, null);
   assert.equal(result.status, 'failed');
   assert.equal(result.counts.failedSkus, 1);
   const errorUpdates = log.filter(l => l.table === 'shopify_sync_changes' && l.op === 'update' && l.row.error);
-  assert.equal(errorUpdates.length, 1);
+  assert.equal(errorUpdates.length, 2);
   assert.equal(errorUpdates[0].row.error, 'Niet toegestaan');
-  // Only the inventory change of SKU1 is marked failed; its successful price change stays applied.
+  // Only the inventory change of SKU1 and the store list that depends on it are marked failed; the price change stays applied.
   assert.deepEqual(plain(errorUpdates[0].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'inventory'], ['field', 'Microforce Antwerpen']]);
+  assert.deepEqual(plain(errorUpdates[1].filters.filter(f => f[0] === 'eq').map(f => [f[1], f[2]])), [['run_id', 'run-1'], ['sku', 'SKU1'], ['scope', 'metafield'], ['field', 'custom.stock_per_location_1']]);
 });
 
 test('variant updates are sent in batches of at most 250', async () => {
@@ -976,6 +977,23 @@ test('at most MAX_STORE_UPDATES_PER_RUN store lists are written per run; the res
   assert.equal(p.metafields.filter(m => m.key === 'stock_per_location_1').length, plan.MAX_STORE_UPDATES_PER_RUN);
   assert.equal(p.counts.storesDeferred, 5);
   assert.equal(plan.planSync({ desired: cur.map(c => plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': c.sku }))), current: cur, locations: LOCS, maxStoreUpdates: 2 }).counts.storesDeferred, n - 2);
+  // The change budget wins when it is lower: 1 price change is planned first, so a budget of 10 leaves room for 9.
+  const budget = plan.planSync({ desired: cur.map((c, i) => plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': c.sku, ...(i === 0 ? { 'Variant Price': '1,00' } : {}) }))), current: cur, locations: LOCS, storeChangeBudget: 10 });
+  assert.equal(budget.metafields.filter(m => m.key === 'stock_per_location_1').length, 9);
+  assert.equal(budget.changes.length, 10);
+  assert.equal(budget.counts.storesDeferred, n - 9);
+});
+
+test('a low max_changes never makes the store catch-up trip the emergency brake', async () => {
+  const empty = { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' };
+  const cur = Array.from({ length: 30 }, (_, i) => current({ sku: 'S' + i, productId: 'gid://shopify/Product/' + (100 + i), variantId: 'gid://shopify/ProductVariant/' + (1000 + i), inventoryItemId: 'gid://shopify/InventoryItem/' + (5000 + i), metafields: empty }));
+  const { db } = fakeDb({ mode: 'live', maxChanges: 20, rows: cur.map(c => csvRow({ 'Variant SKU [ID]': c.sku })) });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient(cur);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.counts.changes, 10);
+  assert.equal(result.counts.storesDeferred, 20);
 });
 
 test('live mode removes the store list of a product that is in no store any more', async () => {
