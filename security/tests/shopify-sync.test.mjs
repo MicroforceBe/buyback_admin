@@ -918,6 +918,9 @@ test('a refurbished device that leaves the ERP becomes UNLISTED without a redire
   assert.deepEqual(e.deactivate.map(x => [x.title, x.status]), [['iPad Air 4 64GB Refurbished 4*', 'DRAFT'], ['iPhone 11 64GB Black Refurbished 4*', 'UNLISTED']]);
   assert.equal(e.unlistDeferred, 1);
   assert.deepEqual(e.inventory.map(x => x.quantity), [0]);
+  const back = current({ sku: 'U1', productId: 'gid://shopify/Product/7', status: 'UNLISTED', title: 'iPhone 11 64GB Red Refurbished 4*', inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 } });
+  const f = plain(plan.planDeactivateMissing({ missing: [back], all: [back], erpSkus: new Set(), firstMissing: new Map([['U1', old]]), now, locations: LOCS, afterHours: 1 }));
+  assert.deepEqual(f.deactivate.map(x => x.status), ['DRAFT'], 'unlisted with stock again: draft until the 0 is written');
   const sync = read('lib/shopify/sync.ts');
   assert.match(sync, /missingDeactivations\.filter\(a => a\.status === 'DRAFT'\)/);
   assert.match(sync, /maxUnlist: Math\.max\(0, MAX_UNLIST_PER_RUN - plan\.counts\.unlistedFromDraft\)/);

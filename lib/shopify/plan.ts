@@ -545,7 +545,8 @@ export function planDeactivateMissing(input: {
     // a next run, a batch at a time like the other old drafts. Anything else goes to draft.
     const shopifyStock = variants.reduce((sum, x) => sum + Object.values(x.inventory).reduce((a, q) => a + Math.max(0, q), 0), 0);
     const unlist = isRefurbishedTitle(v.title) && shopifyStock === 0;
-    if (v.status === 'ACTIVE' || (v.status === 'DRAFT' && unlist && !v.tags.includes(NEW_PRODUCT_TAG))) {
+    // An UNLISTED page that has stock again (while out of the ERP) goes back to draft until the 0 is written.
+    if (v.status === 'ACTIVE' || (v.status === 'DRAFT' && unlist && !v.tags.includes(NEW_PRODUCT_TAG)) || (v.status === 'UNLISTED' && !unlist)) {
       const status = unlist ? 'UNLISTED' as const : 'DRAFT' as const;
       if (v.status === 'DRAFT' && unlisted >= maxUnlist) unlistDeferred++;
       else {
