@@ -315,15 +315,16 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       counts.missingArchived = m.archive.length;
       counts.missingKept = m.kept;
     }
-    // Always: an active product that no longer has any SKU in the ERP goes to draft (stock 0); archiving
+    // Always: an active product that no longer has any SKU in the ERP goes to draft, a refurbished device to
+    // UNLISTED (stock 0); archiving
     // stays a manual step unless the cleanup setting above is on.
-    let missingDeactivations: { productId: string; title: string; skus: string[] }[] = [];
+    let missingDeactivations: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[] = [];
     if (settings.handle_missing !== true) {
       const heldProducts = new Set(missingCurrent.filter(v => missingInfo.get(v.sku)?.held === true).map(v => v.productId));
       const firstMissing = new Map([...missingInfo.entries()].map(([sku, i]) => [sku, i.since]));
       const d = planDeactivateMissing({ missing: missingCurrent.filter(v => !heldProducts.has(v.productId)), all: state.variants, erpSkus: new Set(desired.map(d => d.sku)), firstMissing, now: new Date(), locations, afterHours: DEACTIVATE_MISSING_AFTER_HOURS });
       plan.inventory.push(...d.inventory);
-      plan.productUpdates.push(...d.deactivate.map(a => ({ id: a.productId, status: 'DRAFT' as const })));
+      plan.productUpdates.push(...d.deactivate.map(a => ({ id: a.productId, status: a.status })));
       plan.changes.push(...d.changes);
       missingDeactivations = d.deactivate;
       counts.missingDeactivated = d.deactivate.length;
@@ -362,8 +363,10 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
 
     // Budget against the status after this run: products about to become draft/archived are not counted,
     // products about to become active (and not yet on the Online Store) are.
-    const deactivating = new Set(plan.productUpdates.filter(u => u.status && u.status !== 'ACTIVE').map(u => u.id));
-    const activating = new Set(plan.productUpdates.filter(u => u.status === 'ACTIVE').map(u => u.id));
+    // UNLISTED counts as visible: the page must stay reachable, so it needs the Online Store too.
+    const visible = (status?: string) => status === 'ACTIVE' || status === 'UNLISTED';
+    const deactivating = new Set(plan.productUpdates.filter(u => u.status && !visible(u.status)).map(u => u.id));
+    const activating = new Set(plan.productUpdates.filter(u => visible(u.status)).map(u => u.id));
     const preview = await ensureOnStore(false, deactivating, undefined, activating);
     const toPublish = preview ? plannedPublications(preview) : 0;
     if (plan.changes.length + toPublish > settings.max_changes) {
@@ -409,7 +412,8 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     };
     // A product put on draft is a 404 as well: it gets the same 301 (Shopify ignores it again as soon as
     // the page is live). A redirect problem never fails the run.
-    const deactivatedIds = new Set(missingDeactivations.map(a => a.productId));
+    // An UNLISTED page stays reachable, so it gets no redirect.
+    const deactivatedIds = new Set(missingDeactivations.filter(a => a.status === 'DRAFT').map(a => a.productId));
     const afterProductUpdate = async (productId: string) => {
       await logArchive(productId);
       if (!deactivatedIds.has(productId)) return;

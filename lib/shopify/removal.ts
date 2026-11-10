@@ -8,7 +8,7 @@ export type ShopifyProductInfo = {
   id: string;
   title: string;
   handle: string;
-  status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
+  status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED' | 'UNLISTED';
   /** Sum of the positive available quantities over all variants and locations (negatives never offset). */
   positiveStock: number;
   skus: string[];

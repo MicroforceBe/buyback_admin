@@ -3,7 +3,20 @@
 // CSV row into the desired Shopify state, compares it with the current Shopify state and plans
 // the smallest set of batched mutations.
 
-export type ProductStatus = 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
+export type ProductStatus = 'ACTIVE' | 'DRAFT' | 'ARCHIVED' | 'UNLISTED';
+
+/**
+ * Sold-out refurbished devices stay reachable by their URL (a page with "niet meer op voorraad" and
+ * alternatives, see the theme snippet uitverkocht) instead of becoming a 404: Shopify's UNLISTED status
+ * keeps the page but leaves it out of collections, search, recommendations, the sitemap and Google.
+ * Only when the ERP says DRAFT and there is no stock; everything else keeps the ERP status.
+ */
+export const isRefurbishedTitle = (title: string) => /\brefurbished\b/i.test(title);
+export function targetStatus(erpStatus: ProductStatus | undefined, title: string, stock: number): ProductStatus | undefined {
+  return erpStatus === 'DRAFT' && stock <= 0 && isRefurbishedTitle(title) ? 'UNLISTED' : erpStatus;
+}
+/** Existing drafts that become UNLISTED: at most this many per run, so the catch-up never trips the emergency brake. */
+export const MAX_UNLIST_PER_RUN = 75;
 
 /** Metafields copied from the CSV, with their Shopify type (as defined in the store). */
 export const SYNCED_METAFIELDS = [
@@ -108,6 +121,8 @@ export type Plan = {
     invalidRows: number;
     /** Status changes skipped because the product still carries the erp-nieuw tag. */
     statusLocked: number;
+    /** Drafts that should become UNLISTED but wait for a next run (MAX_UNLIST_PER_RUN). */
+    unlistDeferred: number;
   };
 };
 
@@ -229,10 +244,11 @@ export function planSync(input: {
   current: CurrentState[];
   locations: Record<string, string>; // Shopify location name -> location id
   invalidRows?: number;
+  maxUnlist?: number;
 }): Plan {
   const plan: Plan = {
     changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0 },
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -264,6 +280,8 @@ export function planSync(input: {
   const conflicted = new Set<string>();
   const variantsByProduct = new Map<string, Plan['variantUpdates'][number]['variants']>();
   const add = (c: Change) => plan.changes.push(c);
+  const maxUnlist = input.maxUnlist ?? MAX_UNLIST_PER_RUN;
+  let unlisted = 0;
 
   for (const d of input.desired) {
     if (duplicate.has(d.sku)) continue;
@@ -282,10 +300,17 @@ export function planSync(input: {
       if (d.product.title !== undefined && d.product.title !== c.title) { update.title = d.product.title; add({ sku: d.sku, scope: 'product', field: 'title', oldValue: c.title, newValue: d.product.title }); }
       if (d.product.vendor !== undefined && d.product.vendor !== c.vendor) { update.vendor = d.product.vendor; add({ sku: d.sku, scope: 'product', field: 'vendor', oldValue: c.vendor, newValue: d.product.vendor }); }
       if (d.product.productType !== undefined && d.product.productType !== c.productType) { update.productType = d.product.productType; add({ sku: d.sku, scope: 'product', field: 'productType', oldValue: c.productType, newValue: d.product.productType }); }
-      if (d.product.status !== undefined && d.product.status !== c.status) {
+      const stock = Object.values(d.inventory).reduce((sum, q) => sum + Math.max(0, q), 0);
+      const wanted = targetStatus(d.product.status, d.product.title ?? c.title, stock);
+      if (wanted !== undefined && wanted !== c.status) {
         // A product created as draft by the sync keeps its status until someone removes the erp-nieuw tag.
         if (c.tags.includes(NEW_PRODUCT_TAG)) plan.counts.statusLocked++;
-        else { update.status = d.product.status; add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: d.product.status }); }
+        // Old drafts move to UNLISTED a batch at a time; a product selling out now (ACTIVE) goes right away.
+        else if (c.status === 'DRAFT' && wanted === 'UNLISTED' && unlisted >= maxUnlist) plan.counts.unlistDeferred++;
+        else {
+          if (c.status === 'DRAFT' && wanted === 'UNLISTED') unlisted++;
+          update.status = wanted; add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: wanted });
+        }
       }
       productFields.set(c.productId, { sku: d.sku, update, desired: d.product });
     }
@@ -472,16 +497,17 @@ export const KEEP_TAG = 'erp-negeren';
 /**
  * Always on, also when the cleanup setting is off: an ACTIVE product of which no SKU is in the ERP any
  * more may not stay for sale. Once all its variants have been missing for afterHours it goes to draft
+ * (a refurbished device to UNLISTED)
  * and its positive stock to 0 (a draft that still holds stock gets the stock reset only). Archiving and
  * deleting stay manual. erp-negeren is respected.
  */
 export function planDeactivateMissing(input: {
   missing: CurrentState[]; all: CurrentState[]; erpSkus: Set<string>; firstMissing: Map<string, Date>; now: Date;
   locations: Record<string, string>; afterHours: number;
-}): { inventory: Plan['inventory']; deactivate: { productId: string; title: string; skus: string[] }[]; changes: Change[] } {
+}): { inventory: Plan['inventory']; deactivate: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[]; changes: Change[] } {
   const inventory: Plan['inventory'] = [];
   const changes: Change[] = [];
-  const deactivate: { productId: string; title: string; skus: string[] }[] = [];
+  const deactivate: { productId: string; title: string; skus: string[]; status: 'DRAFT' | 'UNLISTED' }[] = [];
   const byProduct = new Map<string, CurrentState[]>();
   for (const v of input.all) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
   const seen = new Set<string>();
@@ -496,8 +522,10 @@ export function planDeactivateMissing(input: {
     // A draft that still holds stock (an earlier stock write failed, or it was already a draft) only gets
     // the stock reset, so a partial failure always recovers in a later run.
     if (v.status === 'ACTIVE') {
-      deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku) });
-      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: 'DRAFT' });
+      // A refurbished device stays reachable (UNLISTED, see targetStatus); anything else goes to draft.
+      const status = isRefurbishedTitle(v.title) ? 'UNLISTED' as const : 'DRAFT' as const;
+      deactivate.push({ productId: v.productId, title: v.title, skus: variants.map(x => x.sku), status });
+      changes.push({ sku: v.sku, scope: 'product', field: 'status', oldValue: v.status, newValue: status });
     }
     for (const x of variants) {
       for (const [location, quantity] of Object.entries(x.inventory)) {

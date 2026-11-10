@@ -1,11 +1,11 @@
-// Keeps every active product visible in the Online Store: the ERP decides the status, but Shopify only
+// Keeps every active (and unlisted: reachable by URL only) product on the Online Store: the ERP decides the status, but Shopify only
 // shows a product on a channel it is published to, and products created or activated through the API
 // are not published anywhere by themselves. Needs the app permissions read_publications and write_publications.
 import { APP_SCOPES, type ShopifyClient } from '@/lib/shopify/client';
 
 export const ONLINE_STORE_PUBLICATION = `query OnlineStorePublication { publications(first: 50) { nodes { id channels(first: 5) { nodes { handle } } } } }`;
 export const ACTIVE_ON_STORE = `query ActiveOnStore($pub: ID!, $after: String) {
-  products(first: 250, after: $after, query: "status:active") { pageInfo { hasNextPage endCursor } nodes { id title onStore: publishedOnPublication(publicationId: $pub) } }
+  products(first: 250, after: $after, query: "status:active OR status:unlisted") { pageInfo { hasNextPage endCursor } nodes { id title onStore: publishedOnPublication(publicationId: $pub) } }
 }`;
 export const PRODUCTS_ON_STORE = `query ProductsOnStore($ids: [ID!]!, $pub: ID!) { nodes(ids: $ids) { ... on Product { id title onStore: publishedOnPublication(publicationId: $pub) } } }`;
 export const PUBLISH_ON_STORE = `mutation PublishOnStore($id: ID!, $pub: ID!) { publishablePublish(id: $id, input: [{ publicationId: $pub }]) { userErrors { field message } } }`;
