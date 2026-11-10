@@ -862,6 +862,19 @@ test('a sold-out refurbished device becomes UNLISTED (reachable by URL), anythin
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, status: 'UNLISTED', inventory: empty }), undefined, 'already unlisted: no change');
   assert.equal(status({ Title: refurb, Status: 'Active' }, { title: refurb, status: 'UNLISTED', inventory: empty }), 'ACTIVE', 'back in stock: active again');
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, inventory: empty, tags: ['erp-nieuw'] }), undefined, 'erp-nieuw keeps its status');
+  const noColumns = csvRow({ Title: refurb, Status: 'Draft' });
+  delete noColumns['Inventory Available: Microforce Gentbrugge']; delete noColumns['Inventory Available: Microforce Antwerpen'];
+  assert.equal(plain(plan.planSync({ desired: [plan.desiredFromRow(noColumns)], current: [current({ title: refurb, inventory: { 'Microforce Gentbrugge': 3, 'Microforce Antwerpen': 0 } })], locations: LOCS })).productUpdates[0]?.status, 'DRAFT', 'no stock column: Shopify stock counts, not 0');
+});
+
+test('the sold-out rule looks at every variant of the product, whatever the row order', async () => {
+  const { plan } = await loadModules();
+  const refurb = 'MacBook Air M1 8GB 256SSD Refurbished 4*';
+  const rows = [['A', '0'], ['B', '2']].map(([sku, q]) => plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': sku, Title: refurb, Status: 'Draft', 'Inventory Available: Microforce Gentbrugge': q, 'Inventory Available: Microforce Antwerpen': '0' })));
+  const cur = ['A', 'B'].map((sku, i) => current({ sku, variantId: 'gid://shopify/ProductVariant/' + (i + 1), inventoryItemId: 'gid://shopify/InventoryItem/' + (i + 1), title: refurb, inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 } }));
+  for (const desired of [rows, [...rows].reverse()]) {
+    assert.equal(plain(plan.planSync({ desired, current: cur, locations: LOCS })).productUpdates[0]?.status, 'DRAFT');
+  }
 });
 
 test('old drafts move to UNLISTED a batch per run; a device selling out now is never held back', async () => {

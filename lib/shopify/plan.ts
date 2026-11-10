@@ -282,6 +282,17 @@ export function planSync(input: {
   const add = (c: Change) => plan.changes.push(c);
   const maxUnlist = input.maxUnlist ?? MAX_UNLIST_PER_RUN;
   let unlisted = 0;
+  // Stock per product after this run, for the sold-out rule: every variant of the product, and per location
+  // the ERP quantity, or Shopify's own when the ERP row does not give one (a missing or blank column is
+  // never read as 0).
+  const productStock = new Map<string, number>();
+  for (const d of input.desired) {
+    const c = bySku.get(d.sku);
+    if (!c) continue;
+    let stock = 0;
+    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(d.inventory)])) stock += Math.max(0, d.inventory[location] ?? c.inventory[location] ?? 0);
+    productStock.set(c.productId, (productStock.get(c.productId) ?? 0) + stock);
+  }
 
   for (const d of input.desired) {
     if (duplicate.has(d.sku)) continue;
@@ -300,8 +311,7 @@ export function planSync(input: {
       if (d.product.title !== undefined && d.product.title !== c.title) { update.title = d.product.title; add({ sku: d.sku, scope: 'product', field: 'title', oldValue: c.title, newValue: d.product.title }); }
       if (d.product.vendor !== undefined && d.product.vendor !== c.vendor) { update.vendor = d.product.vendor; add({ sku: d.sku, scope: 'product', field: 'vendor', oldValue: c.vendor, newValue: d.product.vendor }); }
       if (d.product.productType !== undefined && d.product.productType !== c.productType) { update.productType = d.product.productType; add({ sku: d.sku, scope: 'product', field: 'productType', oldValue: c.productType, newValue: d.product.productType }); }
-      const stock = Object.values(d.inventory).reduce((sum, q) => sum + Math.max(0, q), 0);
-      const wanted = targetStatus(d.product.status, d.product.title ?? c.title, stock);
+      const wanted = targetStatus(d.product.status, d.product.title ?? c.title, productStock.get(c.productId) ?? 0);
       if (wanted !== undefined && wanted !== c.status) {
         // A product created as draft by the sync keeps its status until someone removes the erp-nieuw tag.
         if (c.tags.includes(NEW_PRODUCT_TAG)) plan.counts.statusLocked++;
