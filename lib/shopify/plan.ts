@@ -27,6 +27,32 @@ export const SYNCED_METAFIELDS = [
   { column: 'Metafield: magento.tax_recupel [number_decimal]', namespace: 'magento', key: 'tax_recupel', type: 'number_decimal' },
 ] as const;
 export type MetafieldSpec = (typeof SYNCED_METAFIELDS)[number];
+
+/**
+ * Stores shown on the website ("Nu in Gent", the store filter and buttons of the theme), kept in the product
+ * metafield custom.stock_per_location_1 as a list of store names. The value follows the stock per Shopify
+ * location after the run. Oudenaarde is temporarily closed and left out; add it here when it reopens.
+ */
+export const STORE_LOCATIONS = [['Microforce Gentbrugge', 'Gentbrugge'], ['Microforce Antwerpen', 'Antwerpen']] as const;
+export const STORE_METAFIELD = { namespace: 'custom', key: 'stock_per_location_1', type: 'list.single_line_text_field' } as const;
+/** Store-metafield updates per run, so the first catch-up never trips the emergency brake. */
+export const MAX_STORE_UPDATES_PER_RUN = 150;
+
+/** JSON value of the store metafield for this stock per location name, or null when no store has stock. */
+export function storesValue(stockByLocation: Record<string, number>): string | null {
+  const stores = STORE_LOCATIONS.filter(([location]) => (stockByLocation[location] ?? 0) > 0).map(([, store]) => store);
+  return stores.length ? JSON.stringify(stores) : null;
+}
+/** True when the current metafield value already lists exactly these stores (same order). */
+export function sameStores(have: string | null, want: string | null): boolean {
+  if (have === null || want === null) return have === want;
+  try {
+    const list = JSON.parse(have);
+    return Array.isArray(list) && JSON.stringify(list) === want;
+  } catch {
+    return false;
+  }
+}
 export const metafieldId = (m: { namespace: string; key: string }) => `${m.namespace}.${m.key}`;
 
 const INVENTORY_PREFIX = 'Inventory Available: ';
@@ -107,6 +133,8 @@ export type Plan = {
   variantUpdates: { productId: string; variants: { id: string; price?: string; compareAtPrice?: string | null; taxable?: boolean }[] }[];
   inventory: { inventoryItemId: string; locationId: string; quantity: number }[];
   metafields: { ownerId: string; namespace: string; key: string; type: string; value: string }[];
+  /** Metafields to remove (the store list of a product that is in no store any more). */
+  metafieldDeletes: { ownerId: string; namespace: string; key: string }[];
   counts: {
     erpRows: number;
     matched: number;
@@ -125,6 +153,8 @@ export type Plan = {
     unlistDeferred: number;
     /** Drafts made UNLISTED in this run (counts against MAX_UNLIST_PER_RUN). */
     unlistedFromDraft: number;
+    /** Products whose store list is out of date but waits for a next run (MAX_STORE_UPDATES_PER_RUN). */
+    storesDeferred: number;
   };
 };
 
@@ -247,10 +277,11 @@ export function planSync(input: {
   locations: Record<string, string>; // Shopify location name -> location id
   invalidRows?: number;
   maxUnlist?: number;
+  maxStoreUpdates?: number;
 }): Plan {
   const plan: Plan = {
-    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0 },
+    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [],
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0, storesDeferred: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -293,6 +324,7 @@ export function planSync(input: {
   // stock write never leaves a reachable page that can still be bought. Until then the ERP draft applies;
   // the next run (stock written) makes it UNLISTED.
   const productStock = new Map<string, number>();
+  const matchedSku = new Map<string, string>(); // productId -> first ERP SKU of the product
   for (const c of input.current) {
     const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
@@ -305,6 +337,7 @@ export function planSync(input: {
     const c = bySku.get(d.sku);
     if (!c) { plan.counts.erpOnly++; plan.unmatched.erpOnly.push({ sku: d.sku, title: d.product.title ?? '', inventory: { ...d.inventory } }); plan.newCandidates.push(d); continue; }
     plan.counts.matched++;
+    if (!matchedSku.has(c.productId)) matchedSku.set(c.productId, d.sku);
     const before = plan.changes.length;
 
     // Product fields: one product can carry several variants; they must agree.
@@ -376,6 +409,35 @@ export function planSync(input: {
     }
 
     if (plan.changes.length === before) plan.counts.unchanged++;
+  }
+
+  // Store list (custom.stock_per_location_1) of every product with an ERP SKU, from the stock per store after
+  // this run: the ERP quantity where the item is stocked at that location (that is what gets written), else
+  // Shopify's own. Every Shopify variant of the product counts, also one that is not in the ERP.
+  const storeStock = new Map<string, Record<string, number>>();
+  const storeHave = new Map<string, string | null>();
+  for (const c of input.current) {
+    if (!matchedSku.has(c.productId)) continue;
+    if (!storeHave.has(c.productId)) storeHave.set(c.productId, c.metafields[metafieldId(STORE_METAFIELD)] ?? null);
+    const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
+    const stock = storeStock.get(c.productId) ?? {};
+    for (const [location] of STORE_LOCATIONS) {
+      const qty = location in c.inventory ? (erp[location] ?? c.inventory[location]) : 0;
+      stock[location] = (stock[location] ?? 0) + Math.max(0, qty);
+    }
+    storeStock.set(c.productId, stock);
+  }
+  const maxStoreUpdates = input.maxStoreUpdates ?? MAX_STORE_UPDATES_PER_RUN;
+  let storeUpdates = 0;
+  for (const [productId, stock] of storeStock) {
+    const want = storesValue(stock);
+    const have = storeHave.get(productId) ?? null;
+    if (sameStores(have, want)) continue;
+    if (storeUpdates >= maxStoreUpdates) { plan.counts.storesDeferred++; continue; }
+    storeUpdates++;
+    if (want) plan.metafields.push({ ownerId: productId, ...STORE_METAFIELD, value: want });
+    else plan.metafieldDeletes.push({ ownerId: productId, namespace: STORE_METAFIELD.namespace, key: STORE_METAFIELD.key });
+    add({ sku: matchedSku.get(productId)!, scope: 'metafield', field: metafieldId(STORE_METAFIELD), oldValue: have, newValue: want });
   }
 
   // Products whose variants disagree on product fields are left untouched (and reported).

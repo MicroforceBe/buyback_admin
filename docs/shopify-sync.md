@@ -9,6 +9,10 @@ Elke 15 minuten schrijft het ERP een CSV naar FTP; `/api/erp-sync` importeert di
 - Variant: prijs, vergelijkingsprijs, btw-plichtig
 - Voorraad "available" per locatie (kolom `Inventory Available: <locatienaam>`), alleen waar het artikel al op die locatie staat
 - Metavelden: custom.refurbished_product, custom.vat_margin, magento.manufacturer, magento.tax_bebat, magento.tax_recupel
+- Winkels op de website: custom.stock_per_location_1 (lijst "Gentbrugge", "Antwerpen") volgt de voorraad per winkel na de run,
+  over alle varianten van het product. Het thema gebruikt dit voor "Nu in Gent/Antwerpen" en de winkelfilter. Geen voorraad in
+  een winkel: het metaveld wordt verwijderd. Oudenaarde is tijdelijk dicht en telt niet mee (STORE_LOCATIONS in plan.ts).
+  Hoogstens 150 producten per run (de eerste inhaalbeweging verspreidt zich zo over enkele runs, zonder de noodrem).
 
 Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicatie/kanalen, afbeeldingen.
 

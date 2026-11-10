@@ -1,5 +1,8 @@
 // Reads the current Shopify catalogue state from a bulk-operation JSONL export (pure parsing).
-import { parseMoneyCents, SYNCED_METAFIELDS, metafieldId, type CurrentState, type ProductStatus } from '@/lib/shopify/plan';
+import { parseMoneyCents, STORE_METAFIELD, SYNCED_METAFIELDS, metafieldId, type CurrentState, type ProductStatus } from '@/lib/shopify/plan';
+
+// Product metafields read for the plan: the ones copied from the CSV and the store list derived from the stock.
+const READ_METAFIELDS = [...SYNCED_METAFIELDS, STORE_METAFIELD];
 
 const alias = (m: { namespace: string; key: string }) => `mf_${m.namespace}_${m.key}`;
 
@@ -31,7 +34,7 @@ export const BULK_VARIANTS_QUERY = `{
           productType
           status
           tags
-${SYNCED_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.namespace}", key: "${m.key}") { value }`).join('\n')}
+${READ_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.namespace}", key: "${m.key}") { value }`).join('\n')}
         }
       }
     }
@@ -60,7 +63,7 @@ export function parseBulkVariants(jsonl: string): { variants: CurrentState[]; lo
     const v = row as VariantLine;
     if (!v.inventoryItem?.id || !v.product?.id) continue;
     const metafields: Record<string, string | null> = {};
-    for (const m of SYNCED_METAFIELDS) {
+    for (const m of READ_METAFIELDS) {
       const value = (v.product[alias(m)] as { value?: string } | null | undefined)?.value;
       metafields[metafieldId(m)] = value ?? null;
     }

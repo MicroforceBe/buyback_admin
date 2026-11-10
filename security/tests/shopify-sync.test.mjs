@@ -39,7 +39,7 @@ const csvRow = (over = {}) => ({
 const current = (over = {}) => ({
   sku: 'SKU1', productId: 'gid://shopify/Product/1', variantId: 'gid://shopify/ProductVariant/11', inventoryItemId: 'gid://shopify/InventoryItem/111',
   title: 'iPhone 13 128GB', vendor: 'Apple', productType: 'Smartphone', status: 'ACTIVE', priceCents: 49900, compareAtCents: null, taxable: true,
-  inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' }, tags: [], ...over,
+  inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0', 'custom.stock_per_location_1': '["Gentbrugge"]' }, tags: [], ...over,
 });
 const LOCS = { 'Microforce Gentbrugge': 'gid://shopify/Location/1', 'Microforce Antwerpen': 'gid://shopify/Location/2' };
 
@@ -76,8 +76,10 @@ test('price, stock, status and metafield differences become batched mutations', 
   assert.deepEqual(p.productUpdates, [{ id: 'gid://shopify/Product/1', status: 'DRAFT' }]);
   assert.deepEqual(p.variantUpdates, [{ productId: 'gid://shopify/Product/1', variants: [{ id: 'gid://shopify/ProductVariant/11', price: '449.00', compareAtPrice: '499.00' }] }]);
   assert.deepEqual(p.inventory, [{ inventoryItemId: 'gid://shopify/InventoryItem/111', locationId: 'gid://shopify/Location/2', quantity: 3 }]);
-  assert.equal(p.metafields.length, 1);
+  // custom.refurbished_product from the CSV, then the store list (Antwerpen now has stock too).
+  assert.equal(p.metafields.length, 2);
   assert.equal(p.metafields[0].value, 'false');
+  assert.deepEqual(p.metafields[1], { ownerId: 'gid://shopify/Product/1', namespace: 'custom', key: 'stock_per_location_1', type: 'list.single_line_text_field', value: '["Gentbrugge","Antwerpen"]' });
 });
 
 test('nothing is created or deleted: one-sided and duplicate SKUs are only counted', async () => {
@@ -196,7 +198,7 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null, 
   return {
     mutations,
     client: {
-      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' } } })
+      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' }, mf_custom_stock_per_location_1: v.metafields['custom.stock_per_location_1'] === undefined ? null : { value: v.metafields['custom.stock_per_location_1'] } } })
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
@@ -264,7 +266,8 @@ test('live mode writes the changes and records per-SKU errors', async () => {
   const { sync } = await loadModules(db);
   const fake = fakeClient([current()], { failInventory: true });
   const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client, idempotencyKey: () => 'k1' }));
-  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncVariants', 'SyncInventory']);
+  // Antwerpen gets stock, so the store list is updated as well.
+  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncVariants', 'SyncInventory', 'SyncMetafields']);
   const inv = fake.mutations[1][1];
   assert.equal(inv.key, 'k1');
   assert.equal(inv.input.quantities[0].changeFromQuantity, null);
@@ -926,4 +929,68 @@ test('a refurbished device that leaves the ERP becomes UNLISTED without a redire
   assert.match(sync, /maxUnlist: Math\.max\(0, MAX_UNLIST_PER_RUN - plan\.counts\.unlistedFromDraft\)/);
   assert.match(sync, /status === 'ACTIVE' \|\| status === 'UNLISTED'/);
   assert.match(read('lib/shopify/publish.ts'), /query: "status:active OR status:unlisted"/);
+});
+
+test('the store list follows the stock per store after the run; Oudenaarde and unstocked locations are ignored', async () => {
+  const { plan } = await loadModules();
+  const stores = p => plain(p.metafields.filter(m => m.key === 'stock_per_location_1').map(m => [m.ownerId, m.value]));
+  // Up to date: no change.
+  assert.equal(plan.planSync({ desired: [plan.desiredFromRow(csvRow())], current: [current()], locations: LOCS }).changes.length, 0);
+  // Empty metafield while Gentbrugge has stock: filled in (the case of the missing "Nu in Gent").
+  let p = plan.planSync({ desired: [plan.desiredFromRow(csvRow())], current: [current({ metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' } })], locations: LOCS });
+  assert.deepEqual(stores(p), [['gid://shopify/Product/1', '["Gentbrugge"]']]);
+  assert.deepEqual(plain(p.changes.map(c => [c.sku, c.scope, c.field, c.oldValue, c.newValue])), [['SKU1', 'metafield', 'custom.stock_per_location_1', null, '["Gentbrugge"]']]);
+  // Order is always Gentbrugge, Antwerpen; an outdated "Oudenaarde" is dropped.
+  p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ 'Inventory Available: Microforce Antwerpen': '1', 'Inventory Available: Microforce Oudenaarde': '4' }))], current: [current({ inventory: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0, 'Microforce Oudenaarde': 0 }, metafields: { 'custom.stock_per_location_1': '["Antwerpen","Oudenaarde"]' } })], locations: { ...LOCS, 'Microforce Oudenaarde': 'gid://shopify/Location/3' } });
+  assert.deepEqual(stores(p), [['gid://shopify/Product/1', '["Gentbrugge","Antwerpen"]']]);
+  // Not stocked at Antwerpen in Shopify: the ERP quantity is not written there, so it does not count.
+  p = plan.planSync({ desired: [plan.desiredFromRow(csvRow({ 'Inventory Available: Microforce Gentbrugge': '0', 'Inventory Available: Microforce Antwerpen': '5' }))], current: [current({ inventory: { 'Microforce Gentbrugge': 2 } })], locations: LOCS });
+  assert.deepEqual(stores(p), []);
+  assert.deepEqual(plain(p.metafieldDeletes), [{ ownerId: 'gid://shopify/Product/1', namespace: 'custom', key: 'stock_per_location_1' }]);
+});
+
+test('the store list counts every variant of a product and leaves Shopify-only products alone', async () => {
+  const { plan } = await loadModules();
+  const empty = { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' };
+  const p = plain(plan.planSync({
+    desired: [plan.desiredFromRow(csvRow({ 'Inventory Available: Microforce Gentbrugge': '0' }))],
+    current: [
+      current({ metafields: empty }),
+      // Second variant of the same product, not in the ERP: its Antwerpen stock counts.
+      current({ sku: 'NOT-IN-ERP', variantId: 'gid://shopify/ProductVariant/12', inventoryItemId: 'gid://shopify/InventoryItem/112', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 1 }, metafields: empty }),
+      // Other product without an ERP SKU: untouched.
+      current({ sku: 'ONLY-SHOP', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/21', inventoryItemId: 'gid://shopify/InventoryItem/211', metafields: empty }),
+    ],
+    locations: LOCS,
+  }));
+  assert.deepEqual(p.metafields.filter(m => m.key === 'stock_per_location_1').map(m => [m.ownerId, m.value]), [['gid://shopify/Product/1', '["Antwerpen"]']]);
+  assert.deepEqual(p.metafieldDeletes, []);
+});
+
+test('at most MAX_STORE_UPDATES_PER_RUN store lists are written per run; the rest waits', async () => {
+  const { plan } = await loadModules();
+  const empty = { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' };
+  const n = plan.MAX_STORE_UPDATES_PER_RUN + 5;
+  const cur = Array.from({ length: n }, (_, i) => current({ sku: 'S' + i, productId: 'gid://shopify/Product/' + (100 + i), variantId: 'gid://shopify/ProductVariant/' + (1000 + i), inventoryItemId: 'gid://shopify/InventoryItem/' + (5000 + i), metafields: empty }));
+  const p = plan.planSync({ desired: cur.map(c => plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': c.sku }))), current: cur, locations: LOCS });
+  assert.equal(p.metafields.filter(m => m.key === 'stock_per_location_1').length, plan.MAX_STORE_UPDATES_PER_RUN);
+  assert.equal(p.counts.storesDeferred, 5);
+  assert.equal(plan.planSync({ desired: cur.map(c => plan.desiredFromRow(csvRow({ 'Variant SKU [ID]': c.sku }))), current: cur, locations: LOCS, maxStoreUpdates: 2 }).counts.storesDeferred, n - 2);
+});
+
+test('live mode removes the store list of a product that is in no store any more', async () => {
+  const { db } = fakeDb({ mode: 'live', rows: [csvRow({ 'Inventory Available: Microforce Gentbrugge': '0' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current()]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncInventory', 'CollectionMetafieldsDelete']);
+  assert.deepEqual(fake.mutations[1][1], { metafields: [{ ownerId: 'gid://shopify/Product/1', namespace: 'custom', key: 'stock_per_location_1' }] });
+});
+
+test('the bulk export reads the store list', async () => {
+  const { state } = await loadModules();
+  assert.match(state.BULK_VARIANTS_QUERY, /mf_custom_stock_per_location_1: metafield\(namespace: "custom", key: "stock_per_location_1"\)/);
+  const { variants } = state.parseBulkVariants(JSON.stringify({ id: 'gid://shopify/ProductVariant/11', sku: 'SKU1', price: '1.00', compareAtPrice: null, taxable: true, inventoryItem: { id: 'gid://shopify/InventoryItem/111' }, product: { id: 'gid://shopify/Product/1', title: 'T', vendor: 'V', productType: 'X', status: 'ACTIVE', mf_custom_stock_per_location_1: { value: '["Gentbrugge"]' } } }));
+  assert.equal(variants[0].metafields['custom.stock_per_location_1'], '["Gentbrugge"]');
 });

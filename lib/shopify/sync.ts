@@ -3,7 +3,7 @@ import 'server-only';
 // and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_DELETE, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
@@ -127,6 +127,11 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     const { metafieldsSet } = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch });
     // metafieldsSet is atomic: any error means nothing in this batch was written.
     if (metafieldsSet.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsSet.userErrors) });
+  }
+  for (const batch of chunk(plan.metafieldDeletes, 25)) {
+    await guard();
+    const { metafieldsDelete } = await client.graphql<{ metafieldsDelete: { userErrors: UserError[] } }>(METAFIELDS_DELETE, { metafields: batch });
+    if (metafieldsDelete.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsDelete.userErrors) });
   }
   for (const c of creates) {
     await guard();
