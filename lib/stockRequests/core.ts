@@ -217,7 +217,8 @@ export function unsubscribePage(lang: Lang, state: 'ask' | 'done' | 'gone', toke
 
 /** Publieke basis-URL van buyback-admin (voor de uitschrijflink). */
 export function adminBaseUrl(env: Record<string, string | undefined>): string {
-  const host = (env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
+  // Op een preview (testomgeving) wijst de link naar die branch, anders naar het productiedomein.
+  const host = ((env.VERCEL_ENV === 'preview' ? env.VERCEL_BRANCH_URL : '') || env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
   return host && /^[a-z0-9.-]+$/i.test(host) ? 'https://' + host : 'https://buyback-admin.vercel.app';
 }
 

@@ -76,6 +76,8 @@ test('mails are localised, escape customer input and carry the unsubscribe link'
   assert.equal(link, 'https://buyback-admin.vercel.app/api/public/aanvraag/uitschrijven?t=11111111-1111-4111-8111-111111111111&l=fr');
   assert.equal(adminBaseUrl({ VERCEL_PROJECT_PRODUCTION_URL: 'admin.microforce.be' }), 'https://admin.microforce.be');
   assert.equal(adminBaseUrl({ VERCEL_PROJECT_PRODUCTION_URL: 'evil.com/x?' }), 'https://buyback-admin.vercel.app');
+  assert.equal(adminBaseUrl({ VERCEL_ENV: 'preview', VERCEL_BRANCH_URL: 'x-git-y.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'p.vercel.app' }), 'https://x-git-y.vercel.app');
+  assert.equal(adminBaseUrl({ VERCEL_ENV: 'production', VERCEL_BRANCH_URL: 'x-git-y.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'p.vercel.app' }), 'https://p.vercel.app');
   const c = confirmationMail('fr', 'Jan <b>', ['M2/16GB/1TB'], [4, 5], link);
   assert.match(c.subject, /alerte/);
   assert.match(c.html, /M2 · 16 Go mémoire · 1 To stockage/);
