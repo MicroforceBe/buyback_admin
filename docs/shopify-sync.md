@@ -30,6 +30,10 @@ Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicat
 - **Live**: schrijft de verschillen in batches. **Noodrem**: meer wijzigingen (inclusief producten die in de webshop gezet moeten worden) dan het maximum → de run schrijft niets.
 - Noodstop-knop zet alles uit (iedereen met ERP-schrijfrecht). Modus wijzigen en handmatig starten: alleen beheerders.
 
+## Regio
+De functies draaien in Frankfurt (`"regions": ["fra1"]` in vercel.json), naast de Supabase-database (eu-central-1): alle
+persoonsgegevens blijven in de EU en elke databasevraag is sneller.
+
 ## Configuratie (Vercel-omgevingsvariabelen, door de eigenaar)
 - `SHOPIFY_STORE_DOMAIN` – bv. `microforce-test.myshopify.com`
 - `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` – van de Dev Dashboard-app "Microforce ERP Sync"
