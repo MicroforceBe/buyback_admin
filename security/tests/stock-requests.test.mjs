@@ -7,7 +7,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 
 async function load(entry) {
-  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, Intl, Infinity, encodeURIComponent, parseInt });
+  const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, Intl, Infinity, encodeURIComponent, parseInt, URL });
   const modules = new Map();
   const internal = { '@/lib/shopify/soldOut': 'lib/shopify/soldOut.ts' };
   async function ld(path) {
@@ -79,7 +79,11 @@ test('mails are localised, escape customer input and carry the unsubscribe link'
   assert.equal(adminBaseUrl({ VERCEL_ENV: 'preview', VERCEL_BRANCH_URL: 'x-git-y.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'p.vercel.app' }), 'https://x-git-y.vercel.app');
   assert.equal(adminBaseUrl({ VERCEL_ENV: 'production', VERCEL_BRANCH_URL: 'x-git-y.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'p.vercel.app' }), 'https://p.vercel.app');
   const c = confirmationMail('fr', 'Jan <b>', ['M2/16GB/1TB'], [4, 5], link);
-  assert.match(c.subject, /alerte/);
+  assert.match(c.subject, /Merci pour votre demande/);
+  assert.match(c.html, /microforce-logo/);
+  assert.match(c.html, /https:\/\/buyback-admin\.vercel\.app\/mail\/micro-mike-zoek\.png/);
+  assert.match(c.html, /Je pars déjà à la recherche pour vous/);
+  assert.match(c.html, /Trustpilot/);
   assert.match(c.html, /M2 · 16 Go mémoire · 1 To stockage/);
   assert.match(c.html, /État : Très bon ou Comme neuf\./);
   assert.match(confirmationMail('nl', 'Jan', ['M2/16GB/1TB'], [3, 4, 5], link).text, /Elke staat is goed/);
@@ -87,6 +91,7 @@ test('mails are localised, escape customer input and carry the unsubscribe link'
   assert.ok(c.html.includes(link.replace(/&/g, '&amp;')) && c.text.includes(link));
   const a = availableMail('en', 'Jan', [{ request: { config_key: 'M2/16GB/1TB' }, product: { handle: 'macbook-air-13-m2-16gb-1tbssd-sg-refurbished-5', grade: 5, price: 1199 } }], link);
   assert.match(a.html, /Like new/);
+  assert.match(a.html, /I found something for you!/);
   assert.ok(a.html.includes(productUrl('macbook-air-13-m2-16gb-1tbssd-sg-refurbished-5', 'en')));
   assert.equal(productUrl('x', 'nl'), 'https://microforce.be/products/x');
   assert.match(a.html, /1,199\.00/);
@@ -125,4 +130,17 @@ test('unsubscribe page only unsubscribes on POST and the public routes stay narr
   const cron = JSON.parse(read('vercel.json')).crons.find(c => c.path === '/api/stock-requests');
   assert.equal(cron?.schedule, '20 * * * *');
   assert.match(read('app/api/stock-requests/route.ts'), /bearerMatches\(request\.headers\.get\('authorization'\), process\.env\.CRON_SECRET\)/);
+});
+
+test('sender is always Microforce klantenservice', async () => {
+  const { shopSender, confirmationMail } = await core();
+  assert.equal(shopSender('klantenservice <klantenservice@microforce.be>'), 'Microforce klantenservice <klantenservice@microforce.be>');
+  assert.equal(shopSender('info@microforce.be'), 'Microforce klantenservice <info@microforce.be>');
+  assert.equal(shopSender(''), '');
+  assert.equal(shopSender('geen adres'), '');
+  const nl = confirmationMail('nl', 'Olivier', ['M2/16GB/512GB'], [3, 4, 5], 'https://x.vercel.app/api/public/aanvraag/uitschrijven?t=1&l=nl');
+  assert.match(nl.html, /Bedankt voor jouw aanvraag/);
+  assert.match(nl.html, /We gaan aan de slag om zo snel mogelijk het geschikte toestel voor jou te vinden\. Als jouw gewenst model bestelbaar is of terug op voorraad is, brengen we je op de hoogte\./);
+  assert.match(nl.html, /Ik ga alvast op zoek voor jou\./);
+  assert.match(nl.html, /https:\/\/x\.vercel\.app\/mail\/micro-mike-zoek\.png/);
 });
