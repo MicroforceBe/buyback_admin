@@ -78,7 +78,9 @@ Dit vervangt voor MacBooks de knop van de app Stok; andere producten houden Stok
 - **Aanvragen:** `POST /api/public/aanvraag` (alleen vanaf de webshop, CORS `PUBLIC_SHOP_ORIGINS`). Bewaart één rij per
   configuratie in `shop_stock_requests` via `submit_shop_stock_request` en stuurt een bevestigingsmail. Opnieuw aanvragen werkt
   de open rij bij (geen dubbels). Begrensd: 10 aanvragen per IP per uur (IP als HMAC met `CRON_SECRET`, na 2 dagen gewist)
-  en 30 rijen per e-mailadres per dag. Een val voor bots (veld `website`) bewaart niets. De server maakt de labels zelf.
+  en 30 rijen per e-mailadres per dag. Bevestigingsmails: hoogstens 3 per adres per 24 uur en 100 per uur in totaal
+  (`claim_shop_stock_confirmation`, adres als SHA-256 in `shop_stock_mail_log`, na 2 dagen gewist); daarboven wordt de aanvraag
+  bewaard zonder mail. Naam: alleen letters, spaties, koppeltekens, punten en apostrofs, max. 60 tekens, geen links. Een val voor bots (veld `website`) bewaart niets. De server maakt de labels zelf.
 - **Verwittigen:** cron `/api/stock-requests` elk uur op :20 (na de Shopify-sync). Per open aanvraag het goedkoopste
   **actieve** toestel **op voorraad** in die collectie met dezelfde configuratie (uit de handle, `macConfig`) in een
   van de gekozen staten. Eén mail per e-mailadres per run (alle matches samen), hoogstens 50 mails per run. De rij gaat eerst

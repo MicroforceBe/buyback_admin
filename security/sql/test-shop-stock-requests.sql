@@ -36,3 +36,16 @@ begin
   if has_table_privilege('anon','public.shop_stock_requests','SELECT') or has_table_privilege('authenticated','public.shop_stock_requests','INSERT')
      or has_function_privilege('anon','public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text)','EXECUTE') then raise exception 'Public access'; end if;
 end $$;
+do $$
+declare i integer; ok boolean;
+begin
+  for i in 1..3 loop
+    if not public.claim_shop_stock_confirmation(' Limiet@Example.invalid') then raise exception 'Claim % refused', i; end if;
+  end loop;
+  if public.claim_shop_stock_confirmation('limiet@example.invalid') then raise exception 'Fourth confirmation allowed'; end if;
+  if not public.claim_shop_stock_confirmation('ander@example.invalid') then raise exception 'Other address refused'; end if;
+  if exists (select 1 from public.shop_stock_mail_log where email_hash !~ '^[0-9a-f]{64}$') then raise exception 'Plain email stored'; end if;
+  insert into public.shop_stock_mail_log (email_hash) select repeat('c', 64) from generate_series(1, 100);
+  if public.claim_shop_stock_confirmation('nieuw@example.invalid') then raise exception 'Hourly brake not enforced'; end if;
+  if has_function_privilege('anon','public.claim_shop_stock_confirmation(text)','EXECUTE') or has_table_privilege('anon','public.shop_stock_mail_log','SELECT') then raise exception 'Public access'; end if;
+end $$;

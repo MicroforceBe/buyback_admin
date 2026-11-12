@@ -58,3 +58,32 @@ begin
 end $$;
 revoke all on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) from public, anon, authenticated;
 grant execute on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) to service_role;
+
+-- Bevestigingsmails begrenzen (tegen misbruik als spamkanaal): hoogstens 3 per e-mailadres per 24 uur en 100 in totaal
+-- per uur. Het e-mailadres wordt alleen als SHA-256 bewaard; rijen ouder dan 2 dagen mogen weg (zie de cron).
+create table public.shop_stock_mail_log (
+  id bigint generated always as identity primary key,
+  email_hash text not null check (email_hash ~ '^[0-9a-f]{64}$'),
+  sent_at timestamptz not null default now()
+);
+create index shop_stock_mail_log_idx on public.shop_stock_mail_log (email_hash, sent_at);
+create index shop_stock_mail_log_time_idx on public.shop_stock_mail_log (sent_at);
+alter table public.shop_stock_mail_log enable row level security;
+revoke all on public.shop_stock_mail_log from public, anon, authenticated;
+grant select, insert, delete on public.shop_stock_mail_log to service_role;
+
+-- true = er mag een bevestigingsmail vertrekken (en die wordt meteen geteld); false = aanvraag bewaard, geen mail.
+create function public.claim_shop_stock_confirmation(p_email text) returns boolean
+language plpgsql security invoker set search_path = '' as $$
+declare h text := encode(sha256(convert_to(lower(btrim(coalesce(p_email,''))), 'UTF8')), 'hex'); n integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('shop_stock_mail_log'));
+  select count(*) into n from public.shop_stock_mail_log where email_hash = h and sent_at > now() - interval '24 hours';
+  if n >= 3 then return false; end if;
+  select count(*) into n from public.shop_stock_mail_log where sent_at > now() - interval '1 hour';
+  if n >= 100 then return false; end if;
+  insert into public.shop_stock_mail_log (email_hash) values (h);
+  return true;
+end $$;
+revoke all on function public.claim_shop_stock_confirmation(text) from public, anon, authenticated;
+grant execute on function public.claim_shop_stock_confirmation(text) to service_role;

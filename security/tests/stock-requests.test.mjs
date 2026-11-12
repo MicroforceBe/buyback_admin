@@ -44,7 +44,7 @@ test('parseRequest accepts a valid request and rejects bad input', async () => {
   assert.deepEqual(plain(parseRequest({ ...ok, grades: undefined }).value.grades), [3, 4, 5]);
   assert.equal(parseRequest({ ...ok, consent: false }).error, 'consent');
   assert.equal(parseRequest({ ...ok, website: 'http://spam' }).error, 'spam');
-  for (const bad of [{ email: 'nope' }, { name: '<b>' }, { name: '' }, { collection: 'iphone-13' }, { configs: [] }, { configs: ['<script>'] }, { grades: [2] }, { grades: [] }, { grades: 'x' }, { configs: Array.from({ length: 13 }, (_, i) => `M2/8GB/${i + 1}GB`) }]) {
+  for (const bad of [{ email: 'nope' }, { name: '<b>' }, { name: 'Bezoek www.x' }, { name: '' }, { collection: 'iphone-13' }, { configs: [] }, { configs: ['<script>'] }, { grades: [2] }, { grades: [] }, { grades: 'x' }, { configs: Array.from({ length: 13 }, (_, i) => `M2/8GB/${i + 1}GB`) }]) {
     assert.equal(parseRequest({ ...ok, ...bad }).error, 'invalid', JSON.stringify(bad));
   }
   assert.equal(parseRequest(null).error, 'invalid');
@@ -170,4 +170,13 @@ test('header band names the wished main category', async () => {
   assert.equal(wishBand('refurbished-apple-watch-series-9', 'fr'), 'Votre Apple Watch souhaitée');
   assert.equal(wishBand('iets-anders', 'en'), 'Your desired device');
   assert.match(confirmationMail('nl', 'O', ['M2/8GB/256GB'], [3], 'https://x.app/u', 'refurbished-macbook-air-13-m2').html, />Jouw gewenste MacBook</);
+});
+
+test('names cannot carry links, digits or spam', async () => {
+  const { validName, parseRequest } = await core();
+  for (const ok of ['Olivier Bernaert', 'Zoë D\'Hondt', 'Jean-Luc', 'Ö. Çelik']) assert.ok(validName(ok), ok);
+  for (const bad of ['Win €1000', 'www.spam', 'Jan http', 'jan.com', '<b>', 'a'.repeat(61), '123', 'Jan\nPiet', 'Klik spam.be']) assert.ok(!validName(bad), bad);
+  assert.equal(parseRequest({ name: 'Bezoek spam.be', email: 'a@b.be', collection: 'refurbished-macbook-air-13-m2', configs: ['M2/8GB/256GB'], consent: true }).error, 'invalid');
+  const route = read('app/api/public/aanvraag/route.ts');
+  assert.ok(route.indexOf("claim_shop_stock_confirmation") < route.indexOf('sendShopMail('), 'mail limit checked before sending');
 });

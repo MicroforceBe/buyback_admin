@@ -8,7 +8,8 @@ import { sendShopMail } from '@/lib/stockRequests/mail';
 // Publiek: een klant vraagt op een MacBook-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
 // een mail zodra één of meer configuraties terug op voorraad zijn. Body (JSON): name, email, language, collection, configs
 // (["M2/16GB/1TB", …]), grades ([3,4,5]: Behoorlijk, Zeer goed, Als nieuw), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
-// Alleen vanaf de webshop (CORS en Origin); begrensd per IP (gehasht) en per e-mailadres. Stuurt een bevestigingsmail.
+// Alleen vanaf de webshop (CORS en Origin); begrensd per IP (gehasht) en per e-mailadres. Stuurt een bevestigingsmail
+// (hoogstens 3 per adres per 24 uur, 100 per uur in totaal). Naam: alleen letters, max. 60 tekens, geen links.
 export const dynamic = 'force-dynamic';
 
 function origins(): string[] {
@@ -62,6 +63,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'failed' }, { status: error?.code === '23514' ? 400 : 502, headers });
   }
   try {
+    // Hoogstens 3 bevestigingsmails per e-mailadres per 24 uur en 100 per uur in totaal; daarboven wordt de aanvraag wel
+    // bewaard, maar vertrekt er geen bevestiging (tegen misbruik van het formulier als spamkanaal).
+    const { data: mag } = await supabaseAdmin.rpc('claim_shop_stock_confirmation', { p_email: v.email });
+    if (mag !== true) return NextResponse.json({ ok: true }, { headers });
     const link = unsubscribeUrl(adminBaseUrl(process.env), token, v.language);
     // Modelnaam en een foto van het model uit Shopify; lukt dat niet, dan gaat de mail zonder.
     let items: MailItem[] = v.keys.map(key => ({ key }));

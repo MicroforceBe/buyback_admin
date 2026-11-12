@@ -44,6 +44,14 @@ export function configLabel(key: string, lang: Lang): string {
   return `${chip} · ${unit(ram)} ${t.ram} · ${unit(ssd)} ${t.ssd}`;
 }
 
+/**
+ * Naam: alleen letters (ook met accenten), spaties, koppeltekens, punten en apostrofs; 1 tot 60 tekens; geen links of
+ * cijfers. Zo kan niemand reclame of een link in een mail van Microforce laten zetten.
+ */
+export function validName(name: string): boolean {
+  return /^[\p{L}][\p{L}\p{M} .'’-]{0,59}$/u.test(name) && !/(www|https?|\.(com|be|net|org|nl|io)\b)/i.test(name);
+}
+
 export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[] };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
@@ -59,7 +67,7 @@ export function parseRequest(body: unknown): ParseResult {
   if (b.grades !== undefined && !Array.isArray(b.grades)) return { ok: false, error: 'invalid' };
   const grades = Array.isArray(b.grades) ? [...new Set(b.grades.map(Number))].sort() : [3, 4, 5];
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
-  if (!name || name.length > 100 || /[\r\n<>]/.test(name)) return { ok: false, error: 'invalid' };
+  if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
   if (!/^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection)) return { ok: false, error: 'invalid' };
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
