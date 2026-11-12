@@ -162,3 +162,12 @@ test('confirmation shows the model name and a photo per configuration', async ()
   assert.match(m.html, /<b>Behoorlijk<\/b>/);
   assert.match(m.html, /<b>Als nieuw<\/b>/);
 });
+
+test('header band names the wished main category', async () => {
+  const { wishBand, confirmationMail } = await core();
+  assert.equal(wishBand('refurbished-macbook-air-13-m2', 'nl'), 'Jouw gewenste MacBook');
+  assert.equal(wishBand('refurbished-iphone-13', 'fr'), 'Votre iPhone souhaité');
+  assert.equal(wishBand('refurbished-apple-watch-series-9', 'fr'), 'Votre Apple Watch souhaitée');
+  assert.equal(wishBand('iets-anders', 'en'), 'Your desired device');
+  assert.match(confirmationMail('nl', 'O', ['M2/8GB/256GB'], [3], 'https://x.app/u', 'refurbished-macbook-air-13-m2').html, />Jouw gewenste MacBook</);
+});

@@ -183,6 +183,23 @@ export const TRUSTPILOT = { score: 4.7, reviews: 2600, url: 'https://nl-be.trust
 export const MAIL_LOGO = 'https://cdn.shopify.com/s/files/1/0773/4293/3324/files/microforce-logo-2022-72dpi-250X50.png?v=1694941598&width=420';
 export const MIKE_FOUND = 'https://cdn.shopify.com/s/files/1/0773/4293/3324/files/micro-mike-dank-favicon.png?v=1794483965';
 
+/** Hoofdcategorie uit de handle van de modelcollectie: MacBook, iPhone, iPad, … (anders null). */
+export function mainCategory(handle: string): string | null {
+  const h = '-' + String(handle || '').toLowerCase() + '-';
+  const map: [RegExp, string][] = [[/-macbook-/, 'MacBook'], [/-iphone-/, 'iPhone'], [/-ipad-/, 'iPad'], [/-imac-/, 'iMac'], [/-mac-mini-/, 'Mac mini'],
+    [/-(apple-)?watch-/, 'Apple Watch'], [/-(samsung|galaxy)-/, 'Samsung Galaxy'], [/-airpods-/, 'AirPods']];
+  for (const [re, name] of map) if (re.test(h)) return name;
+  return null;
+}
+
+/** Tekst in de blauwe band: "Jouw gewenste MacBook" (FR/EN vertaald); zonder herkende categorie "toestel". */
+export function wishBand(handle: string, lang: Lang): string {
+  const c = mainCategory(handle);
+  if (lang === 'fr') return c ? `Votre ${c} souhaité${c === 'Apple Watch' ? 'e' : ''}` : 'Votre appareil souhaité';
+  if (lang === 'en') return `Your desired ${c ?? 'device'}`;
+  return `Jouw gewenste ${c ?? 'toestel'}`;
+}
+
 /** Vijf groene Trustpilot-vakjes als tabel (werkt ook in Outlook); een halve ster als half gevuld vakje. */
 function tpStars(score: number): string {
   const cell = (fill: number) => {
@@ -197,8 +214,9 @@ function tpStars(score: number): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr>${[1, 2, 3, 4, 5].map(i => cell(r >= i ? 1 : r >= i - 0.5 ? 0.5 : 0)).join('')}</tr></table>`;
 }
 
-function frame(lang: Lang, body: string, unsubscribeUrl: string, mike: 'zoek' | 'gevonden' = 'zoek'): string {
+function frame(lang: Lang, body: string, unsubscribeUrl: string, mike: 'zoek' | 'gevonden' = 'zoek', collection = ''): string {
   const t = TEXT[lang];
+  const bandText = collection ? wishBand(collection, lang) : t.band;
   let assets = 'https://buyback-admin.vercel.app';
   try { assets = new URL(unsubscribeUrl).origin; } catch { /* standaard */ }
   const mikeImg = mike === 'zoek' ? `${assets}/mail/micro-mike-zoek.png` : MIKE_FOUND;
@@ -211,7 +229,7 @@ function frame(lang: Lang, body: string, unsubscribeUrl: string, mike: 'zoek' | 
     + `<body style="margin:0;padding:0;background:#f2f6fa"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f6fa;padding:24px 0;font-family:Arial,Helvetica,sans-serif"><tr><td align="center">`
     + `<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden">`
     + `<tr><td style="background:#ffffff;padding:24px 28px 18px;text-align:center"><a href="${home}" style="text-decoration:none"><img src="${MAIL_LOGO}" width="210" height="42" alt="Microforce" style="display:inline-block;border:0;width:210px;height:42px"></a></td></tr>`
-    + `<tr><td style="background:#1080cf;padding:8px 28px;text-align:center;color:#ffffff;font-size:13px;font-weight:700">${escapeHtml(t.band)}</td></tr>`
+    + `<tr><td style="background:#1080cf;padding:8px 28px;text-align:center;color:#ffffff;font-size:13px;font-weight:700">${escapeHtml(bandText)}</td></tr>`
     + `<tr><td style="padding:28px 32px 6px;color:#14222f;font-size:16px;line-height:1.55">${body}</td></tr>`
     // Handtekening: Micro Mike met tekstballon.
     + `<tr><td style="padding:10px 20px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>`
@@ -275,7 +293,7 @@ function itemRow(item: MailItem, lang: Lang, extra = ''): string {
 }
 
 /** Bevestiging na het aanvragen. */
-export function confirmationMail(lang: Lang, name: string, keys: (string | MailItem)[], grades: number[], unsubscribeUrl: string): Mail {
+export function confirmationMail(lang: Lang, name: string, keys: (string | MailItem)[], grades: number[], unsubscribeUrl: string, collection = ''): Mail {
   const t = TEXT[lang];
   const items: MailItem[] = keys.map(k => (typeof k === 'string' ? { key: k } : k));
   const labels = items.map(i => (i.model ? i.model + ' – ' : '') + configLabel(i.key, lang));
@@ -288,7 +306,7 @@ export function confirmationMail(lang: Lang, name: string, keys: (string | MailI
     + items.map(i => itemRow(i, lang)).join('')
     + `<p style="margin:6px 0 8px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.looks)}</p>`
     + gradePills(grades, lang) + `</td></tr></table>`
-    + `<p style="margin:12px 0 0;font-size:13px;color:#5b6470">${escapeHtml(t.confirmOutro)}</p>`, unsubscribeUrl, 'zoek');
+    + `<p style="margin:12px 0 0;font-size:13px;color:#5b6470">${escapeHtml(t.confirmOutro)}</p>`, unsubscribeUrl, 'zoek', collection);
   const text = [t.confirmTitle, '', t.hi(name), '', t.confirmIntro, '', t.yourRequest + ':', ...labels.map(l => '- ' + l), grade, '', t.confirmOutro, '', `"${t.mikeSearch}"`, t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
   return { subject: t.confirmSubject, html, text };
 }
@@ -301,7 +319,7 @@ export function availableMail(lang: Lang, name: string, matches: Match[], unsubs
     + rows.map(r => itemRow({ key: r.key, model: r.model, image: r.image }, lang,
       `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(r.g)}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
       + `<a href="${escapeHtml(r.url)}" style="display:inline-block;padding:9px 18px;border-radius:999px;background:#1080cf;color:#fff;font-weight:700;font-size:14px;text-decoration:none">${escapeHtml(t.view)}</a>`)).join('')
-    + `<p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.availOutro)}</p>`, unsubscribeUrl, 'gevonden');
+    + `<p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.availOutro)}</p>`, unsubscribeUrl, 'gevonden', matches[0]?.request.collection_handle ?? '');
   const text = [t.hi(name), '', t.availIntro, '', ...rows.flatMap(r => [`${r.label} (${t.grade}: ${r.grade}${r.price ? ', ' + r.price : ''})`, r.url, '']), t.availOutro, '', t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
   return { subject: t.availSubject, html, text };
 }
