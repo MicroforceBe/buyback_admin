@@ -40,7 +40,7 @@ async function load(entry,{env={},q=row(),deny=false,provider='success',dbFail=f
 test('AFS envelope targets only Trustpilot and safely serializes the three required fields',async()=>{
  const h=await load('lib/trustpilot.ts'),q={...row(),recipient_name:'</script><img src=x> & "quoted"'};
  const e=h.api.buildTrustpilotEnvelope(q,'sender@example.invalid');assert.equal(e.to,q.afs_email);assert.equal(e.cc,undefined);assert.equal(e.bcc,undefined);
- const raw=e.html.replace(/^<script type="application\/json\+trustpilot">/,'').replace(/<\/script>$/,'');assert.ok(!raw.includes('<'));const data=JSON.parse(raw);assert.equal(data.recipientName,q.recipient_name);assert.deepEqual(Object.keys(data).sort(),['recipientEmail','recipientName','referenceId']);
+ const raw=e.html.replace(/^<script type="application\/json\+trustpilot">/,'').replace(/<\/script>$/,'');assert.ok(!raw.includes('<'));const data=JSON.parse(raw);assert.equal(data.recipientName,q.recipient_name);assert.deepEqual(Object.keys(data).sort(),['recipientEmail','recipientName','referenceId','templateId']);assert.equal(data.templateId,'6ae086bb40c9b88027b4d064');
 });
 test('invalid customer/address/reference and wrong AFS destination are rejected',async()=>{
  const h=await load('lib/trustpilot.ts');for(const patch of [{recipient_email:''},{recipient_email:'a\nb@example.invalid'},{recipient_name:''},{reference_id:'bad\r\nsubject'},{afs_email:'other@example.invalid'},{delay_days:2}])assert.throws(()=>h.api.buildTrustpilotEnvelope({...row(),...patch},'sender@example.invalid'));

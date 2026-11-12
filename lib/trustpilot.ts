@@ -1,6 +1,11 @@
 // Pure AFS contract; no customer-facing mail and no payment-status inference.
 export const TRUSTPILOT_AFS_EMAIL = 'microforce.be+10c2ba8b1d@invite.trustpilot.com';
 export const TRUSTPILOT_DELAY_DAYS = 7;
+/**
+ * Trustpilot template "Microforce BuyBack" (sale of a device to Microforce). Always sent explicitly: the AFS address is
+ * shared with the in-store purchase invoices (Bcc), which use the account's default template (a purchase template).
+ */
+export const TRUSTPILOT_BUYBACK_TEMPLATE_ID = '6ae086bb40c9b88027b4d064';
 export type TrustpilotRecord = {
   lead_id: string; reference_id: string; recipient_name: string; recipient_email: string;
   mode: 'preview' | 'live'; status: string; completed_at: string; expected_invite_at: string;
@@ -18,7 +23,7 @@ export function trustpilotIssues(row: Pick<TrustpilotRecord, 'recipient_email' |
 export function buildTrustpilotEnvelope(row: TrustpilotRecord, from: string) {
   if (trustpilotIssues(row).length) throw new Error('Ontbrekende of ongeldige klantgegevens.');
   if (row.afs_email !== TRUSTPILOT_AFS_EMAIL || row.delay_days !== TRUSTPILOT_DELAY_DAYS) throw new Error('Ongeldige Trustpilot-instellingen.');
-  const json = JSON.stringify({recipientName: row.recipient_name, recipientEmail: row.recipient_email, referenceId: row.reference_id})
+  const json = JSON.stringify({recipientName: row.recipient_name, recipientEmail: row.recipient_email, referenceId: row.reference_id, templateId: TRUSTPILOT_BUYBACK_TEMPLATE_ID})
     .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
   return {from, to: TRUSTPILOT_AFS_EMAIL, subject: `Microforce Buyback afgerond ${row.reference_id}`,
     html: `<script type="application/json+trustpilot">${json}</script>`};
