@@ -85,9 +85,10 @@ test('mails are localised, escape customer input and carry the unsubscribe link'
   assert.match(c.html, /Je pars déjà à la recherche pour vous/);
   assert.match(c.html, /Trustpilot/);
   assert.match(c.html, /M2 · 16 Go mémoire · 1 To stockage/);
-  assert.match(c.html, /État : Très bon ou Comme neuf\./);
+  assert.match(c.text, /État : Très bon ou Comme neuf\./);
+  assert.match(c.html, /&#9733;&#9733;&#9733;&#9733;<\/span><span[^>]*>&#9733;<\/span>&nbsp; <b>Très bon<\/b>/);
   assert.match(confirmationMail('nl', 'Jan', ['M2/16GB/1TB'], [3, 4, 5], link).text, /Elke staat is goed/);
-  assert.ok(!c.html.includes('<b>') && c.html.includes('Jan &lt;b&gt;'));
+  assert.ok(!c.html.includes('Jan <b>') && c.html.includes('Jan &lt;b&gt;'));
   assert.ok(c.html.includes(link.replace(/&/g, '&amp;')) && c.text.includes(link));
   const a = availableMail('en', 'Jan', [{ request: { config_key: 'M2/16GB/1TB' }, product: { handle: 'macbook-air-13-m2-16gb-1tbssd-sg-refurbished-5', grade: 5, price: 1199 } }], link);
   assert.match(a.html, /Like new/);
@@ -143,4 +144,21 @@ test('sender is always Microforce klantenservice', async () => {
   assert.match(nl.html, /We gaan aan de slag om zo snel mogelijk het geschikte toestel voor jou te vinden\. Als jouw gewenst model bestelbaar is of terug op voorraad is, brengen we je op de hoogte\./);
   assert.match(nl.html, /Ik ga alvast op zoek voor jou\./);
   assert.match(nl.html, /https:\/\/x\.vercel\.app\/mail\/micro-mike-zoek\.png/);
+});
+
+test('confirmation shows the model name and a photo per configuration', async () => {
+  const { confirmationMail, pickImages, modelName, mailImage } = await core();
+  assert.equal(modelName('Refurbished MacBook Air 13" M2 (2022)'), 'MacBook Air 13" M2 (2022)');
+  const img = pickImages(['M2/16GB/512GB', 'M2/24GB/1TB'], [
+    { handle: 'macbook-air-13-m2-8gb-256ssd-sg-refurbished-4', image: 'https://cdn.shopify.com/a.jpg' },
+    { handle: 'macbook-air-13-m2-16gb-512ssd-sl-refurbished-5', image: 'https://cdn.shopify.com/b.jpg?v=1' },
+  ]);
+  assert.deepEqual(plain(img), { 'M2/16GB/512GB': 'https://cdn.shopify.com/b.jpg?v=1', 'M2/24GB/1TB': 'https://cdn.shopify.com/a.jpg' });
+  assert.equal(mailImage('https://evil.example/x.jpg'), null);
+  const m = confirmationMail('nl', 'Olivier', [{ key: 'M2/16GB/512GB', model: 'MacBook Air 13" M2 (2022)', image: img['M2/16GB/512GB'] }], [3, 4, 5], 'https://x.vercel.app/u?t=1&l=nl');
+  assert.match(m.html, /MacBook Air 13&quot; M2 \(2022\)/);
+  assert.match(m.html, /https:\/\/cdn\.shopify\.com\/b\.jpg\?v=1&amp;width=240/);
+  assert.match(m.html, /Gekozen uiterlijk/);
+  assert.match(m.html, /<b>Behoorlijk<\/b>/);
+  assert.match(m.html, /<b>Als nieuw<\/b>/);
 });

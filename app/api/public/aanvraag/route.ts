@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { adminBaseUrl, configLabel, confirmationMail, parseRequest, unsubscribeUrl } from '@/lib/stockRequests/core';
+import { adminBaseUrl, configLabel, confirmationMail, modelName, parseRequest, pickImages, unsubscribeUrl, type MailItem } from '@/lib/stockRequests/core';
+import { fetchCollection, shopClient } from '@/lib/stockRequests/shop';
 import { sendShopMail } from '@/lib/stockRequests/mail';
 
 // Publiek: een klant vraagt op een MacBook-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
@@ -62,7 +63,14 @@ export async function POST(request: Request) {
   }
   try {
     const link = unsubscribeUrl(adminBaseUrl(process.env), token, v.language);
-    await sendShopMail(v.email, confirmationMail(v.language, v.name, v.keys, v.grades, link), link);
+    // Modelnaam en een foto van het model uit Shopify; lukt dat niet, dan gaat de mail zonder.
+    let items: MailItem[] = v.keys.map(key => ({ key }));
+    try {
+      const client = shopClient();
+      const c = client ? await fetchCollection(client, v.collection) : null;
+      if (c) { const img = pickImages(v.keys, c.products); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
+    } catch { /* zonder foto */ }
+    await sendShopMail(v.email, confirmationMail(v.language, v.name, items, v.grades, link), link);
   } catch {
     console.error('[STOCK REQUEST] confirmation mail failed'); // de aanvraag zelf is bewaard
   }

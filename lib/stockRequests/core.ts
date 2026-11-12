@@ -69,8 +69,8 @@ export function parseRequest(body: unknown): ParseResult {
 }
 
 export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };
-export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null };
-export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null } };
+export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null };
+export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null; image?: string | null }; model?: string };
 
 /** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie in een van de gekozen staten. */
 export function matchRequests(requests: OpenRequest[], productsByCollection: Map<string, ShopProduct[]>): Match[] {
@@ -81,7 +81,7 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
       if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || macConfig(p.handle) !== r.config_key) continue;
       const grade = Number(parseHandle(p.handle)?.grade ?? 0);
       if (!r.grades.includes(grade)) continue;
-      if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price };
+      if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price, image: p.image ?? null };
     }
     if (best) out.push({ request: r, product: best });
   }
@@ -128,7 +128,7 @@ export const TEXT = {
     confirmSubject: 'Bedankt voor jouw aanvraag bij Microforce',
     confirmTitle: 'Bedankt voor jouw aanvraag',
     confirmIntro: 'We gaan aan de slag om zo snel mogelijk het geschikte toestel voor jou te vinden. Als jouw gewenst model bestelbaar is of terug op voorraad is, brengen we je op de hoogte.',
-    yourRequest: 'Jouw aanvraag', band: 'Refurbished met 24 maanden garantie', mikeSearch: 'Ik ga alvast op zoek voor jou.', mikeFound: 'Ik heb iets voor je gevonden!',
+    yourRequest: 'Jouw aanvraag', looks: 'Gekozen uiterlijk', band: 'Refurbished met 24 maanden garantie', mikeSearch: 'Ik ga alvast op zoek voor jou.', mikeFound: 'Ik heb iets voor je gevonden!',
     tpExcellent: 'Uitstekend', tpReviews: (n: string) => `op basis van ${n} reviews`, tpLink: 'Lees onze reviews op Trustpilot', shops: 'Winkels in jouw buurt: Gentbrugge · Antwerpen · Oudenaarde',
     gradeLine: (g: string) => `Staat: ${g}.`, anyGrade: 'Elke staat is goed.',
     confirmOutro: 'Je aanvraag blijft 6 maanden geldig. We gebruiken je gegevens alleen hiervoor.',
@@ -144,7 +144,7 @@ export const TEXT = {
     confirmSubject: 'Merci pour votre demande chez Microforce',
     confirmTitle: 'Merci pour votre demande',
     confirmIntro: 'Nous nous mettons au travail pour trouver au plus vite l’appareil qui vous convient. Dès que le modèle souhaité peut être commandé ou est de nouveau en stock, nous vous prévenons.',
-    yourRequest: 'Votre demande', band: 'Reconditionné avec 24 mois de garantie', mikeSearch: 'Je pars déjà à la recherche pour vous.', mikeFound: 'J’ai trouvé quelque chose pour vous !',
+    yourRequest: 'Votre demande', looks: 'Aspect choisi', band: 'Reconditionné avec 24 mois de garantie', mikeSearch: 'Je pars déjà à la recherche pour vous.', mikeFound: 'J’ai trouvé quelque chose pour vous !',
     tpExcellent: 'Excellent', tpReviews: (n: string) => `sur la base de ${n} avis`, tpLink: 'Lisez nos avis sur Trustpilot', shops: 'Nos magasins : Gentbrugge · Anvers · Audenarde',
     gradeLine: (g: string) => `État : ${g}.`, anyGrade: 'Tous les états conviennent.',
     confirmOutro: 'Votre demande reste valable 6 mois. Nous utilisons vos données uniquement à cette fin.',
@@ -160,7 +160,7 @@ export const TEXT = {
     confirmSubject: 'Thank you for your request at Microforce',
     confirmTitle: 'Thank you for your request',
     confirmIntro: 'We are getting to work to find the right device for you as quickly as possible. As soon as your chosen model can be ordered or is back in stock, we will let you know.',
-    yourRequest: 'Your request', band: 'Refurbished with a 24-month warranty', mikeSearch: 'I’m already searching for you.', mikeFound: 'I found something for you!',
+    yourRequest: 'Your request', looks: 'Chosen condition', band: 'Refurbished with a 24-month warranty', mikeSearch: 'I’m already searching for you.', mikeFound: 'I found something for you!',
     tpExcellent: 'Excellent', tpReviews: (n: string) => `based on ${n} reviews`, tpLink: 'Read our reviews on Trustpilot', shops: 'Our shops: Gentbrugge · Antwerp · Oudenaarde',
     gradeLine: (g: string) => `Condition: ${g}.`, anyGrade: 'Any condition is fine.',
     confirmOutro: 'Your request stays valid for 6 months. We only use your details for this.',
@@ -233,18 +233,61 @@ function frame(lang: Lang, body: string, unsubscribeUrl: string, mike: 'zoek' | 
     + `</table></td></tr></table></body></html>`;
 }
 
+/** Een gevraagde configuratie in de mail: modelnaam (titel van de modelcollectie) en een algemene foto van dat model. */
+export type MailItem = { key: string; model?: string; image?: string | null };
+
+/** Foto op e-mailformaat via de Shopify-CDN (alleen https-afbeeldingen van cdn.shopify.com). */
+export function mailImage(url: string | null | undefined, width = 240): string | null {
+  if (!url || !/^https:\/\/cdn\.shopify\.com\//.test(url)) return null;
+  return url + (url.includes('?') ? '&' : '?') + 'width=' + width;
+}
+
+/** Per configuratie de foto van een toestel uit de modelcollectie: liefst dezelfde configuratie, anders eender welk. */
+export function pickImages(keys: string[], products: { handle: string; image?: string | null }[]): Record<string, string | null> {
+  const any = products.find(p => p.image)?.image ?? null;
+  const out: Record<string, string | null> = {};
+  for (const k of keys) out[k] = products.find(p => p.image && macConfig(p.handle) === k)?.image ?? any;
+  return out;
+}
+
+/** "MacBook Air 13" M2 (2022)" uit de collectietitel (zonder "Refurbished"). */
+export function modelName(title: string | null | undefined): string {
+  return String(title || '').replace(/\b(refurbished|reconditionn[ée]e?s?)\b/gi, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Gekozen uiterlijk als nette pillen met sterren (3 = ★★★ Behoorlijk … 5 = ★★★★★ Als nieuw). */
+function gradePills(grades: number[], lang: Lang): string {
+  const g = [...new Set(grades)].filter(x => x >= 3 && x <= 5).sort();
+  return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>` + g.map(x =>
+    `<td style="padding:0 6px 6px 0"><table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid #cfe3f4;border-radius:999px;background:#ffffff"><tr>`
+    + `<td style="padding:5px 12px;white-space:nowrap;font-size:13px;color:#14222f"><span style="color:#f5a623;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(x)}</span>`
+    + `<span style="color:#d6dde6;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(5 - x)}</span>&nbsp; <b>${escapeHtml(GRADE[lang][x])}</b></td></tr></table></td>`).join('') + `</tr></table>`;
+}
+
+/** Eén configuratie als rij: foto links, model en configuratie rechts. */
+function itemRow(item: MailItem, lang: Lang, extra = ''): string {
+  const img = mailImage(item.image);
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px;background:#ffffff;border:1px solid #e3e9f0;border-radius:12px"><tr>`
+    + (img ? `<td width="96" style="width:96px;padding:10px 0 10px 10px;vertical-align:middle"><img src="${escapeHtml(img)}" width="86" alt="${escapeHtml(item.model || 'MacBook')}" style="display:block;border:0;width:86px;height:auto;border-radius:8px"></td>` : '')
+    + `<td style="padding:12px 14px;vertical-align:middle">`
+    + (item.model ? `<p style="margin:0 0 3px;font-size:16px;font-weight:700;color:#14222f">${escapeHtml(item.model)}</p>` : '')
+    + `<p style="margin:0;font-size:14px;color:#3c4752">${escapeHtml(configLabel(item.key, lang))}</p>${extra}</td></tr></table>`;
+}
+
 /** Bevestiging na het aanvragen. */
-export function confirmationMail(lang: Lang, name: string, keys: string[], grades: number[], unsubscribeUrl: string): Mail {
+export function confirmationMail(lang: Lang, name: string, keys: (string | MailItem)[], grades: number[], unsubscribeUrl: string): Mail {
   const t = TEXT[lang];
-  const labels = keys.map(k => configLabel(k, lang));
+  const items: MailItem[] = keys.map(k => (typeof k === 'string' ? { key: k } : k));
+  const labels = items.map(i => (i.model ? i.model + ' – ' : '') + configLabel(i.key, lang));
   const gl = gradesLabel(grades, lang);
   const grade = gl ? t.gradeLine(gl) : t.anyGrade;
   const html = frame(lang, `<p style="margin:0 0 6px;font-size:20px;font-weight:700">${escapeHtml(t.confirmTitle)}</p>`
     + `<p style="margin:0 0 14px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 16px">${escapeHtml(t.confirmIntro)}</p>`
-    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafc;border:1px solid #e3e9f0;border-radius:12px"><tr><td style="padding:14px 18px;font-size:15px">`
-    + `<p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.yourRequest)}</p>`
-    + `<ul style="margin:0 0 8px;padding-left:20px">${labels.map(l => `<li style="margin:4px 0"><strong>${escapeHtml(l)}</strong></li>`).join('')}</ul>`
-    + `<p style="margin:0;color:#3c4752">${escapeHtml(grade)}</p></td></tr></table>`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafc;border:1px solid #e3e9f0;border-radius:12px"><tr><td style="padding:14px 14px 6px">`
+    + `<p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.yourRequest)}</p>`
+    + items.map(i => itemRow(i, lang)).join('')
+    + `<p style="margin:6px 0 8px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.looks)}</p>`
+    + gradePills(grades, lang) + `</td></tr></table>`
     + `<p style="margin:12px 0 0;font-size:13px;color:#5b6470">${escapeHtml(t.confirmOutro)}</p>`, unsubscribeUrl, 'zoek');
   const text = [t.confirmTitle, '', t.hi(name), '', t.confirmIntro, '', t.yourRequest + ':', ...labels.map(l => '- ' + l), grade, '', t.confirmOutro, '', `"${t.mikeSearch}"`, t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
   return { subject: t.confirmSubject, html, text };
@@ -253,11 +296,11 @@ export function confirmationMail(lang: Lang, name: string, keys: string[], grade
 /** Mail zodra een gevraagde configuratie op voorraad is (alle matches van één e-mailadres samen). */
 export function availableMail(lang: Lang, name: string, matches: Match[], unsubscribeUrl: string): Mail {
   const t = TEXT[lang];
-  const rows = matches.map(m => ({ label: configLabel(m.request.config_key, lang), url: productUrl(m.product.handle, lang), grade: GRADE[lang][m.product.grade] ?? '', price: money(m.product.price, lang) }));
+  const rows = matches.map(m => ({ key: m.request.config_key, model: m.model, image: m.product.image, g: m.product.grade, label: (m.model ? m.model + ' – ' : '') + configLabel(m.request.config_key, lang), url: productUrl(m.product.handle, lang), grade: GRADE[lang][m.product.grade] ?? '', price: money(m.product.price, lang) }));
   const html = frame(lang, `<p style="margin:0 0 12px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 14px">${escapeHtml(t.availIntro)}</p>`
-    + rows.map(r => `<div style="margin:0 0 12px;padding:14px 16px;border:1px solid #e3e9f0;border-radius:12px"><div style="font-weight:700">${escapeHtml(r.label)}</div>`
-      + `<div style="margin:4px 0 10px;font-size:14px;color:#3c4752">${escapeHtml(t.grade)}: ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</div>`
-      + `<a href="${escapeHtml(r.url)}" style="display:inline-block;padding:10px 18px;border-radius:999px;background:#1080cf;color:#fff;font-weight:700;text-decoration:none">${escapeHtml(t.view)}</a></div>`).join('')
+    + rows.map(r => itemRow({ key: r.key, model: r.model, image: r.image }, lang,
+      `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(r.g)}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
+      + `<a href="${escapeHtml(r.url)}" style="display:inline-block;padding:9px 18px;border-radius:999px;background:#1080cf;color:#fff;font-weight:700;font-size:14px;text-decoration:none">${escapeHtml(t.view)}</a>`)).join('')
     + `<p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.availOutro)}</p>`, unsubscribeUrl, 'gevonden');
   const text = [t.hi(name), '', t.availIntro, '', ...rows.flatMap(r => [`${r.label} (${t.grade}: ${r.grade}${r.price ? ', ' + r.price : ''})`, r.url, '']), t.availOutro, '', t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
   return { subject: t.availSubject, html, text };
