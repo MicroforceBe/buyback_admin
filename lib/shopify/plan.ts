@@ -135,6 +135,9 @@ export type Plan = {
   metafields: { ownerId: string; namespace: string; key: string; type: string; value: string }[];
   /** Metafields to remove (the store list of a product that is in no store any more). */
   metafieldDeletes: { ownerId: string; namespace: string; key: string }[];
+  /** Tags to add to or remove from a product (the Hulk battery-choice tag, see addBatteryTags). */
+  tagsAdd: { id: string; tags: string[] }[];
+  tagsRemove: { id: string; tags: string[] }[];
   counts: {
     erpRows: number;
     matched: number;
@@ -155,6 +158,8 @@ export type Plan = {
     unlistedFromDraft: number;
     /** Products whose store list is out of date but waits for a next run (MAX_STORE_UPDATES_PER_RUN). */
     storesDeferred: number;
+    /** Products whose battery-choice tag is out of date but waits for a next run (MAX_TAG_UPDATES_PER_RUN). */
+    tagsDeferred: number;
   };
 };
 
@@ -287,8 +292,8 @@ export function planSync(input: {
   deferStores?: boolean;
 }): Plan {
   const plan: Plan = {
-    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [],
-    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0, storesDeferred: 0 },
+    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [], tagsAdd: [], tagsRemove: [],
+    counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0, storesDeferred: 0, tagsDeferred: 0 },
   };
 
   // Shopify SKUs that occur on more than one variant are ambiguous and never touched.
@@ -471,6 +476,55 @@ export function addStoreLists(plan: Plan, input: { current: CurrentState[]; erpS
     if (want) plan.metafields.push({ ownerId: productId, ...STORE_METAFIELD, value: want });
     else plan.metafieldDeletes.push({ ownerId: productId, namespace: STORE_METAFIELD.namespace, key: STORE_METAFIELD.key });
     plan.changes.push({ sku: matchedSku.get(productId)!, scope: 'metafield', field: metafieldId(STORE_METAFIELD), oldValue: have, newValue: want });
+  }
+}
+
+/**
+ * Battery choice on MacBooks (Hulk Product Options). Hulk can only assign an option set by vendor, product type or
+ * tag, and refurbished and "Nieuw in Box" MacBooks share all three. Every refurbished MacBook therefore carries
+ * this tag; the Hulk option set with the battery choice is assigned to it. A new MacBook ("Nieuw in Box") always has
+ * a new battery and never gets the tag. Read-only: the condition (magento.conditie) is never written by the sync.
+ */
+export const BATTERY_CHOICE_TAG = 'mf_batterij';
+export const CONDITION_METAFIELD = { namespace: 'magento', key: 'conditie' } as const;
+/** Tag updates per run, so the first catch-up never trips the emergency brake. */
+export const MAX_TAG_UPDATES_PER_RUN = 150;
+
+/**
+ * True for a new device: condition "Nieuw", "5* Nieuw" or "Nieuw in Box" (starts with "nieuw" once a leading star
+ * grade is removed), not "5* Als Nieuw". Without a condition the title decides ("(Nieuw in Box)", "Nieuw Qwerty").
+ */
+export function isNewDevice(title: string, condition: string | null): boolean {
+  const c = (condition ?? '').toLowerCase().replace(/^\s*\d\s*\*\s*/, '').trim();
+  if (c) return c.startsWith('nieuw');
+  return /\bnieuw\b/i.test(title) && !/\bals nieuw\b/i.test(title);
+}
+
+/** True when the product should show the MacBook battery choice: a MacBook Air/Pro device that is not new. */
+export function wantsBatteryChoice(title: string, condition: string | null): boolean {
+  return /^\s*macbook\s+(air|pro)\b/i.test(title) && !isNewDevice(title, condition);
+}
+
+/**
+ * Adds or removes the battery-choice tag (BATTERY_CHOICE_TAG) on every product that is not archived, so it matches
+ * wantsBatteryChoice. Other tags are never touched. At most maxTagUpdates updates, and never more than fits in
+ * tagChangeBudget together with the changes already planned; the rest follows in a next run.
+ */
+export function addBatteryTags(plan: Plan, input: { current: CurrentState[]; maxTagUpdates?: number; tagChangeBudget?: number }): void {
+  const max = Math.min(input.maxTagUpdates ?? MAX_TAG_UPDATES_PER_RUN,
+    input.tagChangeBudget === undefined ? Infinity : Math.max(0, input.tagChangeBudget - plan.changes.length));
+  const seen = new Set<string>();
+  let updates = 0;
+  for (const c of input.current) {
+    if (seen.has(c.productId) || c.status === 'ARCHIVED') continue;
+    seen.add(c.productId);
+    const want = wantsBatteryChoice(c.title, c.metafields[metafieldId(CONDITION_METAFIELD)] ?? null);
+    const have = c.tags.includes(BATTERY_CHOICE_TAG);
+    if (want === have) continue;
+    if (updates >= max) { plan.counts.tagsDeferred++; continue; }
+    updates++;
+    (want ? plan.tagsAdd : plan.tagsRemove).push({ id: c.productId, tags: [BATTERY_CHOICE_TAG] });
+    plan.changes.push({ sku: c.sku || c.productId, scope: 'product', field: 'tags', oldValue: have ? BATTERY_CHOICE_TAG : null, newValue: want ? BATTERY_CHOICE_TAG : null });
   }
 }
 

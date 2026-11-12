@@ -16,6 +16,11 @@ Elke 15 minuten schrijft het ERP een CSV naar FTP; `/api/erp-sync` importeert di
   Hoogstens 150 producten per run, en alleen in de ruimte die onder max_changes overblijft na de andere wijzigingen en de
   publicaties van de run, zodat de eerste inhaalbeweging zich over enkele runs verspreidt zonder de noodrem. Mislukt de voorraadwijziging van een product, dan wordt
   zijn winkellijst niet geschreven (en als mislukt gemeld); de volgende run rekent ze opnieuw uit.
+- MacBook-batterijkeuze (Hulk): de tag `mf_batterij` staat op elke refurbished MacBook (titel begint met "MacBook Air" of
+  "MacBook Pro") en niet op een nieuw toestel (conditie magento.conditie "Nieuw", "5* Nieuw" of "Nieuw in Box"; zonder
+  conditie beslist "Nieuw" in de titel; "5* Als Nieuw" is refurbished). De Hulk-set met de batterijkeuze hangt aan die tag,
+  want Hulk kan alleen op leverancier, type of tag toewijzen. Alleen deze tag wordt toegevoegd of verwijderd, andere tags nooit;
+  gearchiveerde producten niet. Hoogstens 150 per run, in de ruimte die onder max_changes overblijft (zoals de winkellijsten).
 
 Niet: aanmaken of verwijderen van artikelen (zoals Matrixify), barcode, publicatie/kanalen, afbeeldingen.
 

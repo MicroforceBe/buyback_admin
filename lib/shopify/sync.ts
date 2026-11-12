@@ -3,12 +3,12 @@ import 'server-only';
 // and in live mode write them in batches. Modes: off (nothing), shadow (record only), live (write).
 import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_DELETE, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
+import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_DELETE, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, TAGS_ADD, TAGS_REMOVE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
 import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
-import { addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
+import { addBatteryTags, addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbishedTitle, MAX_UNLIST_PER_RUN, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
 export type SyncMode = 'off' | 'shadow' | 'live';
@@ -141,6 +141,15 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     await guard();
     const { metafieldsDelete } = await client.graphql<{ metafieldsDelete: { userErrors: UserError[] } }>(METAFIELDS_DELETE, { metafields: batch });
     if (metafieldsDelete.userErrors.length) for (const m of batch) failed.push({ id: m.ownerId, scope: 'metafield', field: `${m.namespace}.${m.key}`, reason: errorText(metafieldsDelete.userErrors) });
+  }
+  // Battery-choice tag (Hulk): tagsAdd/tagsRemove only touch the given tag, never the other tags of the product.
+  for (const [mutation, list] of [[TAGS_ADD, plan.tagsAdd], [TAGS_REMOVE, plan.tagsRemove]] as const) {
+    for (const t of list) {
+      await guard();
+      const r = await client.graphql<{ tagsAdd?: { userErrors: UserError[] }; tagsRemove?: { userErrors: UserError[] } }>(mutation, { id: t.id, tags: t.tags });
+      const errors = (r.tagsAdd ?? r.tagsRemove)?.userErrors ?? [];
+      if (errors.length) failed.push({ id: t.id, scope: 'product', field: 'tags', reason: errorText(errors) });
+    }
   }
   for (const c of creates) {
     await guard();
@@ -352,6 +361,9 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const planStoresAndRecord = async (publications: number) => {
       addStoreLists(plan, { current: state.variants, erpSkus: new Set(desired.map(d => d.sku)), locations, storeChangeBudget: Math.max(0, Number(settings.max_changes) - publications) });
       counts.storesDeferred = plan.counts.storesDeferred;
+      // MacBook battery-choice tag for Hulk, in the room still left under max_changes.
+      addBatteryTags(plan, { current: state.variants, tagChangeBudget: Math.max(0, Number(settings.max_changes) - publications) });
+      counts.tagsDeferred = plan.counts.tagsDeferred;
       counts.changes = plan.changes.length;
       const recorded = plan.changes.slice(0, MAX_RECORDED_CHANGES);
       for (const batch of chunk(recorded, 500)) {

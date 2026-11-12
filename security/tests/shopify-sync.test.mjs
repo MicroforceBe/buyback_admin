@@ -1036,3 +1036,38 @@ test('with max_changes 1 a store list is still repaired when nothing else change
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(fake.mutations.map(m => m[0]), ['SyncMetafields']);
 });
+
+test('MacBook battery choice: refurbished MacBooks get the tag, new ones ("Nieuw in Box") and accessories do not', async () => {
+  const { plan } = await loadModules();
+  const w = plan.wantsBatteryChoice;
+  assert.equal(w('MacBook Air 13" L20 M1 8GB 256SSD SG Refurbished 4*', '4* Zeer Goed'), true);
+  assert.equal(w('MacBook Pro 14" L23 M3 8GB 1TB SSD SG Refurbished 5*', '5* Als Nieuw'), true);
+  assert.equal(w('MacBook Air 13" L22 M2 8GB 256SSD Space Grey Refurb 4* M', '4* Zeer Goed'), true);
+  assert.equal(w('MacBook Pro 14" E23 M2-Pro 16GB 1TB SSD SG (Nieuw in Box)', 'Nieuw'), false);
+  assert.equal(w('MacBook Air 15" E24 M3 16GB 256SSD (Nieuw in box)', '5* Nieuw'), false);
+  assert.equal(w('MacBook Air 13" L20 M1-8 8GB 250SSD SL Nieuw Qwerty', null), false);
+  assert.equal(w('MacBook Air 13" L20 M1 8GB 256SSD Refurbished 5*', null), true);
+  assert.equal(w('Sleeve for MacBook Air/Pro 13" - Black', null), false);
+  assert.equal(w('iPhone 13 128GB Refurbished 4*', '4* Zeer Goed'), false);
+});
+
+test('battery-choice tags are added and removed only where needed, never on archived products, within the budget', async () => {
+  const { plan } = await loadModules();
+  const mac = (id, title, cond, tags = [], status = 'ACTIVE') => current({ sku: 'S' + id, productId: 'gid://shopify/Product/' + id, title, status, tags, metafields: { 'magento.conditie': cond } });
+  const cur = [
+    mac(1, 'MacBook Air 13" M1 Refurbished 4*', '4* Zeer Goed'),
+    mac(2, 'MacBook Pro 14" M2 Pro (Nieuw in Box)', 'Nieuw', ['cat_MacBook', 'mf_batterij']),
+    mac(3, 'MacBook Pro 16" M1 Pro Refurbished 5*', '5* Als Nieuw', ['mf_batterij']),
+    mac(4, 'MacBook Air 13" M2 Refurbished 3*', '3* Behoorlijk', [], 'ARCHIVED'),
+    current(),
+  ];
+  const p = plan.planSync({ desired: [], current: cur, locations: LOCS });
+  plan.addBatteryTags(p, { current: cur });
+  assert.deepEqual(plain(p.tagsAdd), [{ id: 'gid://shopify/Product/1', tags: ['mf_batterij'] }]);
+  assert.deepEqual(plain(p.tagsRemove), [{ id: 'gid://shopify/Product/2', tags: ['mf_batterij'] }]);
+  assert.equal(p.changes.filter(c => c.field === 'tags').length, 2);
+  const q = plan.planSync({ desired: [], current: cur, locations: LOCS });
+  plan.addBatteryTags(q, { current: cur, maxTagUpdates: 1 });
+  assert.equal(q.tagsAdd.length + q.tagsRemove.length, 1);
+  assert.equal(q.counts.tagsDeferred, 1);
+});
