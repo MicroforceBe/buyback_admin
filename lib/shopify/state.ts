@@ -1,8 +1,9 @@
 // Reads the current Shopify catalogue state from a bulk-operation JSONL export (pure parsing).
-import { parseMoneyCents, STORE_METAFIELD, SYNCED_METAFIELDS, metafieldId, type CurrentState, type ProductStatus } from '@/lib/shopify/plan';
+import { CONDITION_METAFIELD, parseMoneyCents, STORE_METAFIELD, SYNCED_METAFIELDS, metafieldId, type CurrentState, type ProductStatus } from '@/lib/shopify/plan';
 
-// Product metafields read for the plan: the ones copied from the CSV and the store list derived from the stock.
-const READ_METAFIELDS = [...SYNCED_METAFIELDS, STORE_METAFIELD];
+// Product metafields read for the plan: the ones copied from the CSV, the store list derived from the stock and the
+// condition (read only, for the MacBook battery-choice tag).
+const READ_METAFIELDS = [...SYNCED_METAFIELDS, STORE_METAFIELD, CONDITION_METAFIELD];
 
 const alias = (m: { namespace: string; key: string }) => `mf_${m.namespace}_${m.key}`;
 
