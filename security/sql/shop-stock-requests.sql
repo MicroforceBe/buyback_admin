@@ -1,5 +1,5 @@
 -- Verwittigingen "Op aanvraag" (MacBook-modelpagina's van microforce.be): een klant vraagt een mail zodra een configuratie
--- (chip, werkgeheugen, opslag) in een minimale staat terug op voorraad is. Eén rij per configuratie. Alleen service_role
+-- (chip, werkgeheugen, opslag) in een van de gekozen staten (3 = Behoorlijk, 4 = Zeer goed, 5 = Als nieuw) terug op voorraad is. Eén rij per configuratie. Alleen service_role
 -- (de publieke API van buyback-admin en de cron) leest en schrijft; geen toegang voor anon of authenticated.
 -- Toepassen in de goedgekeurde omgeving. Geen backfill.
 create table public.shop_stock_requests (
@@ -12,7 +12,7 @@ create table public.shop_stock_requests (
   collection_handle text not null check (collection_handle ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
   config_key text not null check (config_key ~ '^M[1-9]( Pro| Max)?/[0-9]{1,3}GB/[0-9]{1,4}(GB|TB)$'),
   config_label text not null check (length(config_label) between 1 and 120 and config_label !~ E'[\\r\\n<>]'),
-  min_grade smallint not null default 3 check (min_grade in (3,4,5)),
+  grades smallint[] not null default '{3,4,5}' check (grades <@ '{3,4,5}'::smallint[] and cardinality(grades) between 1 and 3),
   status text not null default 'open' check (status in ('open','notified','unsubscribed','expired')),
   token uuid not null default gen_random_uuid(),
   expires_at timestamptz not null default now() + interval '180 days',
@@ -33,7 +33,7 @@ grant select, insert, update on public.shop_stock_requests to service_role;
 -- Begrenzing: hoogstens 10 aanvragen per IP-hash per uur en 30 rijen per e-mailadres per dag. Geeft het token terug
 -- waarmee de klant zich uitschrijft (alle rijen van deze aanvraag krijgen het, ook bijgewerkte).
 create function public.submit_shop_stock_request(p_name text, p_email text, p_language text, p_collection text,
-  p_configs jsonb, p_min_grade smallint, p_ip_hash text) returns uuid
+  p_configs jsonb, p_grades smallint[], p_ip_hash text) returns uuid
 language plpgsql security invoker set search_path = '' as $$
 declare tok uuid := gen_random_uuid(); c jsonb; n integer; em text := lower(btrim(coalesce(p_email,'')));
 begin
@@ -47,14 +47,14 @@ begin
   select count(*) into n from public.shop_stock_requests where lower(email) = em and updated_at > now() - interval '1 day';
   if n + jsonb_array_length(p_configs) > 30 then raise exception 'STOCK_REQUEST_RATE_LIMIT'; end if;
   for c in select * from jsonb_array_elements(p_configs) loop
-    insert into public.shop_stock_requests (name, email, language, collection_handle, config_key, config_label, min_grade, token, ip_hash)
-    values (btrim(p_name), em, p_language, p_collection, c->>'key', c->>'label', p_min_grade, tok, p_ip_hash)
+    insert into public.shop_stock_requests (name, email, language, collection_handle, config_key, config_label, grades, token, ip_hash)
+    values (btrim(p_name), em, p_language, p_collection, c->>'key', c->>'label', p_grades, tok, p_ip_hash)
     on conflict (lower(email), collection_handle, config_key) where status = 'open'
     do update set name = excluded.name, language = excluded.language, config_label = excluded.config_label,
-      min_grade = excluded.min_grade, token = excluded.token, ip_hash = excluded.ip_hash,
+      grades = excluded.grades, token = excluded.token, ip_hash = excluded.ip_hash,
       expires_at = now() + interval '180 days', updated_at = now();
   end loop;
   return tok;
 end $$;
-revoke all on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint,text) from public, anon, authenticated;
-grant execute on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint,text) to service_role;
+revoke all on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) from public, anon, authenticated;
+grant execute on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) to service_role;

@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { collectionName, configLabel, demandSummary, GRADE_MIN, type DemandRow } from '@/lib/stockRequests/core';
+import { collectionName, configLabel, demandSummary, GRADE, gradesLabel, type DemandRow } from '@/lib/stockRequests/core';
 
 export const dynamic = 'force-dynamic';
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', dateStyle: 'short' }) : '—');
@@ -14,12 +14,12 @@ export default async function AanvragenPage() {
   const user = await requirePageAccess('erp');
   const isAdmin = String((user as { role?: string }).role ?? '').toLowerCase() === 'admin';
   const { data, error } = await supabaseAdmin.from('shop_stock_requests')
-    .select('collection_handle,config_key,min_grade,status,created_at,notified_at').order('created_at', { ascending: false }).limit(5000);
+    .select('collection_handle,config_key,grades,status,created_at,notified_at').order('created_at', { ascending: false }).limit(5000);
   const rows = (data ?? []) as DemandRow[];
   const demand = demandSummary(rows);
   const openCount = rows.filter(r => r.status === 'open').length;
   const people = isAdmin
-    ? ((await supabaseAdmin.from('shop_stock_requests').select('created_at,name,email,language,collection_handle,config_key,min_grade,status,notified_at,notified_handle')
+    ? ((await supabaseAdmin.from('shop_stock_requests').select('created_at,name,email,language,collection_handle,config_key,grades,status,notified_at,notified_handle')
       .order('created_at', { ascending: false }).limit(200)).data ?? [])
     : [];
 
@@ -38,14 +38,14 @@ export default async function AanvragenPage() {
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-slate-500"><th className="py-2 pr-3">Model</th><th className="pr-3">Configuratie</th><th className="pr-3 text-right">Open</th>
-                <th className="pr-3">Minimale staat</th><th className="pr-3">Oudste</th><th className="text-right">Verwittigd (30 d)</th></tr></thead>
+                <th className="pr-3">Per aanvaarde staat</th><th className="pr-3">Oudste</th><th className="text-right">Verwittigd (30 d)</th></tr></thead>
               <tbody>
                 {demand.map(d => (
                   <tr key={d.collection + d.config} className="border-t">
                     <td className="py-2 pr-3">{collectionName(d.collection)}</td>
                     <td className="pr-3 font-medium">{configLabel(d.config, 'nl')}</td>
                     <td className="pr-3 text-right text-lg font-bold">{d.open}</td>
-                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5] as const).filter(g => d.byGrade[g]).map(g => `${GRADE_MIN.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
+                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5] as const).filter(g => d.byGrade[g]).map(g => `${GRADE.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
                     <td className="pr-3">{fmt(d.oldest)}</td>
                     <td className="text-right">{d.notified30 || '—'}</td>
                   </tr>
@@ -62,7 +62,7 @@ export default async function AanvragenPage() {
           <p className="mt-1 text-xs text-slate-500">Alleen zichtbaar voor beheerders. Gebruik deze gegevens alleen voor de verwittiging waarvoor de klant toestemming gaf.</p>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-slate-500"><th className="py-2 pr-3">Datum</th><th className="pr-3">Klant</th><th className="pr-3">Taal</th><th className="pr-3">Configuratie</th><th className="pr-3">Min. staat</th><th>Status</th></tr></thead>
+              <thead><tr className="text-left text-xs text-slate-500"><th className="py-2 pr-3">Datum</th><th className="pr-3">Klant</th><th className="pr-3">Taal</th><th className="pr-3">Configuratie</th><th className="pr-3">Staat</th><th>Status</th></tr></thead>
               <tbody>
                 {people.map((p, i) => (
                   <tr key={i} className="border-t">
@@ -70,7 +70,7 @@ export default async function AanvragenPage() {
                     <td className="pr-3">{p.name}<div className="text-xs text-slate-500">{p.email}</div></td>
                     <td className="pr-3 uppercase">{p.language}</td>
                     <td className="pr-3">{collectionName(p.collection_handle)}<div className="text-xs text-slate-500">{configLabel(p.config_key, 'nl')}</div></td>
-                    <td className="pr-3">{GRADE_MIN.nl[p.min_grade] ?? '—'}</td>
+                    <td className="pr-3">{gradesLabel(p.grades ?? [], 'nl') ?? 'elke'}</td>
                     <td>{STATUS[p.status] ?? p.status}{p.status === 'notified' && <div className="text-xs text-slate-500">{fmt(p.notified_at)}{p.notified_handle ? <> · <a className="text-sky-700 hover:underline" href={`https://microforce.be/products/${encodeURIComponent(p.notified_handle)}`} target="_blank" rel="noreferrer">toestel</a></> : null}</div>}</td>
                   </tr>
                 ))}

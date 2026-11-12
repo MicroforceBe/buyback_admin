@@ -44,7 +44,7 @@ export function configLabel(key: string, lang: Lang): string {
   return `${chip} · ${unit(ram)} ${t.ram} · ${unit(ssd)} ${t.ssd}`;
 }
 
-export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; minGrade: 3 | 4 | 5 };
+export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[] };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
 /** Controleert de body van POST /api/public/aanvraag. Het veld "website" is een val voor bots (moet leeg zijn). */
@@ -56,22 +56,23 @@ export function parseRequest(body: unknown): ParseResult {
   const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : '';
   const language: Lang = LANGS.includes(b.language as Lang) ? (b.language as Lang) : 'nl';
   const collection = typeof b.collection === 'string' ? b.collection.trim().toLowerCase() : '';
-  const minGrade = Number(b.minGrade ?? 3);
+  if (b.grades !== undefined && !Array.isArray(b.grades)) return { ok: false, error: 'invalid' };
+  const grades = Array.isArray(b.grades) ? [...new Set(b.grades.map(Number))].sort() : [3, 4, 5];
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!name || name.length > 100 || /[\r\n<>]/.test(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
   if (!/^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection)) return { ok: false, error: 'invalid' };
-  if (minGrade !== 3 && minGrade !== 4 && minGrade !== 5) return { ok: false, error: 'invalid' };
+  if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
   if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => CONFIG_KEY.test(k))) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
-  return { ok: true, value: { name, email, language, collection, keys, minGrade } };
+  return { ok: true, value: { name, email, language, collection, keys, grades } };
 }
 
-export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; min_grade: number; token: string };
+export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };
 export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null };
 export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null } };
 
-/** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie en minstens de gevraagde staat. */
+/** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie in een van de gekozen staten. */
 export function matchRequests(requests: OpenRequest[], productsByCollection: Map<string, ShopProduct[]>): Match[] {
   const out: Match[] = [];
   for (const r of requests) {
@@ -79,7 +80,7 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
     for (const p of productsByCollection.get(r.collection_handle) ?? []) {
       if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || macConfig(p.handle) !== r.config_key) continue;
       const grade = Number(parseHandle(p.handle)?.grade ?? 0);
-      if (grade < r.min_grade) continue;
+      if (!r.grades.includes(grade)) continue;
       if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price };
     }
     if (best) out.push({ request: r, product: best });
@@ -113,19 +114,20 @@ export const GRADE: Record<Lang, Record<number, string>> = {
   en: { 3: 'Fair', 4: 'Very good', 5: 'Like new' },
 };
 
-/** Minimale staat zoals de klant ze kiest: 4 = "Zeer goed of beter", 5 = "Als nieuw". */
-export const GRADE_MIN: Record<Lang, Record<number, string>> = {
-  nl: { 3: 'Maakt niet uit', 4: 'Zeer goed of beter', 5: 'Als nieuw' },
-  fr: { 3: 'Peu importe', 4: 'Très bon ou mieux', 5: 'Comme neuf' },
-  en: { 3: 'Any', 4: 'Very good or better', 5: 'Like new' },
-};
+/** Gekozen staten als tekst: "Behoorlijk of Zeer goed"; alle drie = null (elke staat is goed). */
+export function gradesLabel(grades: number[], lang: Lang): string | null {
+  const g = [...new Set(grades)].filter(x => GRADE[lang][x]).sort();
+  if (!g.length || g.length === 3) return null;
+  const or = lang === 'fr' ? ' ou ' : lang === 'en' ? ' or ' : ' of ';
+  return g.map(x => GRADE[lang][x]).join(or);
+}
 
 export const TEXT = {
   nl: {
     ram: 'werkgeheugen', ssd: 'opslag', hi: (n: string) => `Hallo ${n},`,
     confirmSubject: 'Je verwittiging bij Microforce is genoteerd',
     confirmIntro: 'Bedankt! We sturen je een mail zodra een van deze MacBooks terug op voorraad is:',
-    minGrade: (g: string) => `Minimale staat: ${g}.`, anyGrade: 'Elke staat is goed.',
+    gradeLine: (g: string) => `Staat: ${g}.`, anyGrade: 'Elke staat is goed.',
     confirmOutro: 'Je aanvraag blijft 6 maanden geldig. We gebruiken je gegevens alleen hiervoor.',
     availSubject: 'Je MacBook is terug op voorraad bij Microforce',
     availIntro: 'Goed nieuws: een MacBook waarvoor je een verwittiging vroeg, is terug op voorraad.',
@@ -138,7 +140,7 @@ export const TEXT = {
     ram: 'mémoire', ssd: 'stockage', hi: (n: string) => `Bonjour ${n},`,
     confirmSubject: 'Votre alerte chez Microforce est enregistrée',
     confirmIntro: 'Merci ! Nous vous enverrons un e-mail dès qu’un de ces MacBook est de nouveau en stock :',
-    minGrade: (g: string) => `État minimum : ${g}.`, anyGrade: 'Tous les états conviennent.',
+    gradeLine: (g: string) => `État : ${g}.`, anyGrade: 'Tous les états conviennent.',
     confirmOutro: 'Votre demande reste valable 6 mois. Nous utilisons vos données uniquement à cette fin.',
     availSubject: 'Votre MacBook est de nouveau en stock chez Microforce',
     availIntro: 'Bonne nouvelle : un MacBook pour lequel vous avez demandé une alerte est de nouveau en stock.',
@@ -151,7 +153,7 @@ export const TEXT = {
     ram: 'memory', ssd: 'storage', hi: (n: string) => `Hi ${n},`,
     confirmSubject: 'Your Microforce stock alert is set',
     confirmIntro: 'Thank you! We will email you as soon as one of these MacBooks is back in stock:',
-    minGrade: (g: string) => `Minimum condition: ${g}.`, anyGrade: 'Any condition is fine.',
+    gradeLine: (g: string) => `Condition: ${g}.`, anyGrade: 'Any condition is fine.',
     confirmOutro: 'Your request stays valid for 6 months. We only use your details for this.',
     availSubject: 'Your MacBook is back in stock at Microforce',
     availIntro: 'Good news: a MacBook you asked us to notify you about is back in stock.',
@@ -175,10 +177,11 @@ function frame(lang: Lang, body: string, unsubscribeUrl: string): string {
 }
 
 /** Bevestiging na het aanvragen. */
-export function confirmationMail(lang: Lang, name: string, keys: string[], minGrade: number, unsubscribeUrl: string): Mail {
+export function confirmationMail(lang: Lang, name: string, keys: string[], grades: number[], unsubscribeUrl: string): Mail {
   const t = TEXT[lang];
   const labels = keys.map(k => configLabel(k, lang));
-  const grade = minGrade > 3 ? t.minGrade(GRADE_MIN[lang][minGrade]) : t.anyGrade;
+  const gl = gradesLabel(grades, lang);
+  const grade = gl ? t.gradeLine(gl) : t.anyGrade;
   const html = frame(lang, `<p style="margin:0 0 12px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 10px">${escapeHtml(t.confirmIntro)}</p>`
     + `<ul style="margin:0 0 12px;padding-left:20px">${labels.map(l => `<li style="margin:4px 0"><strong>${escapeHtml(l)}</strong></li>`).join('')}</ul>`
     + `<p style="margin:0 0 10px">${escapeHtml(grade)}</p><p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.confirmOutro)}</p>`, unsubscribeUrl);
@@ -222,10 +225,10 @@ export function unsubscribeUrl(base: string, token: string, lang: Lang): string 
   return `${base}/api/public/aanvraag/uitschrijven?t=${encodeURIComponent(token)}&l=${lang}`;
 }
 
-export type DemandRow = { collection_handle: string; config_key: string; min_grade: number; status: string; created_at: string; notified_at: string | null };
+export type DemandRow = { collection_handle: string; config_key: string; grades: number[]; status: string; created_at: string; notified_at: string | null };
 export type Demand = { collection: string; config: string; open: number; byGrade: Record<3 | 4 | 5, number>; oldest: string | null; notified30: number };
 
-/** Vraag per collectie en configuratie voor de overzichtspagina: open aanvragen (per minimale staat), oudste, verwittigd in 30 dagen. */
+/** Vraag per collectie en configuratie voor de overzichtspagina: open aanvragen (en per aanvaarde staat), oudste, verwittigd in 30 dagen. */
 export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
   const map = new Map<string, Demand>();
   const since = now - 30 * 86400_000;
@@ -234,8 +237,7 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
     const d = map.get(k) ?? { collection: r.collection_handle, config: r.config_key, open: 0, byGrade: { 3: 0, 4: 0, 5: 0 }, oldest: null, notified30: 0 };
     if (r.status === 'open') {
       d.open++;
-      const g = (r.min_grade === 4 || r.min_grade === 5 ? r.min_grade : 3) as 3 | 4 | 5;
-      d.byGrade[g]++;
+      for (const g of [3, 4, 5] as const) if ((r.grades ?? []).includes(g)) d.byGrade[g]++;
       if (!d.oldest || r.created_at < d.oldest) d.oldest = r.created_at;
     } else if (r.status === 'notified' && r.notified_at && Date.parse(r.notified_at) >= since) d.notified30++;
     map.set(k, d);

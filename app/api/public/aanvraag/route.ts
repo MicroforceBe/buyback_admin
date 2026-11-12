@@ -6,7 +6,7 @@ import { sendShopMail } from '@/lib/stockRequests/mail';
 
 // Publiek: een klant vraagt op een MacBook-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
 // een mail zodra één of meer configuraties terug op voorraad zijn. Body (JSON): name, email, language, collection, configs
-// (["M2/16GB/1TB", …]), minGrade (3|4|5), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
+// (["M2/16GB/1TB", …]), grades ([3,4,5]: Behoorlijk, Zeer goed, Als nieuw), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
 // Alleen vanaf de webshop (CORS en Origin); begrensd per IP (gehasht) en per e-mailadres. Stuurt een bevestigingsmail.
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   const v = parsed.value;
   const { data: token, error } = await supabaseAdmin.rpc('submit_shop_stock_request', {
     p_name: v.name, p_email: v.email, p_language: v.language, p_collection: v.collection,
-    p_configs: v.keys.map(key => ({ key, label: configLabel(key, 'nl') })), p_min_grade: v.minGrade, p_ip_hash: ipHash(request),
+    p_configs: v.keys.map(key => ({ key, label: configLabel(key, 'nl') })), p_grades: v.grades, p_ip_hash: ipHash(request),
   });
   if (error || typeof token !== 'string') {
     if (error?.message?.includes('STOCK_REQUEST_RATE_LIMIT')) return NextResponse.json({ error: 'rate' }, { status: 429, headers });
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   }
   try {
     const link = unsubscribeUrl(adminBaseUrl(process.env), token, v.language);
-    await sendShopMail(v.email, confirmationMail(v.language, v.name, v.keys, v.minGrade, link), link);
+    await sendShopMail(v.email, confirmationMail(v.language, v.name, v.keys, v.grades, link), link);
   } catch {
     console.error('[STOCK REQUEST] confirmation mail failed'); // de aanvraag zelf is bewaard
   }

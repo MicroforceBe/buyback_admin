@@ -1,6 +1,6 @@
 import 'server-only';
 // Cron (elk uur): open verwittigingen "Op aanvraag" vergelijken met de voorraad in Shopify en de klant mailen zodra een
-// gevraagde MacBook-configuratie in minstens de gevraagde staat actief en op voorraad is. Eén mail per e-mailadres per run.
+// gevraagde MacBook-configuratie in een van de gekozen staten actief en op voorraad is. Eén mail per e-mailadres per run.
 // Een rij wordt eerst op "notified" gezet (alleen als ze nog open is) en pas dan gemaild: liever eens geen mail dan twee.
 // Mislukt de mail, dan gaat de rij terug naar "open" en probeert de volgende run opnieuw.
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
@@ -25,7 +25,7 @@ export async function runStockRequests(): Promise<RunResult> {
   // IP-hash alleen bewaren zolang hij nodig is voor de begrenzing.
   await supabaseAdmin.from('shop_stock_requests').update({ ip_hash: null }).not('ip_hash', 'is', null).lt('created_at', new Date(Date.now() - 2 * 86400_000).toISOString());
   const { data, error } = await supabaseAdmin.from('shop_stock_requests')
-    .select('id,name,email,language,collection_handle,config_key,config_label,min_grade,token')
+    .select('id,name,email,language,collection_handle,config_key,config_label,grades,token')
     .eq('status', 'open').order('created_at', { ascending: true }).limit(2000);
   if (error) throw new Error('Aanvragen lezen mislukt.');
   const open = (data ?? []) as OpenRequest[];
