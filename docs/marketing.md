@@ -85,7 +85,10 @@ Dit vervangt voor MacBooks de knop van de app Stok; andere producten houden Stok
   **actieve** toestel **op voorraad** in die collectie met dezelfde configuratie (uit de handle, `macConfig`) in een
   van de gekozen staten. Eén mail per e-mailadres per run (alle matches samen), hoogstens 50 mails per run. De rij gaat eerst
   op "verwittigd" en wordt dan gemaild; mislukt de mail, dan gaat ze terug naar open. Na een verwittiging kan de klant
-  opnieuw aanvragen. Een aanvraag vervalt na 6 maanden.
+  opnieuw aanvragen. Een aanvraag vervalt na 6 maanden. Afgesloten aanvragen (verwittigd, uitgeschreven,
+  vervallen) worden 60 dagen na het afsluiten volledig gewist (GDPR, zelfde termijn als in het privacybeleid voor mails).
+  Bewijs van toestemming: `consent_at` en `consent_version` (versie van de tekst op het formulier, bv. `nl-2026-11-12`).
+  Het vinkje op het formulier linkt naar het privacybeleid (`/pages/privacybeleid`).
 - **Uitschrijven:** link in elke mail (en `List-Unsubscribe`) naar `/api/public/aanvraag/uitschrijven`; de pagina toont een
   knop, pas die schrijft uit (mailscanners openen links automatisch).
 - **Mails:** Nederlands, Frans of Engels (taal van de pagina) via Resend. Afzender `SHOP_MAIL_FROM`, anders `MAIL_FROM`.

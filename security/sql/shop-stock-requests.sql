@@ -18,7 +18,10 @@ create table public.shop_stock_requests (
   expires_at timestamptz not null default now() + interval '180 days',
   notified_at timestamptz,
   notified_handle text,
-  ip_hash text check (ip_hash is null or ip_hash ~ '^[0-9a-f]{64}$')
+  ip_hash text check (ip_hash is null or ip_hash ~ '^[0-9a-f]{64}$'),
+  -- Bewijs van toestemming: tijdstip en versie van de toestemmingstekst op het formulier (bv. nl-2026-11-12).
+  consent_at timestamptz not null default now(),
+  consent_version text not null default 'v1' check (consent_version ~ '^[a-z0-9.-]{1,24}$')
 );
 -- Eén open aanvraag per e-mailadres en configuratie; opnieuw aanvragen werkt de bestaande bij.
 create unique index shop_stock_requests_open_uq on public.shop_stock_requests (lower(email), collection_handle, config_key) where status = 'open';
@@ -27,13 +30,14 @@ create index shop_stock_requests_token_idx on public.shop_stock_requests (token)
 create index shop_stock_requests_ip_idx on public.shop_stock_requests (ip_hash, created_at) where ip_hash is not null;
 alter table public.shop_stock_requests enable row level security;
 revoke all on public.shop_stock_requests from public, anon, authenticated;
-grant select, insert, update on public.shop_stock_requests to service_role;
+-- delete: de cron wist naam en e-mailadres 60 dagen na het afsluiten (verwittigd, uitgeschreven of vervallen).
+grant select, insert, update, delete on public.shop_stock_requests to service_role;
 
 -- Aanvraag registreren (publieke API). p_configs: [{"key":"M2/16GB/1TB","label":"M2 · 16 GB · 1 TB"}], hoogstens 12.
 -- Begrenzing: hoogstens 10 aanvragen per IP-hash per uur en 30 rijen per e-mailadres per dag. Geeft het token terug
 -- waarmee de klant zich uitschrijft (alle rijen van deze aanvraag krijgen het, ook bijgewerkte).
 create function public.submit_shop_stock_request(p_name text, p_email text, p_language text, p_collection text,
-  p_configs jsonb, p_grades smallint[], p_ip_hash text) returns uuid
+  p_configs jsonb, p_grades smallint[], p_ip_hash text, p_consent_version text default 'v1') returns uuid
 language plpgsql security invoker set search_path = '' as $$
 declare tok uuid := gen_random_uuid(); c jsonb; n integer; em text := lower(btrim(coalesce(p_email,'')));
 begin
@@ -47,17 +51,18 @@ begin
   select count(*) into n from public.shop_stock_requests where lower(email) = em and updated_at > now() - interval '1 day';
   if n + jsonb_array_length(p_configs) > 30 then raise exception 'STOCK_REQUEST_RATE_LIMIT'; end if;
   for c in select * from jsonb_array_elements(p_configs) loop
-    insert into public.shop_stock_requests (name, email, language, collection_handle, config_key, config_label, grades, token, ip_hash)
-    values (btrim(p_name), em, p_language, p_collection, c->>'key', c->>'label', p_grades, tok, p_ip_hash)
+    insert into public.shop_stock_requests (name, email, language, collection_handle, config_key, config_label, grades, token, ip_hash, consent_at, consent_version)
+    values (btrim(p_name), em, p_language, p_collection, c->>'key', c->>'label', p_grades, tok, p_ip_hash, now(), coalesce(p_consent_version, 'v1'))
     on conflict (lower(email), collection_handle, config_key) where status = 'open'
     do update set name = excluded.name, language = excluded.language, config_label = excluded.config_label,
       grades = excluded.grades, token = excluded.token, ip_hash = excluded.ip_hash,
+      consent_at = excluded.consent_at, consent_version = excluded.consent_version,
       expires_at = now() + interval '180 days', updated_at = now();
   end loop;
   return tok;
 end $$;
-revoke all on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) from public, anon, authenticated;
-grant execute on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text) to service_role;
+revoke all on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text,text) from public, anon, authenticated;
+grant execute on function public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text,text) to service_role;
 
 -- Bevestigingsmails begrenzen (tegen misbruik als spamkanaal): hoogstens 3 per e-mailadres per 24 uur en 100 in totaal
 -- per uur. Het e-mailadres wordt alleen als SHA-256 bewaard; rijen ouder dan 2 dagen mogen weg (zie de cron).

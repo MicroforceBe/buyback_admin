@@ -40,7 +40,9 @@ test('macConfig reads chip, memory and storage from real MacBook handles', async
 test('parseRequest accepts a valid request and rejects bad input', async () => {
   const { parseRequest } = await core();
   const ok = { name: ' Jan  Peeters ', email: 'Jan@Example.BE ', language: 'fr', collection: 'refurbished-macbook-air-13-m2', configs: ['M2/16GB/1TB', 'M2/16GB/1TB', 'M2/8GB/256GB'], grades: [5, 4, 4], consent: true, website: '' };
-  assert.deepEqual(plain(parseRequest(ok)), { ok: true, value: { name: 'Jan Peeters', email: 'jan@example.be', language: 'fr', collection: 'refurbished-macbook-air-13-m2', keys: ['M2/16GB/1TB', 'M2/8GB/256GB'], grades: [4, 5] } });
+  assert.deepEqual(plain(parseRequest(ok)), { ok: true, value: { name: 'Jan Peeters', email: 'jan@example.be', language: 'fr', collection: 'refurbished-macbook-air-13-m2', keys: ['M2/16GB/1TB', 'M2/8GB/256GB'], grades: [4, 5], consentVersion: 'v1' } });
+  assert.equal(parseRequest({ ...ok, consentVersion: 'nl-2026-11-12' }).value.consentVersion, 'nl-2026-11-12');
+  assert.equal(parseRequest({ ...ok, consentVersion: '<x>' }).value.consentVersion, 'v1');
   assert.deepEqual(plain(parseRequest({ ...ok, grades: undefined }).value.grades), [3, 4, 5]);
   assert.equal(parseRequest({ ...ok, consent: false }).error, 'consent');
   assert.equal(parseRequest({ ...ok, website: 'http://spam' }).error, 'spam');
@@ -179,4 +181,10 @@ test('names cannot carry links, digits or spam', async () => {
   assert.equal(parseRequest({ name: 'Bezoek spam.be', email: 'a@b.be', collection: 'refurbished-macbook-air-13-m2', configs: ['M2/8GB/256GB'], consent: true }).error, 'invalid');
   const route = read('app/api/public/aanvraag/route.ts');
   assert.ok(route.indexOf("claim_shop_stock_confirmation") < route.indexOf('sendShopMail('), 'mail limit checked before sending');
+});
+
+test('closed requests are erased after 60 days', () => {
+  const run = read('lib/stockRequests/run.ts');
+  assert.match(run, /from\('shop_stock_requests'\)\.delete\(\)\.in\('status', \['notified', 'unsubscribed', 'expired'\]\)\.lt\('updated_at', new Date\(Date\.now\(\) - 60 \* 86400_000\)/);
+  assert.match(read('security/sql/shop-stock-requests.sql'), /consent_version text not null/);
 });

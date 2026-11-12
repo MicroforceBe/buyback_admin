@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   const v = parsed.value;
   const { data: token, error } = await supabaseAdmin.rpc('submit_shop_stock_request', {
     p_name: v.name, p_email: v.email, p_language: v.language, p_collection: v.collection,
-    p_configs: v.keys.map(key => ({ key, label: configLabel(key, 'nl') })), p_grades: v.grades, p_ip_hash: ipHash(request),
+    p_configs: v.keys.map(key => ({ key, label: configLabel(key, 'nl') })), p_grades: v.grades, p_ip_hash: ipHash(request), p_consent_version: v.consentVersion,
   });
   if (error || typeof token !== 'string') {
     if (error?.message?.includes('STOCK_REQUEST_RATE_LIMIT')) return NextResponse.json({ error: 'rate' }, { status: 429, headers });

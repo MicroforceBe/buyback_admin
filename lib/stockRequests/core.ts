@@ -52,7 +52,7 @@ export function validName(name: string): boolean {
   return /^[\p{L}][\p{L}\p{M} .'’-]{0,59}$/u.test(name) && !/(www|https?|\.(com|be|net|org|nl|io)\b)/i.test(name);
 }
 
-export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[] };
+export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
 /** Controleert de body van POST /api/public/aanvraag. Het veld "website" is een val voor bots (moet leeg zijn). */
@@ -73,7 +73,9 @@ export function parseRequest(body: unknown): ParseResult {
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
   if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => CONFIG_KEY.test(k))) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
-  return { ok: true, value: { name, email, language, collection, keys, grades } };
+  // Versie van de toestemmingstekst (bewijs van toestemming), bv. "nl-2026-11-12".
+  const consentVersion = typeof b.consentVersion === 'string' && /^[a-z0-9.-]{1,24}$/.test(b.consentVersion) ? b.consentVersion : 'v1';
+  return { ok: true, value: { name, email, language, collection, keys, grades, consentVersion } };
 }
 
 export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };

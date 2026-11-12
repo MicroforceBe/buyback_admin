@@ -12,6 +12,7 @@ begin
   select count(*) into n from public.shop_stock_requests where lower(email) = 'test@example.invalid';
   if n <> 2 then raise exception 'Duplicate open request (%)', n; end if;
   if not exists (select 1 from public.shop_stock_requests where token = t2 and config_key = 'M2/16GB/1TB' and language = 'fr' and grades = '{5}') then raise exception 'Update failed'; end if;
+  if not exists (select 1 from public.shop_stock_requests where token = t1 and consent_version = 'v1' and consent_at is not null) then raise exception 'Consent proof missing'; end if;
   -- Na verwittiging mag een nieuwe open aanvraag.
   update public.shop_stock_requests set status = 'notified', notified_at = now() where token = t2;
   perform public.submit_shop_stock_request('TEST Klant', 'test@example.invalid', 'nl', 'refurbished-macbook-air-13-m2',
@@ -34,7 +35,7 @@ begin
   begin perform public.submit_shop_stock_request('R', 'rate11@example.invalid', 'nl', 'h', '[{"key":"M1/8GB/256GB","label":"x"}]'::jsonb, '{3,4,5}'::smallint[], repeat('b',64)); raise exception 'IP limit not enforced';
   exception when raise_exception then if sqlerrm <> 'STOCK_REQUEST_RATE_LIMIT' then raise; end if; end;
   if has_table_privilege('anon','public.shop_stock_requests','SELECT') or has_table_privilege('authenticated','public.shop_stock_requests','INSERT')
-     or has_function_privilege('anon','public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text)','EXECUTE') then raise exception 'Public access'; end if;
+     or has_function_privilege('anon','public.submit_shop_stock_request(text,text,text,text,jsonb,smallint[],text,text)','EXECUTE') then raise exception 'Public access'; end if;
 end $$;
 do $$
 declare i integer; ok boolean;

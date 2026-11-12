@@ -17,6 +17,8 @@ export async function runStockRequests(): Promise<RunResult> {
   const { data: exp } = await supabaseAdmin.from('shop_stock_requests').update({ status: 'expired', updated_at: now }).eq('status', 'open').lt('expires_at', now).select('id');
   // IP-hash alleen bewaren zolang hij nodig is voor de begrenzing.
   await supabaseAdmin.from('shop_stock_requests').update({ ip_hash: null }).not('ip_hash', 'is', null).lt('created_at', new Date(Date.now() - 2 * 86400_000).toISOString());
+  // Bewaartermijn: afgesloten aanvragen (verwittigd, uitgeschreven, vervallen) met naam en e-mailadres 60 dagen na het afsluiten wissen.
+  await supabaseAdmin.from('shop_stock_requests').delete().in('status', ['notified', 'unsubscribed', 'expired']).lt('updated_at', new Date(Date.now() - 60 * 86400_000).toISOString());
   await supabaseAdmin.from('shop_stock_mail_log').delete().lt('sent_at', new Date(Date.now() - 2 * 86400_000).toISOString());
   const { data, error } = await supabaseAdmin.from('shop_stock_requests')
     .select('id,name,email,language,collection_handle,config_key,config_label,grades,token')
