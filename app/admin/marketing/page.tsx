@@ -101,6 +101,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
 
       <GoogleSection isAdmin={isAdmin} />
       <p className="text-sm"><a href="/admin/marketing/ads" className="text-sky-700 hover:underline">Google Ads-audit (laatste 30 dagen) →</a></p>
+      <p className="text-sm"><a href="/admin/marketing/aanvragen" className="text-sky-700 hover:underline">Aanvragen "Op aanvraag" (MacBook-configuraties die klanten zoeken) →</a></p>
 
       <FeedSection isAdmin={isAdmin} />
 
