@@ -66,3 +66,29 @@ en de duurste producten. Elke vraag apart: één geweigerde vraag verbergt de re
 - Google Ads API-toegang hangt sinds september 2026 aan het Cloud-project (Explorer-niveau, 2.880 bewerkingen per dag);
   er is geen developer token of beheerdersaccount nodig.
 - Instelling: `GOOGLE_ADS_CUSTOMER_ID` = het klant-ID (10 cijfers, met of zonder streepjes).
+
+## Verwittigingen "Op aanvraag" (MacBook-modelpagina's)
+
+Op elke MacBook-generatiepagina van microforce.be toont het blok **Op aanvraag of binnenkort terug** (theme:
+`snippets/model-op-aanvraag.liquid`) de configuraties (chip, werkgeheugen, opslag) die nu uitverkocht zijn. De klant vinkt
+één of meer configuraties aan, kiest een minimale staat (maakt niet uit / Zeer goed of beter / Als nieuw), vult naam en
+e-mail in en geeft toestemming. "Verwittig mij" in de keuzehulp springt naar dat blok met de configuratie al aangevinkt.
+Dit vervangt voor MacBooks de knop van de app Stok; andere producten houden Stok.
+
+- **Aanvragen:** `POST /api/public/aanvraag` (alleen vanaf de webshop, CORS `PUBLIC_SHOP_ORIGINS`). Bewaart één rij per
+  configuratie in `shop_stock_requests` via `submit_shop_stock_request` en stuurt een bevestigingsmail. Opnieuw aanvragen werkt
+  de open rij bij (geen dubbels). Begrensd: 10 aanvragen per IP per uur (IP als HMAC met `CRON_SECRET`, na 2 dagen gewist)
+  en 30 rijen per e-mailadres per dag. Een val voor bots (veld `website`) bewaart niets. De server maakt de labels zelf.
+- **Verwittigen:** cron `/api/stock-requests` elk uur op :20 (na de Shopify-sync). Per open aanvraag het goedkoopste
+  **actieve** toestel **op voorraad** in die collectie met dezelfde configuratie (uit de handle, `macConfig`) en minstens
+  de gevraagde staat. Eén mail per e-mailadres per run (alle matches samen), hoogstens 50 mails per run. De rij gaat eerst
+  op "verwittigd" en wordt dan gemaild; mislukt de mail, dan gaat ze terug naar open. Na een verwittiging kan de klant
+  opnieuw aanvragen. Een aanvraag vervalt na 6 maanden.
+- **Uitschrijven:** link in elke mail (en `List-Unsubscribe`) naar `/api/public/aanvraag/uitschrijven`; de pagina toont een
+  knop, pas die schrijft uit (mailscanners openen links automatisch).
+- **Mails:** Nederlands, Frans of Engels (taal van de pagina) via Resend. Afzender `SHOP_MAIL_FROM`, anders `MAIL_FROM`.
+- **Overzicht:** *Marketing → Aanvragen "Op aanvraag"* (`/admin/marketing/aanvragen`): vraag per configuratie (open, per
+  minimale staat, oudste, verwittigd in 30 dagen). Namen en e-mailadressen alleen voor beheerders. Later: beschikbaarheid
+  bij leveranciers ernaast, zodra hun lijsten digitaal binnenkomen.
+- **SQL:** `security/sql/shop-stock-requests.sql` (test: `test-shop-stock-requests.sql`, binnen BEGIN/ROLLBACK).
+  Code: `lib/stockRequests/` (`core.ts` puur, `run.ts` cron, `mail.ts`). Tests: `security/tests/stock-requests.test.mjs`.
