@@ -1,6 +1,6 @@
 # Trustpilot Buyback
 
-AFS sends the configured **Microforce BuyBack** template 7 days after it receives the trigger. `done` means sale-ready/in stock, **not paid**. Payment is separately completed within 5 days. No app-side extra delay is added; Trustpilot owns the actual template and schedule.
+AFS sends the **Microforce BuyBack** template (`templateId` 6ae086bb40c9b88027b4d064, always sent explicitly in the snippet) 7 days after it receives the trigger. The AFS address is shared with the in-store purchase invoices (Bcc); those use the account default, which must stay a purchase template ("Standaard Sjabloon aankoop Refurbished iPhone" since 12 November 2026). Before this fix the BuyBack template was the default, so purchases (in store and Shopify) got the sale text. `done` means sale-ready/in stock, **not paid**. Payment is separately completed within 5 days. No app-side extra delay is added; Trustpilot owns the actual template and schedule.
 
 ## Preview
 
