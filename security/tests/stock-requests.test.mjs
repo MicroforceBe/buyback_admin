@@ -188,3 +188,35 @@ test('closed requests are erased after 60 days', () => {
   assert.match(run, /from\('shop_stock_requests'\)\.delete\(\)\.in\('status', \['notified', 'unsubscribed', 'expired'\]\)\.lt\('updated_at', new Date\(Date\.now\(\) - 60 \* 86400_000\)/);
   assert.match(read('security/sql/shop-stock-requests.sql'), /consent_version text not null/);
 });
+
+test('iPhone: storage as configuration, requests on iPhone model pages, mails name the iPhone', async () => {
+  const { iphoneConfig, deviceConfig, configLabel, parseRequest, matchRequests, availableMail, collectionName } = await core();
+  assert.equal(iphoneConfig('iphone-13-128gb-midnight-refurbished-3-m'), '128GB');
+  assert.equal(iphoneConfig('iphone-17-pro-max-2tb-deep-blue-refurbished-5'), '2TB');
+  assert.equal(iphoneConfig('macbook-air-13-m2-8-gb-256ssd-sg-refurbished-4-m'), '');
+  assert.equal(deviceConfig('iphone-16-pro-256gb-white-titanium-refurbished-5-m'), '256GB');
+  assert.equal(deviceConfig('macbook-air-13-m2-8-gb-256ssd-sg-refurbished-4-m'), 'M2/8GB/256GB');
+  assert.equal(configLabel('128GB', 'nl'), '128 GB opslag');
+  assert.equal(configLabel('1TB', 'fr'), '1 To stockage');
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'nl', consent: true, grades: [4, 5] };
+  const ok = parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['256GB', '1TB'] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(plain(ok.value.keys), ['256GB', '1TB']);
+  // Soort configuratie moet bij de collectie passen.
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-macbook-air-13-m2', configs: ['256GB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone', configs: ['256GB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['5GB'] }).ok, false);
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'refurbished-iphone-16-pro', config_key: '256GB', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['refurbished-iphone-16-pro', [
+    { handle: 'iphone-16-pro-128gb-black-titanium-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 869 },
+    { handle: 'iphone-16-pro-256gb-white-titanium-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 979 },
+    { handle: 'iphone-16-pro-256gb-natural-titanium-refurbished-4-m', status: 'ACTIVE', totalInventory: 2, price: 949 },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'iphone-16-pro-256gb-natural-titanium-refurbished-4-m');
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /iPhone/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook/);
+  assert.equal(collectionName('refurbished-iphone-16-pro'), 'iPhone 16 Pro');
+});

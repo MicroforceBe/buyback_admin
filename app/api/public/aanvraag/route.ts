@@ -5,7 +5,7 @@ import { adminBaseUrl, configLabel, confirmationMail, modelName, parseRequest, p
 import { fetchCollection, shopClient } from '@/lib/stockRequests/shop';
 import { sendShopMail } from '@/lib/stockRequests/mail';
 
-// Publiek: een klant vraagt op een MacBook-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
+// Publiek: een klant vraagt op een MacBook- of iPhone-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
 // een mail zodra één of meer configuraties terug op voorraad zijn. Body (JSON): name, email, language, collection, configs
 // (["M2/16GB/1TB", …]), grades ([3,4,5]: Behoorlijk, Zeer goed, Als nieuw), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
 // Alleen vanaf de webshop (CORS en Origin); begrensd per IP (gehasht) en per e-mailadres. Stuurt een bevestigingsmail

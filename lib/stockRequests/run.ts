@@ -1,6 +1,6 @@
 import 'server-only';
 // Cron (elk uur): open verwittigingen "Op aanvraag" vergelijken met de voorraad in Shopify en de klant mailen zodra een
-// gevraagde MacBook-configuratie in een van de gekozen staten actief en op voorraad is. Eén mail per e-mailadres per run.
+// gevraagde MacBook- of iPhone-configuratie in een van de gekozen staten actief en op voorraad is. Eén mail per e-mailadres per run.
 // Een rij wordt eerst op "notified" gezet (alleen als ze nog open is) en pas dan gemaild: liever eens geen mail dan twee.
 // Mislukt de mail, dan gaat de rij terug naar "open" en probeert de volgende run opnieuw.
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
