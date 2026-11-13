@@ -787,7 +787,706 @@ export default async function LeadsPage({
     return `?${sp.toString()}`;
   };
 
-  const inputCls = "bb-input h-…8073 tokens truncated…                href={labelHref}
+  const inputCls = "bb-input h-9 text-xs px-2 py-1";
+  const selectCls = "bb-select h-9 text-xs px-2 py-1";
+  const btnCls = "bb-btn h-9 text-xs px-3";
+
+  const chipItems: { label: string; param: keyof SearchParams; value: string }[] =
+    [];
+  const pushChip = (
+    label: string,
+    param: keyof SearchParams,
+    value?: string
+  ) => {
+    if (value && value !== "") chipItems.push({ label, param, value });
+  };
+  pushChip(`Zoek: ${q}`, "q", q);
+  pushChip(`Van: ${from}`, "from", from);
+  pushChip(`Tot: ${to}`, "to", to);
+  pushChip(`Order: ${order}`, "order", order);
+  pushChip(`Klant: ${customer}`, "customer", customer);
+  pushChip(`Model: ${modelF}`, "model", modelF);
+  pushChip(`GB: ${variant}`, "variant", variant);
+  pushChip(`Status: ${statusF}`, "status", statusF);
+  pushChip(`Methode: ${method}`, "method", method);
+  pushChip(`€ min: ${priceMin}`, "price_min", priceMin);
+  pushChip(`€ max: ${priceMax}`, "price_max", priceMax);
+  pushChip(`Stad: ${cityF}`, "city", cityF);
+  pushChip(`Winkel: ${shop}`, "shop", shop);
+  pushChip(`Voucher: ${voucher}`, "voucher", voucher);
+
+  const chip = (c: (typeof chipItems)[number]) => {
+    const href = qsWith(qsBase, { [c.param]: null, page: "1" });
+    return (
+      <Link
+        key={`${c.param}:${c.value}`}
+        href={href}
+        className="inline-flex items-center gap-1 text-xs px-2 h-6 rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-200"
+        title="Filter verwijderen"
+      >
+        <span className="font-medium">{c.label}</span>
+        <span aria-hidden>❌</span>
+      </Link>
+    );
+  };
+
+  const resetHref = qsWith(qsBase, {
+    q: null,
+    from: null,
+    to: null,
+    order: null,
+    customer: null,
+    model: null,
+    variant: null,
+    status: null,
+    method: null,
+    price_min: null,
+    price_max: null,
+    city: null,
+    shop: null,
+    voucher: null,
+    page: "1",
+  });
+
+  const fallbackTrackingUrl = (code?: string | null) =>
+    code
+      ? `https://tracking.sendcloud.com/tracking/${encodeURIComponent(code)}`
+      : null;
+
+  return (
+    <div className={styles.workspace}>
+      <div className="leads-header">
+        <div><div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold">Buyback leads</h1>
+          <Link
+            href="/admin/leads/help"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-sm font-semibold hover:bg-gray-50"
+            title="Help voor Leads"
+            aria-label="Help voor Leads"
+          >
+            ?
+          </Link>
+        </div><p>{total} leads{hasActiveFilters ? " in deze selectie" : ""} · Pagina {page} van {totalPages}</p></div>
+
+        <div className="leads-header-actions">
+          {adminUser?.role === "admin" && <Link href="/admin/leads/trustpilot" className={btnCls}>Trustpilot</Link>}
+           {(adminUser as any).role === "admin" && (
+            <Link href="/admin/leads/analytics" className="bb-btn h-9 text-xs px-3">
+              Analyse
+            </Link>
+          )}
+          <Link href="/admin/leads/help" className="bb-btn h-9 text-xs px-3">
+            Help
+          </Link>
+          <Link href="/admin" className={btnCls}>
+            ← Terug
+          </Link>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {chipItems.length > 0 && (
+          <div className="leads-filter-chips flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-gray-500">Actieve filters:</span>
+            {chipItems.map(chip)}
+            <Link
+              href={resetHref}
+              className="text-xs underline text-gray-600 hover:text-gray-900"
+            >
+              Alles wissen
+            </Link>
+          </div>
+        )}
+
+        <details className="leads-filters" open>
+          <summary className="leads-panel-heading"><span>
+            Filters{" "}
+            {hasActiveFilters ? (
+              <span className="text-xs text-gray-500">
+                ({chipItems.length} actief)
+              </span>
+            ) : null}</span><span className="leads-chevron" aria-hidden="true">›</span>
+          </summary>
+
+          <form className="leads-filter-form">
+            {Object.entries(qsBase).map(([k, v]) =>
+              ![
+                "q",
+                "from",
+                "to",
+                "order",
+                "customer",
+                "model",
+                "variant",
+                "status",
+                "method",
+                "price_min",
+                "price_max",
+                "city",
+                "shop",
+                "voucher",
+                "limit",
+                "page",
+              ].includes(k) ? (
+                <input key={k} type="hidden" name={k} value={v} />
+              ) : null
+            )}
+
+            <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="Zoek overal…"
+                className={inputCls}
+              />
+              <input
+                type="date"
+                name="from"
+                defaultValue={from}
+                className={inputCls}
+              />
+              <input
+                type="date"
+                name="to"
+                defaultValue={to}
+                className={inputCls}
+              />
+
+              <input
+                name="order"
+                defaultValue={order}
+                placeholder="Order ID"
+                className={inputCls}
+              />
+              <input
+                name="customer"
+                defaultValue={customer}
+                placeholder="Klant (naam/email/tel)"
+                className={inputCls}
+              />
+              <input
+                name="model"
+                defaultValue={modelF}
+                placeholder="Model"
+                className={inputCls}
+              />
+              <input
+                name="variant"
+                defaultValue={variant}
+                placeholder="GB"
+                className={inputCls}
+              />
+
+              <select
+                name="status"
+                defaultValue={statusF}
+                className={selectCls}
+              >
+                <option value="">Status</option>
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+
+              <select name="method" defaultValue={method} className={selectCls}>
+                <option value="">Methode</option>
+                <option value="ship">Verzenden</option>
+                <option value="dropoff">Binnenbrengen</option>
+              </select>
+
+              <input
+                name="price_min"
+                defaultValue={priceMin}
+                placeholder="€ min"
+                className={inputCls}
+                inputMode="decimal"
+              />
+              <input
+                name="price_max"
+                defaultValue={priceMax}
+                placeholder="€ max"
+                className={inputCls}
+                inputMode="decimal"
+              />
+              <input
+                name="city"
+                defaultValue={cityF}
+                placeholder="Stad"
+                className={inputCls}
+              />
+
+              <select name="shop" defaultValue={shop} className={selectCls}>
+                <option value="">
+                  {shops.length
+                    ? "Alle winkels"
+                    : shopsErr
+                    ? "Winkels niet geladen"
+                    : "Winkels laden…"}
+                </option>
+                {shops.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.city ? `${s.name} (${s.city})` : s.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                name="voucher"
+                defaultValue={voucher}
+                className={selectCls}
+              >
+                <option value="">Voucher</option>
+                <option value="yes">Ja</option>
+                <option value="no">Nee/ontbreekt</option>
+              </select>
+
+              <select
+                name="limit"
+                defaultValue={String(limit)}
+                className={selectCls}
+              >
+                <option value="25">25/p</option>
+                <option value="50">50/p</option>
+                <option value="100">100/p</option>
+              </select>
+
+              <div className="col-span-2 sm:col-span-1 flex gap-2">
+                <button className={`${btnCls} primary`} type="submit">
+                  Filter
+                </button>
+                <Link href={resetHref} className={`${btnCls} subtle`}>
+                  Reset
+                </Link>
+              </div>
+            </div>
+          </form>
+        </details>
+      </div>
+
+      {searchParams.msg === 'lead_validation_failed' && (
+        <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {leadValidationMessage(searchParams.fields)}
+        </div>
+      )}
+
+      <div className="leads-table-panel"><div className="leads-panel-heading"><strong>Leadoverzicht</strong><span className="text-[11px] font-normal text-slate-500">{data?.length ?? 0} getoond van {total}</span></div>
+        <table className="w-full text-sm border border-gray-200">
+          <thead className="bg-gray-50">
+            <tr className="text-left text-gray-700">
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[200px]">
+                <a
+                  href={makeSortHref("created_at")}
+                  className="font-semibold hover:underline"
+                >
+                  Order ID
+                </a>
+                <div className="text-[11px] text-gray-500">
+                  klik om orderdetails te tonen
+                </div>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[120px]">
+                <a
+                  href={makeSortHref("created_at")}
+                  className="font-semibold hover:underline"
+                >
+                  Datum
+                </a>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[260px]">
+                <span className="font-semibold">Klant</span>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[240px]">
+                <a
+                  href={makeSortHref("model")}
+                  className="font-semibold hover:underline"
+                >
+                  Model
+                </a>
+              </th>
+              <th className="px-3 py-2 border-b border-r border-gray-200 w-[150px] min-w-[130px] text-right">
+                <a
+                  href={makeSortHref("final_price_cents")}
+                  className="font-semibold hover:underline"
+                >
+                  Prijs (€)
+                </a>
+              </th>
+              <th className="px-3 py-2 border-b border-gray-200 w-[240px]">
+                <span className="font-semibold">Status</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data ?? []).map((lead, idx) => {
+              const shownCents = effectiveFinalCents(lead);
+              const overdue = isStatusOverdue(lead.status, lead.created_at);
+              const overdueThreshold = overdueThresholdHours(lead.status);
+              const elapsedHours = hoursSinceCreated(lead.created_at);
+              const overdueTitle =
+                overdue && overdueThreshold != null && elapsedHours != null
+                  ? `Te lang in huidige opvolgstatus • Verstreken sinds aanmelding: ${elapsedHours} uur • Drempel: ${overdueThreshold} uur`
+                  : undefined;
+
+              return (
+                <tr
+                  key={lead.id}
+                  className={`border-t border-gray-200 ${
+                    idx % 2 === 0 ? "bg-gray-50" : "bg-green-50"
+                  }`}
+                >
+                  <td className="px-3 py-2 border-r border-gray-200 align-top">
+                    <details className="group">
+                      <summary className="cursor-pointer flex items-center gap-2">
+                        <span className="inline-block transition-transform group-open:-rotate-180">
+                          ▾
+                        </span>
+                        <div>
+                          <div className="font-mono">
+                            {lead.order_code ?? "—"}
+                          </div>
+                          <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
+                            <span>
+                              {lead.delivery_method === "ship"
+                                ? "Verzenden"
+                                : lead.delivery_method === "dropoff"
+                                ? "Binnenbrengen"
+                                : "—"}
+                            </span>
+                            <span aria-hidden>•</span>
+                            {lead.wants_voucher ? (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Voucher
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">
+                                Overschrijving
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </summary>
+                      <div className="mt-2 text-xs leading-5 space-y-1">
+                        <div>
+                          <span className="text-gray-500">Aangemaakt op: </span>
+                          {fmtDate(lead.created_at)}
+                        </div>
+
+                        {Array.isArray(lead.status_history) &&
+                          lead.status_history.length > 0 && (
+                            <div className="mt-1">
+                              <div className="text-gray-500 mb-0.5">Log:</div>
+                              <ul className="space-y-0.5">
+                                {lead.status_history
+                                  .filter((h) => h)
+                                  .map((h, i) => {
+                                    const anyH: any = h;
+                                    const t = anyH.type as string | undefined;
+
+                                    let label: string;
+
+                                    if (t === "status") {
+                                      label = `Status: ${statusLabel(
+                                        anyH.to as Status | null
+                                      )}`;
+                                    } else if (t === "price") {
+                                      const to = Number(anyH.to ?? 0);
+                                      label = `Prijs: €${(to / 100).toFixed(
+                                        2
+                                      )}`;
+                                    } else if (t === "device") {
+                                      label = "Toestel: gegevens aangepast";
+                                    } else {
+                                      label = t ? `Log (${t})` : "Log";
+                                    }
+
+                                    return (
+                                      <li
+                                        key={`${lead.id}-hist-${i}`}
+                                        className="text-[11px] text-gray-700"
+                                      >
+                                        <span className="font-mono">
+                                          {fmtDate(anyH.at ?? undefined)}
+                                        </span>
+                                        {anyH.by && (
+                                          <>
+                                            {" "}
+                                            <span className="text-gray-500">
+                                              •
+                                            </span>{" "}
+                                            <span>{anyH.by}</span>
+                                          </>
+                                        )}
+                                        <span className="text-gray-500"> • </span>
+                                        <span>{label}</span>
+                                      </li>
+                                    );
+                                  })}
+                              </ul>
+                            </div>
+                          )}
+
+                        <div>
+                          <span className="text-gray-500">
+                            Laatst gewijzigd op:{" "}
+                          </span>
+                          {fmtDate(lead.updated_at)}
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Model: </span>
+                          {lead.model ?? "—"}{" "}
+                          {lead.capacity_gb ? `• ${lead.capacity_gb} GB` : ""}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {lead.delivery_method === "dropoff"
+                            ? `Winkel: ${lead.shop_location || "—"}`
+                            : "Verzending"}
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Huidige status: </span>
+                          {statusLabel(lead.status)}
+                          {overdue && overdueTitle && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center ml-2 w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold align-middle cursor-help"
+                              title={overdueTitle}
+                              aria-label={overdueTitle}
+                            >
+                              !
+                            </button>
+                          )}
+                        </div>
+                        {lead.status === "cancelled" && lead.cancel_reason && (
+                          <div>
+                            <span className="text-gray-500">
+                              Reden annulatie:{" "}
+                            </span>
+                            {lead.cancel_reason}
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </td>
+
+                  <td className="px-3 py-2 border-r border-gray-175 align-top">
+                    {fmtDate(lead.created_at)}
+                  </td>
+
+                  <td className="px-3 py-2 border-r border-gray-200 align-top">
+                    <CustomerCell
+                      id={lead.id}
+                      customer_number={lead.customer_number}
+                      iban={lead.iban}
+                      last_name={lead.last_name}
+                      first_name={lead.first_name}
+                      street={lead.street}
+                      house_number={lead.house_number}
+                      postal_code={lead.postal_code}
+                      city={lead.city}
+                      country={lead.country}
+                      phone={lead.phone}
+                      email={lead.email}
+                      canEdit={
+                        canWriteLeads &&
+                        lead.status !== "cancelled" &&
+                        lead.status !== "check_passed" &&
+                        lead.status !== "done"
+                      }
+                    />
+                  </td>
+
+                  <td className="px-3 py-2 border-r border-gray-200 align-top max-w-xs">
+                    <DeviceCell
+                      id={lead.id}
+                      labelReady={labelReadiness[lead.id]?.canPrint ?? false}
+                      labelIssues={labelReadiness[lead.id]?.issues ?? []}
+                      partsWarning={labelReadiness[lead.id]?.partsWarning ?? ''}
+                      model={lead.model}
+                      variant={lead.variant}
+                      capacity_gb={lead.capacity_gb}
+                      sku={lead.sku}
+                      imei_sn={lead.imei_sn}
+                      questions_answers_html={lead.questions_answers_html}
+                      battery_percentage={lead.battery_percentage}
+                      used_parts_skus={lead.used_parts_skus}
+                      status={lead.status as Status | null}
+                      canEdit={
+                        canWriteLeads &&
+                        lead.status !== "cancelled" &&
+                        lead.status !== "check_passed" &&
+                        lead.status !== "done"
+                      }
+                    />
+                  </td>
+
+                  <td className="px-3 py-2 border-r border-gray-200 align-top whitespace-nowrap min-w-[130px]">
+                    {canWriteLeads &&
+                    lead.status !== "cancelled" &&
+                    lead.status !== "check_passed" &&
+                    lead.status !== "done" ? (
+                      <form
+                        action={updateLeadInlineAction}
+                        className="flex items-center justify-end gap-2"
+                      >
+                        <input type="hidden" name="id" value={lead.id} />
+                        <input type="hidden" name="change_type" value="price" />
+
+                        <input
+                          type="hidden"
+                          name="update_voucher_price_too"
+                          value="1"
+                        />
+
+                        <input
+                          type="hidden"
+                          name="previous_final_price_cents"
+                          value={shownCents ?? ""}
+                        />
+
+                        <input
+                          name="final_price_eur"
+                          defaultValue={((shownCents ?? 0) / 100).toString()}
+                          className="bb-input h-9 text-xs px-2 py-1 w-24 text-right"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                        />
+                        <button
+                          className="bb-btn subtle h-9 text-xs px-2"
+                          type="submit"
+                          title="Opslaan"
+                        >
+                          💾
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="text-sm text-right">
+                        {shownCents != null ? (shownCents / 100).toFixed(2) : "—"}
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-3 py-2 align-top">
+                    {(() => {
+                      const curr = (lead.status ?? "new") as Status;
+
+                      const isFinal = curr === "done" || curr === "cancelled";
+                      const trans = isFinal
+                        ? []
+                        : allowedTransitions(curr, {
+                            customer_number: lead.customer_number,
+                            sku: lead.sku,
+                            imei_sn: lead.imei_sn,
+                            delivery_method: lead.delivery_method,
+                          }).filter((t) => t.ok || ["check_passed", "check_failed_technical", "check_failed_grading"].includes(t.value));
+                      const hasChoices = trans.length > 0;
+
+                      const trackingHref =
+                        lead.tracking_url ||
+                        fallbackTrackingUrl(lead.tracking_code);
+                      const hasTracking = Boolean(trackingHref);
+
+                      let labelHref: string | null = null;
+                      if (lead.label_pdf_url) {
+                        if (/^https?:\/\//i.test(lead.label_pdf_url)) {
+                          labelHref = lead.label_pdf_url;
+                        } else {
+                          labelHref = `/api/admin/sendcloud/label?parcel_id=${encodeURIComponent(
+                            lead.label_pdf_url
+                          )}`;
+                        }
+                      }
+
+                      const canEditStatusBase =
+                        canWriteLeads && !isFinal && hasChoices;
+
+                      const saveDisabled =
+                        !canEditStatusBase ||
+                        (curr === "check_passed" && !canFinalizeLeads);
+
+                      const shippingVisible = [
+                        "label_created",
+                        "reminder_1_ship",
+                        "reminder_2_ship",
+                        "reminder_3_ship",
+                        "shipment_received",
+                        "check_passed",
+                        "check_failed_technical",
+                        "check_failed_grading",
+                        "done",
+                      ].includes(curr);
+
+                      return (
+                        <div className="space-y-1">
+                          {isFinal || !canWriteLeads ? (
+                            <div className="text-sm font-medium text-gray-700">
+                              {curr === "cancelled" ? (
+                                <div className="space-y-0.5">
+                                  <div className="text-red-700 font-semibold">
+                                    Geannuleerd
+                                  </div>
+                                  {lead.cancel_reason && (
+                                    <div className="text-[11px] text-gray-600">
+                                      Reden: {lead.cancel_reason}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-2">
+                                  <span>{statusLabel(curr)}</span>
+                                  {overdue && overdueTitle && (
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-bold cursor-help"
+                                      title={overdueTitle}
+                                      aria-label={overdueTitle}
+                                    >
+                                      !
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <LeadStatusForm
+                              key={`${lead.id}:${lead.updated_at}`}
+                              id={lead.id}
+                              currentStatus={curr}
+                              currentLabel={statusLabel(curr)}
+                              options={trans.map(t => ({value: t.value, label: t.label, disabled: curr === 'check_passed' && (t.value === 'done' || t.value === 'cancelled') && !canFinalizeLeads}))}
+                              savedFields={{model: lead.model, customer_number: lead.customer_number, sku: lead.sku, imei_sn: lead.imei_sn, battery_percentage: lead.battery_percentage, used_parts_skus: lead.used_parts_skus}}
+                              canSave={!saveDisabled}
+                              cancelReason={lead.cancel_reason ?? null}
+                              overdueTitle={overdue && overdueTitle ? overdueTitle : undefined}
+                            />
+                          )}
+
+                          {shippingVisible && (
+                            <details className="mt-1 text-[11px]">
+                              <summary className="cursor-pointer select-none text-gray-600 hover:text-gray-900 flex items-center gap-1">
+                                <span>▸</span>
+                                <span>Verzending &amp; label</span>
+                              </summary>
+
+                              <div className="pl-4 mt-1 flex flex-col gap-1">
+                                {hasTracking ? (
+                                  <a
+                                    href={trackingHref!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
+                                  >
+                                    Traceer pakket
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-400 italic">
+                                    Nog geen tracking beschikbaar
+                                  </span>
+                                )}
+
+                                {labelHref && (
+                                  <a
+                                    href={labelHref}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center bb-btn h-7 px-2 text-[11px] font-medium"
