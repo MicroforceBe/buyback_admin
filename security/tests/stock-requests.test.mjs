@@ -207,6 +207,11 @@ test('iPhone: storage as configuration, requests on iPhone model pages, mails na
   assert.equal(parseRequest({ ...base, collection: 'refurbished-macbook-air-13-m2', configs: ['256GB'] }).ok, false);
   assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone', configs: ['256GB'] }).ok, false);
   assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['5GB'] }).ok, false);
+  // iPhone-modelpagina's met een afwijkende handle.
+  assert.equal(parseRequest({ ...base, collection: 'iphone-15-pro', configs: ['256GB'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'refurbisehd-iphone-17', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'constructor', configs: ['256GB'] }).ok, false);
+  assert.equal(collectionName('microforce-iphone-iphone-12'), 'iPhone 12');
   const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'refurbished-iphone-16-pro', config_key: '256GB', config_label: '', grades: [4, 5], token: 't' };
   const m = matchRequests([req], new Map([['refurbished-iphone-16-pro', [
     { handle: 'iphone-16-pro-128gb-black-titanium-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 869 },

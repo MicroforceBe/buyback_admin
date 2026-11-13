@@ -71,6 +71,14 @@ export function validName(name: string): boolean {
   return /^[\p{L}][\p{L}\p{M} .'’-]{0,59}$/u.test(name) && !/(www|https?|\.(com|be|net|org|nl|io)\b)/i.test(name);
 }
 
+/** iPhone-modelpagina's met een afwijkende handle (niet "refurbished-iphone-…"), met hun naam. */
+export const IPHONE_EXTRA: Record<string, string> = {
+  'microforce-iphone-iphone-12': 'iPhone 12',
+  'iphone-15-pro': 'iPhone 15 Pro',
+  'refurbisehd-iphone-17': 'iPhone 17',
+  'iphone-17-pro': 'iPhone 17 Pro',
+};
+
 export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
@@ -88,7 +96,7 @@ export function parseRequest(body: unknown): ParseResult {
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
-  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) ? 'iphone' : '';
+  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) ? 'iphone' : '';
   if (!soort) return { ok: false, error: 'invalid' };
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
   const keyOk = soort === 'mac' ? MAC_KEY : IPHONE_KEY;
@@ -408,6 +416,7 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
 
 /** "refurbished-macbook-air-13-m2" → "MacBook Air 13 M2", "refurbished-iphone-16-pro" → "iPhone 16 Pro". */
 export function collectionName(handle: string): string {
+  if (Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, handle)) return IPHONE_EXTRA[handle];
   return handle.replace(/^refurbished-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : w === 'iphone' ? 'iPhone' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
 }
 
