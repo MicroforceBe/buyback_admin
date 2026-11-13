@@ -28,9 +28,9 @@ test('readiness keeps all device restrictions, treats parts separately, and fail
 test('readiness batches device and parts codes without a per-lead ERP request',async()=>{
  const h=await dataHarness(),leads=Array.from({length:450},(_,i)=>({...fields,id:String(i),sku:'SKU-'+i,used_parts_skus:['-']}));const r=await h.api.getLeadLabelReadiness(leads);assert.equal(Object.keys(r).length,450);assert.equal(h.calls.length,3);assert.ok(h.calls.every(codes=>codes.length<=200));
 });
-async function actionHarness({denied=false,battery=80,serial=fields.imei_sn,validArticle=true}={}){
+async function actionHarness({denied=false,battery=80,model=undefined,serial=fields.imei_sn,validArticle=true}={}){
  const calls=[],rendered=[];let permitted=false;const context=vm.createContext({}),helper=await validation(context);
- const modules={'@/lib/security/access':{requireAccess:async()=>{if(denied)throw Error('DENIED');permitted=true;}},'@/lib/supabaseAdmin':{supabaseAdmin:{from(table){assert.ok(permitted);const filters=[];calls.push({table,filters});return{select(){return this;},eq(...args){filters.push(args);return this;},maybeSingle:async()=>({data:table==='buyback_leads'?{...fields,battery_percentage:battery,imei_sn:serial}:validArticle?{sku:'DEVICE-SKU',title:'TEST DEVICE',vat_margin:true}:null,error:null})};}}},'@/lib/productLabel':{renderProductLabel:data=>{rendered.push(data);return 'SAFE HTML';}}};
+ const modules={'@/lib/security/access':{requireAccess:async()=>{if(denied)throw Error('DENIED');permitted=true;}},'@/lib/supabaseAdmin':{supabaseAdmin:{from(table){assert.ok(permitted);const filters=[];calls.push({table,filters});return{select(){return this;},eq(...args){filters.push(args);return this;},maybeSingle:async()=>({data:table==='buyback_leads'?{...fields,model,battery_percentage:battery,imei_sn:serial}:validArticle?{sku:'DEVICE-SKU',title:'TEST DEVICE',vat_margin:true}:null,error:null})};}}},'@/lib/productLabel':{renderProductLabel:data=>{rendered.push(data);return 'SAFE HTML';}}};
  const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/leads/labelActions.ts',root),'utf8'),{mode:'strip'}),{context});await m.link(spec=>{if(spec==='@/lib/leadLabelValidation')return helper;const e=modules[spec];return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await m.evaluate();return{api:m.namespace,calls,rendered};
 }
 test('print action rechecks saved data, permits 80%, restricts ERP SKU and never prints parts',async()=>{
@@ -40,3 +40,15 @@ test('print action rechecks saved data, permits 80%, restricts ERP SKU and never
  const denied=await actionHarness({denied:true});await assert.rejects(denied.api.prepareLeadLabel(fields.id),/DENIED/);assert.equal(denied.calls.length,0);
 });
 
+
+test('battery-exempt lead families omit saved battery from labels and keep SKU/serial restrictions',async()=>{
+ const {namespace:v}=await validation();
+ for(const model of ['iMac 24-inch 2024 M4','Apple iMac 27','Apple Watch Series 9','Watch Ultra 2','Mac Mini M4','Apple Mac mini M2']){
+  assert.equal(v.leadRequiresBattery(model),false);
+  assert.equal(v.leadLabelLocalIssues({...fields,model,battery_percentage:null}).length,0);
+  const h=await actionHarness({model,battery:null});assert.equal((await h.api.prepareLeadLabel(fields.id)).ok,true);assert.equal(h.rendered[0].battery,'');assert.equal(h.rendered[0].omitEmptyBattery,true);
+  const legacy=await actionHarness({model,battery:0});assert.equal((await legacy.api.prepareLeadLabel(fields.id)).ok,true);assert.equal(legacy.rendered[0].battery,'');
+  assert.ok(v.leadLabelLocalIssues({...fields,model,imei_sn:''}).length);
+ }
+ for(const model of ['iPhone 16','iPad mini','MacBook Air','',null])assert.ok(v.leadLabelLocalIssues({...fields,model,battery_percentage:null}).length);
+});

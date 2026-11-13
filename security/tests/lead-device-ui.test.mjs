@@ -9,8 +9,8 @@ async function harness({searchError=false}={}){
  const states=new Map(),timers=[],events=[];let current,cursor;
  const hooks={useState(initial){const target=current,index=cursor++;if(!(index in target))target[index]=typeof initial==='function'?initial():initial;return [target[index],value=>{target[index]=typeof value==='function'?value(target[index]):value;}]},useEffect(fn,deps){const target=current,index=cursor++,prev=target[index];if(!prev||deps.some((v,i)=>!Object.is(v,prev.deps[i]))){prev?.cleanup?.();target[index]={deps,cleanup:fn()};}}};
  const context=vm.createContext({console,window:{dispatchEvent:event=>events.push(event),addEventListener(){},removeEventListener(){}},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},setTimeout:fn=>{timers.push({fn,active:true});return timers.length-1;},clearTimeout:id=>{if(timers[id])timers[id].active=false;}});
- const helper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadDeviceValidation.ts',root),'utf8'),{mode:'strip'}),{context});await helper.link(()=>{throw Error('Unexpected dependency');});await helper.evaluate();
  const labelHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadLabelValidation.ts',root),'utf8'),{mode:'strip'}),{context});await labelHelper.link(()=>{throw Error('Unexpected dependency');});await labelHelper.evaluate();
+ const helper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadDeviceValidation.ts',root),'utf8'),{mode:'strip'}),{context});await helper.link(()=>labelHelper);await helper.evaluate();
  const imports={'./LeadLabelPrintButton':{default:'LeadLabelPrintButton'},'react':hooks,'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props}),Fragment:Symbol('Fragment')},'./actions':{updateLeadInlineAction:async()=>{throw Error('No live action allowed');},searchLeadSkuAction:async()=>{if(searchError)throw Error('PRIVATE TRANSPORT DETAIL');return [{sku:'IPAD-128-A',title:'iPad 128 GB',inventory_qty:1,price_cents:10000}];}}};
  async function load(path){let source=fs.readFileSync(new URL(path,root),'utf8').replace('function SkuAutocompleteInput(', 'export function SkuAutocompleteInput(');const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;const mod=new vm.SourceTextModule(code,{context});await mod.link(spec=>{if(spec==='@/app/admin/LocalDate')return new vm.SyntheticModule(['default'],function(){this.setExport('default','LocalDate');},{context});if(spec==='@/lib/leadDeviceValidation')return helper;if(spec==='@/lib/leadLabelValidation')return labelHelper;const e=imports[spec];if(!e)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await mod.evaluate();return mod.namespace;}
  const status=await load('app/admin/leads/LeadStatusForm.tsx'),device=await load('app/admin/leads/DeviceCell.tsx');
@@ -51,4 +51,14 @@ test('device label sits beside save, keeps low batteries printable, shows warnin
  const saveRow=findAll(tree,n=>n.props?.className==='pt-1 flex items-center gap-2')[0];assert.equal(findAll(saveRow,n=>n.type==='button'&&n.props.type==='submit').length,1);assert.equal(findAll(saveRow,n=>n.type==='LeadLabelPrintButton').length,1);
  findAll(tree,n=>n.props?.name==='imei_sn')[0].props.onChange({target:{value:'DIFFERENT-SERIAL'}});tree=h.render(h.device,p);assert.equal(findAll(tree,n=>n.type==='LeadLabelPrintButton').length,0);
  const invalid=await harness();let other=invalid.render(invalid.device,{...p,labelReady:false});findAll(other,n=>n.type==='button'&&n.props['aria-expanded']===false)[0].props.onClick();other=invalid.render(invalid.device,{...p,labelReady:false});assert.equal(findAll(other,n=>n.type==='LeadLabelPrintButton').length,0);
+});
+
+test('exempt families hide battery editor, saved zero summary and warnings',async()=>{
+ for(const model of ['iMac 24-inch M4','Apple Watch Series 9','Mac Mini M4']){
+  const h=await harness(),props={id:'exempt',model,sku:'SKU',imei_sn:'SERIAL123',battery_percentage:0,used_parts_skus:['-'],status:'received_store',canEdit:true};
+  let tree=h.render(h.device,props);assert.equal(text(tree).includes('Batterij'),false);
+  findAll(tree,n=>n.props?.['aria-expanded']!==undefined)[0].props.onClick();tree=h.render(h.device,props);
+  assert.equal(findAll(tree,n=>n.props?.name==='battery_percentage').length,0);
+  assert.equal(findAll(tree,n=>n.props?.name==='imei_sn').length,1);
+ }
 });
