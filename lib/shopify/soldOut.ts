@@ -36,6 +36,7 @@ export const NEW_IN_BOX_GRADE = 6;
 /**
  * Opslag ("128GB", "1TB") en staat uit de handle: "3", "4", "5" (bv. iphone-13-128gb-blue-refurbished-4-m) of "6" voor
  * Nieuw in Box (bv. macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box, macbook-air-15-l23-m2-16gb-1tb-ssd-sg-new).
+ * Samsung zonder "refurb" (bv. samsung-galaxy-z-fold7-512gb-phantom-black-5-m): laatste losse 3, 4 of 5 na de opslag.
  */
 export function parseHandle(handle: string): { size: string; grade: string } | null {
   const words = handle.toLowerCase().split('-');
@@ -50,7 +51,15 @@ export function parseHandle(handle: string): { size: string; grade: string } | n
     const grade = words.slice(at + 1).find(w => /^[345]$/.test(w)) ?? '';
     return grade ? { size, grade } : null;
   }
-  return words.includes('nieuw') || words.includes('new') ? { size, grade: String(NEW_IN_BOX_GRADE) } : null;
+  if (words.includes('nieuw') || words.includes('new')) return { size, grade: String(NEW_IN_BOX_GRADE) };
+  // Samsung zonder "refurb" in de handle (Z Fold, Z Flip, Galaxy A): "samsung-galaxy-z-fold7-512gb-phantom-black-5-m".
+  // De staat is dan het laatste losse cijfer 3, 4 of 5 na de opslag (eventueel gevolgd door "m").
+  if (words[0] === 'samsung') {
+    const after = words.slice(words.findIndex(w => /^(\d+)(gb|tb)$/.test(w)) + 1);
+    const grade = [...after].reverse().find(w => /^[345]$/.test(w)) ?? '';
+    return grade ? { size, grade } : null;
+  }
+  return null;
 }
 
 export function soldOutItems(raw: SoldOutRaw): SoldOutItem[] {

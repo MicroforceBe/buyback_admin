@@ -250,3 +250,33 @@ test('Nieuw in Box: staat 6 uit de handle, in de lijst, in de aanvraag en goed v
   const sql = read('security/sql/shop-stock-requests-nieuw-in-box.sql');
   assert.match(sql, /grades <@ '\{3,4,5,6\}'::smallint\[\] and cardinality\(grades\) between 1 and 4/);
 });
+
+test('Samsung: opslag als configuratie, aanvragen op Samsung-modelpagina\'s, staat ook zonder "refurb", mails noemen Samsung', async () => {
+  const { iphoneConfig, deviceConfig, parseRequest, matchRequests, availableMail, isSamsungCollection } = await core();
+  assert.equal(iphoneConfig('samsung-galaxy-s24-5g-128gb-onyx-black-refurbished-4'), '128GB');
+  assert.equal(deviceConfig('samsung-galaxy-z-fold7-512gb-phantom-black-5-m'), '512GB');
+  assert.equal(iphoneConfig('samsung-galaxy-tab-s9-5g-11-128gb-black-refurbished-5'), '', 'geen tablets');
+  for (const h of ['samsung-s24', 'galaxy-s23', 'refurbished-galaxy-s25', 'refurbished-samsung-galaxy-z-flip7', 'galaxy-a-series', 'samsung-s23-ultra']) assert.equal(isSamsungCollection(h), true, h);
+  for (const h of ['refurbished-samsung', 'samsung-tablet', 'refurbished-iphone-16', 'samsung-s24-hoesjes-tab-x']) assert.equal(isSamsungCollection(h), false, h);
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'fr', consent: true, grades: [4, 5] };
+  assert.equal(parseRequest({ ...base, collection: 'samsung-s24', configs: ['256GB'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'samsung-s24', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-samsung', configs: ['256GB'] }).ok, false);
+  const sold = await load('lib/shopify/soldOut.ts');
+  assert.deepEqual(plain(sold.parseHandle('samsung-galaxy-z-fold7-512gb-phantom-black-5-m')), { size: '512GB', grade: '5' });
+  assert.deepEqual(plain(sold.parseHandle('samsung-galaxy-a56-5g-128gb-awesome-graphite-5-m')), { size: '128GB', grade: '5' });
+  assert.deepEqual(plain(sold.parseHandle('samsung-galaxy-s22-5g-256gb-pink-dsrefurbished-4-m')), { size: '256GB', grade: '4' });
+  assert.deepEqual(plain(sold.parseHandle('samsung-galaxy-s23-plus-5g-256gb-black-nieuw-in-box')), { size: '256GB', grade: '6' });
+  assert.equal(sold.parseHandle('samsung-galaxy-z-flip7-256gb-black-m'), null);
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'samsung-s24', config_key: '128GB', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['samsung-s24', [
+    { handle: 'samsung-galaxy-s24-5g-128gb-onyx-black-refurbished-3', status: 'ACTIVE', totalInventory: 1, price: 439 },
+    { handle: 'samsung-galaxy-s24-5g-128gb-amber-yellow-refurbished-4', status: 'ACTIVE', totalInventory: 2, price: 489 },
+    { handle: 'samsung-galaxy-s24-5g-256gb-black-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 599 },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'samsung-galaxy-s24-5g-128gb-amber-yellow-refurbished-4');
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /Samsung Galaxy/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook|iPhone/);
+});

@@ -1,4 +1,4 @@
-// Verwittigingen "Op aanvraag" op de MacBook- en iPhone-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
+// Verwittigingen "Op aanvraag" op de MacBook-, iPhone- en Samsung-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
 // invoer controleren, matchen met voorraad, mailteksten in het Nederlands, Frans en Engels). Geen netwerk of database.
 // Gebruikt door app/api/public/aanvraag (aanvragen), lib/stockRequests/run.ts (cron) en de overzichtspagina.
 import { parseHandle } from '@/lib/shopify/soldOut';
@@ -35,17 +35,19 @@ export function macConfig(handle: string): string {
 }
 
 /**
- * Configuratie van een iPhone uit de handle: de opslag ("128GB", "1TB"), of '' als het geen iPhone is.
- * Zelfde ontleding als in de theme (snippets/model-winkels.liquid en snippets/model-op-aanvraag.liquid): eerste GB/TB-woord.
+ * Configuratie van een smartphone (iPhone of Samsung Galaxy) uit de handle: de opslag ("128GB", "1TB"), of '' als het
+ * geen smartphone is. Zelfde ontleding als in de theme (snippets/model-winkels.liquid en snippets/model-op-aanvraag.liquid):
+ * eerste GB/TB-woord. Samsung-producthandles beginnen met "samsung-galaxy-" (tablets "samsung-galaxy-tab-" niet).
  */
 export function iphoneConfig(handle: string): string {
   const w = String(handle || '').toLowerCase().split('-');
-  if (w[0] !== 'iphone') return '';
+  const samsung = w[0] === 'samsung' && w[1] === 'galaxy' && w[2] !== 'tab';
+  if (w[0] !== 'iphone' && !samsung) return '';
   const m = w.find(x => /^\d+(gb|tb)$/.test(x) && parseInt(x, 10) > 0);
   return m ? parseInt(m, 10) + (/tb$/.test(m) ? 'TB' : 'GB') : '';
 }
 
-/** Configuratie van een toestel: MacBook ("M2/16GB/1TB") of iPhone ("128GB"); '' als ze niet te lezen is. */
+/** Configuratie van een toestel: MacBook ("M2/16GB/1TB") of smartphone ("128GB"); '' als ze niet te lezen is. */
 export function deviceConfig(handle: string): string {
   return macConfig(handle) || iphoneConfig(handle);
 }
@@ -79,6 +81,16 @@ export const IPHONE_EXTRA: Record<string, string> = {
   'iphone-17-pro': 'iPhone 17 Pro',
 };
 
+/**
+ * Samsung-modelpagina (Galaxy S, Z, A): handles zoals "samsung-s24", "galaxy-s23", "refurbished-galaxy-s25",
+ * "refurbished-samsung-galaxy-z-flip7" of "galaxy-a-series". Niet de hoofdpagina "refurbished-samsung" en geen tablets.
+ */
+export function isSamsungCollection(collection: string): boolean {
+  const h = String(collection || '').toLowerCase();
+  if (h === 'refurbished-samsung' || h.includes('tablet') || h.includes('-tab-')) return false;
+  return /^(refurbished-)?(samsung-|galaxy-)[a-z0-9-]{1,80}$/.test(h);
+}
+
 export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
@@ -96,7 +108,7 @@ export function parseRequest(body: unknown): ParseResult {
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
-  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) ? 'iphone' : '';
+  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) || isSamsungCollection(collection) ? 'iphone' : '';
   if (!soort) return { ok: false, error: 'invalid' };
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
   const keyOk = soort === 'mac' ? MAC_KEY : IPHONE_KEY;
