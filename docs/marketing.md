@@ -95,5 +95,8 @@ Dit vervangt voor MacBooks de knop van de app Stok; andere producten houden Stok
 - **Overzicht:** *Marketing → Aanvragen "Op aanvraag"* (`/admin/marketing/aanvragen`): vraag per configuratie (open, per
   aanvaarde staat, oudste, verwittigd in 30 dagen). Namen en e-mailadressen alleen voor beheerders. Later: beschikbaarheid
   bij leveranciers ernaast, zodra hun lijsten digitaal binnenkomen.
+- **Nieuw in Box (staat 6):** uitverkochte Nieuw in Box-toestellen ("Niet vermeld") staan ook in de lijst. Het formulier biedt
+  "Nieuw in Box" als staat alleen aan op een modelpagina waar uitsluitend Nieuw in Box-toestellen bestaan; elders telt een
+  Nieuw in Box-toestel ook voor wie "Als nieuw" koos. Vereist `security/sql/shop-stock-requests-nieuw-in-box.sql`.
 - **SQL:** `security/sql/shop-stock-requests.sql` (test: `test-shop-stock-requests.sql`, binnen BEGIN/ROLLBACK).
   Code: `lib/stockRequests/` (`core.ts` puur, `run.ts` cron, `mail.ts`). Tests: `security/tests/stock-requests.test.mjs`.

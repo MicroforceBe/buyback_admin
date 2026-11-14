@@ -79,7 +79,9 @@ dan "Niet meer op voorraad", geen prijs en tot 4 alternatieven op voorraad (them
 vanuit `snippets/price.liquid`). Daarvoor krijgt het product in Shopify de status **UNLISTED** ("Niet vermeld"): bereikbaar via
 de link, maar niet in collecties, zoekresultaten, aanbevelingen, de sitemap of Google (Shopify zet zelf `noindex`).
 - Regel (`targetStatus` in `lib/shopify/plan.ts`): zegt het ERP **Draft**, is er **geen voorraad** (over alle varianten, in het
-  ERP én in Shopify) en staat "Refurbished" in de titel, dan wordt het UNLISTED. Heeft Shopify nog voorraad, dan wordt het eerst
+  ERP én in Shopify) en is het een **refurbished** toestel, dan wordt het UNLISTED. Refurbished = het ERP-attribuut
+  *Refurbished Product* (`custom.refurbished_product`), dus ook "Nieuw in Box" zonder "Refurbished" in de titel (beslissing
+  Olivier, 14 november 2026). Alleen als dat attribuut ontbreekt (in het ERP-bestand en in Shopify), beslist de titel. Heeft Shopify nog voorraad, dan wordt het eerst
   concept (de run zet de voorraad op 0) en in een volgende run UNLISTED: zo blijft een pagina nooit bereikbaar met voorraad die
   nog gekocht kan worden als het wegschrijven van de 0 mislukt. Al het andere volgt de ERP-status zoals voorheen (accessoires blijven concept). Zegt het ERP
   weer Active, dan wordt het product terug actief.

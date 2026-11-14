@@ -1,5 +1,5 @@
 -- Verwittigingen "Op aanvraag" (MacBook-modelpagina's van microforce.be): een klant vraagt een mail zodra een configuratie
--- (chip, werkgeheugen, opslag) in een van de gekozen staten (3 = Behoorlijk, 4 = Zeer goed, 5 = Als nieuw) terug op voorraad is. Eén rij per configuratie. Alleen service_role
+-- (chip, werkgeheugen, opslag) in een van de gekozen staten (3 = Behoorlijk, 4 = Zeer goed, 5 = Als nieuw, 6 = Nieuw in Box) terug op voorraad is. Eén rij per configuratie. Alleen service_role
 -- (de publieke API van buyback-admin en de cron) leest en schrijft; geen toegang voor anon of authenticated.
 -- Toepassen in de goedgekeurde omgeving. Geen backfill.
 create table public.shop_stock_requests (
@@ -12,7 +12,7 @@ create table public.shop_stock_requests (
   collection_handle text not null check (collection_handle ~ '^[a-z0-9][a-z0-9-]{0,99}$'),
   config_key text not null check (config_key ~ '^M[1-9]( Pro| Max)?/[0-9]{1,3}GB/[0-9]{1,4}(GB|TB)$'),
   config_label text not null check (length(config_label) between 1 and 120 and config_label !~ E'[\\r\\n<>]'),
-  grades smallint[] not null default '{3,4,5}' check (grades <@ '{3,4,5}'::smallint[] and cardinality(grades) between 1 and 3),
+  grades smallint[] not null default '{3,4,5}' check (grades <@ '{3,4,5,6}'::smallint[] and cardinality(grades) between 1 and 4),
   status text not null default 'open' check (status in ('open','notified','unsubscribed','expired')),
   token uuid not null default gen_random_uuid(),
   expires_at timestamptz not null default now() + interval '180 days',

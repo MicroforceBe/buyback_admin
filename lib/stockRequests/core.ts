@@ -98,7 +98,7 @@ export function parseRequest(body: unknown): ParseResult {
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
   const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) ? 'iphone' : '';
   if (!soort) return { ok: false, error: 'invalid' };
-  if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
+  if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
   const keyOk = soort === 'mac' ? MAC_KEY : IPHONE_KEY;
   if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => keyOk.test(k))) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
@@ -119,7 +119,8 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
     for (const p of productsByCollection.get(r.collection_handle) ?? []) {
       if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || deviceConfig(p.handle) !== r.config_key) continue;
       const grade = Number(parseHandle(p.handle)?.grade ?? 0);
-      if (!r.grades.includes(grade)) continue;
+      // Een toestel Nieuw in Box (6) is ook goed voor wie "Als nieuw" (5) koos.
+      if (!r.grades.includes(grade) && !(grade === 6 && r.grades.includes(5))) continue;
       if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price, image: p.image ?? null };
     }
     if (best) out.push({ request: r, product: best });
@@ -148,15 +149,15 @@ function money(n: number | null, lang: Lang): string {
 }
 
 export const GRADE: Record<Lang, Record<number, string>> = {
-  nl: { 3: 'Behoorlijk', 4: 'Zeer goed', 5: 'Als nieuw' },
-  fr: { 3: 'Correct', 4: 'Très bon', 5: 'Comme neuf' },
-  en: { 3: 'Fair', 4: 'Very good', 5: 'Like new' },
+  nl: { 3: 'Behoorlijk', 4: 'Zeer goed', 5: 'Als nieuw', 6: 'Nieuw in Box' },
+  fr: { 3: 'Correct', 4: 'Très bon', 5: 'Comme neuf', 6: 'Neuf en boîte' },
+  en: { 3: 'Fair', 4: 'Very good', 5: 'Like new', 6: 'New in box' },
 };
 
 /** Gekozen staten als tekst: "Behoorlijk of Zeer goed"; alle drie = null (elke staat is goed). */
 export function gradesLabel(grades: number[], lang: Lang): string | null {
   const g = [...new Set(grades)].filter(x => GRADE[lang][x]).sort();
-  if (!g.length || g.length === 3) return null;
+  if (!g.length || (g.length === 3 && g.join() === '3,4,5')) return null;
   const or = lang === 'fr' ? ' ou ' : lang === 'en' ? ' or ' : ' of ';
   return g.map(x => GRADE[lang][x]).join(or);
 }
@@ -314,11 +315,17 @@ export function modelName(title: string | null | undefined): string {
 
 /** Gekozen uiterlijk als nette pillen met sterren (3 = ★★★ Behoorlijk … 5 = ★★★★★ Als nieuw). */
 function gradePills(grades: number[], lang: Lang): string {
-  const g = [...new Set(grades)].filter(x => x >= 3 && x <= 5).sort();
+  const g = [...new Set(grades)].filter(x => x >= 3 && x <= 6).sort();
   return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>` + g.map(x =>
     `<td style="padding:0 6px 6px 0"><table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid #cfe3f4;border-radius:999px;background:#ffffff"><tr>`
-    + `<td style="padding:5px 12px;white-space:nowrap;font-size:13px;color:#14222f"><span style="color:#f5a623;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(x)}</span>`
-    + `<span style="color:#d6dde6;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(5 - x)}</span>&nbsp; <b>${escapeHtml(GRADE[lang][x])}</b></td></tr></table></td>`).join('') + `</tr></table>`;
+    + `<td style="padding:5px 12px;white-space:nowrap;font-size:13px;color:#14222f">${stars(x)}&nbsp; <b>${escapeHtml(GRADE[lang][x])}</b></td></tr></table></td>`).join('') + `</tr></table>`;
+}
+
+/** Sterren voor 3 tot 5; Nieuw in Box (6) krijgt vijf sterren. */
+function stars(x: number): string {
+  const n = Math.min(5, x);
+  return `<span style="color:#f5a623;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(n)}</span>`
+    + `<span style="color:#d6dde6;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(5 - n)}</span>`;
 }
 
 /** Eén configuratie als rij: foto links, model en configuratie rechts. */
@@ -363,7 +370,7 @@ export function availableMail(lang: Lang, name: string, matches: Match[], unsubs
   const intro = device(t.availIntro, matches[0]?.request.collection_handle);
   const html = frame(lang, `<p style="margin:0 0 12px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 14px">${escapeHtml(intro)}</p>`
     + rows.map(r => itemRow({ key: r.key, model: r.model, image: r.image }, lang,
-      `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(r.g)}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
+      `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(Math.min(5, r.g))}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
       + `<a href="${escapeHtml(r.url)}" style="display:inline-block;padding:9px 18px;border-radius:999px;background:#1080cf;color:#fff;font-weight:700;font-size:14px;text-decoration:none">${escapeHtml(t.view)}</a>`)).join('')
     + `<p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.availOutro)}</p>`, unsubscribeUrl, 'gevonden', matches[0]?.request.collection_handle ?? '');
   const text = [t.hi(name), '', intro, '', ...rows.flatMap(r => [`${r.label} (${t.grade}: ${r.grade}${r.price ? ', ' + r.price : ''})`, r.url, '']), t.availOutro, '', t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
@@ -395,7 +402,7 @@ export function unsubscribeUrl(base: string, token: string, lang: Lang): string 
 }
 
 export type DemandRow = { collection_handle: string; config_key: string; grades: number[]; status: string; created_at: string; notified_at: string | null };
-export type Demand = { collection: string; config: string; open: number; byGrade: Record<3 | 4 | 5, number>; oldest: string | null; notified30: number };
+export type Demand = { collection: string; config: string; open: number; byGrade: Record<3 | 4 | 5 | 6, number>; oldest: string | null; notified30: number };
 
 /** Vraag per collectie en configuratie voor de overzichtspagina: open aanvragen (en per aanvaarde staat), oudste, verwittigd in 30 dagen. */
 export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
@@ -403,10 +410,10 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
   const since = now - 30 * 86400_000;
   for (const r of rows) {
     const k = r.collection_handle + '|' + r.config_key;
-    const d = map.get(k) ?? { collection: r.collection_handle, config: r.config_key, open: 0, byGrade: { 3: 0, 4: 0, 5: 0 }, oldest: null, notified30: 0 };
+    const d = map.get(k) ?? { collection: r.collection_handle, config: r.config_key, open: 0, byGrade: { 3: 0, 4: 0, 5: 0, 6: 0 }, oldest: null, notified30: 0 };
     if (r.status === 'open') {
       d.open++;
-      for (const g of [3, 4, 5] as const) if ((r.grades ?? []).includes(g)) d.byGrade[g]++;
+      for (const g of [3, 4, 5, 6] as const) if ((r.grades ?? []).includes(g)) d.byGrade[g]++;
       if (!d.oldest || r.created_at < d.oldest) d.oldest = r.created_at;
     } else if (r.status === 'notified' && r.notified_at && Date.parse(r.notified_at) >= since) d.notified30++;
     map.set(k, d);

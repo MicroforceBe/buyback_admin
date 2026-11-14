@@ -10,10 +10,20 @@ export type ProductStatus = 'ACTIVE' | 'DRAFT' | 'ARCHIVED' | 'UNLISTED';
  * alternatives, see the theme snippet uitverkocht) instead of becoming a 404: Shopify's UNLISTED status
  * keeps the page but leaves it out of collections, search, recommendations, the sitemap and Google.
  * Only when the ERP says DRAFT and there is no stock; everything else keeps the ERP status.
+ * Refurbished = the ERP attribute "Refurbished Product" (custom.refurbished_product), also for "Nieuw in Box"
+ * devices without "Refurbished" in the title (decision Olivier, 14 November 2026). Only when the attribute is
+ * missing does the title decide.
  */
 export const isRefurbishedTitle = (title: string) => /\brefurbished\b/i.test(title);
-export function targetStatus(erpStatus: ProductStatus | undefined, title: string, stock: number): ProductStatus | undefined {
-  return erpStatus === 'DRAFT' && stock <= 0 && isRefurbishedTitle(title) ? 'UNLISTED' : erpStatus;
+export const REFURBISHED_METAFIELD = 'custom.refurbished_product';
+export function isRefurbished(attribute: string | null | undefined, title: string): boolean {
+  const v = String(attribute ?? '').trim().toLowerCase();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return isRefurbishedTitle(title);
+}
+export function targetStatus(erpStatus: ProductStatus | undefined, refurbished: boolean, stock: number): ProductStatus | undefined {
+  return erpStatus === 'DRAFT' && stock <= 0 && refurbished ? 'UNLISTED' : erpStatus;
 }
 /** Existing drafts that become UNLISTED: at most this many per run, so the catch-up never trips the emergency brake. */
 export const MAX_UNLIST_PER_RUN = 75;
@@ -360,7 +370,8 @@ export function planSync(input: {
       if (d.product.title !== undefined && d.product.title !== c.title) { update.title = d.product.title; add({ sku: d.sku, scope: 'product', field: 'title', oldValue: c.title, newValue: d.product.title }); }
       if (d.product.vendor !== undefined && d.product.vendor !== c.vendor) { update.vendor = d.product.vendor; add({ sku: d.sku, scope: 'product', field: 'vendor', oldValue: c.vendor, newValue: d.product.vendor }); }
       if (d.product.productType !== undefined && d.product.productType !== c.productType) { update.productType = d.product.productType; add({ sku: d.sku, scope: 'product', field: 'productType', oldValue: c.productType, newValue: d.product.productType }); }
-      const wanted = targetStatus(d.product.status, d.product.title ?? c.title, productStock.get(c.productId) ?? 0);
+      const refurbished = isRefurbished(d.metafields[REFURBISHED_METAFIELD] ?? c.metafields[REFURBISHED_METAFIELD], d.product.title ?? c.title);
+      const wanted = targetStatus(d.product.status, refurbished, productStock.get(c.productId) ?? 0);
       if (wanted !== undefined && wanted !== c.status) {
         // A product created as draft by the sync keeps its status until someone removes the erp-nieuw tag.
         if (c.tags.includes(NEW_PRODUCT_TAG)) plan.counts.statusLocked++;
@@ -679,7 +690,7 @@ export function planDeactivateMissing(input: {
     // already 0: while stock remains (this run writes the 0) it goes to draft first, and becomes UNLISTED in
     // a next run, a batch at a time like the other old drafts. Anything else goes to draft.
     const shopifyStock = variants.reduce((sum, x) => sum + Object.values(x.inventory).reduce((a, q) => a + Math.max(0, q), 0), 0);
-    const unlist = isRefurbishedTitle(v.title) && shopifyStock === 0;
+    const unlist = isRefurbished(v.metafields[REFURBISHED_METAFIELD], v.title) && shopifyStock === 0;
     // An UNLISTED page that has stock again (while out of the ERP) goes back to draft until the 0 is written.
     if (v.status === 'ACTIVE' || (v.status === 'DRAFT' && unlist && !v.tags.includes(NEW_PRODUCT_TAG)) || (v.status === 'UNLISTED' && !unlist)) {
       const status = unlist ? 'UNLISTED' as const : 'DRAFT' as const;

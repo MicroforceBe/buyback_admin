@@ -45,7 +45,7 @@ export default async function AanvragenPage() {
                     <td className="py-2 pr-3">{collectionName(d.collection)}</td>
                     <td className="pr-3 font-medium">{configLabel(d.config, 'nl')}</td>
                     <td className="pr-3 text-right text-lg font-bold">{d.open}</td>
-                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5] as const).filter(g => d.byGrade[g]).map(g => `${GRADE.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
+                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5, 6] as const).filter(g => d.byGrade[g]).map(g => `${GRADE.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
                     <td className="pr-3">{fmt(d.oldest)}</td>
                     <td className="text-right">{d.notified30 || '—'}</td>
                   </tr>

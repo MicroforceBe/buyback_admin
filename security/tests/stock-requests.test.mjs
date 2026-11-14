@@ -111,7 +111,7 @@ test('demand summary counts open requests per configuration and grade', async ()
     { collection_handle: 'refurbished-macbook-pro-14-m1-pro-max', config_key: 'M1 Pro/16GB/512GB', grades: [3], status: 'unsubscribed', created_at: '2026-11-01T10:00:00Z', notified_at: null },
   ];
   assert.deepEqual(plain(demandSummary(rows, now)), [
-    { collection: 'refurbished-macbook-air-13-m2', config: 'M2/16GB/1TB', open: 2, byGrade: { 3: 1, 4: 1, 5: 2 }, oldest: '2026-11-01T10:00:00Z', notified30: 1 },
+    { collection: 'refurbished-macbook-air-13-m2', config: 'M2/16GB/1TB', open: 2, byGrade: { 3: 1, 4: 1, 5: 2, 6: 0 }, oldest: '2026-11-01T10:00:00Z', notified30: 1 },
   ]);
   assert.equal(collectionName('refurbished-macbook-air-13-m2'), 'MacBook Air 13 M2');
 });
@@ -224,4 +224,29 @@ test('iPhone: storage as configuration, requests on iPhone model pages, mails na
   assert.match(mail.subject, /iPhone/);
   assert.doesNotMatch(mail.subject + mail.text, /MacBook/);
   assert.equal(collectionName('refurbished-iphone-16-pro'), 'iPhone 16 Pro');
+});
+
+test('Nieuw in Box: staat 6 uit de handle, in de lijst, in de aanvraag en goed voor wie "Als nieuw" koos', async () => {
+  const sold = await load('lib/shopify/soldOut.ts');
+  assert.deepEqual(plain(sold.parseHandle('macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box')), { size: '16GB', grade: '6' });
+  assert.deepEqual(plain(sold.parseHandle('macbook-air-15-l23-m2-16gb-1tb-ssd-sg-new')), { size: '16GB', grade: '6' });
+  assert.deepEqual(plain(sold.parseHandle('iphone-13-128gb-blue-refurbished-4-m')), { size: '128GB', grade: '4' });
+  assert.equal(sold.parseHandle('lightning-kabel-2m'), null);
+  const items = sold.soldOutItems({ collectionByIdentifier: { products: { nodes: [
+    { handle: 'macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box', status: 'UNLISTED', totalInventory: 0 },
+    { handle: 'macbook-air-15-e24-m3-8gb-256ssd-silver-nieuw-in-box', status: 'DRAFT', totalInventory: 0 },
+  ] } } });
+  assert.deepEqual(plain(items.map(i => [i.handle, i.grade])), [['macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box', '6']], 'concepten blijven buiten de lijst');
+  const { parseRequest, matchRequests, gradesLabel } = await core();
+  const ok = { name: 'Jan', email: 'jan@example.be', language: 'nl', collection: 'refurbished-macbook-air-15-m5', configs: ['M5/16GB/1TB'], grades: [6], consent: true, website: '' };
+  assert.deepEqual(plain(parseRequest(ok).value.grades), [6]);
+  assert.equal(parseRequest({ ...ok, grades: [7] }).ok, false);
+  assert.equal(gradesLabel([6], 'fr'), 'Neuf en boîte');
+  assert.equal(gradesLabel([3, 4, 5], 'nl'), null);
+  const nib = { handle: 'macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box', status: 'ACTIVE', totalInventory: 1, price: 1499 };
+  const req = (id, grades) => ({ id, name: 'Jan', email: id + '@example.be', language: 'nl', collection_handle: 'c', config_key: 'M5/16GB/1TB', config_label: 'x', grades, token: 't' });
+  const m = matchRequests([req('a', [6]), req('b', [5]), req('c', [3, 4])], new Map([['c', [nib]]]));
+  assert.deepEqual(plain(m.map(x => [x.request.id, x.product.grade])), [['a', 6], ['b', 6]]);
+  const sql = read('security/sql/shop-stock-requests-nieuw-in-box.sql');
+  assert.match(sql, /grades <@ '\{3,4,5,6\}'::smallint\[\] and cardinality\(grades\) between 1 and 4/);
 });

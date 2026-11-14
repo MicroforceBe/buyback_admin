@@ -30,7 +30,13 @@ export type SoldOutRaw = {
 
 export type SoldOutItem = { handle: string; size: string; grade: string; colour: string };
 
-/** Opslag ("128GB", "1TB") en staat ("3", "4", "5") uit de handle, bv. iphone-13-128gb-blue-refurbished-4-m. */
+/** Staat 6 = "Nieuw in Box" (handle met "nieuw" of "new" in plaats van "refurbished-<sterren>"). */
+export const NEW_IN_BOX_GRADE = 6;
+
+/**
+ * Opslag ("128GB", "1TB") en staat uit de handle: "3", "4", "5" (bv. iphone-13-128gb-blue-refurbished-4-m) of "6" voor
+ * Nieuw in Box (bv. macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box, macbook-air-15-l23-m2-16gb-1tb-ssd-sg-new).
+ */
 export function parseHandle(handle: string): { size: string; grade: string } | null {
   const words = handle.toLowerCase().split('-');
   let size = '';
@@ -38,17 +44,21 @@ export function parseHandle(handle: string): { size: string; grade: string } | n
     const m = /^(\d+)(gb|tb)$/.exec(w);
     if (m && Number(m[1]) > 0) { size = m[1] + m[2].toUpperCase(); break; }
   }
+  if (!size) return null;
   const at = words.findIndex(w => w.includes('refurb'));
-  if (!size || at < 0) return null;
-  const grade = words.slice(at + 1).find(w => /^[345]$/.test(w)) ?? '';
-  return grade ? { size, grade } : null;
+  if (at >= 0) {
+    const grade = words.slice(at + 1).find(w => /^[345]$/.test(w)) ?? '';
+    return grade ? { size, grade } : null;
+  }
+  return words.includes('nieuw') || words.includes('new') ? { size, grade: String(NEW_IN_BOX_GRADE) } : null;
 }
 
 export function soldOutItems(raw: SoldOutRaw): SoldOutItem[] {
   const nodes = raw.collectionByIdentifier?.products.nodes ?? [];
   const out: SoldOutItem[] = [];
   for (const n of nodes) {
-    if (n.status !== 'UNLISTED' || (n.totalInventory ?? 0) > 0 || !n.handle.includes('refurb')) continue;
+    // Alleen "Niet vermeld" (concepten zijn bewust nog niet klaar), refurbished of Nieuw in Box (zie parseHandle).
+    if (n.status !== 'UNLISTED' || (n.totalInventory ?? 0) > 0) continue;
     const parsed = parseHandle(n.handle);
     if (!parsed) continue;
     out.push({ handle: n.handle, ...parsed, colour: (n.swatch?.reference?.name?.value ?? '').trim() });
