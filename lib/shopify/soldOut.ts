@@ -8,9 +8,10 @@ import { ERP_FIELDS_GQL, erpConfig, erpFields, erpGrade, erpNet, erpSize, NEW_IN
 export { NEW_IN_BOX_GRADE };
 
 function soldOutQuery(withSwatch: boolean): string {
-  return `query SoldOut($handle: String!) {
+  return `query SoldOut($handle: String!, $after: String) {
   collectionByIdentifier(identifier: { handle: $handle }) {
-    products(first: 250) {
+    products(first: 100, after: $after) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         handle
         status
@@ -25,11 +26,17 @@ function soldOutQuery(withSwatch: boolean): string {
 }
 
 export const SOLD_OUT_QUERY = soldOutQuery(true);
-/** Zelfde vraag zonder kleurstaal, voor het geval de app geen toegang heeft tot metaobjecten. */
+/**
+ * Zelfde vraag zonder kleurstaal, als de vraag met kleurstaal mislukt. Pagina's van 100 producten: de vraag met 250
+ * producten en de kleurstaal ging over de maximale kost van Shopify, waardoor de kleur (Olivier, 15/11) altijd ontbrak.
+ */
 export const SOLD_OUT_QUERY_BASIC = soldOutQuery(false);
 
 export type SoldOutNode = ErpRaw & { handle: string; status: string; totalInventory: number | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null };
-export type SoldOutRaw = { collectionByIdentifier: { products: { nodes: SoldOutNode[] } } | null };
+export type SoldOutRaw = { collectionByIdentifier: { products: { nodes: SoldOutNode[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } } | null };
+
+/** Maximaal aantal pagina's van 100 producten per collectie (een modelcollectie heeft er zelden meer dan 250). */
+export const SOLD_OUT_MAX_PAGES = 5;
 
 /**
  * Eén uitverkocht toestel: handle (link), opslag ("128GB"), staat ("3", "4", "5" of "6" = Nieuw in Box), kleur,
