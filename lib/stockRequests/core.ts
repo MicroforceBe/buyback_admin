@@ -1,4 +1,4 @@
-// Verwittigingen "Op aanvraag" op de MacBook-, iPhone- en Samsung-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
+// Verwittigingen "Op aanvraag" op de MacBook-, iPhone-, Samsung- en iPad-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
 // invoer controleren, matchen met voorraad, mailteksten in het Nederlands, Frans en Engels). Geen netwerk of database.
 // Gebruikt door app/api/public/aanvraag (aanvragen), lib/stockRequests/run.ts (cron) en de overzichtspagina.
 import { parseHandle } from '@/lib/shopify/soldOut';
@@ -47,20 +47,44 @@ export function iphoneConfig(handle: string): string {
   return m ? parseInt(m, 10) + (/tb$/.test(m) ? 'TB' : 'GB') : '';
 }
 
-/** Configuratie van een toestel: MacBook ("M2/16GB/1TB") of smartphone ("128GB"); '' als ze niet te lezen is. */
+/**
+ * Configuratie van een iPad uit de handle: opslag en verbinding, "256GB Wi-Fi" of "256GB Cellular"; '' als het geen iPad
+ * is of de opslag niet in de handle staat. Zelfde ontleding als in de theme (snippets/model-op-aanvraag.liquid): eerste
+ * GB/TB-woord vanaf 16 GB ("512g" telt als 512GB; "4g" en "5g" zijn het netwerk); Cellular als de handle 4g, 5g, lte of
+ * cellular bevat ("wifi-4g", "wifi-5g", "wifi5g").
+ */
+export function ipadConfig(handle: string): string {
+  const w = String(handle || '').toLowerCase().split('-');
+  if (w[0] !== 'ipad') return '';
+  let ssd = '';
+  for (const x of w) {
+    const m = /^(\d+)(gb|tb|g)$/.exec(x);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (m[2] === 'tb' && n > 0) { ssd = n + 'TB'; break; }
+    if (n >= 16) { ssd = n + 'GB'; break; }
+  }
+  if (!ssd) return '';
+  const cel = /-(4g|5g|lte)-|wifi[45]g|cellular/.test('-' + w.join('-') + '-');
+  return `${ssd} ${cel ? 'Cellular' : 'Wi-Fi'}`;
+}
+
+/** Configuratie van een toestel: iPad ("256GB Cellular"), MacBook ("M2/16GB/1TB") of smartphone ("128GB"); '' als ze niet te lezen is. */
 export function deviceConfig(handle: string): string {
-  return macConfig(handle) || iphoneConfig(handle);
+  return ipadConfig(handle) || macConfig(handle) || iphoneConfig(handle);
 }
 
 export const MAC_KEY = /^M[1-9]( Pro| Max)?\/[0-9]{1,3}GB\/[0-9]{1,4}(GB|TB)$/;
 export const IPHONE_KEY = /^([0-9]{2,4}GB|[1-9]TB)$/;
-export const CONFIG_KEY = new RegExp(`(${MAC_KEY.source})|(${IPHONE_KEY.source})`);
+export const IPAD_KEY = /^([0-9]{2,4}GB|[1-9]TB) (Wi-Fi|Cellular)$/;
+export const CONFIG_KEY = new RegExp(`(${MAC_KEY.source})|(${IPHONE_KEY.source})|(${IPAD_KEY.source})`);
 
 /** Leesbare naam van een configuratie in de taal van de klant: "M2 · 16 GB werkgeheugen · 1 TB opslag" of "128 GB opslag". */
 export function configLabel(key: string, lang: Lang): string {
   const unit = (v: string) => { const m = /^(\d+)(GB|TB)$/.exec(v); if (!m) return v; return lang === 'fr' ? `${m[1]} ${m[2] === 'TB' ? 'To' : 'Go'}` : `${m[1]} ${m[2]}`; };
   const t = TEXT[lang];
   if (IPHONE_KEY.test(key)) return `${unit(key)} ${t.ssd}`;
+  if (IPAD_KEY.test(key)) { const [ssd, net] = key.split(' '); return `${unit(ssd)} ${t.ssd} · ${net === 'Cellular' ? 'Wi-Fi + Cellular' : 'Wi-Fi'}`; }
   const [chip, ram, ssd] = key.split('/');
   return `${chip} · ${unit(ram)} ${t.ram} · ${unit(ssd)} ${t.ssd}`;
 }
@@ -91,6 +115,16 @@ export function isSamsungCollection(collection: string): boolean {
   return /^(refurbished-)?(samsung-|galaxy-)[a-z0-9-]{1,80}$/.test(h);
 }
 
+/**
+ * iPad-modelpagina: handles zoals "ipad-pro-2020-11", "refurbished-ipad-air-6-2024", "microforce-ipad-ipad-air-5-2022"
+ * of "refurbshed-ipad-2025". Niet de hoofdpagina "refurbished-ipad" en geen hoesjes, accessoires of reparaties.
+ */
+export function isIpadCollection(collection: string): boolean {
+  const h = String(collection || '').toLowerCase();
+  if (/(hoesje|cs-atb|reparatie|accessoire)/.test(h)) return false;
+  return /^(refurbished-|refurbshed-|microforce-ipad-)?ipad-[a-z0-9-]{1,80}$/.test(h);
+}
+
 export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
@@ -108,10 +142,10 @@ export function parseRequest(body: unknown): ParseResult {
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
-  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) || isSamsungCollection(collection) ? 'iphone' : '';
+  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) || isSamsungCollection(collection) ? 'iphone' : isIpadCollection(collection) ? 'ipad' : '';
   if (!soort) return { ok: false, error: 'invalid' };
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
-  const keyOk = soort === 'mac' ? MAC_KEY : IPHONE_KEY;
+  const keyOk = soort === 'mac' ? MAC_KEY : soort === 'ipad' ? IPAD_KEY : IPHONE_KEY;
   if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => keyOk.test(k))) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
   // Versie van de toestemmingstekst (bewijs van toestemming), bv. "nl-2026-11-12".
@@ -436,7 +470,7 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
 /** "refurbished-macbook-air-13-m2" → "MacBook Air 13 M2", "refurbished-iphone-16-pro" → "iPhone 16 Pro". */
 export function collectionName(handle: string): string {
   if (Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, handle)) return IPHONE_EXTRA[handle];
-  return handle.replace(/^refurbished-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : w === 'iphone' ? 'iPhone' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+  return handle.replace(/^(refurbished|refurbshed|microforce-ipad)-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : w === 'iphone' ? 'iPhone' : w === 'ipad' ? 'iPad' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
 }
 
 /** Afzender van de webshopmails: altijd de naam "Microforce klantenservice" met het adres uit de instelling. */

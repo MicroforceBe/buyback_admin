@@ -280,3 +280,46 @@ test('Samsung: opslag als configuratie, aanvragen op Samsung-modelpagina\'s, sta
   assert.match(mail.subject, /Samsung Galaxy/);
   assert.doesNotMatch(mail.subject + mail.text, /MacBook|iPhone/);
 });
+
+test('iPad: opslag + Wi-Fi of Cellular als configuratie, aanvragen op iPad-modelpagina\'s, mails noemen iPad', async () => {
+  const { ipadConfig, deviceConfig, configLabel, parseRequest, matchRequests, availableMail, isIpadCollection, collectionName, IPAD_KEY, MAC_KEY, IPHONE_KEY } = await core();
+  assert.equal(ipadConfig('ipad-pro-11-2020-128gb-wifi-4g-space-grey-refurbished-5'), '128GB Cellular');
+  assert.equal(ipadConfig('ipad-pro-11-2020-1tb-wifi-space-grey-refurbished-5'), '1TB Wi-Fi');
+  assert.equal(ipadConfig('ipad-air-5-2022-256gb-wifi-5g-space-grey-refurbished-5'), '256GB Cellular');
+  assert.equal(ipadConfig('ipad-pro-5-12-9-2021-512g-wifi-5g-space-grey-refurbished-4'), '512GB Cellular', '"512g" = 512 GB');
+  assert.equal(ipadConfig('ipad-2021-10-2-64gb-wifi-space-greyrefurbished-5'), '64GB Wi-Fi');
+  assert.equal(ipadConfig('ipad-mini-6-64gb-wifi5g-starlight-refurbished-5'), '64GB Cellular');
+  assert.equal(ipadConfig('ipad-pro-5-12-9-2021-wifi-5g-space-grey-refurbished-5-m'), '', 'geen opslag in de handle');
+  assert.equal(ipadConfig('iphone-13-128gb-blue-refurbished-4'), '');
+  assert.equal(deviceConfig('ipad-air-6-11-2024-m2-256gb-wifi-5g-blue-nieuw'), '256GB Cellular', 'iPad met M-chip is geen MacBook');
+  assert.equal(deviceConfig('macbook-air-13-m2-2022-16gb-1tbssd-midnight-refurbished-5'), 'M2/16GB/1TB');
+  assert.equal(configLabel('256GB Cellular', 'nl'), '256 GB opslag · Wi-Fi + Cellular');
+  assert.equal(configLabel('64GB Wi-Fi', 'fr'), '64 Go stockage · Wi-Fi');
+  for (const h of ['ipad-pro-2020-11', 'refurbished-ipad-pro-13-2024', 'microforce-ipad-ipad-air-5-2022', 'refurbshed-ipad-2025', 'refurbished-ipad-mini-7']) assert.equal(isIpadCollection(h), true, h);
+  for (const h of ['refurbished-ipad', 'hoesjes-ipad-mini-6', 'cs-atb-ipad-2019', 'microforce-reparaties-tablet-ipad-apple', 'refurbished-iphone-16']) assert.equal(isIpadCollection(h), false, h);
+  assert.equal(collectionName('microforce-ipad-ipad-air-5-2022'), 'iPad Air 5 2022');
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'nl', consent: true, grades: [4, 5] };
+  assert.equal(parseRequest({ ...base, collection: 'ipad-pro-2020-11', configs: ['256GB Cellular', '128GB Wi-Fi'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'ipad-pro-2020-11', configs: ['256GB'] }).ok, false, 'iPad zonder verbinding');
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-ipad', configs: ['256GB Wi-Fi'] }).ok, false, 'niet de hoofdpagina');
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16', configs: ['256GB Wi-Fi'] }).ok, false);
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'ipad-pro-2020-11', config_key: '128GB Cellular', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['ipad-pro-2020-11', [
+    { handle: 'ipad-pro-11-2020-128gb-wifi-space-grey-refurbished-5', status: 'ACTIVE', totalInventory: 1, price: 399 },
+    { handle: 'ipad-pro-11-2020-128gb-wifi-4g-space-grey-refurbished-5', status: 'ACTIVE', totalInventory: 1, price: 469 },
+    { handle: 'ipad-pro-11-2020-128gb-wifi-4g-space-grey-refurbished-3', status: 'ACTIVE', totalInventory: 1, price: 419 },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'ipad-pro-11-2020-128gb-wifi-4g-space-grey-refurbished-5', 'Cellular in een gekozen staat, niet de Wi-Fi-versie');
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /iPad/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook|iPhone/);
+  // De databasecontrole (security/sql/shop-stock-requests-configs.sql) laat precies de sleutels van core.ts toe.
+  const sql = read('security/sql/shop-stock-requests-configs.sql');
+  const db = new RegExp(/config_key ~ '([^']+)'/.exec(sql)[1]);
+  for (const k of ['M2/16GB/1TB', 'M1 Pro/16GB/512GB', '128GB', '1TB', '256GB Wi-Fi', '1TB Cellular']) {
+    assert.equal(db.test(k), true, k);
+    assert.equal(MAC_KEY.test(k) || IPHONE_KEY.test(k) || IPAD_KEY.test(k), true, k);
+  }
+  for (const k of ['256GB Wifi', 'M2', '256 GB', '256GB Cellular x']) assert.equal(db.test(k), false, k);
+});
