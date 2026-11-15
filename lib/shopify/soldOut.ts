@@ -1,76 +1,57 @@
 import 'server-only';
-// Uitverkochte refurbished toestellen van één modelcollectie, voor "Verwittig mij" op de modelpagina van de webshop.
-// Shopify toont producten met status "Niet vermeld" (UNLISTED) niet in een collectie op de winkel, dus de theme kan ze
-// zelf niet vinden. Deze helper leest ze via de Admin API: per product de handle, opslag, staat (sterren) en kleur.
-// De productpagina's van die toestellen hebben de knop "Breng mij op de hoogte" van de app Stok.
+// Uitverkochte refurbished toestellen van één modelcollectie, voor "Verwittig mij" en "Op aanvraag" op de modelpagina van
+// de webshop. Shopify toont producten met status "Niet vermeld" (UNLISTED) niet in een collectie op de winkel, dus de theme
+// kan ze zelf niet vinden. Deze helper leest ze via de Admin API. Opslag, staat, verbinding en configuratie komen uit de
+// ERP-velden (lib/shopify/erp.ts), nooit uit de handle; de handle dient alleen als link naar de productpagina.
+import { ERP_FIELDS_GQL, erpConfig, erpFields, erpGrade, erpNet, erpSize, NEW_IN_BOX_GRADE, type DeviceKind, type ErpRaw } from './erp';
 
-export const SOLD_OUT_QUERY = `query SoldOut($handle: String!) {
+export { NEW_IN_BOX_GRADE };
+
+function soldOutQuery(withSwatch: boolean): string {
+  return `query SoldOut($handle: String!) {
   collectionByIdentifier(identifier: { handle: $handle }) {
     products(first: 250) {
       nodes {
         handle
         status
-        totalInventory
+        totalInventory${ERP_FIELDS_GQL}${withSwatch ? `
         swatch: metafield(namespace: "custom", key: "color_swatch") {
           reference { ... on Metaobject { name: field(key: "name") { value } } }
-        }
+        }` : ''}
       }
     }
   }
 }`;
-
-/** Zelfde vraag zonder kleur, voor het geval de app geen toegang heeft tot metaobjecten. */
-export const SOLD_OUT_QUERY_BASIC = SOLD_OUT_QUERY.replace(/\n\s*swatch: metafield[\s\S]*?\n\s*\}\n(?=\s*\}\n\s*\}\n\s*\}\n\}$)/, '\n');
-
-export type SoldOutRaw = {
-  collectionByIdentifier: {
-    products: { nodes: { handle: string; status: string; totalInventory: number | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null }[] };
-  } | null;
-};
-
-export type SoldOutItem = { handle: string; size: string; grade: string; colour: string };
-
-/** Staat 6 = "Nieuw in Box" (handle met "nieuw" of "new" in plaats van "refurbished-<sterren>"). */
-export const NEW_IN_BOX_GRADE = 6;
-
-/**
- * Opslag ("128GB", "1TB") en staat uit de handle: "3", "4", "5" (bv. iphone-13-128gb-blue-refurbished-4-m) of "6" voor
- * Nieuw in Box (bv. macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box, macbook-air-15-l23-m2-16gb-1tb-ssd-sg-new).
- * Samsung zonder "refurb" (bv. samsung-galaxy-z-fold7-512gb-phantom-black-5-m): laatste losse 3, 4 of 5 na de opslag.
- */
-export function parseHandle(handle: string): { size: string; grade: string } | null {
-  const words = handle.toLowerCase().split('-');
-  let size = '';
-  for (const w of words) {
-    const m = /^(\d+)(gb|tb)$/.exec(w);
-    if (m && Number(m[1]) > 0) { size = m[1] + m[2].toUpperCase(); break; }
-  }
-  if (!size) return null;
-  const at = words.findIndex(w => w.includes('refurb'));
-  if (at >= 0) {
-    const grade = words.slice(at + 1).find(w => /^[345]$/.test(w)) ?? '';
-    return grade ? { size, grade } : null;
-  }
-  if (words.includes('nieuw') || words.includes('new')) return { size, grade: String(NEW_IN_BOX_GRADE) };
-  // Samsung zonder "refurb" in de handle (Z Fold, Z Flip, Galaxy A): "samsung-galaxy-z-fold7-512gb-phantom-black-5-m".
-  // De staat is dan het laatste losse cijfer 3, 4 of 5 na de opslag (eventueel gevolgd door "m").
-  if (words[0] === 'samsung') {
-    const after = words.slice(words.findIndex(w => /^(\d+)(gb|tb)$/.test(w)) + 1);
-    const grade = [...after].reverse().find(w => /^[345]$/.test(w)) ?? '';
-    return grade ? { size, grade } : null;
-  }
-  return null;
 }
 
-export function soldOutItems(raw: SoldOutRaw): SoldOutItem[] {
+export const SOLD_OUT_QUERY = soldOutQuery(true);
+/** Zelfde vraag zonder kleurstaal, voor het geval de app geen toegang heeft tot metaobjecten. */
+export const SOLD_OUT_QUERY_BASIC = soldOutQuery(false);
+
+export type SoldOutNode = ErpRaw & { handle: string; status: string; totalInventory: number | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null };
+export type SoldOutRaw = { collectionByIdentifier: { products: { nodes: SoldOutNode[] } } | null };
+
+/**
+ * Eén uitverkocht toestel: handle (link), opslag ("128GB"), staat ("3", "4", "5" of "6" = Nieuw in Box), kleur,
+ * verbinding ("Wi-Fi"/"Cellular", alleen iPad) en configuratie (zelfde sleutel als in de verwittigingen, bv. "M2/16GB/1TB").
+ */
+export type SoldOutItem = { handle: string; size: string; grade: string; colour: string; net: string; config: string };
+
+export function soldOutItems(raw: SoldOutRaw, kind: DeviceKind = ''): SoldOutItem[] {
   const nodes = raw.collectionByIdentifier?.products.nodes ?? [];
   const out: SoldOutItem[] = [];
   for (const n of nodes) {
-    // Alleen "Niet vermeld" (concepten zijn bewust nog niet klaar), refurbished of Nieuw in Box (zie parseHandle).
+    // Alleen "Niet vermeld" (concepten zijn bewust nog niet klaar) met een staat in het ERP (refurbished of Nieuw in Box).
     if (n.status !== 'UNLISTED' || (n.totalInventory ?? 0) > 0) continue;
-    const parsed = parseHandle(n.handle);
-    if (!parsed) continue;
-    out.push({ handle: n.handle, ...parsed, colour: (n.swatch?.reference?.name?.value ?? '').trim() });
+    const f = erpFields(n);
+    const grade = erpGrade(f.condition);
+    const size = erpSize(f.storage || f.ssd);
+    if (!grade || !size) continue;
+    out.push({
+      handle: n.handle, size, grade: String(grade),
+      colour: (n.swatch?.reference?.name?.value ?? f.colour ?? '').trim(),
+      net: erpNet(f.net), config: erpConfig(kind, f),
+    });
   }
   return out;
 }

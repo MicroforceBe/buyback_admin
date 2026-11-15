@@ -1,16 +1,18 @@
 import 'server-only';
 // Modelcollectie uit Shopify voor de verwittigingen: titel (modelnaam in de mail) en per product handle, status, voorraad,
-// laagste prijs en foto (ook uitverkochte toestellen met status "Niet vermeld", voor een algemene foto van het model).
+// laagste prijs, foto (ook uitverkochte toestellen met status "Niet vermeld", voor een algemene foto van het model) en de
+// ERP-velden waaruit configuratie en staat komen (nooit uit de handle).
 import { createShopifyClient, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import type { ShopProduct } from './core';
+import { ERP_FIELDS_GQL, erpFields, type ErpRaw } from '@/lib/shopify/erp';
 
 const COLLECTION_QUERY = `query StockRequestCollection($handle: String!) {
   collectionByIdentifier(identifier: { handle: $handle }) {
     title
-    products(first: 250) { nodes { handle status totalInventory priceRangeV2 { minVariantPrice { amount } } featuredMedia { preview { image { url } } } } }
+    products(first: 250) { nodes { handle status totalInventory priceRangeV2 { minVariantPrice { amount } } featuredMedia { preview { image { url } } }${ERP_FIELDS_GQL} } }
   }
 }`;
-type Raw = { collectionByIdentifier: { title: string; products: { nodes: { handle: string; status: string; totalInventory: number | null; priceRangeV2?: { minVariantPrice?: { amount?: string } }; featuredMedia?: { preview?: { image?: { url?: string } | null } | null } | null }[] } } | null };
+type Raw = { collectionByIdentifier: { title: string; products: { nodes: (ErpRaw & { handle: string; status: string; totalInventory: number | null; priceRangeV2?: { minVariantPrice?: { amount?: string } }; featuredMedia?: { preview?: { image?: { url?: string } | null } | null } | null })[] } } | null };
 
 export type ShopCollection = { title: string; products: ShopProduct[] };
 
@@ -29,6 +31,7 @@ export async function fetchCollection(client: ShopifyClient, handle: string): Pr
       handle: n.handle, status: n.status, totalInventory: n.totalInventory,
       price: n.priceRangeV2?.minVariantPrice?.amount ? Number(n.priceRangeV2.minVariantPrice.amount) : null,
       image: n.featuredMedia?.preview?.image?.url ?? null,
+      erp: erpFields(n),
     })),
   };
 }

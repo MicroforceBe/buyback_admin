@@ -1,77 +1,25 @@
-// Verwittigingen "Op aanvraag" op de MacBook-, iPhone-, Samsung- en iPad-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
+// Verwittigingen "Op aanvraag" op de MacBook-, iPhone-, Samsung- en iPad-modelpagina's van microforce.be: pure functies (configuratie uit de ERP-velden, nooit uit de product-handle;
 // invoer controleren, matchen met voorraad, mailteksten in het Nederlands, Frans en Engels). Geen netwerk of database.
 // Gebruikt door app/api/public/aanvraag (aanvragen), lib/stockRequests/run.ts (cron) en de overzichtspagina.
-import { parseHandle } from '@/lib/shopify/soldOut';
+import { erpConfig, erpGrade, type DeviceKind, type ErpFields } from '@/lib/shopify/erp';
 
 export type Lang = 'nl' | 'fr' | 'en';
 export const LANGS: Lang[] = ['nl', 'fr', 'en'];
 export const SHOP = 'https://microforce.be';
 export const MAX_CONFIGS = 12;
 
-/**
- * Configuratie van een MacBook uit de handle: "M2/16GB/1TB", "M1 Pro/16GB/512GB", of '' als het geen MacBook is of
- * de configuratie niet te lezen is. Zelfde ontleding als macCfg in de theme (snippets/model-verwittig.liquid en
- * snippets/model-op-aanvraag.liquid): eerste getal met GB = werkgeheugen ("16gb" of "16-gb"), opslag = volgende GB/TB of
- * het deel voor "ssd" ("512ssd", "1tbssd", "1-tb-ssd").
- */
-export function macConfig(handle: string): string {
-  const w = String(handle || '').toLowerCase().split('-');
-  if (w[0] !== 'macbook') return '';
-  let chip = '', ram = 0, ssd = '', p1 = '', p2 = '';
-  for (let i = 0; i < w.length; i++) {
-    const x = w[i];
-    if (!chip && /^m[1-9]$/.test(x)) { chip = x.toUpperCase(); if (w[i + 1] === 'pro') chip += ' Pro'; else if (w[i + 1] === 'max') chip += ' Max'; }
-    if (ram && !ssd && /^\d+(gb|tb)$/.test(x) && parseInt(x, 10) > 0) ssd = parseInt(x, 10) + (/tb$/.test(x) ? 'TB' : 'GB');
-    if (!ram) { if (x === 'gb') ram = parseInt(p1, 10) || 0; else if (/^\d+gb$/.test(x)) ram = parseInt(x, 10); }
-    if (!ssd && x.includes('ssd')) {
-      let pre = x.split('ssd')[0];
-      if (!pre) { pre = p1; if (pre === 'tb' || pre === 'gb') pre = p2 + p1; }
-      const n = parseInt(pre, 10) || 0;
-      ssd = n ? n + (pre.includes('tb') ? 'TB' : 'GB') : '';
-    }
-    p2 = p1; p1 = x;
-  }
-  return chip && ram && ssd ? `${chip}/${ram}GB/${ssd}` : '';
+/** Soort modelpagina uit de handle van de modelcollectie (niet van een product): MacBook, iPhone/Samsung, iPad of ''. */
+export function collectionKind(collection: string): DeviceKind {
+  const c = String(collection || '').toLowerCase();
+  if (/^refurbished-macbook-[a-z0-9-]{1,80}$/.test(c)) return 'mac';
+  if (/^refurbished-iphone-[a-z0-9-]{1,80}$/.test(c) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, c) || isSamsungCollection(c)) return 'iphone';
+  if (isIpadCollection(c)) return 'ipad';
+  return '';
 }
 
-/**
- * Configuratie van een smartphone (iPhone of Samsung Galaxy) uit de handle: de opslag ("128GB", "1TB"), of '' als het
- * geen smartphone is. Zelfde ontleding als in de theme (snippets/model-winkels.liquid en snippets/model-op-aanvraag.liquid):
- * eerste GB/TB-woord. Samsung-producthandles beginnen met "samsung-galaxy-" (tablets "samsung-galaxy-tab-" niet).
- */
-export function iphoneConfig(handle: string): string {
-  const w = String(handle || '').toLowerCase().split('-');
-  const samsung = w[0] === 'samsung' && w[1] === 'galaxy' && w[2] !== 'tab';
-  if (w[0] !== 'iphone' && !samsung) return '';
-  const m = w.find(x => /^\d+(gb|tb)$/.test(x) && parseInt(x, 10) > 0);
-  return m ? parseInt(m, 10) + (/tb$/.test(m) ? 'TB' : 'GB') : '';
-}
-
-/**
- * Configuratie van een iPad uit de handle: opslag en verbinding, "256GB Wi-Fi" of "256GB Cellular"; '' als het geen iPad
- * is of de opslag niet in de handle staat. Zelfde ontleding als in de theme (snippets/model-op-aanvraag.liquid): eerste
- * GB/TB-woord vanaf 16 GB ("512g" telt als 512GB; "4g" en "5g" zijn het netwerk); Cellular als de handle 4g, 5g, lte of
- * cellular bevat ("wifi-4g", "wifi-5g", "wifi5g").
- */
-export function ipadConfig(handle: string): string {
-  const w = String(handle || '').toLowerCase().split('-');
-  if (w[0] !== 'ipad') return '';
-  let ssd = '';
-  for (const x of w) {
-    const m = /^(\d+)(gb|tb|g)$/.exec(x);
-    if (!m) continue;
-    const n = parseInt(m[1], 10);
-    if (m[2] === 'tb' && n > 0) { ssd = n + 'TB'; break; }
-    if (n >= 16) { ssd = n + 'GB'; break; }
-  }
-  if (!ssd) return '';
-  const cel = /-(4g|5g|lte)-|wifi[45]g|cellular/.test('-' + w.join('-') + '-');
-  return `${ssd} ${cel ? 'Cellular' : 'Wi-Fi'}`;
-}
-
-/** Configuratie van een toestel: iPad ("256GB Cellular"), MacBook ("M2/16GB/1TB") of smartphone ("128GB"); '' als ze niet te lezen is. */
-export function deviceConfig(handle: string): string {
-  return ipadConfig(handle) || macConfig(handle) || iphoneConfig(handle);
+/** Configuratie van een toestel uit de ERP-velden (nooit uit de handle): MacBook "M2/16GB/1TB", iPhone/Samsung "128GB", iPad "256GB Cellular". */
+export function deviceConfig(kind: DeviceKind, erp: ErpFields | undefined): string {
+  return erp ? erpConfig(kind, erp) : '';
 }
 
 export const MAC_KEY = /^M[1-9]( Pro| Max)?\/[0-9]{1,3}GB\/[0-9]{1,4}(GB|TB)$/;
@@ -142,7 +90,7 @@ export function parseRequest(body: unknown): ParseResult {
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
-  const soort = /^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection) ? 'mac' : /^refurbished-iphone-[a-z0-9-]{1,80}$/.test(collection) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, collection) || isSamsungCollection(collection) ? 'iphone' : isIpadCollection(collection) ? 'ipad' : '';
+  const soort = collectionKind(collection);
   if (!soort) return { ok: false, error: 'invalid' };
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
   const keyOk = soort === 'mac' ? MAC_KEY : soort === 'ipad' ? IPAD_KEY : IPHONE_KEY;
@@ -154,7 +102,7 @@ export function parseRequest(body: unknown): ParseResult {
 }
 
 export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };
-export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null };
+export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null; erp?: ErpFields };
 export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null; image?: string | null }; model?: string };
 
 /** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie in een van de gekozen staten. */
@@ -162,9 +110,10 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
   const out: Match[] = [];
   for (const r of requests) {
     let best: Match['product'] | null = null;
+    const kind = collectionKind(r.collection_handle);
     for (const p of productsByCollection.get(r.collection_handle) ?? []) {
-      if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || deviceConfig(p.handle) !== r.config_key) continue;
-      const grade = Number(parseHandle(p.handle)?.grade ?? 0);
+      if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || deviceConfig(kind, p.erp) !== r.config_key) continue;
+      const grade = erpGrade(p.erp?.condition);
       // Een toestel Nieuw in Box (6) is ook goed voor wie "Als nieuw" (5) koos.
       if (!r.grades.includes(grade) && !(grade === 6 && r.grades.includes(5))) continue;
       if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price, image: p.image ?? null };
@@ -347,10 +296,10 @@ export function mailImage(url: string | null | undefined, width = 240): string |
 }
 
 /** Per configuratie de foto van een toestel uit de modelcollectie: liefst dezelfde configuratie, anders eender welk. */
-export function pickImages(keys: string[], products: { handle: string; image?: string | null }[]): Record<string, string | null> {
+export function pickImages(keys: string[], products: { handle: string; image?: string | null; erp?: ErpFields }[], kind: DeviceKind): Record<string, string | null> {
   const any = products.find(p => p.image)?.image ?? null;
   const out: Record<string, string | null> = {};
-  for (const k of keys) out[k] = products.find(p => p.image && deviceConfig(p.handle) === k)?.image ?? any;
+  for (const k of keys) out[k] = products.find(p => p.image && deviceConfig(kind, p.erp) === k)?.image ?? any;
   return out;
 }
 

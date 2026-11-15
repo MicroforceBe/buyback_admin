@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { adminBaseUrl, configLabel, confirmationMail, modelName, parseRequest, pickImages, unsubscribeUrl, type MailItem } from '@/lib/stockRequests/core';
+import { adminBaseUrl, collectionKind, configLabel, confirmationMail, modelName, parseRequest, pickImages, unsubscribeUrl, type MailItem } from '@/lib/stockRequests/core';
 import { fetchCollection, shopClient } from '@/lib/stockRequests/shop';
 import { sendShopMail } from '@/lib/stockRequests/mail';
 
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     try {
       const client = shopClient();
       const c = client ? await fetchCollection(client, v.collection) : null;
-      if (c) { const img = pickImages(v.keys, c.products); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
+      if (c) { const img = pickImages(v.keys, c.products, collectionKind(v.collection)); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
     } catch { /* zonder foto */ }
     await sendShopMail(v.email, confirmationMail(v.language, v.name, items, v.grades, link, v.collection), link);
   } catch {

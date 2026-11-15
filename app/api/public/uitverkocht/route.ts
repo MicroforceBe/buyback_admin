@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createShopifyClient, shopifyConfig } from '@/lib/shopify/client';
 import { SOLD_OUT_QUERY, SOLD_OUT_QUERY_BASIC, soldOutItems, type SoldOutRaw } from '@/lib/shopify/soldOut';
+import { collectionKind } from '@/lib/stockRequests/core';
 
-// Publieke, alleen-lezen lijst met uitverkochte toestellen van één modelcollectie (handle, opslag, staat, kleur),
+// Publieke, alleen-lezen lijst met uitverkochte toestellen van één modelcollectie (handle, opslag, staat, kleur, verbinding en
+// configuratie, uit de ERP-velden),
 // voor "Verwittig mij" in de keuzehulp op de modelpagina's van microforce.be (snippet model-overzicht.liquid).
 // Geen prijzen, voorraad of klantgegevens. CORS alleen voor de webshop; 15 minuten gecachet aan de rand.
 export const dynamic = 'force-dynamic';
@@ -42,7 +44,7 @@ export async function GET(request: Request) {
     catch { raw = await client.graphql<SoldOutRaw>(SOLD_OUT_QUERY_BASIC, { handle }); } // zonder kleur
     if (!raw.collectionByIdentifier) return NextResponse.json({ error: 'Collectie niet gevonden' }, { status: 404, headers });
     return NextResponse.json(
-      { items: soldOutItems(raw) },
+      { items: soldOutItems(raw, collectionKind(handle)) },
       { headers: { ...headers, 'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=3600' } },
     );
   } catch {
