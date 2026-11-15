@@ -37,7 +37,7 @@ persoonsgegevens blijven in de EU en elke databasevraag is sneller.
 ## Configuratie (Vercel-omgevingsvariabelen, door de eigenaar)
 - `SHOPIFY_STORE_DOMAIN` – bv. `microforce-test.myshopify.com`
 - `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` – van de Dev Dashboard-app "Microforce ERP Sync"
-- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, plus `read_publications, write_publications` (actieve producten in de webshop zetten), plus `read_metaobjects` (kleurnaam uit het kleurbolletje `custom.color_swatch` voor "Op aanvraag" en "Verwittig mij"; zonder dit recht valt `/api/public/uitverkocht` terug op `magento.colour_of_product`, dat bij nieuwere toestellen leeg is)
+- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, plus `read_publications, write_publications` (actieve producten in de webshop zetten). Geen `read_metaobjects`: `/api/public/uitverkocht` geeft het nummer van het kleurbolletje (`swatch`, uit `custom.color_swatch`) en de webshop zet dat om naar de naam (snippet `mf-kleuren`)
 
 ## Uitrol
 1. `security/sql/shopify-sync.sql` op productie (staat al op test).
