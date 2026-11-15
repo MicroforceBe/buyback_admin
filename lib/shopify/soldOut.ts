@@ -15,7 +15,8 @@ function soldOutQuery(withSwatch: boolean): string {
       nodes {
         handle
         status
-        totalInventory${ERP_FIELDS_GQL}${withSwatch ? `
+        totalInventory${ERP_FIELDS_GQL}
+        swatchId: metafield(namespace: "custom", key: "color_swatch") { value }${withSwatch ? `
         swatch: metafield(namespace: "custom", key: "color_swatch") {
           reference { ... on Metaobject { name: field(key: "name") { value } } }
         }` : ''}
@@ -32,7 +33,7 @@ export const SOLD_OUT_QUERY = soldOutQuery(true);
  */
 export const SOLD_OUT_QUERY_BASIC = soldOutQuery(false);
 
-export type SoldOutNode = ErpRaw & { handle: string; status: string; totalInventory: number | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null };
+export type SoldOutNode = ErpRaw & { handle: string; status: string; totalInventory: number | null; swatchId?: { value: string | null } | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null };
 export type SoldOutRaw = { collectionByIdentifier: { products: { nodes: SoldOutNode[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } } | null };
 
 /** Maximaal aantal pagina's van 100 producten per collectie (een modelcollectie heeft er zelden meer dan 250). */
@@ -40,9 +41,11 @@ export const SOLD_OUT_MAX_PAGES = 5;
 
 /**
  * Eén uitverkocht toestel: handle (link), opslag ("128GB"), staat ("3", "4", "5" of "6" = Nieuw in Box), kleur,
- * verbinding ("Wi-Fi"/"Cellular", alleen iPad) en configuratie (zelfde sleutel als in de verwittigingen, bv. "M2/16GB/1TB").
+ * verbinding ("Wi-Fi"/"Cellular", alleen iPad), configuratie (zelfde sleutel als in de verwittigingen, bv. "M2/16GB/1TB") en
+ * het nummer van het kleurbolletje (custom.color_swatch, bv. "78434566476"). De naam van het kleurbolletje kan deze app niet
+ * altijd lezen; de webshop zet het nummer om naar de naam in de taal van de bezoeker (Olivier, 15/11).
  */
-export type SoldOutItem = { handle: string; size: string; grade: string; colour: string; net: string; config: string };
+export type SoldOutItem = { handle: string; size: string; grade: string; colour: string; net: string; config: string; swatch: string };
 
 export function soldOutItems(raw: SoldOutRaw, kind: DeviceKind = ''): SoldOutItem[] {
   const nodes = raw.collectionByIdentifier?.products.nodes ?? [];
@@ -58,6 +61,7 @@ export function soldOutItems(raw: SoldOutRaw, kind: DeviceKind = ''): SoldOutIte
       handle: n.handle, size, grade: String(grade),
       colour: (n.swatch?.reference?.name?.value ?? f.colour ?? '').trim(),
       net: erpNet(f.net), config: erpConfig(kind, f),
+      swatch: /^gid:\/\/shopify\/Metaobject\/(\d+)$/.exec(n.swatchId?.value ?? '')?.[1] ?? '',
     });
   }
   return out;

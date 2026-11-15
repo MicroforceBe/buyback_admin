@@ -247,13 +247,14 @@ test('iPhone: storage as configuration, requests on iPhone model pages, mails na
 test('Nieuw in Box: staat 6 uit de ERP-conditie, in de lijst, in de aanvraag en goed voor wie "Als nieuw" koos', async () => {
   const sold = await load('lib/shopify/soldOut.ts');
   const v = x => ({ value: x });
-  const node = (handle, status, f) => ({ handle, status, totalInventory: 0, erpSsd: v(f.ssd), erpRam: v(f.ram), erpFamily: v(f.family), erpModel: v(f.model), erpCondition: v(f.condition), erpColour: v('Midnight') });
+  const node = (handle, status, f) => ({ handle, status, totalInventory: 0, erpSsd: v(f.ssd), erpRam: v(f.ram), erpFamily: v(f.family), erpModel: v(f.model), erpCondition: v(f.condition), erpColour: v('Midnight'), swatchId: v('gid://shopify/Metaobject/78536606028') });
   const items = sold.soldOutItems({ collectionByIdentifier: { products: { nodes: [
     node('macbook-air-15-e26-m5-nieuw-in-box', 'UNLISTED', mac('M5', 16, '1 TB', 'Nieuw')),
     node('macbook-air-15-e24-m3-8gb-256ssd-silver-nieuw-in-box', 'DRAFT', mac('M3', 8, '256 GB', 'Nieuw')),
     node('zonder-staat', 'UNLISTED', mac('M5', 16, '1 TB', '')),
   ] } } }, 'mac');
   assert.deepEqual(plain(items.map(i => [i.handle, i.grade, i.size, i.config, i.colour])), [['macbook-air-15-e26-m5-nieuw-in-box', '6', '1TB', 'M5/16GB/1TB', 'Midnight']], 'concepten en toestellen zonder staat blijven buiten de lijst');
+  assert.equal(items[0].swatch, '78536606028', 'nummer van het kleurbolletje, voor de naam in de webshop');
   const { parseRequest, matchRequests, gradesLabel } = await core();
   const ok = { name: 'Jan', email: 'jan@example.be', language: 'nl', collection: 'refurbished-macbook-air-15-m5', configs: ['M5/16GB/1TB'], grades: [6], consent: true, website: '' };
   assert.deepEqual(plain(parseRequest(ok).value.grades), [6]);
