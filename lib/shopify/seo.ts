@@ -97,14 +97,16 @@ const PICKUP = ['Gratis afhalen in Gentbrugge, Antwerpen & Oudenaarde of snelle 
 const CONDITION_PHRASE: Record<string, string> = { '5': 'in nieuwstaat', '4': 'in zeer goede staat', '3': 'in goede staat' };
 
 /**
- * The battery promise (Olivier, 2026-11): every refurbished device with a battery has at least 85%;
- * for iPhones and MacBooks the customer can choose a new battery. Longest form first; none for devices
- * without a battery (desktops, monitors, accessories).
+ * The battery promise (Olivier, 2026-11): every refurbished device with a battery has at least 85%,
+ * MacBooks and iPads at least 80%; for iPhones and MacBooks the customer can choose a new battery.
+ * Longest form first; none for devices without a battery (desktops, monitors, accessories).
  */
 export function batteryPhrases(title: string): [string, string][] {
   const t = title.toLowerCase();
   // [long, short] forms.
-  if (/\b(iphone|macbook)\b/.test(t)) return [['een batterij van minstens 85% of een nieuwe', 'batterij min. 85% of een nieuwe'], ['een batterij van minstens 85%', 'batterij min. 85%']];
+  if (/\biphone\b/.test(t)) return [['een batterij van minstens 85% of een nieuwe', 'batterij min. 85% of een nieuwe'], ['een batterij van minstens 85%', 'batterij min. 85%']];
+  if (/\bmacbook\b/.test(t)) return [['een batterij van minstens 80% of een nieuwe', 'batterij min. 80% of een nieuwe'], ['een batterij van minstens 80%', 'batterij min. 80%']];
+  if (/\bipad\b/.test(t)) return [['een batterij van minstens 80%', 'batterij min. 80%']];
   if (/\b(imac|mac mini|mac studio|mac pro|desktop|all-in-one|optiplex|monitor|beeldscherm)\b/.test(t)) return [];
   if (/\b(phone|smartphone|galaxy|pixel|ipad|tablet|tab|watch|laptop|notebook|chromebook|latitude|thinkpad|elitebook|probook|surface|airpods)\b/.test(t)) return [['een batterij van minstens 85%', 'batterij min. 85%']];
   return [];

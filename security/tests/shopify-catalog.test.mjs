@@ -117,6 +117,8 @@ test('SEO title and meta description follow the shop style and stay within the l
   assert.match(seo.suggestSeoDescription('iPhone 12 256GB Purple Refurbished 4* M', true, '12 maanden'), /85% of een nieuwe\.$/);
   assert.doesNotMatch(seo.suggestSeoDescription('Samsung Galaxy S23 128GB Black Refurbished 3* M', true, '12 maanden'), /nieuwe\.$/);
   assert.match(seo.suggestSeoDescription('Samsung Galaxy S23 128GB Black Refurbished 3* M', true, '12 maanden'), /85%\.$/);
+  assert.match(seo.suggestSeoDescription('MacBook Air 13" M1 8GB 256SSD Refurbished 4*', true, '24 maanden'), /80% of een nieuwe\.$/);
+  assert.match(seo.suggestSeoDescription('iPad 2021 64GB Wifi Space Grey Refurbished 5*', true, '24 maanden'), /80%\.$/);
   assert.doesNotMatch(seo.suggestSeoDescription('iMac 24" M1 8GB 256GB Blue Refurbished 4*', true, '12 maanden'), /batterij/);
   // The warranty comes from the product field, as given.
   assert.match(seo.suggestSeoDescription('iPhone 13 mini 128GB Midnight Refurbished 4* M', true, '2 jaar'), /2 jaar garantie/);
