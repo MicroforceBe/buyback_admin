@@ -141,11 +141,18 @@ export const PRODUCT_CREATE = `mutation CreateDraftProduct($input: ProductSetInp
 
 // ---------- product clean-up (archive / restore / delete) ----------
 
+// What pickRedirectCollection (redirectTarget.ts) needs to choose where an archived product's URL goes.
+export const REDIRECT_COLLECTIONS = `collections(first: 10) { nodes { handle productsCount { count }
+  modelIntro: metafield(namespace: "microforce", key: "model_intro") { id }
+  hubIntro: metafield(namespace: "mf_tekst", key: "intro") { id }
+  seoHidden: metafield(namespace: "seo", key: "hidden") { value } } }`;
+
+
 // One product per request: stock is read per variant and location (a net total can hide +3/-3).
 export const PRODUCT_INFO = `query ProductInfo($id: ID!) {
   product(id: $id) {
     id title handle status
-    collections(first: 1) { nodes { handle } }
+    ${REDIRECT_COLLECTIONS}
     variants(first: 50) {
       pageInfo { hasNextPage }
       nodes {
