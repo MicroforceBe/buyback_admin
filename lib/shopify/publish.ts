@@ -107,3 +107,112 @@ export function erpMatchedProducts(erpSkus: Iterable<string>, variants: { sku: s
   for (const v of variants) if (v.sku) seen.set(v.sku, (seen.get(v.sku) ?? 0) + 1);
   return new Set(variants.filter(v => v.sku && erp.has(v.sku) && seen.get(v.sku) === 1).map(v => v.productId));
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Extra sales channels (Olivier, 2026-11-18): every new product and every active ERP product is also on
+// Shop and Facebook & Instagram, next to the Online Store. Google & YouTube stays off on purpose: Google
+// gets the products from the own Merchant feed (a second source would duplicate them).
+
+/** Channel handles per sales channel; the Shop and Facebook handles carry a suffix per store ("shop-72", "facebook-ads"). */
+const CHANNEL_MATCH: Record<'web' | 'shop' | 'social', (handle: string) => boolean> = {
+  web: h => h === 'online_store',
+  shop: h => /^shop(-\d+)?$/.test(h),
+  social: h => /^facebook/.test(h),
+};
+export const CHANNEL_LABEL: Record<'web' | 'shop' | 'social', string> = { web: 'Online Store', shop: 'Shop', social: 'Facebook & Instagram' };
+export type ChannelIds = Partial<Record<'web' | 'shop' | 'social', string>>;
+
+/** Publication ids of the wanted sales channels that are installed (a missing channel is simply left out). */
+export async function channelPublications(client: ShopifyClient): Promise<ChannelIds> {
+  const { publications } = await client.graphql<{ publications: { nodes: { id: string; channels: { nodes: { handle: string }[] } | null }[] } }>(ONLINE_STORE_PUBLICATION);
+  const out: ChannelIds = {};
+  for (const key of Object.keys(CHANNEL_MATCH) as (keyof typeof CHANNEL_MATCH)[]) {
+    const p = publications.nodes.find(n => n.channels?.nodes?.some(c => CHANNEL_MATCH[key](c.handle)));
+    if (p) out[key] = p.id;
+  }
+  return out;
+}
+
+export const PUBLISH_ON_CHANNELS = `mutation PublishOnChannels($id: ID!, $input: [PublicationInput!]!) { publishablePublish(id: $id, input: $input) { userErrors { field message } } }`;
+
+/** Whether the app may read and write publications; null when it may, otherwise the reason. */
+async function missingPublishScope(client: ShopifyClient): Promise<string | null> {
+  const { currentAppInstallation } = await client.graphql<{ currentAppInstallation: { accessScopes: { handle: string }[] } }>(APP_SCOPES);
+  const have = new Set((currentAppInstallation?.accessScopes ?? []).map(s => s.handle));
+  const missing = REQUIRED.filter(s => !have.has(s));
+  return missing.length ? `de app mist het recht ${missing.join(' en ')}` : null;
+}
+
+/**
+ * A product the sync just created (status DRAFT) goes on Online Store, Shop and Facebook & Instagram right
+ * away: Shopify shows it nowhere while it is a draft, and once someone releases it, it is visible everywhere.
+ * Returns null when published, otherwise the reason; never throws.
+ */
+export async function publishNewProduct(client: ShopifyClient, productId: string, channels: ChannelIds): Promise<string | null> {
+  const ids = Object.values(channels).filter((x): x is string => !!x);
+  if (!ids.length) return 'geen verkoopkanalen gevonden';
+  try {
+    const { publishablePublish } = await client.graphql<{ publishablePublish: { userErrors: { message: string }[] } }>(PUBLISH_ON_CHANNELS, { id: productId, input: ids.map(publicationId => ({ publicationId })) });
+    return publishablePublish.userErrors.length ? publishablePublish.userErrors.map(e => e.message).join('; ').slice(0, 300) : null;
+  } catch (e) {
+    return (e instanceof Error ? e.message : 'onbekende fout').slice(0, 300);
+  }
+}
+
+export const ACTIVE_ON_CHANNELS = (keys: string[]) => `query ActiveOnChannels(${keys.map(k => `$${k}: ID!`).join(', ')}, $after: String) {
+  products(first: 250, after: $after, query: "status:active") { pageInfo { hasNextPage endCursor } nodes { id title ${keys.map(k => `${k}: publishedOnPublication(publicationId: $${k})`).join(' ')} } }
+}`;
+
+export type ChannelsResult =
+  | { status: 'skipped'; reason: string }
+  | { status: 'done'; candidates: number; published: number; failed: { productId: string; title: string; reason: string }[]; remaining: number; channels: string[] };
+
+/**
+ * Active ERP products that are missing on Shop or Facebook & Instagram are published there (unlisted
+ * products stay off: they are reachable by link only). With dryRun only counted.
+ */
+export async function publishActiveOnExtraChannels(client: ShopifyClient, opts: { dryRun: boolean; onlyProducts?: Set<string>; max?: number; stillLive?: () => Promise<boolean> }): Promise<ChannelsResult> {
+  const scope = await missingPublishScope(client);
+  if (scope) return { status: 'skipped', reason: scope };
+  const all = await channelPublications(client);
+  const wanted = (['shop', 'social'] as const).filter(k => all[k]);
+  if (!wanted.length) return { status: 'skipped', reason: 'Shop en Facebook & Instagram zijn niet geïnstalleerd' };
+  const vars: Record<string, string> = Object.fromEntries(wanted.map(k => [k, all[k]!]));
+  const todo: { id: string; title: string; pubs: string[] }[] = [];
+  let after: string | null = null;
+  for (;;) {
+    type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: ({ id: string; title: string } & Record<string, boolean | string>)[] } };
+    const page: Page = await client.graphql<Page>(ACTIVE_ON_CHANNELS([...wanted]), { ...vars, after });
+    for (const p of page.products.nodes) {
+      if (opts.onlyProducts && !opts.onlyProducts.has(p.id)) continue;
+      const pubs = wanted.filter(k => p[k] !== true).map(k => all[k]!);
+      if (pubs.length) todo.push({ id: p.id, title: p.title, pubs });
+    }
+    const { pageInfo } = page.products;
+    if (!pageInfo.hasNextPage || !pageInfo.endCursor || pageInfo.endCursor === after) break;
+    after = pageInfo.endCursor;
+  }
+  const channels = wanted.map(k => CHANNEL_LABEL[k]);
+  if (opts.dryRun) return { status: 'done', candidates: todo.length, published: 0, failed: [], remaining: todo.length, channels };
+  const batch = todo.slice(0, Math.max(0, Math.min(MAX_PUBLISH_PER_RUN, opts.max ?? MAX_PUBLISH_PER_RUN)));
+  const failed: { productId: string; title: string; reason: string }[] = [];
+  let published = 0;
+  for (const p of batch) {
+    if (opts.stillLive && !(await opts.stillLive())) break;
+    try {
+      const { publishablePublish } = await client.graphql<{ publishablePublish: { userErrors: { message: string }[] } }>(PUBLISH_ON_CHANNELS, { id: p.id, input: p.pubs.map(publicationId => ({ publicationId })) });
+      if (publishablePublish.userErrors.length) failed.push({ productId: p.id, title: p.title, reason: publishablePublish.userErrors.map(e => e.message).join('; ').slice(0, 300) });
+      else published++;
+    } catch (e) {
+      failed.push({ productId: p.id, title: p.title, reason: (e instanceof Error ? e.message : 'onbekende fout').slice(0, 300) });
+    }
+  }
+  return { status: 'done', candidates: todo.length, published, failed, remaining: todo.length - published - failed.length, channels };
+}
+
+/** Run counts for the sync overview. */
+export function channelCounts(r: ChannelsResult): Record<string, unknown> {
+  if (r.status === 'skipped') return { channelsPublish: `overgeslagen: ${r.reason}` };
+  return { channelsMissing: r.candidates, channelsPublished: r.published, channelsPublishFailed: r.failed.length,
+    ...(r.failed.length ? { channelsPublishErrors: r.failed.slice(0, 10).map(f => `${f.title}: ${f.reason}`) } : {}) };
+}

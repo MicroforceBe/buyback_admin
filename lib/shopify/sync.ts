@@ -7,7 +7,7 @@ import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFI
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { pickDescription } from '@/lib/shopify/seo';
-import { erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnOnlineStore, publishCounts } from '@/lib/shopify/publish';
+import { channelCounts, channelPublications, erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnExtraChannels, publishActiveOnOnlineStore, publishCounts, publishNewProduct, type ChannelIds } from '@/lib/shopify/publish';
 import { addBatteryTags, addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbished, MAX_UNLIST_PER_RUN, REFURBISHED_METAFIELD, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
 
@@ -96,7 +96,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}, productOfItem: Map<string, string> = new Map()): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}, productOfItem: Map<string, string> = new Map(), onCreated: (id: string) => Promise<void> = async () => {}): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -155,6 +155,7 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     await guard();
     const { productSet } = await client.graphql<{ productSet: { product: { id: string } | null; userErrors: UserError[] } }>(PRODUCT_CREATE, { input: c.input }, { retryServerErrors: false });
     if (productSet.userErrors.length || !productSet.product) failed.push({ id: `new:${c.sku}`, scope: 'product', field: CREATE_FIELD, reason: errorText(productSet.userErrors.length ? productSet.userErrors : [{ message: 'Shopify maakte het product niet aan.' }]) });
+    else await onCreated(productSet.product.id);
   }
   return failed;
 }
@@ -394,7 +395,19 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       }
     };
 
+    // Shop and Facebook & Instagram (Olivier, 2026-11-18): every active ERP product, also existing ones. Never fails the run.
+    const ensureOnChannels = async (live: boolean, exclude: Set<string>, max?: number) => {
+      try {
+        const onlyProducts = new Set([...managed].filter(id => !exclude.has(id) && !conflicted.has(id)));
+        const r = await publishActiveOnExtraChannels(client, { dryRun: !live, onlyProducts, max, ...(live ? { stillLive: async () => { const { data } = await db.from('shopify_sync_settings').select('mode').eq('id', true).maybeSingle(); return data?.mode === 'live'; } } : {}) });
+        Object.assign(counts, channelCounts(r));
+      } catch (e) {
+        counts.channelsPublish = `mislukt: ${(e instanceof Error ? e.message : 'onbekende fout').slice(0, 300)}`;
+      }
+    };
+
     if (mode === 'shadow') {
+      await ensureOnChannels(false, new Set());
       const r = await ensureOnStore(false, new Set());
       await planStoresAndRecord(r ? plannedPublications(r) : 0);
       return await finish('succeeded', counts);
@@ -415,6 +428,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
 
     if (plan.changes.length === 0) {
       if (toPublish) await ensureOnStore(true, new Set(), settings.max_changes);
+      await ensureOnChannels(true, new Set(), settings.max_changes);
       return await finish('succeeded', counts);
     }
 
@@ -463,7 +477,15 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       const r = product ? await redirectArchived(client, product) : null;
       if (r?.redirect) counts.missingRedirects = Number(counts.missingRedirects ?? 0) + 1;
     };
-    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate, new Map(state.variants.map(v => [v.inventoryItemId, v.productId])));
+    // New drafts go on Online Store, Shop and Facebook & Instagram right away (invisible while draft).
+    let channelIds: ChannelIds | null = null;
+    const onCreated = async (productId: string) => {
+      try { channelIds ??= await channelPublications(client); } catch { channelIds = {}; }
+      const err = await publishNewProduct(client, productId, channelIds);
+      if (err) counts.newPublishFailed = [...((counts.newPublishFailed as string[] | undefined) ?? []), err].slice(0, 10);
+      else counts.newPublished = Number(counts.newPublished ?? 0) + 1;
+    };
+    const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate, new Map(state.variants.map(v => [v.inventoryItemId, v.productId])), onCreated);
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });
@@ -480,6 +502,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     // After the writes, so products the ERP just activated are published in the same run. Products with a
     // failed write (price, stock, status…) stay hidden until a later run succeeds.
     await ensureOnStore(true, failedProducts(failures.map(f => f.id), state.variants), settings.max_changes - plan.changes.length);
+    await ensureOnChannels(true, failedProducts(failures.map(f => f.id), state.variants), settings.max_changes - plan.changes.length);
     return await finish(failedSkus.length ? 'failed' : 'succeeded', counts, failedSkus.length ? `${failedSkus.length} artikel(en) konden niet worden bijgewerkt; zie de wijzigingen.` : undefined);
   } catch (error) {
     if (error instanceof StoppedByOperator) {

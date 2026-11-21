@@ -1,5 +1,8 @@
+export function leadRequiresBattery(model: string | null | undefined) {
+ return !/^(?:apple\s+)?(?:imac\b|mac[\s-]*mini\b|(?:apple\s+)?watch\b)/i.test((model ?? '').trim());
+}
 export const LEAD_BATTERY_WARNING_PERCENT = 80;
-export type LeadLabelFields = {id:string;sku?:string|null;imei_sn?:string|null;battery_percentage?:number|null;used_parts_skus?:string[]|null;status?:string|null};
+export type LeadLabelFields = {id:string;model?:string|null;sku?:string|null;imei_sn?:string|null;battery_percentage?:number|null;used_parts_skus?:string[]|null;status?:string|null};
 export function validLeadSerial(raw:string|null|undefined){
  const value=(raw??'').trim();
  if(!/^[A-Za-z0-9-]{5,40}$/.test(value)||!/[A-Za-z0-9]/.test(value)||/^0+$/.test(value))return false;
@@ -13,7 +16,7 @@ export function leadLabelLocalIssues(fields:LeadLabelFields){
  const issues:string[]=[];
  if(!fields.sku?.trim())issues.push('Een bestaande ERP-SKU van een refurbished margeartikel is nodig.');
  if(!validLeadSerial(fields.imei_sn))issues.push('Vul een geldig SN/IMEI in: serienummer van 5–40 letters/cijfers/koppeltekens, of een IMEI van 15 cijfers met geldig controlecijfer.');
- if(typeof fields.battery_percentage!=='number'||!Number.isInteger(fields.battery_percentage)||fields.battery_percentage<0||fields.battery_percentage>100)issues.push('Vul een geheel batterijpercentage van 0 tot 100 in.');
+ if(leadRequiresBattery(fields.model)&&(typeof fields.battery_percentage!=='number'||!Number.isInteger(fields.battery_percentage)||fields.battery_percentage<0||fields.battery_percentage>100))issues.push('Vul een geheel batterijpercentage van 0 tot 100 in.');
  if(fields.status==='cancelled')issues.push('Deze lead is geannuleerd.');
  return issues;
 }

@@ -240,6 +240,25 @@ test('the redirect goes to the same model in stock, else the collection, never a
   assert.equal(target.siblingQuery('iPad Pro 11" 2022 256GB Wifi SpaceGrey Refurbished 5* M'), 'status:active inventory_total:>0 title:"ipad" title:"pro" title:"11" title:"2022" title:"256gb" title:"wifi"');
 });
 
+test('the fallback collection is the model page, else a public hub, never old Magento, feed or filter collections', async () => {
+  const { target } = await load();
+  const c = (handle, count, extra = {}) => ({ handle, productsCount: { count }, ...extra });
+  const hub = { hubIntro: { id: 'm' } };
+  // Dell Precision 5540 (18/11): Shopify listed the old Magento copy first
+  const dell = [c('microforce-reparaties-laptop-laptop', 408), c('refurbished-laptop', 408, hub), c('xml-google-shopping-feed-all', 900), c('laptops-met-512-gb-ssd', 120), c('refurbished-dell-laptops', 183, { ...hub, seoHidden: { value: '1' } })];
+  assert.equal(target.pickRedirectCollection(dell), 'refurbished-laptop');
+  // once the brand page is public, the more specific hub wins
+  assert.equal(target.pickRedirectCollection(dell.map(x => x.handle === 'refurbished-dell-laptops' ? c(x.handle, 183, hub) : x)), 'refurbished-dell-laptops');
+  // a model page beats any hub
+  assert.equal(target.pickRedirectCollection([c('refurbished-iphone', 150, hub), c('refurbished-iphone-13', 12, { modelIntro: { id: 'x' } })]), 'refurbished-iphone-13');
+  // no page with a text: the first usable collection, else none
+  assert.equal(target.pickRedirectCollection([c('microforce-reparaties-imac', 3), c('frontpage', 9), c('imac', 4)]), 'imac');
+  assert.equal(target.pickRedirectCollection([c('microforce-reparaties-imac', 3), c('all', 9)]), null);
+  assert.equal(target.pickRedirectCollection(null), null);
+  // and chooseRedirectTarget itself never sends to a blocked collection
+  assert.equal(target.chooseRedirectTarget({ handle: 'x', title: 'Dell Precision 5540', collectionHandle: 'microforce-reparaties-laptop-laptop' }, []), '/collections/all');
+});
+
 test('archiving makes the 301 right away and re-points redirects that pointed to the archived page', async () => {
   const { db, writes } = fakeDb();
   const { cleanup } = await load(db);

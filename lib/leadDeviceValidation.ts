@@ -1,4 +1,6 @@
+import { leadRequiresBattery } from './leadLabelValidation';
 export type LeadDeviceFields = {
+  model?: string | null;
   customer_number?: string | null;
   sku?: string | null;
   imei_sn?: string | null;
@@ -22,7 +24,7 @@ export function getLeadStatusIssues(status: string, fields: LeadDeviceFields): L
   if (passed && !fields.customer_number?.trim()) missing.push('customer_number');
   if (passed && !fields.sku?.trim()) missing.push('sku');
   if (!fields.imei_sn?.trim()) missing.push('imei_sn');
-  if (passed && (typeof fields.battery_percentage !== 'number' || !Number.isFinite(fields.battery_percentage) || fields.battery_percentage < 0 || fields.battery_percentage > 100)) missing.push('battery_percentage');
+  if (passed && leadRequiresBattery(fields.model) && (typeof fields.battery_percentage !== 'number' || !Number.isFinite(fields.battery_percentage) || fields.battery_percentage < 0 || fields.battery_percentage > 100)) missing.push('battery_percentage');
   if (passed && !fields.used_parts_skus?.some(sku => typeof sku === 'string' && sku.trim())) missing.push('used_parts_skus');
   return missing;
 }

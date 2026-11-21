@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { updateLeadInlineAction, searchLeadSkuAction } from "./actions";
 import LeadLabelPrintButton from "./LeadLabelPrintButton";
-import {leadBatteryWarning} from "@/lib/leadLabelValidation";
+import {leadBatteryWarning,leadRequiresBattery} from "@/lib/leadLabelValidation";
 type ErpSkuSearchResult = Awaited<ReturnType<typeof searchLeadSkuAction>>[number];
 
 type Status =
@@ -121,7 +121,8 @@ export default function DeviceCell(p: Props) {
   const [draftSerial,setDraftSerial]=useState(p.imei_sn??'');
   const [battery,setBattery]=useState(typeof p.battery_percentage==='number'?String(p.battery_percentage):'');
   useEffect(()=>{setDraftSku(p.sku??'');setDraftSerial(p.imei_sn??'');setBattery(typeof p.battery_percentage==='number'?String(p.battery_percentage):'');},[p.id,p.sku,p.imei_sn,p.battery_percentage,JSON.stringify(p.used_parts_skus)]);
-  const batteryWarning=battery.trim()!==''&&leadBatteryWarning(Number(battery));
+  const requiresBattery=leadRequiresBattery(p.model);
+  const batteryWarning=requiresBattery&&battery.trim()!==''&&leadBatteryWarning(Number(battery));
   useEffect(() => {
     const show = (event: Event) => {
       const detail = (event as CustomEvent<{id: string; fields: string[]}>).detail;
@@ -181,9 +182,9 @@ export default function DeviceCell(p: Props) {
           <div className="text-[11px] text-gray-500 truncate">
             {p.sku ? `SKU: ${p.sku}` : "SKU: —"}{" "}
             {p.imei_sn ? `• IMEI/SN: ${p.imei_sn}` : "• IMEI/SN: —"}
-            {typeof p.battery_percentage === "number"
+            {requiresBattery && typeof p.battery_percentage === "number"
               ? ` • Batterij: ${p.battery_percentage}%`
-              : ""}{leadBatteryWarning(p.battery_percentage)&&<span role="img" aria-label="Batterij 80% of lager" title="Batterij 80% of lager: controleren of vervangen. Printen blijft mogelijk." className="ml-1 text-amber-600">⚠</span>}
+              : ""}{requiresBattery&&leadBatteryWarning(p.battery_percentage)&&<span role="img" aria-label="Batterij 80% of lager" title="Batterij 80% of lager: controleren of vervangen. Printen blijft mogelijk." className="ml-1 text-amber-600">⚠</span>}
           </div>
         </div>
 
@@ -251,7 +252,7 @@ export default function DeviceCell(p: Props) {
                 />
               </div>
 
-              <div className="flex flex-col">
+              {requiresBattery && <div className="flex flex-col">
                 <label className={label}>
                   Batterij (%){" "}{batteryWarning&&<span role="img" aria-label="Batterij 80% of lager" title="Batterij 80% of lager: controleren of vervangen. Printen blijft mogelijk." className="text-amber-600">⚠</span>}
                   <span
@@ -273,7 +274,7 @@ export default function DeviceCell(p: Props) {
                   step={1}
                   placeholder="0–100"
                 />
-              </div>
+              </div>}
 
               <div className="flex flex-col mt-1">
                 <label className={label}>
@@ -360,12 +361,12 @@ export default function DeviceCell(p: Props) {
                 <span className="font-semibold">IMEI/SN:</span>{" "}
                 {p.imei_sn || "—"}
               </div>
-              <div>
+              {requiresBattery && <div>
                 <span className="font-semibold">Batterij:</span>{" "}
                 {typeof p.battery_percentage === "number"
                   ? `${p.battery_percentage}%`
                   : "—"}
-              </div>
+              </div>}
               <div>
                 <span className="font-semibold">Gebruikte onderdelen:</span>{" "}
                 {partsDisplay}

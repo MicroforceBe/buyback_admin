@@ -29,7 +29,7 @@ async function harness({before=complete,allowed=true,skuError=false,rows=[{sku:'
   '@/lib/email/sendFinanceBorderel':{sendFinanceBorderelMail:async()=>{state.mails++;}},
   '@/lib/buybackSettings':{getNotificationSettings:async()=>({})},
  };
- const helper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadDeviceValidation.ts',root),'utf8'),{mode:'strip'}),{context});await helper.link(()=>{throw Error('Unexpected helper import');});await helper.evaluate();
+ const helper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadDeviceValidation.ts',root),'utf8'),{mode:'strip'}),{context});const labelHelper=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/leadLabelValidation.ts',root),'utf8'),{mode:'strip'}),{context});await labelHelper.link(()=>{throw Error('Unexpected dependency');});await labelHelper.evaluate();await helper.link(()=>labelHelper);await helper.evaluate();
  const skuSearch=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('lib/skuSearch.ts',root),'utf8'),{mode:'strip'}),{context});await skuSearch.link(()=>{throw Error('Unexpected import');});await skuSearch.evaluate();
  const mod=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL('app/admin/leads/actions.ts',root),'utf8'),{mode:'strip'}),{context});
  await mod.link(spec=>{if(spec==='@/lib/leadDeviceValidation')return helper;if(spec==='@/lib/skuSearch')return skuSearch;const e=imports[spec];if(!e)throw Error('Unexpected import '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});await mod.evaluate();
@@ -126,4 +126,14 @@ test('non-refurbished and unspecified-refurbished margin codes cannot pass a che
   for(const query of ['iPad','IPAD-128-A','iPad 2025 -air'])assert.equal((await h.api.searchLeadSkuAction(query)).length,0);
   await rejected(h,{status:'check_passed',sku:'IPAD-128-A'},['sku_invalid']);
  }
+});
+
+test('successful checks exempt only iMac, Apple Watch and Mac Mini from battery',async()=>{
+ for(const model of ['iMac 24-inch M4','Apple Watch Ultra 2','Mac Mini M4']){
+  const h=await harness({before:{...complete,model,battery_percentage:null}});
+  assert.equal(h.validation.getLeadStatusIssues('check_passed',{...complete,model,battery_percentage:null}).length,0);
+  await assert.rejects(h.api.updateLeadInlineAction(form({status:'check_passed'})),e=>e.message==='REDIRECT'&&!e.url.includes('lead_validation_failed'));assert.equal(h.state.writes.length,1);
+  assert.ok(h.validation.getLeadStatusIssues('check_passed',{...complete,model,battery_percentage:null,imei_sn:''}).includes('imei_sn'));
+ }
+ const h=await harness();for(const model of ['iPhone 16','iPad mini','MacBook Pro',null])assert.ok(h.validation.getLeadStatusIssues('check_passed',{...complete,model,battery_percentage:null}).includes('battery_percentage'));
 });

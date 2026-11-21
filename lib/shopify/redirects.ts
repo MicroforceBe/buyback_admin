@@ -2,8 +2,8 @@ import 'server-only';
 // 301 redirects for product pages that left the ERP. Shopify only follows a redirect when the path itself
 // no longer resolves, which is the case for an archived product: so the redirect is made at archive time,
 // not only at deletion. A redirect problem never fails the archive, restore or delete it belongs to.
-import { APP_SCOPES, PRODUCT_INFO, type ShopifyClient } from '@/lib/shopify/client';
-import { chooseRedirectTarget, siblingQuery, type RedirectCandidate } from '@/lib/shopify/redirectTarget';
+import { APP_SCOPES, PRODUCT_INFO, REDIRECT_COLLECTIONS, type ShopifyClient } from '@/lib/shopify/client';
+import { chooseRedirectTarget, pickRedirectCollection, siblingQuery, type RedirectCandidate, type RedirectCollection } from '@/lib/shopify/redirectTarget';
 
 type UserError = { message: string };
 export type RedirectProduct = { id: string; title: string; handle: string; collectionHandle: string | null };
@@ -28,10 +28,10 @@ export async function hasRedirectScope(client: ShopifyClient): Promise<boolean> 
   }
 }
 
-/** Product handle, title and first collection, for products known only by id (the sync). */
+/** Product handle, title and best collection (pickRedirectCollection), for products known only by id (the sync). */
 export async function redirectProduct(client: ShopifyClient, id: string): Promise<RedirectProduct | null> {
-  const { product } = await client.graphql<{ product: { id: string; title: string; handle: string; collections: { nodes: { handle: string }[] } } | null }>(PRODUCT_INFO, { id });
-  return product ? { id: product.id, title: product.title, handle: product.handle, collectionHandle: product.collections.nodes[0]?.handle ?? null } : null;
+  const { product } = await client.graphql<{ product: { id: string; title: string; handle: string; collections: { nodes: RedirectCollection[] } } | null }>(PRODUCT_INFO, { id });
+  return product ? { id: product.id, title: product.title, handle: product.handle, collectionHandle: pickRedirectCollection(product.collections.nodes) } : null;
 }
 
 // The search is broader than the final check (publication, normalised words), so pages are read until an
@@ -103,18 +103,18 @@ export async function removeRedirect(client: ShopifyClient, handle: string): Pro
   }
 }
 
-const ARCHIVED_PRODUCTS = `query ArchivedProducts($after: String) { products(first: 50, after: $after, query: "status:archived") { pageInfo { hasNextPage endCursor } nodes { id title handle collections(first: 1) { nodes { handle } } } } }`;
+const ARCHIVED_PRODUCTS = `query ArchivedProducts($after: String) { products(first: 20, after: $after, query: "status:archived") { pageInfo { hasNextPage endCursor } nodes { id title handle ${REDIRECT_COLLECTIONS} } } }`;
 
 /**
  * One-off catch-up: every archived product without a redirect gets one. At most `max` new redirects and
  * 40 pages per call, so a click stays within the request time; `cursor` says where the next click resumes
- * (the start of the page that was not finished), so repeated clicks always finish the whole backlog.
+ * (the start of the page that was not finished). Pages of 20: each product also reads up to 10 collections with three metafields, so repeated clicks always finish the whole backlog.
  */
 export async function redirectArchivedBacklog(client: ShopifyClient, opts: { max?: number; after?: string | null } = {}): Promise<{ scope: boolean; created: number; existing: number; failed: number; remaining: boolean; cursor: string | null; notes: string[] }> {
   const max = opts.max ?? 60;
   const out = { scope: await hasRedirectScope(client), created: 0, existing: 0, failed: 0, remaining: false, cursor: null as string | null, notes: [] as string[] };
   if (!out.scope) return out;
-  type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; handle: string; collections: { nodes: { handle: string }[] } }[] } };
+  type Page = { products: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { id: string; title: string; handle: string; collections: { nodes: RedirectCollection[] } }[] } };
   let after: string | null = opts.after ?? null;
   for (let page = 0; ; page++) {
     if (page >= 40) { out.remaining = true; out.cursor = after; return out; }
@@ -124,7 +124,7 @@ export async function redirectArchivedBacklog(client: ShopifyClient, opts: { max
       const { urlRedirects } = await client.graphql<{ urlRedirects: { nodes: { path: string }[] } }>(REDIRECT_BY_PATH, { q: `path:"${path}"` });
       if (urlRedirects.nodes.some(r => r.path === path)) { out.existing++; continue; }
       if (out.created + out.failed >= max) { out.remaining = true; out.cursor = after; return out; }
-      const r = await redirectArchived(client, { id: n.id, title: n.title, handle: n.handle, collectionHandle: n.collections.nodes[0]?.handle ?? null });
+      const r = await redirectArchived(client, { id: n.id, title: n.title, handle: n.handle, collectionHandle: pickRedirectCollection(n.collections.nodes) });
       if (r.redirect) out.created++;
       else { out.failed++; if (r.note && out.notes.length < 5) out.notes.push(`${n.title}: ${r.note}`); }
     }
