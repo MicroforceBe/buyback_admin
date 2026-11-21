@@ -1,46 +1,39 @@
-// Verwittigingen "Op aanvraag" op de MacBook-modelpagina's van microforce.be: pure functies (configuratie uit de handle,
+// Verwittigingen "Op aanvraag" op de MacBook-, iPhone-, Samsung- en iPad-modelpagina's van microforce.be: pure functies (configuratie uit de ERP-velden, nooit uit de product-handle;
 // invoer controleren, matchen met voorraad, mailteksten in het Nederlands, Frans en Engels). Geen netwerk of database.
 // Gebruikt door app/api/public/aanvraag (aanvragen), lib/stockRequests/run.ts (cron) en de overzichtspagina.
-import { parseHandle } from '@/lib/shopify/soldOut';
+import { erpConfig, erpGrade, type DeviceKind, type ErpFields } from '@/lib/shopify/erp';
 
 export type Lang = 'nl' | 'fr' | 'en';
 export const LANGS: Lang[] = ['nl', 'fr', 'en'];
 export const SHOP = 'https://microforce.be';
 export const MAX_CONFIGS = 12;
 
-/**
- * Configuratie van een MacBook uit de handle: "M2/16GB/1TB", "M1 Pro/16GB/512GB", of '' als het geen MacBook is of
- * de configuratie niet te lezen is. Zelfde ontleding als macCfg in de theme (snippets/model-verwittig.liquid en
- * snippets/model-op-aanvraag.liquid): eerste getal met GB = werkgeheugen ("16gb" of "16-gb"), opslag = volgende GB/TB of
- * het deel voor "ssd" ("512ssd", "1tbssd", "1-tb-ssd").
- */
-export function macConfig(handle: string): string {
-  const w = String(handle || '').toLowerCase().split('-');
-  if (w[0] !== 'macbook') return '';
-  let chip = '', ram = 0, ssd = '', p1 = '', p2 = '';
-  for (let i = 0; i < w.length; i++) {
-    const x = w[i];
-    if (!chip && /^m[1-9]$/.test(x)) { chip = x.toUpperCase(); if (w[i + 1] === 'pro') chip += ' Pro'; else if (w[i + 1] === 'max') chip += ' Max'; }
-    if (ram && !ssd && /^\d+(gb|tb)$/.test(x) && parseInt(x, 10) > 0) ssd = parseInt(x, 10) + (/tb$/.test(x) ? 'TB' : 'GB');
-    if (!ram) { if (x === 'gb') ram = parseInt(p1, 10) || 0; else if (/^\d+gb$/.test(x)) ram = parseInt(x, 10); }
-    if (!ssd && x.includes('ssd')) {
-      let pre = x.split('ssd')[0];
-      if (!pre) { pre = p1; if (pre === 'tb' || pre === 'gb') pre = p2 + p1; }
-      const n = parseInt(pre, 10) || 0;
-      ssd = n ? n + (pre.includes('tb') ? 'TB' : 'GB') : '';
-    }
-    p2 = p1; p1 = x;
-  }
-  return chip && ram && ssd ? `${chip}/${ram}GB/${ssd}` : '';
+/** Soort modelpagina uit de handle van de modelcollectie (niet van een product): MacBook, iPhone/Samsung, iPad of ''. */
+export function collectionKind(collection: string): DeviceKind {
+  const c = String(collection || '').toLowerCase();
+  if (/^refurbished-macbook-[a-z0-9-]{1,80}$/.test(c)) return 'mac';
+  if (/^refurbished-iphone-[a-z0-9-]{1,80}$/.test(c) || Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, c) || isSamsungCollection(c)) return 'iphone';
+  if (isIpadCollection(c)) return 'ipad';
+  return '';
 }
 
-export const CONFIG_KEY = /^M[1-9]( Pro| Max)?\/[0-9]{1,3}GB\/[0-9]{1,4}(GB|TB)$/;
+/** Configuratie van een toestel uit de ERP-velden (nooit uit de handle): MacBook "M2/16GB/1TB", iPhone/Samsung "128GB", iPad "256GB Cellular". */
+export function deviceConfig(kind: DeviceKind, erp: ErpFields | undefined): string {
+  return erp ? erpConfig(kind, erp) : '';
+}
 
-/** Leesbare naam van een configuratie in de taal van de klant: "M2 · 16 GB werkgeheugen · 1 TB opslag". */
+export const MAC_KEY = /^M[1-9]( Pro| Max)?\/[0-9]{1,3}GB\/[0-9]{1,4}(GB|TB)$/;
+export const IPHONE_KEY = /^([0-9]{2,4}GB|[1-9]TB)$/;
+export const IPAD_KEY = /^([0-9]{2,4}GB|[1-9]TB) (Wi-Fi|Cellular)$/;
+export const CONFIG_KEY = new RegExp(`(${MAC_KEY.source})|(${IPHONE_KEY.source})|(${IPAD_KEY.source})`);
+
+/** Leesbare naam van een configuratie in de taal van de klant: "M2 · 16 GB werkgeheugen · 1 TB opslag" of "128 GB opslag". */
 export function configLabel(key: string, lang: Lang): string {
-  const [chip, ram, ssd] = key.split('/');
   const unit = (v: string) => { const m = /^(\d+)(GB|TB)$/.exec(v); if (!m) return v; return lang === 'fr' ? `${m[1]} ${m[2] === 'TB' ? 'To' : 'Go'}` : `${m[1]} ${m[2]}`; };
   const t = TEXT[lang];
+  if (IPHONE_KEY.test(key)) return `${unit(key)} ${t.ssd}`;
+  if (IPAD_KEY.test(key)) { const [ssd, net] = key.split(' '); return `${unit(ssd)} ${t.ssd} · ${net === 'Cellular' ? 'Wi-Fi + Cellular' : 'Wi-Fi'}`; }
+  const [chip, ram, ssd] = key.split('/');
   return `${chip} · ${unit(ram)} ${t.ram} · ${unit(ssd)} ${t.ssd}`;
 }
 
@@ -50,6 +43,34 @@ export function configLabel(key: string, lang: Lang): string {
  */
 export function validName(name: string): boolean {
   return /^[\p{L}][\p{L}\p{M} .'’-]{0,59}$/u.test(name) && !/(www|https?|\.(com|be|net|org|nl|io)\b)/i.test(name);
+}
+
+/** iPhone-modelpagina's met een afwijkende handle (niet "refurbished-iphone-…"), met hun naam. */
+export const IPHONE_EXTRA: Record<string, string> = {
+  'microforce-iphone-iphone-12': 'iPhone 12',
+  'iphone-15-pro': 'iPhone 15 Pro',
+  'refurbisehd-iphone-17': 'iPhone 17',
+  'iphone-17-pro': 'iPhone 17 Pro',
+};
+
+/**
+ * Samsung-modelpagina (Galaxy S, Z, A): handles zoals "samsung-s24", "galaxy-s23", "refurbished-galaxy-s25",
+ * "refurbished-samsung-galaxy-z-flip7" of "galaxy-a-series". Niet de hoofdpagina "refurbished-samsung" en geen tablets.
+ */
+export function isSamsungCollection(collection: string): boolean {
+  const h = String(collection || '').toLowerCase();
+  if (h === 'refurbished-samsung' || h.includes('tablet') || h.includes('-tab-')) return false;
+  return /^(refurbished-)?(samsung-|galaxy-)[a-z0-9-]{1,80}$/.test(h);
+}
+
+/**
+ * iPad-modelpagina: handles zoals "ipad-pro-2020-11", "refurbished-ipad-air-6-2024", "microforce-ipad-ipad-air-5-2022"
+ * of "refurbshed-ipad-2025". Niet de hoofdpagina "refurbished-ipad" en geen hoesjes, accessoires of reparaties.
+ */
+export function isIpadCollection(collection: string): boolean {
+  const h = String(collection || '').toLowerCase();
+  if (/(hoesje|cs-atb|reparatie|accessoire)/.test(h)) return false;
+  return /^(refurbished-|refurbshed-|microforce-ipad-)?ipad-[a-z0-9-]{1,80}$/.test(h);
 }
 
 export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
@@ -69,9 +90,11 @@ export function parseRequest(body: unknown): ParseResult {
   const keys = Array.isArray(b.configs) ? [...new Set(b.configs.filter((k): k is string => typeof k === 'string').map(k => k.trim()))] : [];
   if (!validName(name)) return { ok: false, error: 'invalid' };
   if (email.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return { ok: false, error: 'invalid' };
-  if (!/^refurbished-macbook-[a-z0-9-]{1,80}$/.test(collection)) return { ok: false, error: 'invalid' };
-  if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5)) return { ok: false, error: 'invalid' };
-  if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => CONFIG_KEY.test(k))) return { ok: false, error: 'invalid' };
+  const soort = collectionKind(collection);
+  if (!soort) return { ok: false, error: 'invalid' };
+  if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
+  const keyOk = soort === 'mac' ? MAC_KEY : soort === 'ipad' ? IPAD_KEY : IPHONE_KEY;
+  if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => keyOk.test(k))) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
   // Versie van de toestemmingstekst (bewijs van toestemming), bv. "nl-2026-11-12".
   const consentVersion = typeof b.consentVersion === 'string' && /^[a-z0-9.-]{1,24}$/.test(b.consentVersion) ? b.consentVersion : 'v1';
@@ -79,7 +102,7 @@ export function parseRequest(body: unknown): ParseResult {
 }
 
 export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };
-export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null };
+export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null; erp?: ErpFields };
 export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null; image?: string | null }; model?: string };
 
 /** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie in een van de gekozen staten. */
@@ -87,10 +110,12 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
   const out: Match[] = [];
   for (const r of requests) {
     let best: Match['product'] | null = null;
+    const kind = collectionKind(r.collection_handle);
     for (const p of productsByCollection.get(r.collection_handle) ?? []) {
-      if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || macConfig(p.handle) !== r.config_key) continue;
-      const grade = Number(parseHandle(p.handle)?.grade ?? 0);
-      if (!r.grades.includes(grade)) continue;
+      if (p.status !== 'ACTIVE' || (p.totalInventory ?? 0) <= 0 || deviceConfig(kind, p.erp) !== r.config_key) continue;
+      const grade = erpGrade(p.erp?.condition);
+      // Een toestel Nieuw in Box (6) is ook goed voor wie "Als nieuw" (5) koos.
+      if (!r.grades.includes(grade) && !(grade === 6 && r.grades.includes(5))) continue;
       if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price, image: p.image ?? null };
     }
     if (best) out.push({ request: r, product: best });
@@ -119,15 +144,15 @@ function money(n: number | null, lang: Lang): string {
 }
 
 export const GRADE: Record<Lang, Record<number, string>> = {
-  nl: { 3: 'Behoorlijk', 4: 'Zeer goed', 5: 'Als nieuw' },
-  fr: { 3: 'Correct', 4: 'Très bon', 5: 'Comme neuf' },
-  en: { 3: 'Fair', 4: 'Very good', 5: 'Like new' },
+  nl: { 3: 'Behoorlijk', 4: 'Zeer goed', 5: 'Als nieuw', 6: 'Nieuw in Box' },
+  fr: { 3: 'Correct', 4: 'Très bon', 5: 'Comme neuf', 6: 'Neuf en boîte' },
+  en: { 3: 'Fair', 4: 'Very good', 5: 'Like new', 6: 'New in box' },
 };
 
 /** Gekozen staten als tekst: "Behoorlijk of Zeer goed"; alle drie = null (elke staat is goed). */
 export function gradesLabel(grades: number[], lang: Lang): string | null {
   const g = [...new Set(grades)].filter(x => GRADE[lang][x]).sort();
-  if (!g.length || g.length === 3) return null;
+  if (!g.length || (g.length === 3 && g.join() === '3,4,5')) return null;
   const or = lang === 'fr' ? ' ou ' : lang === 'en' ? ' or ' : ' of ';
   return g.map(x => GRADE[lang][x]).join(or);
 }
@@ -271,10 +296,10 @@ export function mailImage(url: string | null | undefined, width = 240): string |
 }
 
 /** Per configuratie de foto van een toestel uit de modelcollectie: liefst dezelfde configuratie, anders eender welk. */
-export function pickImages(keys: string[], products: { handle: string; image?: string | null }[]): Record<string, string | null> {
+export function pickImages(keys: string[], products: { handle: string; image?: string | null; erp?: ErpFields }[], kind: DeviceKind): Record<string, string | null> {
   const any = products.find(p => p.image)?.image ?? null;
   const out: Record<string, string | null> = {};
-  for (const k of keys) out[k] = products.find(p => p.image && macConfig(p.handle) === k)?.image ?? any;
+  for (const k of keys) out[k] = products.find(p => p.image && deviceConfig(kind, p.erp) === k)?.image ?? any;
   return out;
 }
 
@@ -285,18 +310,24 @@ export function modelName(title: string | null | undefined): string {
 
 /** Gekozen uiterlijk als nette pillen met sterren (3 = ★★★ Behoorlijk … 5 = ★★★★★ Als nieuw). */
 function gradePills(grades: number[], lang: Lang): string {
-  const g = [...new Set(grades)].filter(x => x >= 3 && x <= 5).sort();
+  const g = [...new Set(grades)].filter(x => x >= 3 && x <= 6).sort();
   return `<table role="presentation" cellpadding="0" cellspacing="0"><tr>` + g.map(x =>
     `<td style="padding:0 6px 6px 0"><table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid #cfe3f4;border-radius:999px;background:#ffffff"><tr>`
-    + `<td style="padding:5px 12px;white-space:nowrap;font-size:13px;color:#14222f"><span style="color:#f5a623;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(x)}</span>`
-    + `<span style="color:#d6dde6;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(5 - x)}</span>&nbsp; <b>${escapeHtml(GRADE[lang][x])}</b></td></tr></table></td>`).join('') + `</tr></table>`;
+    + `<td style="padding:5px 12px;white-space:nowrap;font-size:13px;color:#14222f">${stars(x)}&nbsp; <b>${escapeHtml(GRADE[lang][x])}</b></td></tr></table></td>`).join('') + `</tr></table>`;
+}
+
+/** Sterren voor 3 tot 5; Nieuw in Box (6) krijgt vijf sterren. */
+function stars(x: number): string {
+  const n = Math.min(5, x);
+  return `<span style="color:#f5a623;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(n)}</span>`
+    + `<span style="color:#d6dde6;font-size:13px;letter-spacing:1px">${'&#9733;'.repeat(5 - n)}</span>`;
 }
 
 /** Eén configuratie als rij: foto links, model en configuratie rechts. */
 function itemRow(item: MailItem, lang: Lang, extra = ''): string {
   const img = mailImage(item.image);
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px;background:#ffffff;border:1px solid #e3e9f0;border-radius:12px"><tr>`
-    + (img ? `<td width="96" style="width:96px;padding:10px 0 10px 10px;vertical-align:middle"><img src="${escapeHtml(img)}" width="86" alt="${escapeHtml(item.model || 'MacBook')}" style="display:block;border:0;width:86px;height:auto;border-radius:8px"></td>` : '')
+    + (img ? `<td width="96" style="width:96px;padding:10px 0 10px 10px;vertical-align:middle"><img src="${escapeHtml(img)}" width="86" alt="${escapeHtml(item.model || 'Microforce')}" style="display:block;border:0;width:86px;height:auto;border-radius:8px"></td>` : '')
     + `<td style="padding:12px 14px;vertical-align:middle">`
     + (item.model ? `<p style="margin:0 0 3px;font-size:16px;font-weight:700;color:#14222f">${escapeHtml(item.model)}</p>` : '')
     + `<p style="margin:0;font-size:14px;color:#3c4752">${escapeHtml(configLabel(item.key, lang))}</p>${extra}</td></tr></table>`;
@@ -321,17 +352,24 @@ export function confirmationMail(lang: Lang, name: string, keys: (string | MailI
   return { subject: t.confirmSubject, html, text };
 }
 
+/** "MacBook" in een mailtekst vervangen door de categorie van de modelcollectie (iPhone, …). */
+function device(text: string, collection: string | undefined): string {
+  const c = mainCategory(collection || '');
+  return c && c !== 'MacBook' ? text.replace(/MacBook/g, c) : text;
+}
+
 /** Mail zodra een gevraagde configuratie op voorraad is (alle matches van één e-mailadres samen). */
 export function availableMail(lang: Lang, name: string, matches: Match[], unsubscribeUrl: string): Mail {
   const t = TEXT[lang];
   const rows = matches.map(m => ({ key: m.request.config_key, model: m.model, image: m.product.image, g: m.product.grade, label: (m.model ? m.model + ' – ' : '') + configLabel(m.request.config_key, lang), url: productUrl(m.product.handle, lang), grade: GRADE[lang][m.product.grade] ?? '', price: money(m.product.price, lang) }));
-  const html = frame(lang, `<p style="margin:0 0 12px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 14px">${escapeHtml(t.availIntro)}</p>`
+  const intro = device(t.availIntro, matches[0]?.request.collection_handle);
+  const html = frame(lang, `<p style="margin:0 0 12px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 14px">${escapeHtml(intro)}</p>`
     + rows.map(r => itemRow({ key: r.key, model: r.model, image: r.image }, lang,
-      `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(r.g)}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
+      `<p style="margin:6px 0 10px;font-size:14px;color:#3c4752"><span style="color:#f5a623;letter-spacing:1px">${'&#9733;'.repeat(Math.min(5, r.g))}</span><span style="color:#d6dde6;letter-spacing:1px">${'&#9733;'.repeat(Math.max(0, 5 - r.g))}</span> ${escapeHtml(r.grade)}${r.price ? ` · <strong style="color:#1080cf">${escapeHtml(r.price)}</strong>` : ''}</p>`
       + `<a href="${escapeHtml(r.url)}" style="display:inline-block;padding:9px 18px;border-radius:999px;background:#1080cf;color:#fff;font-weight:700;font-size:14px;text-decoration:none">${escapeHtml(t.view)}</a>`)).join('')
     + `<p style="margin:0;font-size:13px;color:#5b6470">${escapeHtml(t.availOutro)}</p>`, unsubscribeUrl, 'gevonden', matches[0]?.request.collection_handle ?? '');
-  const text = [t.hi(name), '', t.availIntro, '', ...rows.flatMap(r => [`${r.label} (${t.grade}: ${r.grade}${r.price ? ', ' + r.price : ''})`, r.url, '']), t.availOutro, '', t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
-  return { subject: t.availSubject, html, text };
+  const text = [t.hi(name), '', intro, '', ...rows.flatMap(r => [`${r.label} (${t.grade}: ${r.grade}${r.price ? ', ' + r.price : ''})`, r.url, '']), t.availOutro, '', t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
+  return { subject: device(t.availSubject, matches[0]?.request.collection_handle), html, text };
 }
 
 /** Eenvoudige pagina voor uitschrijven (GET toont een knop, zodat mailscanners niemand uitschrijven). */
@@ -359,7 +397,7 @@ export function unsubscribeUrl(base: string, token: string, lang: Lang): string 
 }
 
 export type DemandRow = { collection_handle: string; config_key: string; grades: number[]; status: string; created_at: string; notified_at: string | null };
-export type Demand = { collection: string; config: string; open: number; byGrade: Record<3 | 4 | 5, number>; oldest: string | null; notified30: number };
+export type Demand = { collection: string; config: string; open: number; byGrade: Record<3 | 4 | 5 | 6, number>; oldest: string | null; notified30: number };
 
 /** Vraag per collectie en configuratie voor de overzichtspagina: open aanvragen (en per aanvaarde staat), oudste, verwittigd in 30 dagen. */
 export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
@@ -367,10 +405,10 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
   const since = now - 30 * 86400_000;
   for (const r of rows) {
     const k = r.collection_handle + '|' + r.config_key;
-    const d = map.get(k) ?? { collection: r.collection_handle, config: r.config_key, open: 0, byGrade: { 3: 0, 4: 0, 5: 0 }, oldest: null, notified30: 0 };
+    const d = map.get(k) ?? { collection: r.collection_handle, config: r.config_key, open: 0, byGrade: { 3: 0, 4: 0, 5: 0, 6: 0 }, oldest: null, notified30: 0 };
     if (r.status === 'open') {
       d.open++;
-      for (const g of [3, 4, 5] as const) if ((r.grades ?? []).includes(g)) d.byGrade[g]++;
+      for (const g of [3, 4, 5, 6] as const) if ((r.grades ?? []).includes(g)) d.byGrade[g]++;
       if (!d.oldest || r.created_at < d.oldest) d.oldest = r.created_at;
     } else if (r.status === 'notified' && r.notified_at && Date.parse(r.notified_at) >= since) d.notified30++;
     map.set(k, d);
@@ -378,9 +416,10 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
   return [...map.values()].filter(d => d.open || d.notified30).sort((a, b) => b.open - a.open || a.collection.localeCompare(b.collection) || a.config.localeCompare(b.config));
 }
 
-/** "refurbished-macbook-air-13-m2" → "MacBook Air 13 M2". */
+/** "refurbished-macbook-air-13-m2" → "MacBook Air 13 M2", "refurbished-iphone-16-pro" → "iPhone 16 Pro". */
 export function collectionName(handle: string): string {
-  return handle.replace(/^refurbished-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+  if (Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, handle)) return IPHONE_EXTRA[handle];
+  return handle.replace(/^(refurbished|refurbshed|microforce-ipad)-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : w === 'iphone' ? 'iPhone' : w === 'ipad' ? 'iPad' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
 }
 
 /** Afzender van de webshopmails: altijd de naam "Microforce klantenservice" met het adres uit de instelling. */

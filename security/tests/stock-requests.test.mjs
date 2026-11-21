@@ -9,7 +9,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function load(entry) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, Intl, Infinity, encodeURIComponent, parseInt, URL });
   const modules = new Map();
-  const internal = { '@/lib/shopify/soldOut': 'lib/shopify/soldOut.ts' };
+  const internal = { '@/lib/shopify/soldOut': 'lib/shopify/soldOut.ts', '@/lib/shopify/erp': 'lib/shopify/erp.ts', './erp': 'lib/shopify/erp.ts' };
   async function ld(path) {
     if (modules.has(path)) return modules.get(path);
     const code = ts.transpileModule(read(path), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
@@ -26,15 +26,36 @@ async function load(entry) {
   return (await ld(entry)).namespace;
 }
 const core = () => load('lib/stockRequests/core.ts');
+const erp = (over = {}) => ({ storage: '128 GB', condition: '5* Als Nieuw', ...over });
+const mac = (chip, ram, ssd, condition = '5* Als Nieuw') => ({ model: 'Apple ' + chip + ' 8x CPU, 10x GPU', family: 'Apple ' + chip.split(' ')[0], ram: ram + ' GB', ssd, condition });
 
-test('macConfig reads chip, memory and storage from real MacBook handles', async () => {
-  const { macConfig } = await core();
-  assert.equal(macConfig('macbook-air-13-m2-2022-16gb-1tbssd-midnight-refurbished-5'), 'M2/16GB/1TB');
-  assert.equal(macConfig('macbook-air-13-m2-8-gb-256ssd-sg-refurbished-4-m'), 'M2/8GB/256GB');
-  assert.equal(macConfig('macbook-pro-14-m1-pro-2021-16gb-512gb-spagr-refurbished-3'), 'M1 Pro/16GB/512GB');
-  assert.equal(macConfig('macbook-pro-16-m1-max-32gb-1-tb-ssd-silver-refurbished-5'), 'M1 Max/32GB/1TB');
-  assert.equal(macConfig('iphone-13-128gb-blue-refurbished-4'), '');
-  assert.equal(macConfig('macbook-air-13-m2-refurbished-5'), '');
+test('configuratie komt uit de ERP-velden, nooit uit de handle', async () => {
+  const e = await load('lib/shopify/erp.ts');
+  assert.equal(e.erpConfig('mac', { model: 'Apple M2 Pro 12x CPU, 19x GPU', family: 'Apple M2', ram: '16 GB', ssd: '512 GB' }), 'M2 Pro/16GB/512GB', 'Pro uit het processormodel, ook als de familie het niet zegt');
+  assert.equal(e.erpConfig('mac', { model: 'Apple M1 Max 10x CPU, 32x GPU', ram: '32 GB', ssd: '1 TB' }), 'M1 Max/32GB/1TB');
+  assert.equal(e.erpConfig('mac', { family: 'Apple M1', ram: '8 GB', ssd: '256 GB' }), 'M1/8GB/256GB');
+  assert.equal(e.erpConfig('mac', { family: 'Intel Core i5', ram: '8 GB', ssd: '256 GB' }), '', 'Intel heeft geen M-chip');
+  assert.equal(e.erpConfig('mac', { family: 'Apple M1', ram: '8 GB' }), '', 'opslag ontbreekt');
+  assert.equal(e.erpConfig('iphone', { storage: '64 GB' }), '64GB');
+  assert.equal(e.erpConfig('iphone', { storage: '1 TB' }), '1TB');
+  assert.equal(e.erpConfig('ipad', { storage: '512 GB', net: 'Wifi + 5G' }), '512GB Cellular');
+  assert.equal(e.erpConfig('ipad', { storage: '256 GB', net: 'Wifi' }), '256GB Wi-Fi');
+  assert.equal(e.erpConfig('ipad', { storage: '128 GB', net: 'Wifi + 4G' }), '128GB Cellular');
+  assert.equal(e.erpConfig('ipad', { storage: '256 GB' }), '', 'iPad zonder connectie');
+  assert.equal(e.erpGrade('3* Goed'), 3);
+  assert.equal(e.erpGrade('4* Zeer Goed'), 4);
+  assert.equal(e.erpGrade('5* Als Nieuw'), 5);
+  assert.equal(e.erpGrade('Nieuw'), 6);
+  assert.equal(e.erpGrade(''), 0);
+  assert.equal(e.erpSize('500 GB'), '500GB');
+  const { deviceConfig, collectionKind } = await core();
+  assert.equal(collectionKind('refurbished-macbook-air-13-m2'), 'mac');
+  assert.equal(collectionKind('samsung-s24'), 'iphone');
+  assert.equal(collectionKind('ipad-pro-2021-129'), 'ipad');
+  assert.equal(deviceConfig('ipad', undefined), '');
+  // De core-module bevat geen ontleding van product-handles meer.
+  const src = read('lib/stockRequests/core.ts') + read('lib/shopify/soldOut.ts');
+  assert.doesNotMatch(src, /macConfig|iphoneConfig|ipadConfig|parseHandle/);
 });
 
 test('parseRequest accepts a valid request and rejects bad input', async () => {
@@ -55,19 +76,20 @@ test('parseRequest accepts a valid request and rejects bad input', async () => {
 
 test('matchRequests picks the cheapest active device in stock in one of the chosen grades', async () => {
   const { matchRequests, groupByEmail } = await core();
-  const req = (id, over = {}) => ({ id, name: 'Jan', email: 'jan@example.be', language: 'nl', collection_handle: 'c', config_key: 'M2/16GB/1TB', config_label: 'x', grades: [3, 4, 5], token: 't', ...over });
-  const products = new Map([['c', [
-    { handle: 'macbook-air-13-m2-16gb-1tbssd-sg-refurbished-5', status: 'ACTIVE', totalInventory: 1, price: 1199 },
-    { handle: 'macbook-air-13-m2-16gb-1tbssd-sl-refurbished-3', status: 'ACTIVE', totalInventory: 2, price: 999 },
-    { handle: 'macbook-air-13-m2-16gb-1tbssd-mn-refurbished-4', status: 'UNLISTED', totalInventory: 0, price: 1099 },
-    { handle: 'macbook-air-13-m2-16gb-1tbssd-st-refurbished-4', status: 'ACTIVE', totalInventory: 0, price: 1050 },
-    { handle: 'macbook-air-13-m2-8gb-256ssd-sg-refurbished-5', status: 'ACTIVE', totalInventory: 1, price: 799 },
+  const req = (id, over = {}) => ({ id, name: 'Jan', email: 'jan@example.be', language: 'nl', collection_handle: 'refurbished-macbook-air-13-m2', config_key: 'M2/16GB/1TB', config_label: 'x', grades: [3, 4, 5], token: 't', ...over });
+  // De handles zeggen bewust iets anders (fout): alleen de ERP-velden tellen.
+  const products = new Map([['refurbished-macbook-air-13-m2', [
+    { handle: 'p1-8gb-256ssd-refurbished-3', status: 'ACTIVE', totalInventory: 1, price: 1199, erp: mac('M2', 16, '1 TB', '5* Als Nieuw') },
+    { handle: 'p2-refurbished-5', status: 'ACTIVE', totalInventory: 2, price: 999, erp: mac('M2', 16, '1 TB', '3* Goed') },
+    { handle: 'p3', status: 'UNLISTED', totalInventory: 0, price: 1099, erp: mac('M2', 16, '1 TB', '4* Zeer Goed') },
+    { handle: 'p4', status: 'ACTIVE', totalInventory: 0, price: 1050, erp: mac('M2', 16, '1 TB', '4* Zeer Goed') },
+    { handle: 'p5-16gb-1tb', status: 'ACTIVE', totalInventory: 1, price: 799, erp: mac('M2', 8, '256 GB', '5* Als Nieuw') },
   ]]]);
-  const m = matchRequests([req('a'), req('b', { grades: [4, 5] }), req('c', { config_key: 'M2/24GB/2TB' }), req('d', { collection_handle: 'other' }), req('e', { email: 'piet@example.be', config_key: 'M2/8GB/256GB', grades: [5] }), req('f', { grades: [4] })], products);
+  const m = matchRequests([req('a'), req('b', { grades: [4, 5] }), req('c', { config_key: 'M2/24GB/2TB' }), req('d', { collection_handle: 'refurbished-macbook-air-15-m2' }), req('e', { email: 'piet@example.be', config_key: 'M2/8GB/256GB', grades: [5] }), req('f', { grades: [4] })], products);
   assert.deepEqual(plain(m.map(x => [x.request.id, x.product.handle, x.product.grade])), [
-    ['a', 'macbook-air-13-m2-16gb-1tbssd-sl-refurbished-3', 3],
-    ['b', 'macbook-air-13-m2-16gb-1tbssd-sg-refurbished-5', 5],
-    ['e', 'macbook-air-13-m2-8gb-256ssd-sg-refurbished-5', 5],
+    ['a', 'p2-refurbished-5', 3],
+    ['b', 'p1-8gb-256ssd-refurbished-3', 5],
+    ['e', 'p5-16gb-1tb', 5],
   ]);
   assert.deepEqual([...groupByEmail(m).entries()].map(([k, v]) => [k, v.length]), [['jan@example.be', 2], ['piet@example.be', 1]]);
 });
@@ -111,7 +133,7 @@ test('demand summary counts open requests per configuration and grade', async ()
     { collection_handle: 'refurbished-macbook-pro-14-m1-pro-max', config_key: 'M1 Pro/16GB/512GB', grades: [3], status: 'unsubscribed', created_at: '2026-11-01T10:00:00Z', notified_at: null },
   ];
   assert.deepEqual(plain(demandSummary(rows, now)), [
-    { collection: 'refurbished-macbook-air-13-m2', config: 'M2/16GB/1TB', open: 2, byGrade: { 3: 1, 4: 1, 5: 2 }, oldest: '2026-11-01T10:00:00Z', notified30: 1 },
+    { collection: 'refurbished-macbook-air-13-m2', config: 'M2/16GB/1TB', open: 2, byGrade: { 3: 1, 4: 1, 5: 2, 6: 0 }, oldest: '2026-11-01T10:00:00Z', notified30: 1 },
   ]);
   assert.equal(collectionName('refurbished-macbook-air-13-m2'), 'MacBook Air 13 M2');
 });
@@ -152,9 +174,9 @@ test('confirmation shows the model name and a photo per configuration', async ()
   const { confirmationMail, pickImages, modelName, mailImage } = await core();
   assert.equal(modelName('Refurbished MacBook Air 13" M2 (2022)'), 'MacBook Air 13" M2 (2022)');
   const img = pickImages(['M2/16GB/512GB', 'M2/24GB/1TB'], [
-    { handle: 'macbook-air-13-m2-8gb-256ssd-sg-refurbished-4', image: 'https://cdn.shopify.com/a.jpg' },
-    { handle: 'macbook-air-13-m2-16gb-512ssd-sl-refurbished-5', image: 'https://cdn.shopify.com/b.jpg?v=1' },
-  ]);
+    { handle: 'a', image: 'https://cdn.shopify.com/a.jpg', erp: mac('M2', 8, '256 GB') },
+    { handle: 'b', image: 'https://cdn.shopify.com/b.jpg?v=1', erp: mac('M2', 16, '512 GB') },
+  ], 'mac');
   assert.deepEqual(plain(img), { 'M2/16GB/512GB': 'https://cdn.shopify.com/b.jpg?v=1', 'M2/24GB/1TB': 'https://cdn.shopify.com/a.jpg' });
   assert.equal(mailImage('https://evil.example/x.jpg'), null);
   const m = confirmationMail('nl', 'Olivier', [{ key: 'M2/16GB/512GB', model: 'MacBook Air 13" M2 (2022)', image: img['M2/16GB/512GB'] }], [3, 4, 5], 'https://x.vercel.app/u?t=1&l=nl');
@@ -187,4 +209,119 @@ test('closed requests are erased after 60 days', () => {
   const run = read('lib/stockRequests/run.ts');
   assert.match(run, /from\('shop_stock_requests'\)\.delete\(\)\.in\('status', \['notified', 'unsubscribed', 'expired'\]\)\.lt\('updated_at', new Date\(Date\.now\(\) - 60 \* 86400_000\)/);
   assert.match(read('security/sql/shop-stock-requests.sql'), /consent_version text not null/);
+});
+
+test('iPhone: storage as configuration, requests on iPhone model pages, mails name the iPhone', async () => {
+  const { deviceConfig, configLabel, parseRequest, matchRequests, availableMail, collectionName } = await core();
+  assert.equal(deviceConfig('iphone', erp({ storage: '2 TB' })), '2TB');
+  assert.equal(configLabel('128GB', 'nl'), '128 GB opslag');
+  assert.equal(configLabel('1TB', 'fr'), '1 To stockage');
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'nl', consent: true, grades: [4, 5] };
+  const ok = parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['256GB', '1TB'] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(plain(ok.value.keys), ['256GB', '1TB']);
+  // Soort configuratie moet bij de collectie passen.
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-macbook-air-13-m2', configs: ['256GB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone', configs: ['256GB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16-pro', configs: ['5GB'] }).ok, false);
+  // iPhone-modelpagina's met een afwijkende handle.
+  assert.equal(parseRequest({ ...base, collection: 'iphone-15-pro', configs: ['256GB'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'refurbisehd-iphone-17', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'constructor', configs: ['256GB'] }).ok, false);
+  assert.equal(collectionName('microforce-iphone-iphone-12'), 'iPhone 12');
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'refurbished-iphone-16-pro', config_key: '256GB', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['refurbished-iphone-16-pro', [
+    { handle: 'iphone-16-pro-128gb-black-titanium-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 869, erp: erp({ storage: '128 GB' }) },
+    { handle: 'iphone-16-pro-256gb-white-titanium-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 979, erp: erp({ storage: '256 GB' }) },
+    { handle: 'iphone-16-pro-256gb-natural-titanium-refurbished-4-m', status: 'ACTIVE', totalInventory: 2, price: 949, erp: erp({ storage: '256 GB', condition: '4* Zeer Goed' }) },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'iphone-16-pro-256gb-natural-titanium-refurbished-4-m');
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /iPhone/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook/);
+  assert.equal(collectionName('refurbished-iphone-16-pro'), 'iPhone 16 Pro');
+});
+
+test('Nieuw in Box: staat 6 uit de ERP-conditie, in de lijst, in de aanvraag en goed voor wie "Als nieuw" koos', async () => {
+  const sold = await load('lib/shopify/soldOut.ts');
+  const v = x => ({ value: x });
+  const node = (handle, status, f) => ({ handle, status, totalInventory: 0, erpSsd: v(f.ssd), erpRam: v(f.ram), erpFamily: v(f.family), erpModel: v(f.model), erpCondition: v(f.condition), erpColour: v('Midnight'), swatchId: v('gid://shopify/Metaobject/78536606028') });
+  const items = sold.soldOutItems({ collectionByIdentifier: { products: { nodes: [
+    node('macbook-air-15-e26-m5-nieuw-in-box', 'UNLISTED', mac('M5', 16, '1 TB', 'Nieuw')),
+    node('macbook-air-15-e24-m3-8gb-256ssd-silver-nieuw-in-box', 'DRAFT', mac('M3', 8, '256 GB', 'Nieuw')),
+    node('zonder-staat', 'UNLISTED', mac('M5', 16, '1 TB', '')),
+  ] } } }, 'mac');
+  assert.deepEqual(plain(items.map(i => [i.handle, i.grade, i.size, i.config, i.colour])), [['macbook-air-15-e26-m5-nieuw-in-box', '6', '1TB', 'M5/16GB/1TB', 'Midnight']], 'concepten en toestellen zonder staat blijven buiten de lijst');
+  assert.equal(items[0].swatch, '78536606028', 'nummer van het kleurbolletje, voor de naam in de webshop');
+  const { parseRequest, matchRequests, gradesLabel } = await core();
+  const ok = { name: 'Jan', email: 'jan@example.be', language: 'nl', collection: 'refurbished-macbook-air-15-m5', configs: ['M5/16GB/1TB'], grades: [6], consent: true, website: '' };
+  assert.deepEqual(plain(parseRequest(ok).value.grades), [6]);
+  assert.equal(parseRequest({ ...ok, grades: [7] }).ok, false);
+  assert.equal(gradesLabel([6], 'fr'), 'Neuf en boîte');
+  assert.equal(gradesLabel([3, 4, 5], 'nl'), null);
+  const nib = { handle: 'macbook-air-15-e26-m5-16gb-1tb-ssd-midnight-nieuw-in-box', status: 'ACTIVE', totalInventory: 1, price: 1499, erp: mac('M5', 16, '1 TB', 'Nieuw') };
+  const req = (id, grades) => ({ id, name: 'Jan', email: id + '@example.be', language: 'nl', collection_handle: 'refurbished-macbook-air-15-m5', config_key: 'M5/16GB/1TB', config_label: 'x', grades, token: 't' });
+  const m = matchRequests([req('a', [6]), req('b', [5]), req('c', [3, 4])], new Map([['refurbished-macbook-air-15-m5', [nib]]]));
+  assert.deepEqual(plain(m.map(x => [x.request.id, x.product.grade])), [['a', 6], ['b', 6]]);
+  const sql = read('security/sql/shop-stock-requests-nieuw-in-box.sql');
+  assert.match(sql, /grades <@ '\{3,4,5,6\}'::smallint\[\] and cardinality\(grades\) between 1 and 4/);
+});
+
+test('Samsung: opslag als configuratie, aanvragen op Samsung-modelpagina\'s, staat ook zonder "refurb", mails noemen Samsung', async () => {
+  const { parseRequest, matchRequests, availableMail, isSamsungCollection } = await core();
+  for (const h of ['samsung-s24', 'galaxy-s23', 'refurbished-galaxy-s25', 'refurbished-samsung-galaxy-z-flip7', 'galaxy-a-series', 'samsung-s23-ultra']) assert.equal(isSamsungCollection(h), true, h);
+  for (const h of ['refurbished-samsung', 'samsung-tablet', 'refurbished-iphone-16', 'samsung-s24-hoesjes-tab-x']) assert.equal(isSamsungCollection(h), false, h);
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'fr', consent: true, grades: [4, 5] };
+  assert.equal(parseRequest({ ...base, collection: 'samsung-s24', configs: ['256GB'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'samsung-s24', configs: ['M2/16GB/1TB'] }).ok, false);
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-samsung', configs: ['256GB'] }).ok, false);
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'samsung-s24', config_key: '128GB', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['samsung-s24', [
+    { handle: 'samsung-galaxy-s24-5g-128gb-onyx-black-refurbished-3', status: 'ACTIVE', totalInventory: 1, price: 439, erp: erp({ condition: '3* Goed' }) },
+    { handle: 'samsung-galaxy-s24-5g-128gb-amber-yellow-refurbished-4', status: 'ACTIVE', totalInventory: 2, price: 489, erp: erp({ condition: '4* Zeer Goed' }) },
+    { handle: 'samsung-galaxy-s24-5g-256gb-black-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 599, erp: erp({ storage: '256 GB' }) },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'samsung-galaxy-s24-5g-128gb-amber-yellow-refurbished-4');
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /Samsung Galaxy/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook|iPhone/);
+});
+
+test('iPad: opslag + Wi-Fi of Cellular als configuratie, aanvragen op iPad-modelpagina\'s, mails noemen iPad', async () => {
+  const { configLabel, parseRequest, matchRequests, availableMail, isIpadCollection, collectionName, IPAD_KEY, MAC_KEY, IPHONE_KEY } = await core();
+  assert.equal(configLabel('256GB Cellular', 'nl'), '256 GB opslag · Wi-Fi + Cellular');
+  assert.equal(configLabel('64GB Wi-Fi', 'fr'), '64 Go stockage · Wi-Fi');
+  for (const h of ['ipad-pro-2020-11', 'refurbished-ipad-pro-13-2024', 'microforce-ipad-ipad-air-5-2022', 'refurbshed-ipad-2025', 'refurbished-ipad-mini-7']) assert.equal(isIpadCollection(h), true, h);
+  for (const h of ['refurbished-ipad', 'hoesjes-ipad-mini-6', 'cs-atb-ipad-2019', 'microforce-reparaties-tablet-ipad-apple', 'refurbished-iphone-16']) assert.equal(isIpadCollection(h), false, h);
+  assert.equal(collectionName('microforce-ipad-ipad-air-5-2022'), 'iPad Air 5 2022');
+  const base = { name: 'Jan Peeters', email: 'jan@example.com', language: 'nl', consent: true, grades: [4, 5] };
+  assert.equal(parseRequest({ ...base, collection: 'ipad-pro-2020-11', configs: ['256GB Cellular', '128GB Wi-Fi'] }).ok, true);
+  assert.equal(parseRequest({ ...base, collection: 'ipad-pro-2020-11', configs: ['256GB'] }).ok, false, 'iPad zonder verbinding');
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-ipad', configs: ['256GB Wi-Fi'] }).ok, false, 'niet de hoofdpagina');
+  assert.equal(parseRequest({ ...base, collection: 'refurbished-iphone-16', configs: ['256GB Wi-Fi'] }).ok, false);
+  const req = { id: '1', name: 'Jan', email: 'jan@example.com', language: 'nl', collection_handle: 'ipad-pro-2020-11', config_key: '128GB Cellular', config_label: '', grades: [4, 5], token: 't' };
+  const m = matchRequests([req], new Map([['ipad-pro-2020-11', [
+    { handle: 'wifi', status: 'ACTIVE', totalInventory: 1, price: 399, erp: erp({ net: 'Wifi' }) },
+    { handle: 'cel-5', status: 'ACTIVE', totalInventory: 1, price: 469, erp: erp({ net: 'Wifi + 4G' }) },
+    { handle: 'cel-3', status: 'ACTIVE', totalInventory: 1, price: 419, erp: erp({ net: 'Wifi + 4G', condition: '3* Goed' }) },
+    // Handle zonder opslag en met een andere staat: het ERP zegt 128 GB, Cellular, 4*.
+    { handle: 'ipad-pro-5-12-9-2021-wifi-5g-space-grey-refurbished-5-m', status: 'ACTIVE', totalInventory: 1, price: 459, erp: erp({ net: 'Wifi + 5G', condition: '4* Zeer Goed' }) },
+  ]]]));
+  assert.equal(m.length, 1);
+  assert.equal(m[0].product.handle, 'ipad-pro-5-12-9-2021-wifi-5g-space-grey-refurbished-5-m', 'Cellular in een gekozen staat uit het ERP, ook zonder opslag in de handle');
+  assert.equal(m[0].product.grade, 4);
+  const mail = availableMail('nl', 'Jan', m, 'https://x.test/u');
+  assert.match(mail.subject, /iPad/);
+  assert.doesNotMatch(mail.subject + mail.text, /MacBook|iPhone/);
+  // De databasecontrole (security/sql/shop-stock-requests-configs.sql) laat precies de sleutels van core.ts toe.
+  const sql = read('security/sql/shop-stock-requests-configs.sql');
+  const db = new RegExp(/config_key ~ '([^']+)'/.exec(sql)[1]);
+  for (const k of ['M2/16GB/1TB', 'M1 Pro/16GB/512GB', '128GB', '1TB', '256GB Wi-Fi', '1TB Cellular']) {
+    assert.equal(db.test(k), true, k);
+    assert.equal(MAC_KEY.test(k) || IPHONE_KEY.test(k) || IPAD_KEY.test(k), true, k);
+  }
+  for (const k of ['256GB Wifi', 'M2', '256 GB', '256GB Cellular x']) assert.equal(db.test(k), false, k);
 });

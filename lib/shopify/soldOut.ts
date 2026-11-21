@@ -1,57 +1,68 @@
 import 'server-only';
-// Uitverkochte refurbished toestellen van één modelcollectie, voor "Verwittig mij" op de modelpagina van de webshop.
-// Shopify toont producten met status "Niet vermeld" (UNLISTED) niet in een collectie op de winkel, dus de theme kan ze
-// zelf niet vinden. Deze helper leest ze via de Admin API: per product de handle, opslag, staat (sterren) en kleur.
-// De productpagina's van die toestellen hebben de knop "Breng mij op de hoogte" van de app Stok.
+// Uitverkochte refurbished toestellen van één modelcollectie, voor "Verwittig mij" en "Op aanvraag" op de modelpagina van
+// de webshop. Shopify toont producten met status "Niet vermeld" (UNLISTED) niet in een collectie op de winkel, dus de theme
+// kan ze zelf niet vinden. Deze helper leest ze via de Admin API. Opslag, staat, verbinding en configuratie komen uit de
+// ERP-velden (lib/shopify/erp.ts), nooit uit de handle; de handle dient alleen als link naar de productpagina.
+import { ERP_FIELDS_GQL, erpConfig, erpFields, erpGrade, erpNet, erpSize, NEW_IN_BOX_GRADE, type DeviceKind, type ErpRaw } from './erp';
 
-export const SOLD_OUT_QUERY = `query SoldOut($handle: String!) {
+export { NEW_IN_BOX_GRADE };
+
+function soldOutQuery(withSwatch: boolean): string {
+  return `query SoldOut($handle: String!, $after: String) {
   collectionByIdentifier(identifier: { handle: $handle }) {
-    products(first: 250) {
+    products(first: 100, after: $after) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         handle
         status
-        totalInventory
+        totalInventory${ERP_FIELDS_GQL}
+        swatchId: metafield(namespace: "custom", key: "color_swatch") { value }${withSwatch ? `
         swatch: metafield(namespace: "custom", key: "color_swatch") {
           reference { ... on Metaobject { name: field(key: "name") { value } } }
-        }
+        }` : ''}
       }
     }
   }
 }`;
-
-/** Zelfde vraag zonder kleur, voor het geval de app geen toegang heeft tot metaobjecten. */
-export const SOLD_OUT_QUERY_BASIC = SOLD_OUT_QUERY.replace(/\n\s*swatch: metafield[\s\S]*?\n\s*\}\n(?=\s*\}\n\s*\}\n\s*\}\n\}$)/, '\n');
-
-export type SoldOutRaw = {
-  collectionByIdentifier: {
-    products: { nodes: { handle: string; status: string; totalInventory: number | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null }[] };
-  } | null;
-};
-
-export type SoldOutItem = { handle: string; size: string; grade: string; colour: string };
-
-/** Opslag ("128GB", "1TB") en staat ("3", "4", "5") uit de handle, bv. iphone-13-128gb-blue-refurbished-4-m. */
-export function parseHandle(handle: string): { size: string; grade: string } | null {
-  const words = handle.toLowerCase().split('-');
-  let size = '';
-  for (const w of words) {
-    const m = /^(\d+)(gb|tb)$/.exec(w);
-    if (m && Number(m[1]) > 0) { size = m[1] + m[2].toUpperCase(); break; }
-  }
-  const at = words.findIndex(w => w.includes('refurb'));
-  if (!size || at < 0) return null;
-  const grade = words.slice(at + 1).find(w => /^[345]$/.test(w)) ?? '';
-  return grade ? { size, grade } : null;
 }
 
-export function soldOutItems(raw: SoldOutRaw): SoldOutItem[] {
+export const SOLD_OUT_QUERY = soldOutQuery(true);
+/**
+ * Zelfde vraag zonder kleurstaal, als de vraag met kleurstaal mislukt. Pagina's van 100 producten: de vraag met 250
+ * producten en de kleurstaal ging over de maximale kost van Shopify, waardoor de kleur (Olivier, 15/11) altijd ontbrak.
+ */
+export const SOLD_OUT_QUERY_BASIC = soldOutQuery(false);
+
+export type SoldOutNode = ErpRaw & { handle: string; status: string; totalInventory: number | null; swatchId?: { value: string | null } | null; swatch?: { reference: { name?: { value: string | null } | null } | null } | null };
+export type SoldOutRaw = { collectionByIdentifier: { products: { nodes: SoldOutNode[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } } | null };
+
+/** Maximaal aantal pagina's van 100 producten per collectie (een modelcollectie heeft er zelden meer dan 250). */
+export const SOLD_OUT_MAX_PAGES = 5;
+
+/**
+ * Eén uitverkocht toestel: handle (link), opslag ("128GB"), staat ("3", "4", "5" of "6" = Nieuw in Box), kleur,
+ * verbinding ("Wi-Fi"/"Cellular", alleen iPad), configuratie (zelfde sleutel als in de verwittigingen, bv. "M2/16GB/1TB") en
+ * het nummer van het kleurbolletje (custom.color_swatch, bv. "78434566476"). De naam van het kleurbolletje kan deze app niet
+ * altijd lezen; de webshop zet het nummer om naar de naam in de taal van de bezoeker (Olivier, 15/11).
+ */
+export type SoldOutItem = { handle: string; size: string; grade: string; colour: string; net: string; config: string; swatch: string };
+
+export function soldOutItems(raw: SoldOutRaw, kind: DeviceKind = ''): SoldOutItem[] {
   const nodes = raw.collectionByIdentifier?.products.nodes ?? [];
   const out: SoldOutItem[] = [];
   for (const n of nodes) {
-    if (n.status !== 'UNLISTED' || (n.totalInventory ?? 0) > 0 || !n.handle.includes('refurb')) continue;
-    const parsed = parseHandle(n.handle);
-    if (!parsed) continue;
-    out.push({ handle: n.handle, ...parsed, colour: (n.swatch?.reference?.name?.value ?? '').trim() });
+    // Alleen "Niet vermeld" (concepten zijn bewust nog niet klaar) met een staat in het ERP (refurbished of Nieuw in Box).
+    if (n.status !== 'UNLISTED' || (n.totalInventory ?? 0) > 0) continue;
+    const f = erpFields(n);
+    const grade = erpGrade(f.condition);
+    const size = erpSize(f.storage || f.ssd);
+    if (!grade || !size) continue;
+    out.push({
+      handle: n.handle, size, grade: String(grade),
+      colour: (n.swatch?.reference?.name?.value ?? f.colour ?? '').trim(),
+      net: erpNet(f.net), config: erpConfig(kind, f),
+      swatch: /^gid:\/\/shopify\/Metaobject\/(\d+)$/.exec(n.swatchId?.value ?? '')?.[1] ?? '',
+    });
   }
   return out;
 }

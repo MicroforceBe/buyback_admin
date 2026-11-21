@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createShopifyClient, shopifyConfig } from '@/lib/shopify/client';
-import { SOLD_OUT_QUERY, SOLD_OUT_QUERY_BASIC, soldOutItems, type SoldOutRaw } from '@/lib/shopify/soldOut';
+import { SOLD_OUT_MAX_PAGES, SOLD_OUT_QUERY, SOLD_OUT_QUERY_BASIC, soldOutItems, type SoldOutNode, type SoldOutRaw } from '@/lib/shopify/soldOut';
+import { collectionKind } from '@/lib/stockRequests/core';
 
-// Publieke, alleen-lezen lijst met uitverkochte toestellen van één modelcollectie (handle, opslag, staat, kleur),
+// Publieke, alleen-lezen lijst met uitverkochte toestellen van één modelcollectie (handle, opslag, staat, kleur, verbinding en
+// configuratie, uit de ERP-velden),
 // voor "Verwittig mij" in de keuzehulp op de modelpagina's van microforce.be (snippet model-overzicht.liquid).
 // Geen prijzen, voorraad of klantgegevens. CORS alleen voor de webshop; 15 minuten gecachet aan de rand.
 export const dynamic = 'force-dynamic';
@@ -37,12 +39,29 @@ export async function GET(request: Request) {
     const config = shopifyConfig();
     if (!config) return NextResponse.json({ error: 'Niet beschikbaar' }, { status: 503, headers });
     const client = createShopifyClient(config);
+    // Alle pagina's ophalen; mislukt de vraag met kleurstaal, dan opnieuw zonder (kleur dan uit magento.colour_of_product).
+    async function load(query: string): Promise<SoldOutRaw> {
+      const nodes: SoldOutNode[] = [];
+      let after: string | null = null;
+      for (let page = 0; page < SOLD_OUT_MAX_PAGES; page++) {
+        const r: SoldOutRaw = await client.graphql<SoldOutRaw>(query, { handle, after });
+        if (!r.collectionByIdentifier) return r;
+        nodes.push(...r.collectionByIdentifier.products.nodes);
+        const info = r.collectionByIdentifier.products.pageInfo;
+        if (!info?.hasNextPage || !info.endCursor) break;
+        after = info.endCursor;
+      }
+      return { collectionByIdentifier: { products: { nodes } } };
+    }
     let raw: SoldOutRaw;
-    try { raw = await client.graphql<SoldOutRaw>(SOLD_OUT_QUERY, { handle }); }
-    catch { raw = await client.graphql<SoldOutRaw>(SOLD_OUT_QUERY_BASIC, { handle }); } // zonder kleur
+    try { raw = await load(SOLD_OUT_QUERY); }
+    catch (e) {
+      console.error('[PUBLIC SOLD OUT] zonder kleurstaal:', e instanceof Error ? e.message.slice(0, 300) : 'onbekende fout');
+      raw = await load(SOLD_OUT_QUERY_BASIC);
+    }
     if (!raw.collectionByIdentifier) return NextResponse.json({ error: 'Collectie niet gevonden' }, { status: 404, headers });
     return NextResponse.json(
-      { items: soldOutItems(raw) },
+      { items: soldOutItems(raw, collectionKind(handle)) },
       { headers: { ...headers, 'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=3600' } },
     );
   } catch {

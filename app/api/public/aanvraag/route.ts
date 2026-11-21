@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { adminBaseUrl, configLabel, confirmationMail, modelName, parseRequest, pickImages, unsubscribeUrl, type MailItem } from '@/lib/stockRequests/core';
+import { adminBaseUrl, collectionKind, configLabel, confirmationMail, modelName, parseRequest, pickImages, unsubscribeUrl, type MailItem } from '@/lib/stockRequests/core';
 import { fetchCollection, shopClient } from '@/lib/stockRequests/shop';
 import { sendShopMail } from '@/lib/stockRequests/mail';
 
-// Publiek: een klant vraagt op een MacBook-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
+// Publiek: een klant vraagt op een MacBook-, iPhone-, Samsung- of iPad-modelpagina van microforce.be (blok "Op aanvraag", snippets/model-op-aanvraag.liquid)
 // een mail zodra één of meer configuraties terug op voorraad zijn. Body (JSON): name, email, language, collection, configs
-// (["M2/16GB/1TB", …]), grades ([3,4,5]: Behoorlijk, Zeer goed, Als nieuw), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
+// (["M2/16GB/1TB", …]), grades ([3,4,5]: Behoorlijk, Zeer goed, Als nieuw; 6: Nieuw in Box, alleen op pagina's met enkel Nieuw in Box), consent (true), website (val voor bots, leeg). Labels maakt de server zelf.
 // Alleen vanaf de webshop (CORS en Origin); begrensd per IP (gehasht) en per e-mailadres. Stuurt een bevestigingsmail
 // (hoogstens 3 per adres per 24 uur, 100 per uur in totaal). Naam: alleen letters, max. 60 tekens, geen links.
 export const dynamic = 'force-dynamic';
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     try {
       const client = shopClient();
       const c = client ? await fetchCollection(client, v.collection) : null;
-      if (c) { const img = pickImages(v.keys, c.products); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
+      if (c) { const img = pickImages(v.keys, c.products, collectionKind(v.collection)); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
     } catch { /* zonder foto */ }
     await sendShopMail(v.email, confirmationMail(v.language, v.name, items, v.grades, link, v.collection), link);
   } catch {

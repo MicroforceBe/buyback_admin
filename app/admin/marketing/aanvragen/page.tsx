@@ -1,4 +1,4 @@
-// Verwittigingen "Op aanvraag" (MacBook-modelpagina's van microforce.be): welke configuraties klanten zoeken, in welke
+// Verwittigingen "Op aanvraag" (MacBook-, iPhone-, Samsung- en iPad-modelpagina's van microforce.be): welke configuraties klanten zoeken, in welke
 // minimale staat, sinds wanneer, en hoeveel klanten de laatste 30 dagen gemaild werden. Alleen lezen.
 // Namen en e-mailadressen ziet alleen een beheerder. Code: lib/stockRequests, docs/marketing.md.
 import Link from 'next/link';
@@ -28,7 +28,7 @@ export default async function AanvragenPage() {
       <div>
         <Link href="/admin/marketing" className="text-sm text-sky-700 hover:underline">← Marketing</Link>
         <h1 className="mt-1 text-2xl font-bold">Aanvragen "Op aanvraag"</h1>
-        <p className="text-sm text-slate-500">Klanten die een mail vroegen zodra een MacBook-configuratie terug op voorraad is. Elk uur wordt gecontroleerd; een aanvraag blijft 6 maanden open.</p>
+        <p className="text-sm text-slate-500">Klanten die een mail vroegen zodra een MacBook-, iPhone-, Samsung- of iPad-configuratie terug op voorraad is. Elk uur wordt gecontroleerd; een aanvraag blijft 6 maanden open.</p>
       </div>
       {error && <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">De aanvragen konden niet gelezen worden. Is <code>security/sql/shop-stock-requests.sql</code> al toegepast?</p>}
 
@@ -45,7 +45,7 @@ export default async function AanvragenPage() {
                     <td className="py-2 pr-3">{collectionName(d.collection)}</td>
                     <td className="pr-3 font-medium">{configLabel(d.config, 'nl')}</td>
                     <td className="pr-3 text-right text-lg font-bold">{d.open}</td>
-                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5] as const).filter(g => d.byGrade[g]).map(g => `${GRADE.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
+                    <td className="pr-3 text-xs text-slate-600">{([3, 4, 5, 6] as const).filter(g => d.byGrade[g]).map(g => `${GRADE.nl[g]}: ${d.byGrade[g]}`).join(' · ') || '—'}</td>
                     <td className="pr-3">{fmt(d.oldest)}</td>
                     <td className="text-right">{d.notified30 || '—'}</td>
                   </tr>

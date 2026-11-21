@@ -863,7 +863,19 @@ test('a sold-out refurbished device becomes UNLISTED (reachable by URL), anythin
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, inventory: empty }), 'UNLISTED');
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb }), 'DRAFT', 'Shopify still has stock: draft first, UNLISTED once the 0 is written');
   assert.equal(status({ Title: refurb, Status: 'Draft' }, { title: refurb }), 'DRAFT', 'still stock: the ERP draft stands');
-  assert.equal(status({ Title: 'Lightning kabel 2m', Status: 'Draft', ...zero }, { title: 'Lightning kabel 2m', inventory: empty }), 'DRAFT');
+  const kabel = { 'Metafield: custom.refurbished_product': 'FALSE' };
+  assert.equal(status({ Title: 'Lightning kabel 2m', Status: 'Draft', ...zero, ...kabel }, { title: 'Lightning kabel 2m', inventory: empty, metafields: { 'custom.refurbished_product': 'false' } }), 'DRAFT');
+  // The ERP attribute decides, not the title: "Nieuw in Box" with Refurbished Product = true becomes UNLISTED,
+  // a title with "Refurbished" but the attribute false stays draft.
+  const nib = 'MacBook Air 15" E26 M5 16GB 1TB SSD Midnight (nieuw in Box)M';
+  assert.equal(status({ Title: nib, Status: 'Draft', ...zero }, { title: nib, status: 'DRAFT', inventory: empty }), 'UNLISTED');
+  assert.equal(status({ Title: refurb, Status: 'Draft', ...zero, ...kabel }, { title: refurb, inventory: empty, metafields: { 'custom.refurbished_product': 'false' } }), 'DRAFT');
+  // Without the attribute (column and metafield absent) the title still decides.
+  const noAttr = csvRow({ Title: nib, Status: 'Draft', ...zero }); delete noAttr['Metafield: custom.refurbished_product'];
+  assert.equal(plain(plan.planSync({ desired: [plan.desiredFromRow(noAttr)], current: [current({ title: nib, status: 'DRAFT', inventory: empty, metafields: {} })], locations: LOCS })).productUpdates[0]?.status, undefined);
+  assert.equal(plan.isRefurbished(null, refurb), true);
+  assert.equal(plan.isRefurbished('false', refurb), false);
+  assert.equal(plan.isRefurbished('true', nib), true);
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, status: 'UNLISTED', inventory: empty }), undefined, 'already unlisted: no change');
   assert.equal(status({ Title: refurb, Status: 'Active' }, { title: refurb, status: 'UNLISTED', inventory: empty }), 'ACTIVE', 'back in stock: active again');
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, inventory: empty, tags: ['erp-nieuw'] }), undefined, 'erp-nieuw keeps its status');
@@ -889,7 +901,7 @@ test('the sold-out rule looks at every variant of the product, whatever the row 
 test('unlisted refurbished devices stay in the publication scope, also after leaving the ERP', () => {
   const sync = read('lib/shopify/sync.ts');
   assert.match(sync, /for \(const a of missingDeactivations\) if \(a\.status === 'UNLISTED'\) managed\.add\(a\.productId\)/);
-  assert.match(sync, /if \(v\.status === 'UNLISTED' && isRefurbishedTitle\(v\.title\)\) managed\.add\(v\.productId\)/);
+  assert.match(sync, /if \(v\.status === 'UNLISTED' && isRefurbished\(v\.metafields\[REFURBISHED_METAFIELD\], v\.title\)\) managed\.add\(v\.productId\)/);
   assert.ok(sync.indexOf('managed.add') < sync.indexOf('const ensureOnStore'));
 });
 
@@ -911,7 +923,7 @@ test('a refurbished device that leaves the ERP becomes UNLISTED without a redire
   const old = new Date('2026-01-01T00:00:00Z');
   const now = new Date('2026-01-02T00:00:00Z');
   const a = current({ sku: 'R1', productId: 'gid://shopify/Product/1', title: 'iPad Air 4 64GB Refurbished 5*', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 } });
-  const b = current({ sku: 'K1', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/22', inventoryItemId: 'gid://shopify/InventoryItem/222', title: 'Lightning kabel 2m', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 } });
+  const b = current({ sku: 'K1', productId: 'gid://shopify/Product/2', variantId: 'gid://shopify/ProductVariant/22', inventoryItemId: 'gid://shopify/InventoryItem/222', title: 'Lightning kabel 2m', inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'false' } });
   const d = plain(plan.planDeactivateMissing({ missing: [a, b], all: [a, b], erpSkus: new Set(), firstMissing: new Map([['R1', old], ['K1', old]]), now, locations: LOCS, afterHours: 1 }));
   assert.deepEqual(d.deactivate.map(x => [x.title, x.status]), [['iPad Air 4 64GB Refurbished 5*', 'UNLISTED'], ['Lightning kabel 2m', 'DRAFT']]);
   // Stock still in Shopify: draft first (the 0 is written in this run); an old draft becomes UNLISTED, a batch per run.
