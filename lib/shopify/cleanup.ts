@@ -4,6 +4,7 @@ import 'server-only';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, PRODUCT_DELETE, PRODUCT_INFO, PRODUCT_SET_STATUS, shopifyConfig, type ShopifyClient } from '@/lib/shopify/client';
 import { checkRemoval, type RemovalAction, type ShopifyProductInfo } from '@/lib/shopify/removal';
+import { pickRedirectCollection, type RedirectCollection } from '@/lib/shopify/redirectTarget';
 import { hasRedirectScope, redirectArchived, removeRedirect } from '@/lib/shopify/redirects';
 
 type Db = typeof supabaseAdmin;
@@ -62,7 +63,7 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
   if (skus.size < MIN_ERP_ARTICLES) throw new Error(`De ERP-gegevens lijken onvolledig (${skus.size} artikelen); er wordt niets gewijzigd.`);
 
   type Level = { quantities: { quantity: number }[] };
-  type ProductNode = { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; collections: { nodes: { handle: string }[] };
+  type ProductNode = { id: string; title: string; handle: string; status: ShopifyProductInfo['status']; collections: { nodes: RedirectCollection[] };
     variants: { pageInfo: { hasNextPage: boolean }; nodes: { sku: string | null; inventoryItem: { inventoryLevels: { pageInfo: { hasNextPage: boolean }; nodes: Level[] } } | null }[] } };
   const products: ShopifyProductInfo[] = [];
   for (const id of ids.slice(0, 100)) {
@@ -75,7 +76,7 @@ export async function runRemoval(input: { action: RemovalAction; ids: string[]; 
       positiveStock: quantities.filter(q => q > 0).reduce((a, b) => a + b, 0),
       skus: n.variants.nodes.map(v => (v.sku ?? '').trim()).filter(Boolean),
       allVariantsChecked: !n.variants.pageInfo.hasNextPage && levels.every(l => l && !l.pageInfo.hasNextPage),
-      collectionHandle: n.collections.nodes[0]?.handle ?? null,
+      collectionHandle: pickRedirectCollection(n.collections.nodes),
     });
   }
 
