@@ -7,7 +7,8 @@
 //  - Colour fields only from a reference with the same colour in its title (SG = Space Grey, ...).
 //  - Model = the title words before the first capacity ("MacBook Pro 16 L21 M1 Max", "iPhone 13 Mini").
 //    Model properties (screen, processor, camera, ...) only from a reference with exactly the same model.
-//  - Memory/storage fields only from a reference with the same model and the same capacities.
+//  - Memory/storage fields only from a reference with the same model and the same capacities;
+//    without such a reference they are read from the title ("16GB 1TB SSD" -> 16 GB werkgeheugen, 1 TB SSD).
 //  - Never copied: fields the ERP syncs, stock/price fields and app data (reviews, SEO, ...).
 
 export type MetafieldValue = { namespace: string; key: string; type: string; value: string };
@@ -86,7 +87,34 @@ const KNOWN_COLOURS = ['rose gold', 'space grey', 'space gray', 'space black', '
   'starlight', 'grey', 'gray', 'orange', 'coral', 'violet', 'bronze', 'titanium'];
 // Every word of a known colour ("space", "grey", "rose", ...): never part of a model without capacities.
 const COLOUR_WORDS = new Set(KNOWN_COLOURS.flatMap(c => c.split(' ')));
-const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
+const COLOUR_ALIASES: Record<string, string> = { sg: 'space grey', sb: 'space black', sl: 'silver', gd: 'gold', spacegrey: 'space grey', 'space-grey': 'space grey' };
+
+// Computers: a title with two capacities is "werkgeheugen + SSD" ("16GB 1TB SSD", "8GB 256SSD").
+const COMPUTER = /\b(macbook|imac|mac\s*mini|mac\s*studio|laptop|latitude|precision|vostro|elitebook|probook|zbook|thinkpad|ideapad|surface)\b/i;
+const MAX_RAM_GB = 192;
+
+/**
+ * Memory/storage fields read from the title itself, used only when no existing product of the same
+ * model has the same capacities. Computers: RAM = the capacity without "SSD", SSD = the capacity with
+ * "SSD" (or the second of two). Phones and tablets: one capacity = storage. Ambiguous titles give nothing.
+ */
+export function capacityFieldsFromTitle(title: string): MetafieldValue[] {
+  const toks = [...title.matchAll(/(\d+)\s*(gb|tb)(?:\s*(ssd))?\b|(\d+)\s*(ssd)\b/gi)].map(m => m[1]
+    ? { n: Number(m[1]), unit: m[2].toUpperCase(), ssd: !!m[3] }
+    : { n: Number(m[4]), unit: 'GB', ssd: true });
+  const field = (key: string, t: { n: number; unit: string }): MetafieldValue => ({ namespace: 'magento', key, type: 'single_line_text_field', value: `${t.n} ${t.unit}` });
+  if (!toks.length) return [];
+  if (COMPUTER.test(title) || toks.some(t => t.ssd)) {
+    let ssd = toks.find(t => t.ssd);
+    if (!ssd && toks.length === 2) ssd = toks[1];
+    const ram = toks.find(t => t !== ssd && t.unit === 'GB' && t.n <= MAX_RAM_GB);
+    const out: MetafieldValue[] = [];
+    if (ram && ssd) out.push(field('internal_memory', ram));
+    if (ssd && (ram || toks.length === 1)) out.push(field('solid_state_drive_capacity', ssd));
+    return out;
+  }
+  return toks.length === 1 ? [field('internal_storage_capacity', toks[0])] : [];
+}
 
 export function starsOf(title: string): string | null {
   const all = [...title.matchAll(/(\d)\s*\*/g)];
@@ -190,6 +218,8 @@ export function enrichMetafields(title: string, refs: Reference[]): { metafields
 
   for (const m of colourRef?.metafields ?? []) if (COLOUR.has(id(m)) && usable(m)) set(m, colourRef!.sku);
   for (const m of capacityRef?.metafields ?? []) if (CAPACITY.has(id(m)) && usable(m)) set(m, capacityRef!.sku);
+  // No product with the same model and capacities: read memory/storage from the title.
+  if (!capacityRef) for (const m of capacityFieldsFromTitle(title)) set(m, 'titel');
   for (const m of starsRef?.metafields ?? []) if (BY_STARS.has(id(m)) && usable(m)) set(m, starsRef!.sku);
   for (const m of modelRef?.metafields ?? []) {
     const k = id(m);
