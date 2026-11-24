@@ -154,6 +154,19 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     // Atomic mutation: any error means nothing in this batch was written.
     if (inventorySetQuantities.userErrors.length) for (const q of batch) failed.push({ id: q.inventoryItemId, scope: 'inventory', field: locationNameById.get(q.locationId) ?? q.locationId, reason: errorText(inventorySetQuantities.userErrors) });
   }
+  // Refurbished ERP drafts whose stock is now written: UNLISTED (reachable, not for sale) in this same run. A failed
+  // stock write means the page could still be bought: DRAFT instead, and the change is marked failed.
+  const failedStockItems = new Set(failed.filter(f => f.scope === 'inventory').map(f => f.id));
+  for (const u of plan.unlistAfterStock ?? []) {
+    await guard();
+    const stockFailed = u.inventoryItemIds.some(id => failedStockItems.has(id));
+    const status = stockFailed ? 'DRAFT' : 'UNLISTED';
+    if (stockFailed && u.from === 'DRAFT') { failed.push({ id: u.productId, scope: 'product', reason: 'voorraad niet geschreven: blijft concept' }); continue; }
+    const { productUpdate } = await client.graphql<{ productUpdate: { userErrors: UserError[] } }>(PRODUCT_UPDATE, { product: { id: u.productId, status } });
+    if (productUpdate.userErrors.length) failed.push({ id: u.productId, scope: 'product', reason: errorText(productUpdate.userErrors) });
+    else if (stockFailed) failed.push({ id: u.productId, scope: 'product', reason: 'voorraad niet geschreven: concept in plaats van niet vermeld' });
+    else await afterProductUpdate(u.productId);
+  }
   // The store list was computed from the planned stock: when a stock write of that product failed, it is not
   // written (the next run computes it again from the real stock) and the change is reported as failed.
   const failedInventory = new Set(failed.filter(f => f.scope === 'inventory').map(f => f.id));

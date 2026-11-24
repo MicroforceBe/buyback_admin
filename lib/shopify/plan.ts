@@ -157,6 +157,12 @@ export type Plan = {
   /** Tags to add to or remove from a product (the Hulk battery-choice tag, see addBatteryTags). */
   tagsAdd: { id: string; tags: string[] }[];
   tagsRemove: { id: string; tags: string[] }[];
+  /**
+   * Refurbished products the ERP put on draft that only still have stock in Shopify because this run has not written
+   * the new stock yet. They become UNLISTED (reachable, not for sale) right after their stock writes succeed, in the
+   * same run, instead of going to DRAFT (a 404) for one run. When a stock write fails they go to DRAFT instead.
+   */
+  unlistAfterStock?: { productId: string; sku: string; from: ProductStatus; inventoryItemIds: string[] }[];
   counts: {
     erpRows: number;
     matched: number;
@@ -311,7 +317,7 @@ export function planSync(input: {
   deferStores?: boolean;
 }): Plan {
   const plan: Plan = {
-    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [], tagsAdd: [], tagsRemove: [],
+    changes: [], conflictedProducts: [], unmatched: { erpOnly: [], shopifyOnly: [], shopifyOnlyArchived: [], duplicate: [] }, newCandidates: [], productUpdates: [], variantUpdates: [], inventory: [], metafields: [], metafieldDeletes: [], tagsAdd: [], tagsRemove: [], unlistAfterStock: [],
     counts: { erpRows: input.desired.length + (input.invalidRows ?? 0), matched: 0, unchanged: 0, erpOnly: 0, shopifyOnly: 0, shopifyOnlyArchived: 0, duplicateSkus: 0, unknownLocations: [], notStocked: 0, productConflicts: 0, invalidRows: input.invalidRows ?? 0, statusLocked: 0, unlistDeferred: 0, unlistedFromDraft: 0, storesDeferred: 0, tagsDeferred: 0 },
   };
 
@@ -355,6 +361,16 @@ export function planSync(input: {
   // stock write never leaves a reachable page that can still be bought. Until then the ERP draft applies;
   // the next run (stock written) makes it UNLISTED.
   const productStock = new Map<string, number>();
+  // Stock for sale once this run's writes are done (ERP minus open orders), without Shopify's current quantity.
+  const productStockAfter = new Map<string, number>();
+  const productItems = new Map<string, string[]>();
+  for (const c of input.current) {
+    const erpAfter = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
+    let after = 0;
+    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erpAfter)])) after += Math.max(0, (erpAfter[location] ?? onHandAt(c, location)) - committedAt(c, location));
+    productStockAfter.set(c.productId, (productStockAfter.get(c.productId) ?? 0) + after);
+    productItems.set(c.productId, [...(productItems.get(c.productId) ?? []), c.inventoryItemId]);
+  }
   for (const c of input.current) {
     const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
@@ -381,7 +397,17 @@ export function planSync(input: {
       if (d.product.vendor !== undefined && d.product.vendor !== c.vendor) { update.vendor = d.product.vendor; add({ sku: d.sku, scope: 'product', field: 'vendor', oldValue: c.vendor, newValue: d.product.vendor }); }
       if (d.product.productType !== undefined && d.product.productType !== c.productType) { update.productType = d.product.productType; add({ sku: d.sku, scope: 'product', field: 'productType', oldValue: c.productType, newValue: d.product.productType }); }
       const refurbished = isRefurbished(d.metafields[REFURBISHED_METAFIELD] ?? c.metafields[REFURBISHED_METAFIELD], d.product.title ?? c.title);
-      const wanted = targetStatus(d.product.status, refurbished, productStock.get(c.productId) ?? 0);
+      let wanted = targetStatus(d.product.status, refurbished, productStock.get(c.productId) ?? 0);
+      // Only Shopify's current stock still holds it back: UNLISTED right after the stock writes (see unlistAfterStock).
+      const deferUnlist = wanted !== 'UNLISTED' && c.status !== 'UNLISTED' && !c.tags.includes(NEW_PRODUCT_TAG)
+        && targetStatus(d.product.status, refurbished, productStockAfter.get(c.productId) ?? 0) === 'UNLISTED'
+        && !(c.status === 'DRAFT' && unlisted >= maxUnlist);
+      if (deferUnlist) {
+        if (c.status === 'DRAFT') { unlisted++; plan.counts.unlistedFromDraft++; }
+        plan.unlistAfterStock!.push({ productId: c.productId, sku: d.sku, from: c.status, inventoryItemIds: productItems.get(c.productId) ?? [c.inventoryItemId] });
+        add({ sku: d.sku, scope: 'product', field: 'status', oldValue: c.status, newValue: 'UNLISTED' });
+        wanted = undefined;
+      }
       if (wanted !== undefined && wanted !== c.status) {
         // A product created as draft by the sync keeps its status until someone removes the erp-nieuw tag.
         if (c.tags.includes(NEW_PRODUCT_TAG)) plan.counts.statusLocked++;

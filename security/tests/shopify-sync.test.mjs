@@ -883,7 +883,10 @@ test('a sold-out refurbished device becomes UNLISTED (reachable by URL), anythin
   const empty = { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 };
   const status = (row, cur) => plain(plan.planSync({ desired: [plan.desiredFromRow(csvRow(row))], current: [current(cur)], locations: LOCS })).productUpdates[0]?.status;
   assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb, inventory: empty }), 'UNLISTED');
-  assert.equal(status({ Title: refurb, Status: 'Draft', ...zero }, { title: refurb }), 'DRAFT', 'Shopify still has stock: draft first, UNLISTED once the 0 is written');
+  // Shopify still has stock, the ERP has none: no draft (404) first, UNLISTED in the same run right after the 0 is written.
+  const pending = plain(plan.planSync({ desired: [plan.desiredFromRow(csvRow({ Title: refurb, Status: 'Draft', ...zero }))], current: [current({ title: refurb })], locations: LOCS }));
+  assert.equal(pending.productUpdates[0]?.status, undefined);
+  assert.deepEqual(pending.unlistAfterStock.map(u => [u.productId, u.from]), [['gid://shopify/Product/1', 'ACTIVE']]);
   assert.equal(status({ Title: refurb, Status: 'Draft' }, { title: refurb }), 'DRAFT', 'still stock: the ERP draft stands');
   const kabel = { 'Metafield: custom.refurbished_product': 'FALSE' };
   assert.equal(status({ Title: 'Lightning kabel 2m', Status: 'Draft', ...zero, ...kabel }, { title: 'Lightning kabel 2m', inventory: empty, metafields: { 'custom.refurbished_product': 'false' } }), 'DRAFT');
@@ -1178,4 +1181,20 @@ test('pending sales: the target is the ERP stock minus what is pending, per loca
   const now = Date.parse('2026-11-24T20:00:00Z');
   const r = p.computePending({ variants: [{ variantId: 'V', sku: 'A', onHand: { G: 0, A: 2 }, pending: null }], erp: new Map([['A', { G: 1, A: 2 }]]), fulfilled: [{ id: 'f', sku: 'A', location: 'G', qty: 1, at: '2026-11-24T19:00:00Z' }], now });
   assert.deepEqual(plain(Object.fromEntries(r.targets)), { A: { G: 0 } });
+});
+
+test('an ERP draft that only Shopify still holds becomes UNLISTED in the same run, never a 404', async () => {
+  const refurb = 'HP ZBook Fury 16 G9 I7 16GB 512SSD 16" Refurbished 4*';
+  const row = csvRow({ Title: refurb, Status: 'Draft', 'Inventory Available: Microforce Gentbrugge': '1', 'Inventory Available: Microforce Antwerpen': '0' });
+  // ERP: draft, 1 in stock, sold online (1 committed). Shopify: 2 on hand, 1 available (the old sync raised it).
+  const cur = current({ title: refurb, inventory: { 'Microforce Gentbrugge': 1, 'Microforce Antwerpen': 0 }, onHand: { 'Microforce Gentbrugge': 2, 'Microforce Antwerpen': 0 } });
+  for (const failInventory of [false, true]) {
+    const { db } = fakeDb({ mode: 'live', rows: [row] });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([cur], { failInventory });
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client });
+    const order = fake.mutations.map(m => m[0] === 'SyncProduct' ? 'status:' + m[1].product.status : m[0]).filter(x => x === 'SyncInventory' || x.startsWith('status:'));
+    // Stock first, then the status: UNLISTED when the stock is written, DRAFT (not for sale) when it failed.
+    assert.deepEqual(order, ['SyncInventory', failInventory ? 'status:DRAFT' : 'status:UNLISTED']);
+  }
 });
