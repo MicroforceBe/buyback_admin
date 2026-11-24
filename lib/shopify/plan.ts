@@ -71,7 +71,7 @@ export type DesiredState = {
   sku: string;
   product: { title?: string; vendor?: string; productType?: string; status?: ProductStatus };
   variant: { priceCents?: number; compareAtCents?: number | null; taxable?: boolean };
-  /** Available quantity per Shopify location name. */
+  /** ERP stock per Shopify location name (written as Shopify's on-hand quantity). */
   inventory: Record<string, number>;
   metafields: Record<string, string>;
   /** Fields only used when the product is created (new products start as draft). */
@@ -117,9 +117,18 @@ export type CurrentState = {
   taxable: boolean;
   /** Available quantity per location name (only locations where the item is stocked). */
   inventory: Record<string, number>;
+  /** On-hand quantity per location (available + units committed to open orders). Absent: same as available. */
+  onHand?: Record<string, number>;
+  /** Saved state of online sales not yet booked in the ERP (JSON, see pending.ts). */
+  pending?: string | null;
   metafields: Record<string, string | null>;
   tags: string[];
 };
+
+/** Shopify's on-hand quantity at a location (the quantity the sync writes). */
+export const onHandAt = (c: CurrentState, location: string) => c.onHand?.[location] ?? c.inventory[location] ?? 0;
+/** Units at a location that are committed to open orders (on hand but not available). */
+export const committedAt = (c: CurrentState, location: string) => Math.max(0, onHandAt(c, location) - (c.inventory[location] ?? 0));
 
 export type Change = {
   sku: string;
@@ -349,7 +358,8 @@ export function planSync(input: {
   for (const c of input.current) {
     const erp = c.sku && !duplicate.has(c.sku) ? desiredBySku.get(c.sku)?.inventory ?? {} : {};
     let stock = 0;
-    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erp)])) stock += Math.max(0, erp[location] ?? c.inventory[location] ?? 0) + Math.max(0, c.inventory[location] ?? 0);
+    // The ERP quantity is written as on hand; what stays for sale is that minus the units of open orders.
+    for (const location of new Set([...Object.keys(c.inventory), ...Object.keys(erp)])) stock += Math.max(0, (erp[location] ?? onHandAt(c, location)) - committedAt(c, location)) + Math.max(0, c.inventory[location] ?? 0);
     productStock.set(c.productId, (productStock.get(c.productId) ?? 0) + stock);
   }
 
@@ -411,9 +421,11 @@ export function planSync(input: {
       const locationId = input.locations[location];
       if (!locationId) { unknownLocations.add(location); continue; }
       if (!(location in c.inventory)) { plan.counts.notStocked++; continue; }
-      if (c.inventory[location] === qty) continue;
+      // The ERP stock is Shopify's on-hand quantity: Shopify keeps the units of open orders apart itself.
+      const have = onHandAt(c, location);
+      if (have === qty) continue;
       plan.inventory.push({ inventoryItemId: c.inventoryItemId, locationId, quantity: qty });
-      add({ sku: d.sku, scope: 'inventory', field: location, oldValue: String(c.inventory[location]), newValue: String(qty) });
+      add({ sku: d.sku, scope: 'inventory', field: location, oldValue: String(have), newValue: String(qty) });
     }
 
     // Metafields (product level).
@@ -470,7 +482,9 @@ export function addStoreLists(plan: Plan, input: { current: CurrentState[]; erpS
     const stock = storeStock.get(c.productId) ?? {};
     for (const [location] of STORE_LOCATIONS) {
       const locationId = input.locations[location];
-      const qty = location in c.inventory ? (planned.get(`${c.inventoryItemId} ${locationId}`) ?? c.inventory[location]) : 0;
+      const write = planned.get(`${c.inventoryItemId} ${locationId}`);
+      // Planned writes are on-hand quantities; what a store can sell is that minus the units of open orders.
+      const qty = location in c.inventory ? (write !== undefined ? write - committedAt(c, location) : c.inventory[location]) : 0;
       stock[location] = (stock[location] ?? 0) + Math.max(0, qty);
     }
     storeStock.set(c.productId, stock);

@@ -1,4 +1,5 @@
 // Reads the current Shopify catalogue state from a bulk-operation JSONL export (pure parsing).
+import { PENDING_METAFIELD } from '@/lib/shopify/pending';
 import { CONDITION_METAFIELD, parseMoneyCents, STORE_METAFIELD, SYNCED_METAFIELDS, metafieldId, type CurrentState, type ProductStatus } from '@/lib/shopify/plan';
 
 // Product metafields read for the plan: the ones copied from the CSV, the store list derived from the stock and the
@@ -17,13 +18,14 @@ export const BULK_VARIANTS_QUERY = `{
         price
         compareAtPrice
         taxable
+        pending: metafield(namespace: "${PENDING_METAFIELD.namespace}", key: "${PENDING_METAFIELD.key}") { value }
         inventoryItem {
           id
           inventoryLevels {
             edges {
               node {
                 location { id name }
-                quantities(names: ["available"]) { name quantity }
+                quantities(names: ["available", "on_hand"]) { name quantity }
               }
             }
           }
@@ -43,7 +45,7 @@ ${READ_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.nam
 }`;
 
 type VariantLine = {
-  id: string; sku: string | null; price: string; compareAtPrice: string | null; taxable: boolean;
+  id: string; sku: string | null; price: string; compareAtPrice: string | null; taxable: boolean; pending?: { value?: string } | null;
   inventoryItem: { id: string } | null;
   product: Record<string, unknown> & { id: string; title: string; vendor: string; productType: string; status: ProductStatus; tags?: string[] };
 };
@@ -81,6 +83,8 @@ export function parseBulkVariants(jsonl: string): { variants: CurrentState[]; lo
       compareAtCents: parseMoneyCents(v.compareAtPrice),
       taxable: v.taxable === true,
       inventory: {},
+      onHand: {},
+      pending: v.pending?.value ?? null,
       metafields,
       tags: Array.isArray(v.product.tags) ? v.product.tags : [],
     });
@@ -90,7 +94,10 @@ export function parseBulkVariants(jsonl: string): { variants: CurrentState[]; lo
     if (!variant || !level.location?.name) continue;
     locations[level.location.name] = level.location.id;
     const available = level.quantities?.find(q => q.name === 'available');
+    const onHand = level.quantities?.find(q => q.name === 'on_hand');
     variant.inventory[level.location.name] = available?.quantity ?? 0;
+    // On hand = available + committed (open orders) + other reserved units; without it, the available quantity.
+    variant.onHand![level.location.name] = onHand?.quantity ?? available?.quantity ?? 0;
   }
   return { variants: [...variants.values()], locations };
 }
