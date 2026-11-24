@@ -10,7 +10,7 @@ const read = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8'
 async function loadModules(db = null) {
   const context = vm.createContext({ console, Date, Number, Object, Error, String, Array, RegExp, Set, Map, Math, Promise, JSON, URL, URLSearchParams, setTimeout });
   const modules = new Map();
-  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/publish': 'lib/shopify/publish.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts', '@/lib/shopify/redirects': 'lib/shopify/redirects.ts', '@/lib/shopify/redirectTarget': 'lib/shopify/redirectTarget.ts', '@/lib/marketing/merchantFeed': 'lib/marketing/merchantFeed.ts' };
+  const internal = { '@/lib/shopify/enrich': 'lib/shopify/enrich.ts', '@/lib/shopify/seo': 'lib/shopify/seo.ts', '@/lib/shopify/publish': 'lib/shopify/publish.ts', '@/lib/shopify/plan': 'lib/shopify/plan.ts', '@/lib/shopify/state': 'lib/shopify/state.ts', '@/lib/shopify/pending': 'lib/shopify/pending.ts', '@/lib/shopify/client': 'lib/shopify/client.ts', '@/lib/shopify/sync': 'lib/shopify/sync.ts', '@/lib/shopify/redirects': 'lib/shopify/redirects.ts', '@/lib/shopify/redirectTarget': 'lib/shopify/redirectTarget.ts', '@/lib/marketing/merchantFeed': 'lib/marketing/merchantFeed.ts' };
   let n = 0;
   async function load(path) {
     if (modules.has(path)) return modules.get(path);
@@ -27,7 +27,7 @@ async function loadModules(db = null) {
     return m;
   }
   const ns = async p => (await load(p)).namespace;
-  return { plan: await ns('lib/shopify/plan.ts'), state: await ns('lib/shopify/state.ts'), client: await ns('lib/shopify/client.ts'), sync: db ? await ns('lib/shopify/sync.ts') : null };
+  return { plan: await ns('lib/shopify/plan.ts'), state: await ns('lib/shopify/state.ts'), pending: await ns('lib/shopify/pending.ts'), client: await ns('lib/shopify/client.ts'), sync: db ? await ns('lib/shopify/sync.ts') : null };
 }
 
 const csvRow = (over = {}) => ({
@@ -193,15 +193,16 @@ function fakeDb({ mode = 'shadow', maxChanges = 1500, rows = [csvRow()], running
   }
   return { db: { from }, log };
 }
-function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {}, refImages = {}, refDescriptions = {} } = {}) {
+function fakeClient(variants, { failInventory = false, failVariantIndex = null, refMetafields = {}, refImages = {}, refDescriptions = {}, orders = [] } = {}) {
   const mutations = [];
   return {
     mutations,
     client: {
-      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' }, mf_custom_stock_per_location_1: v.metafields['custom.stock_per_location_1'] === undefined ? null : { value: v.metafields['custom.stock_per_location_1'] } } })
-        + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }] })).join('\n')).join('\n'),
+      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, pending: v.pending ? { value: v.pending } : null, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' }, mf_custom_stock_per_location_1: v.metafields['custom.stock_per_location_1'] === undefined ? null : { value: v.metafields['custom.stock_per_location_1'] } } })
+        + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }, ...(v.onHand?.[name] !== undefined ? [{ name: 'on_hand', quantity: v.onHand[name] }] : [])] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
+        if (/^query /.test(query.trim()) && query.includes('orders(')) return { orders: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: orders } };
         if (/^query /.test(query.trim())) { if (query.includes('nodes(ids')) return { nodes: (vars.ids ?? []).map(id => ({ id, descriptionHtml: refDescriptions[id] ?? '', metafields: { nodes: refMetafields[id] ?? [] }, media: { nodes: (refImages[id] ?? []).map(image => ({ image })) } })) }; }
         mutations.push([query.match(/mutation (\w+)/)?.[1], plain(vars), options && plain(options)]);
         let userErrors = failInventory && query.includes('inventorySetQuantities') ? [{ message: 'Niet toegestaan' }] : [];
@@ -1103,4 +1104,78 @@ test('battery-choice tags are added and removed only where needed, never on arch
   plan.addBatteryTags(q, { current: cur, maxTagUpdates: 1 });
   assert.equal(q.tagsAdd.length + q.tagsRemove.length, 1);
   assert.equal(q.counts.tagsDeferred, 1);
+});
+
+// ---------- stock: on hand instead of available, and online sales the ERP has not booked yet ----------
+
+test('the ERP stock is written as on hand, so units of open orders are never put back on sale', async () => {
+  // Gentbrugge: 1 on hand, 1 committed to an open online order, 0 available. The ERP still says 1.
+  const { db } = fakeDb({ mode: 'live', rows: [csvRow({ 'Inventory Available: Microforce Gentbrugge': '1', 'Inventory Available: Microforce Antwerpen': '1' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 }, onHand: { 'Microforce Gentbrugge': 1, 'Microforce Antwerpen': 0 } })]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  const inv = fake.mutations.filter(m => m[0] === 'SyncInventory').flatMap(m => m[1].input.quantities.map(q => [q.locationId, q.quantity, m[1].input.name]));
+  // Gentbrugge is already right (on hand 1): no write. Antwerpen gets its unit, written as on hand.
+  assert.deepEqual(inv, [['gid://shopify/Location/2', 1, 'on_hand']]);
+});
+
+const fulfilledOrder = (lines, at = new Date(Date.now() - 3_600_000).toISOString(), location = 'Microforce Gentbrugge') => ({ fulfillments: [{ status: 'SUCCESS', createdAt: at, location: { name: location }, fulfillmentLineItems: { nodes: lines.map(([id, sku, quantity]) => ({ id, quantity, lineItem: { sku } })) } }] });
+
+test('a shipped online sale the ERP has not booked stays off sale, and is remembered on the variant', async () => {
+  // Shipped an hour ago: Shopify lowered on hand from 1 to 0, the ERP still says 1.
+  const { db } = fakeDb({ mode: 'live', rows: [csvRow({ 'Inventory Available: Microforce Gentbrugge': '1' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ inventory: { 'Microforce Gentbrugge': 0, 'Microforce Antwerpen': 0 }, metafields: { 'custom.refurbished_product': 'true', 'magento.tax_bebat': '0' } })], { orders: [fulfilledOrder([['gid://shopify/FulfillmentLineItem/1', 'SKU1', 1]])] });
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.counts.onlinePendingUnits, 1);
+  assert.ok(!fake.mutations.some(m => m[0] === 'SyncInventory'), 'the stock stays 0');
+  const saved = fake.mutations.find(m => m[0] === 'SyncMetafields' && m[1].metafields.some(x => x.namespace === 'microforce_sync'));
+  assert.ok(saved, 'state saved');
+  const state = JSON.parse(saved[1].metafields[0].value);
+  assert.equal(saved[1].metafields[0].ownerId, 'gid://shopify/ProductVariant/11');
+  assert.equal(state['Microforce Gentbrugge'].open[0].q, 1);
+});
+
+test('pending sales: booked by a drop of the ERP stock, new stock goes online right away, expired after 7 days', async () => {
+  const { pending: p } = await loadModules();
+  const now = Date.parse('2026-11-24T20:00:00Z');
+  const L = 'Microforce Gentbrugge';
+  const line = (id, qty, at = '2026-11-24T18:00:00Z') => ({ id, sku: 'A', location: L, qty, at });
+  const run = (onHand, erp, fulfilled, pendingState, t = now) => plain(p.computePending({ variants: [{ variantId: 'V', sku: 'A', onHand: { [L]: onHand }, pending: pendingState }], erp: new Map([['A', { [L]: erp }]]), fulfilled, now: t }));
+  // Accessory with 9 in stock: 1 shipped (Shopify 8), ERP not booked yet (9) -> 8 on hand, 1 pending.
+  let r = run(8, 9, [line('f1', 1)], null);
+  assert.deepEqual(r.targets, {}.constructor === Object ? r.targets : r.targets); // Map serialises to {}
+  const target = st => JSON.parse(st)[L];
+  let state = r.writes[0].value;
+  assert.equal(r.pendingUnits, 1);
+  assert.equal(target(state).open[0].q, 1);
+  // 5 delivered, sale still not booked: ERP 14 -> 13 online.
+  r = run(8, 14, [line('f1', 1)], state);
+  assert.equal(r.pendingUnits, 1);
+  assert.equal(r.pendingSkus[0].qty, 1);
+  state = r.writes.length ? r.writes[0].value : state;
+  // Sale booked in the ERP: 13 -> nothing pending any more, the line is remembered as done.
+  r = run(13, 13, [line('f1', 1)], state);
+  assert.equal(r.pendingUnits, 0);
+  assert.equal(target(r.writes[0].value).open.length, 0);
+  assert.deepEqual(target(r.writes[0].value).done.map(d => d.id), ['f1']);
+  // A sale the ERP already booked before the run saw it never counts: ERP 0, Shopify 0.
+  r = run(0, 0, [line('f2', 1)], null);
+  assert.equal(r.pendingUnits, 0);
+  // Never booked: dropped and reported after 7 days.
+  r = run(0, 1, [line('f3', 1, '2026-11-24T19:00:00Z')], null);
+  assert.equal(r.pendingUnits, 1);
+  r = run(0, 1, [], r.writes[0].value, now + 8 * 86_400_000);
+  assert.equal(r.pendingUnits, 0);
+  assert.equal(r.expired.length, 1);
+  assert.equal(r.expired[0].qty, 1);
+});
+
+test('pending sales: the target is the ERP stock minus what is pending, per location', async () => {
+  const { pending: p } = await loadModules();
+  const now = Date.parse('2026-11-24T20:00:00Z');
+  const r = p.computePending({ variants: [{ variantId: 'V', sku: 'A', onHand: { G: 0, A: 2 }, pending: null }], erp: new Map([['A', { G: 1, A: 2 }]]), fulfilled: [{ id: 'f', sku: 'A', location: 'G', qty: 1, at: '2026-11-24T19:00:00Z' }], now });
+  assert.deepEqual(plain(Object.fromEntries(r.targets)), { A: { G: 0 } });
 });

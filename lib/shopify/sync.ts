@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFIELDS_DELETE, METAFIELDS_SET, PRODUCT_CREATE, PRODUCT_UPDATE, REFERENCE_METAFIELDS, TAGS_ADD, TAGS_REMOVE, VARIANTS_UPDATE, type ShopifyClient } from '@/lib/shopify/client';
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
+import { computePending, MAX_AGE_DAYS, PENDING_METAFIELD, type Fulfilled, type PendingResult } from '@/lib/shopify/pending';
 import { pickDescription } from '@/lib/shopify/seo';
 import { channelCounts, channelPublications, erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnExtraChannels, publishActiveOnOnlineStore, publishCounts, publishNewProduct, type ChannelIds } from '@/lib/shopify/publish';
 import { addBatteryTags, addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbished, MAX_UNLIST_PER_RUN, REFURBISHED_METAFIELD, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
@@ -66,6 +67,35 @@ function failedItems<T>(items: T[], errors: UserError[]): { item: T; reason: str
 // 40 minutes = missed at least two imports, so one failed or half-finished import never counts.
 const NOT_IN_EXPORT_AFTER_MINUTES = 40;
 
+const FULFILLED_QUERY = `query SyncFulfilled($query: String!, $after: String) {
+  orders(first: 50, after: $after, query: $query, sortKey: UPDATED_AT) {
+    pageInfo { hasNextPage endCursor }
+    nodes { fulfillments(first: 20) { status createdAt location { name } fulfillmentLineItems(first: 100) { nodes { id quantity lineItem { sku } } } } }
+  }
+}`;
+const MAX_ORDER_PAGES = 40;
+
+/** Fulfilled order lines (shipped or handed over) of the last MAX_AGE_DAYS days, per SKU and location. Needs read_orders. */
+async function loadFulfilled(client: ShopifyClient, now: number): Promise<Fulfilled[]> {
+  const since = new Date(now - (MAX_AGE_DAYS + 1) * 86_400_000).toISOString();
+  type Page = { orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: { fulfillments: { status: string; createdAt: string; location: { name: string } | null; fulfillmentLineItems: { nodes: { id: string; quantity: number; lineItem: { sku: string | null } | null }[] } }[] }[] } };
+  const out: Fulfilled[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < MAX_ORDER_PAGES; page++) {
+    const data: Page = await client.graphql<Page>(FULFILLED_QUERY, { query: `updated_at:>='${since}'`, after });
+    for (const order of data.orders.nodes) for (const f of order.fulfillments ?? []) {
+      if (f.status !== 'SUCCESS' || !f.location?.name) continue;
+      for (const li of f.fulfillmentLineItems.nodes) {
+        const sku = (li.lineItem?.sku ?? '').trim();
+        if (sku && li.quantity > 0) out.push({ id: li.id, sku, location: f.location.name, qty: li.quantity, at: f.createdAt });
+      }
+    }
+    if (!data.orders.pageInfo.hasNextPage) break;
+    after = data.orders.pageInfo.endCursor;
+  }
+  return out;
+}
+
 async function loadDesired(db: Db): Promise<{ desired: DesiredState[]; invalid: number; notInExport: number }> {
   const rows: { sku: string; raw_erp_row: unknown; updated_at: string | null }[] = [];
   for (let from = 0; ; from += 1000) {
@@ -116,7 +146,9 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
   for (const batch of chunk(plan.inventory, 100)) {
     await guard();
     const { inventorySetQuantities } = await client.graphql<{ inventorySetQuantities: { userErrors: UserError[] } }>(INVENTORY_SET, {
-      input: { name: 'available', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
+      // On hand, not available: Shopify keeps the units of open orders apart itself, so the ERP stock never puts a
+      // sold (not yet fulfilled) unit back on sale.
+      input: { name: 'on_hand', reason: 'correction', referenceDocumentUri: `microforce://erp-sync/${runId}`, quantities: batch.map(q => ({ ...q, changeFromQuantity: null })) },
       key: key(),
     });
     // Atomic mutation: any error means nothing in this batch was written.
@@ -250,6 +282,39 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     const [jsonl, apiLocations] = await Promise.all([client.bulkQuery(BULK_VARIANTS_QUERY), client.locations()]);
     const state = parseBulkVariants(jsonl);
     const locations = { ...state.locations, ...apiLocations };
+    // Online sales already shipped or picked up that the ERP has not booked yet: kept off the stock (pending.ts).
+    const now = Date.now();
+    let fulfilled: Fulfilled[] = [];
+    try { fulfilled = await loadFulfilled(client, now); }
+    catch (e) { counts.onlinePendingError = `Bestellingen konden niet gelezen worden (recht read_orders?): ${e instanceof Error ? e.message : 'onbekend'}`.slice(0, 500); }
+    const skuTotal = new Map<string, number>();
+    for (const v of state.variants) if (v.sku) skuTotal.set(v.sku, (skuTotal.get(v.sku) ?? 0) + 1);
+    const pending: PendingResult = computePending({
+      variants: state.variants.filter(v => v.sku && skuTotal.get(v.sku) === 1).map(v => ({ variantId: v.variantId, sku: v.sku, onHand: v.onHand ?? v.inventory, pending: v.pending ?? null })),
+      erp: new Map(desired.map(d => [d.sku, d.inventory])), fulfilled, now,
+    });
+    for (let i = 0; i < desired.length; i++) {
+      const t = pending.targets.get(desired[i].sku);
+      if (t) desired[i] = { ...desired[i], inventory: { ...desired[i].inventory, ...t } };
+    }
+    Object.assign(counts, {
+      onlinePendingUnits: pending.pendingUnits, onlinePendingList: pending.pendingSkus.slice(0, 200),
+      ...(pending.expired.length ? { onlinePendingExpired: pending.expired.slice(0, 200) } : {}),
+    });
+    // Live: save the pending online sales per variant (also when nothing else changes). A failed save never fails
+    // the run: the next run reads the fulfilled orders again and only counts what the ERP has not booked.
+    if (mode === 'live') try {
+      const sets = pending.writes.filter(w => w.value !== null);
+      const dels = pending.writes.filter(w => w.value === null);
+      for (const batch of chunk(sets, 25)) {
+        const r = await client.graphql<{ metafieldsSet: { userErrors: UserError[] } }>(METAFIELDS_SET, { metafields: batch.map(w => ({ ownerId: w.variantId, ...PENDING_METAFIELD, value: w.value! })) });
+        if (r.metafieldsSet.userErrors.length) counts.onlinePendingStateError = errorText(r.metafieldsSet.userErrors);
+      }
+      for (const batch of chunk(dels, 25)) {
+        const r = await client.graphql<{ metafieldsDelete: { userErrors: UserError[] } }>(METAFIELDS_DELETE, { metafields: batch.map(w => ({ ownerId: w.variantId, namespace: PENDING_METAFIELD.namespace, key: PENDING_METAFIELD.key })) });
+        if (r.metafieldsDelete.userErrors.length) counts.onlinePendingStateError = errorText(r.metafieldsDelete.userErrors);
+      }
+    } catch (e) { counts.onlinePendingStateError = e instanceof Error ? e.message.slice(0, 500) : 'onbekend'; }
     // Store lists are added further on, once every stock write of this run is planned.
     const plan = planSync({ desired, current: state.variants, locations, invalidRows: invalid, deferStores: true });
     // Lists (capped) of SKUs that are not synced, so the admin page can show and filter them.
@@ -486,6 +551,7 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
       else counts.newPublished = Number(counts.newPublished ?? 0) + 1;
     };
     const failures = await applyPlan(client, plan, runId, key, stillLive, new Map(Object.entries(locations).map(([name, id]) => [id, name])), creates, afterProductUpdate, new Map(state.variants.map(v => [v.inventoryItemId, v.productId])), onCreated);
+
     // Failures per SKU, scope and (where known) field: a failed write must not mark successful ones as failed.
     const failed = new Map<string, { sku: string; scope: Scope; field?: string; reason: string }>();
     for (const f of failures) for (const sku of skusById.get(f.id) ?? [f.id]) failed.set([sku, f.scope, f.field ?? ''].join('\u0000'), { sku, scope: f.scope, field: f.field, reason: f.reason });

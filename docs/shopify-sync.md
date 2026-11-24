@@ -37,7 +37,7 @@ persoonsgegevens blijven in de EU en elke databasevraag is sneller.
 ## Configuratie (Vercel-omgevingsvariabelen, door de eigenaar)
 - `SHOPIFY_STORE_DOMAIN` – bv. `microforce-test.myshopify.com`
 - `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` – van de Dev Dashboard-app "Microforce ERP Sync"
-- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, plus `read_publications, write_publications` (actieve producten in de webshop zetten). Geen `read_metaobjects`: `/api/public/uitverkocht` geeft het nummer van het kleurbolletje (`swatch`, uit `custom.color_swatch`) en de webshop zet dat om naar de naam (snippet `mf-kleuren`)
+- Scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`, plus `read_publications, write_publications`, plus `read_orders` (verkochte online bestellingen die nog niet in het ERP staan, zie Voorraad) (actieve producten in de webshop zetten). Geen `read_metaobjects`: `/api/public/uitverkocht` geeft het nummer van het kleurbolletje (`swatch`, uit `custom.color_swatch`) en de webshop zet dat om naar de naam (snippet `mf-kleuren`)
 
 ## Uitrol
 1. `security/sql/shopify-sync.sql` op productie (staat al op test).
@@ -244,3 +244,19 @@ SQL: `security/sql/shopify-collections.sql` (kolom `scope`, extra soorten in het
 ## Zichtbaar in de webshop
 
 Elke run (ook zonder andere wijzigingen) zoekt de actieve producten uit het ERP die niet op het kanaal Online Store staan en publiceert ze daar (max. 200 per run; schaduwmodus telt alleen). Producten die met de hand in Shopify gemaakt zijn, blijven ongemoeid, net als de andere kanalen (Google, Facebook, Shop, POS). Niet gepubliceerd: producten met een dubbele SKU in Shopify, producten waarvan de ERP-regels elkaar tegenspreken (titel, merk, type of status) en producten waarvan een schrijfactie in deze run mislukte (prijs, voorraad, status); die volgen bij een volgende geslaagde run. De publicaties tellen mee voor de noodrem. Zonder de rechten `read_publications` en `write_publications` wordt dit overgeslagen en staat de reden bij de run. Code: `lib/shopify/publish.ts`.
+
+
+## Voorraad: op voorraad (on hand), open en verzonden online bestellingen
+- De ERP-voorraad wordt geschreven als Shopify's **op voorraad** (`on_hand`), niet als **beschikbaar**. Shopify houdt de
+  stuks van open (nog niet verzonden of afgehaalde) bestellingen zelf apart (`committed`): zolang het ERP de verkoop niet
+  kent, komt dat stuk niet terug in de verkoop. Ook afhalingen die dagen duren.
+- Verzonden of afgehaalde online bestellingen die het ERP nog niet verwerkt heeft (`lib/shopify/pending.ts`):
+  - de sync leest de verzendingen van de laatste 7 dagen (recht `read_orders`) en schrijft per SKU en winkel
+    **ERP-voorraad min die stuks**;
+  - een stuk telt als verwerkt zodra de ERP-voorraad van die SKU daalt (oudste eerst); nieuwe voorraad gaat meteen online;
+  - een verkoop die het ERP al verwerkte vóór de sync ze zag, telt niet;
+  - na 7 dagen vervalt een stuk dat nooit verwerkt werd en staat het in de run (`onlinePendingExpired`);
+  - de toestand staat per variant in het metaveld `microforce_sync.online_pending` (JSON);
+  - beperking: een winkelverkoop van dezelfde SKU vóór de online verkoop in het ERP staat, kan als die online verkoop
+    gelezen worden (online tijdelijk 1 te veel; bij unieke toestellen zonder gevolg).
+- Zonder `read_orders` loopt de sync gewoon verder (`onlinePendingError` in de run); alleen het tweede deel werkt dan niet.
