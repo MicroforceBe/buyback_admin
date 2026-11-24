@@ -672,7 +672,9 @@ test('a different model never gives its hardware or memory, even with equal capa
   const r = e.enrichMetafields('iPhone 13 Mini 128GB Red Refurbished 5*', [
     { sku: 'P', title: 'iPhone 13 Pro 128GB Graphite Refurbished 5*', lead: 2, metafields: [mf('magento.internal_memory', '6 GB'), mf('magento.internal_storage_capacity', '128 GB'), mf('magento.backcamera', '12 MP x3')] },
   ]);
-  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+  // Nothing from the other model; the storage comes from the title itself.
+  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie', 'internal_storage_capacity']);
+  assert.equal(r.sources['magento.internal_storage_capacity'], 'titel');
 });
 
 test('the most specific colour wins: Rose Gold never gets Gold', async () => {
@@ -687,7 +689,26 @@ test('the most specific colour wins: Rose Gold never gets Gold', async () => {
 test('a reference from another model line gives no model properties', async () => {
   const e = await loadEnrich();
   const r = e.enrichMetafields('HP ZBook Power G9 I7 32GB 512SSD Refurbished 4*', [{ sku: 'X', title: 'HP ZBook Fury 17 G8', lead: 2, metafields: [mf('magento.processor_family', 'Intel Core i7')] }]);
-  assert.deepEqual(plain(r.metafields).map(m => m.key), ['conditie']);
+  // No processor from the other model line; memory and SSD come from the title.
+  assert.deepEqual(plain(r.metafields).map(m => m.key + '=' + m.value), ['conditie=4* Zeer Goed', 'internal_memory=32 GB', 'solid_state_drive_capacity=512 GB']);
+});
+
+test('memory and storage are read from the title when no reference has the same capacities', async () => {
+  const e = await loadEnrich();
+  const f = t => plain(e.capacityFieldsFromTitle(t)).map(m => m.key + '=' + m.value);
+  assert.deepEqual(f('MacBook Pro 14" L24 M4 16GB 1TB SSD SB Refurbished 5* M'), ['internal_memory=16 GB', 'solid_state_drive_capacity=1 TB']);
+  assert.deepEqual(f('MacBook Air 13 M2 16GB 1TBSSD Midnight 5*'), ['internal_memory=16 GB', 'solid_state_drive_capacity=1 TB']);
+  assert.deepEqual(f('MacBook Air 13" M1 8GB 256GB SG Refurbished 4* M'), ['internal_memory=8 GB', 'solid_state_drive_capacity=256 GB']);
+  assert.deepEqual(f('Dell Latitude 5440 i5-1345U 16GB 512GB SSD 14" W11 Refurbished 4*'), ['internal_memory=16 GB', 'solid_state_drive_capacity=512 GB']);
+  assert.deepEqual(f('iPhone 13 128GB Midnight Refurbished 5* M'), ['internal_storage_capacity=128 GB']);
+  assert.deepEqual(f('Apple Watch Series 10 46mm GPS Silver Refurbished 5*'), []);
+  // A reference of the same model with other capacities gives the processor, not the SSD.
+  const ref = { sku: 'R', title: 'MacBook Pro 14" L24 M4 16GB 512SSD Black Refurbished 5* M', lead: 3, metafields: [mf('magento.internal_memory', '16 GB'), mf('magento.solid_state_drive_capacity', '512 GB'), mf('magento.processor_family', 'Apple M4')] };
+  const r = e.enrichMetafields('MacBook Pro 14" L24 M4 16GB 1TB SSD SB Refurbished 5* M', [ref]);
+  const got = Object.fromEntries(plain(r.metafields).map(m => [m.key, m.value]));
+  assert.equal(got.solid_state_drive_capacity, '1 TB');
+  assert.equal(got.processor_family, 'Apple M4');
+  assert.equal(r.sources['magento.solid_state_drive_capacity'], 'titel');
 });
 
 test('live draft creation sends the filled properties with the product', async () => {
