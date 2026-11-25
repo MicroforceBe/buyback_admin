@@ -100,7 +100,7 @@ test('publishActiveOnExtraChannels: skipped without scopes or without the channe
 
 test('sync wiring: new drafts are published right after creation, existing active products on every run', () => {
   const sync = read('lib/shopify/sync.ts');
-  assert.match(sync, /else await onCreated\(productSet\.product\.id\)/);
+  assert.match(sync, /else await onCreated\(productSet\.product\.id, c\.input\)/);
   assert.match(sync, /publishNewProduct\(client, productId, channelIds\)/);
   assert.equal((sync.match(/await ensureOnChannels\(/g) ?? []).length, 3);
 });

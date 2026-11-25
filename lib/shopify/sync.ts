@@ -7,7 +7,7 @@ import { createShopifyClient, shopifyConfig, ShopifyError, INVENTORY_SET, METAFI
 import { enrichMetafields, photoCandidates, pickImages, starsOf, type MetafieldValue, type RefImage } from '@/lib/shopify/enrich';
 import { BULK_VARIANTS_QUERY, parseBulkVariants } from '@/lib/shopify/state';
 import { computePending, MAX_AGE_DAYS, PENDING_METAFIELD, type Fulfilled, type PendingResult } from '@/lib/shopify/pending';
-import { pickDescription } from '@/lib/shopify/seo';
+import { pickDescription, SEO_SKIP_TAG, suggestSeoDescription, suggestSeoTitle } from '@/lib/shopify/seo';
 import { channelCounts, channelPublications, erpMatchedProducts, failedProducts, plannedPublications, publishActiveOnExtraChannels, publishActiveOnOnlineStore, publishCounts, publishNewProduct, type ChannelIds } from '@/lib/shopify/publish';
 import { addBatteryTags, addStoreLists, chunk, desiredFromRow, metafieldId, STORE_METAFIELD, duplicateTitles, isRefurbished, MAX_UNLIST_PER_RUN, REFURBISHED_METAFIELD, NO_DESCRIPTION_TAG, planCreates, planDeactivateMissing, planMissing, planSync, rankSimilar, type CurrentState, type DesiredState, type Plan, type ProductSetInput } from '@/lib/shopify/plan';
 import { hasRedirectScope, redirectArchived, redirectProduct } from '@/lib/shopify/redirects';
@@ -126,7 +126,7 @@ const MAX_INPUT_ITEMS = 250;
  * Writes the plan to Shopify in batches. Returns the failed writes with the Shopify id (product,
  * variant, inventory item or metafield owner) and the scope, so only the affected changes are marked.
  */
-async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}, productOfItem: Map<string, string> = new Map(), onCreated: (id: string) => Promise<void> = async () => {}): Promise<Failure[]> {
+async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: () => string, stillLive: () => Promise<boolean>, locationNameById: Map<string, string>, creates: { sku: string; input: ProductSetInput }[], afterProductUpdate: (id: string) => Promise<void> = async () => {}, productOfItem: Map<string, string> = new Map(), onCreated: (id: string, input: ProductSetInput) => Promise<void> = async () => {}): Promise<Failure[]> {
   const failed: Failure[] = [];
   // The emergency stop must take effect mid-run: the persisted mode is rechecked before every write.
   const guard = async () => { if (!(await stillLive())) throw new StoppedByOperator(); };
@@ -200,7 +200,7 @@ async function applyPlan(client: ShopifyClient, plan: Plan, runId: string, key: 
     await guard();
     const { productSet } = await client.graphql<{ productSet: { product: { id: string } | null; userErrors: UserError[] } }>(PRODUCT_CREATE, { input: c.input }, { retryServerErrors: false });
     if (productSet.userErrors.length || !productSet.product) failed.push({ id: `new:${c.sku}`, scope: 'product', field: CREATE_FIELD, reason: errorText(productSet.userErrors.length ? productSet.userErrors : [{ message: 'Shopify maakte het product niet aan.' }]) });
-    else await onCreated(productSet.product.id);
+    else await onCreated(productSet.product.id, c.input);
   }
   return failed;
 }
@@ -391,6 +391,12 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
           const extra = metafields.filter(m => !fromErp.has(`${m.namespace}.${m.key}`));
           c.input.metafields.push(...extra);
           enrichedCount.set(c.sku, extra.length);
+          // SEO title and meta description right away, with the generator of the catalogue check (Olivier, 25/11).
+          // The TinySEO skip tag keeps its nightly template from overwriting them; the catalogue check treats them as its own.
+          const mfValue = (id: string) => c.input.metafields.find(m => `${m.namespace}.${m.key}` === id)?.value ?? null;
+          const refurb = isRefurbished(mfValue(REFURBISHED_METAFIELD), c.input.title);
+          c.input.seo = { title: suggestSeoTitle(c.input.title, refurb), description: suggestSeoDescription(c.input.title, refurb, mfValue('magento.garantie')) };
+          if (!c.input.tags.includes(SEO_SKIP_TAG)) c.input.tags.push(SEO_SKIP_TAG);
         }
         for (const c of creates) plan.changes.push({ sku: c.sku, scope: 'product', field: CREATE_FIELD, oldValue: null, newValue: `${c.input.title} — ${c.categoryFrom ? `categorie zoals ${c.categoryFrom}: ${c.input.tags.filter(t => t.startsWith('cat_')).join(', ')}` : 'geen categorie gevonden'} — ${enrichedCount.get(c.sku) ?? 0} eigenschappen ingevuld — ${imageCount.get(c.sku) ?? 0} foto's — ${descriptionFrom.has(c.sku) ? `beschrijving zoals ${descriptionFrom.get(c.sku)}` : 'geen beschrijving'}`.slice(0, 1000) });
         counts.newWithoutCategory = creates.filter(c => !c.categoryFrom).length;
@@ -557,7 +563,15 @@ export async function runShopifySync(input: { trigger: 'cron' | 'manual'; actor:
     };
     // New drafts go on Online Store, Shop and Facebook & Instagram right away (invisible while draft).
     let channelIds: ChannelIds | null = null;
-    const onCreated = async (productId: string) => {
+    const onCreated = async (productId: string, input: ProductSetInput) => {
+      // Logged like a catalogue-check fix, so the check keeps these SEO texts up to date and they can be undone there.
+      if (input.seo) {
+        const { error } = await db.from('shopify_catalog_fixes').insert({ product_id: productId, title: input.title.slice(0, 255), kind: 'seo', result: 'ok', actor: 'synchronisatie',
+          detail: `SEO bij aanmaak: titel "${input.seo.title}" · beschrijving "${input.seo.description}"`.slice(0, 1000),
+          old_value: { title: null, description: null, skipTagAdded: true }, new_value: { title: input.seo.title, description: input.seo.description, generated: { title: true, description: true } } });
+        if (error) counts.newSeoLogFailed = Number(counts.newSeoLogFailed ?? 0) + 1;
+        else counts.newSeo = Number(counts.newSeo ?? 0) + 1;
+      }
       try { channelIds ??= await channelPublications(client); } catch { channelIds = {}; }
       const err = await publishNewProduct(client, productId, channelIds);
       if (err) counts.newPublishFailed = [...((counts.newPublishFailed as string[] | undefined) ?? []), err].slice(0, 10);
