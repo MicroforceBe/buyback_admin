@@ -416,9 +416,31 @@ export function demandSummary(rows: DemandRow[], now = Date.now()): Demand[] {
   return [...map.values()].filter(d => d.open || d.notified30).sort((a, b) => b.open - a.open || a.collection.localeCompare(b.collection) || a.config.localeCompare(b.config));
 }
 
+/** Inkoopvraag per model: open aanvragen, unieke klanten (op e-mailadres, het adres zelf wordt niet teruggegeven), gevraagde configuraties en oudste aanvraag. */
+export type ModelDemandRow = DemandRow & { email?: string | null };
+export type ModelDemand = { collection: string; open: number; customers: number; configs: string[]; oldest: string | null; last7: number };
+export function modelDemand(rows: ModelDemandRow[], now = Date.now()): ModelDemand[] {
+  const since = now - 7 * 86400_000;
+  const map = new Map<string, ModelDemand & { _emails: Set<string> }>();
+  for (const r of rows) {
+    if (r.status !== 'open') continue;
+    const d = map.get(r.collection_handle) ?? { collection: r.collection_handle, open: 0, customers: 0, configs: [], oldest: null, last7: 0, _emails: new Set<string>() };
+    d.open++;
+    if (r.email) d._emails.add(r.email.trim().toLowerCase());
+    if (!d.configs.includes(r.config_key)) d.configs.push(r.config_key);
+    if (!d.oldest || r.created_at < d.oldest) d.oldest = r.created_at;
+    if (Date.parse(r.created_at) >= since) d.last7++;
+    map.set(r.collection_handle, d);
+  }
+  return [...map.values()].map(({ _emails, ...d }) => ({ ...d, customers: _emails.size, configs: [...d.configs].sort() }))
+    .sort((a, b) => b.customers - a.customers || b.open - a.open || a.collection.localeCompare(b.collection));
+}
+
 /** "refurbished-macbook-air-13-m2" → "MacBook Air 13 M2", "refurbished-iphone-16-pro" → "iPhone 16 Pro". */
 export function collectionName(handle: string): string {
   if (Object.prototype.hasOwnProperty.call(IPHONE_EXTRA, handle)) return IPHONE_EXTRA[handle];
+  const pro129 = /^ipad-pro-(\d{4})-129$/.exec(handle);
+  if (pro129) return `iPad Pro 12,9″ ${pro129[1]}`;
   return handle.replace(/^(refurbished|refurbshed|microforce-ipad)-/, '').split('-').map(w => (w === 'macbook' ? 'MacBook' : w === 'iphone' ? 'iPhone' : w === 'ipad' ? 'iPad' : /^m\d$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
 }
 

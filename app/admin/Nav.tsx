@@ -73,6 +73,8 @@ const items: Item[] = [
     permKey: "erp",
   },
 
+  { href: "/admin/inkoop", label: "Inkoopvraag", icon: "analytics", permKey: "erp" },
+
   { href: "/admin/marketing", label: "Marketing", icon: "marketing", permKey: "erp" },
 
   {
