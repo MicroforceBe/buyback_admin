@@ -198,7 +198,7 @@ function fakeClient(variants, { failInventory = false, failVariantIndex = null, 
   return {
     mutations,
     client: {
-      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryItem: { id: v.inventoryItemId }, pending: v.pending ? { value: v.pending } : null, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' }, mf_custom_stock_per_location_1: v.metafields['custom.stock_per_location_1'] === undefined ? null : { value: v.metafields['custom.stock_per_location_1'] } } })
+      bulkQuery: async () => variants.map(v => JSON.stringify({ id: v.variantId, sku: v.sku, price: (v.priceCents / 100).toFixed(2), compareAtPrice: null, taxable: v.taxable, inventoryPolicy: v.inventoryPolicy, inventoryItem: { id: v.inventoryItemId }, pending: v.pending ? { value: v.pending } : null, product: { id: v.productId, title: v.title, vendor: v.vendor, productType: v.productType, status: v.status, tags: v.tags, mf_custom_refurbished_product: { value: 'true' }, mf_magento_tax_bebat: { value: '0' }, mf_custom_stock_per_location_1: v.metafields['custom.stock_per_location_1'] === undefined ? null : { value: v.metafields['custom.stock_per_location_1'] } } })
         + '\n' + Object.entries(v.inventory).map(([name, q]) => JSON.stringify({ __parentId: v.variantId, location: { id: LOCS[name], name }, quantities: [{ name: 'available', quantity: q }, ...(v.onHand?.[name] !== undefined ? [{ name: 'on_hand', quantity: v.onHand[name] }] : [])] })).join('\n')).join('\n'),
       locations: async () => LOCS,
       graphql: async (query, vars, options) => {
@@ -1236,3 +1236,15 @@ test('the first of a Mac model takes the housing fields of another chip variant 
   assert.equal(got['magento.usbc'], undefined);
   assert.equal(result.sources['magento.modeljaar'], 'PRO');
 });
+
+test('a refurbished device that keeps selling at 0 (CONTINUE) is set to DENY; DENY stays untouched', async () => {
+  for (const [policy, expect] of [['CONTINUE', 'DENY'], ['DENY', undefined]]) {
+    const { db } = fakeDb({ mode: 'live' });
+    const { sync } = await loadModules(db);
+    const fake = fakeClient([current({ inventoryPolicy: policy })]);
+    await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client, idempotencyKey: () => 'k1' });
+    const variants = fake.mutations.filter(m => m[0] === 'SyncVariants').flatMap(m => plain(m[1].variants));
+    assert.equal(variants.find(v => v.id === 'gid://shopify/ProductVariant/11')?.inventoryPolicy, expect);
+  }
+});
+

@@ -25,6 +25,8 @@ export function isRefurbished(attribute: string | null | undefined, title: strin
 export function targetStatus(erpStatus: ProductStatus | undefined, refurbished: boolean, stock: number): ProductStatus | undefined {
   return erpStatus === 'DRAFT' && stock <= 0 && refurbished ? 'UNLISTED' : erpStatus;
 }
+/** Refurbished variants set from CONTINUE to DENY: at most this many per run, so the catch-up never trips the emergency brake. */
+export const MAX_POLICY_FIXES_PER_RUN = 200;
 /** Existing drafts that become UNLISTED: at most this many per run, so the catch-up never trips the emergency brake. */
 export const MAX_UNLIST_PER_RUN = 75;
 
@@ -115,6 +117,8 @@ export type CurrentState = {
   priceCents: number;
   compareAtCents: number | null;
   taxable: boolean;
+  /** Shopify's inventory policy (CONTINUE = keeps selling at 0). Absent when not read. */
+  inventoryPolicy?: 'DENY' | 'CONTINUE';
   /** Available quantity per location name (only locations where the item is stocked). */
   inventory: Record<string, number>;
   /** On-hand quantity per location (available + units committed to open orders). Absent: same as available. */
@@ -149,7 +153,7 @@ export type Plan = {
   /** Desired state of the ERP-only SKUs, for creating them as draft products. */
   newCandidates: DesiredState[];
   productUpdates: { id: string; title?: string; vendor?: string; productType?: string; status?: ProductStatus }[];
-  variantUpdates: { productId: string; variants: { id: string; price?: string; compareAtPrice?: string | null; taxable?: boolean }[] }[];
+  variantUpdates: { productId: string; variants: { id: string; price?: string; compareAtPrice?: string | null; taxable?: boolean; inventoryPolicy?: 'DENY' }[] }[];
   inventory: { inventoryItemId: string; locationId: string; quantity: number }[];
   metafields: { ownerId: string; namespace: string; key: string; type: string; value: string }[];
   /** Metafields to remove (the store list of a product that is in no store any more). */
@@ -349,6 +353,7 @@ export function planSync(input: {
   const productFields = new Map<string, { sku: string; update: Plan['productUpdates'][number]; desired: DesiredState['product'] }>();
   const conflicted = new Set<string>();
   const variantsByProduct = new Map<string, Plan['variantUpdates'][number]['variants']>();
+  let policyFixes = 0;
   const add = (c: Change) => plan.changes.push(c);
   const maxUnlist = input.maxUnlist ?? MAX_UNLIST_PER_RUN;
   let unlisted = 0;
@@ -435,6 +440,11 @@ export function planSync(input: {
     if (d.variant.taxable !== undefined && d.variant.taxable !== c.taxable) {
       v.taxable = d.variant.taxable; variantChanged = true;
       add({ sku: d.sku, scope: 'variant', field: 'taxable', oldValue: String(c.taxable), newValue: String(d.variant.taxable) });
+    }
+    // A refurbished device is one unique unit: it must never be sold at 0 (Olivier, 25/11). Accessories keep their policy.
+    if (c.inventoryPolicy === 'CONTINUE' && policyFixes < MAX_POLICY_FIXES_PER_RUN && isRefurbished(d.metafields[REFURBISHED_METAFIELD] ?? c.metafields[REFURBISHED_METAFIELD], d.product.title ?? c.title)) {
+      v.inventoryPolicy = 'DENY'; variantChanged = true; policyFixes++;
+      add({ sku: d.sku, scope: 'variant', field: 'inventoryPolicy', oldValue: 'CONTINUE', newValue: 'DENY' });
     }
     if (variantChanged) {
       const list = variantsByProduct.get(c.productId) ?? [];

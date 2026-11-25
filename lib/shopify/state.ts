@@ -18,6 +18,7 @@ export const BULK_VARIANTS_QUERY = `{
         price
         compareAtPrice
         taxable
+        inventoryPolicy
         pending: metafield(namespace: "${PENDING_METAFIELD.namespace}", key: "${PENDING_METAFIELD.key}") { value }
         inventoryItem {
           id
@@ -45,7 +46,7 @@ ${READ_METAFIELDS.map(m => `          ${alias(m)}: metafield(namespace: "${m.nam
 }`;
 
 type VariantLine = {
-  id: string; sku: string | null; price: string; compareAtPrice: string | null; taxable: boolean; pending?: { value?: string } | null;
+  id: string; sku: string | null; price: string; compareAtPrice: string | null; taxable: boolean; inventoryPolicy?: string; pending?: { value?: string } | null;
   inventoryItem: { id: string } | null;
   product: Record<string, unknown> & { id: string; title: string; vendor: string; productType: string; status: ProductStatus; tags?: string[] };
 };
@@ -82,6 +83,7 @@ export function parseBulkVariants(jsonl: string): { variants: CurrentState[]; lo
       priceCents: parseMoneyCents(v.price) ?? 0,
       compareAtCents: parseMoneyCents(v.compareAtPrice),
       taxable: v.taxable === true,
+      inventoryPolicy: v.inventoryPolicy === 'CONTINUE' ? 'CONTINUE' : v.inventoryPolicy === 'DENY' ? 'DENY' : undefined,
       inventory: {},
       onHand: {},
       pending: v.pending?.value ?? null,
