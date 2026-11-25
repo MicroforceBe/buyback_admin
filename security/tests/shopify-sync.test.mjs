@@ -1215,3 +1215,24 @@ test('a new draft gets its SEO title and meta description at creation, with the 
   assert.deepEqual(fix.new_value, { title: input.seo.title, description: input.seo.description, generated: { title: true, description: true } });
   assert.equal(result.counts.newSeo, 1);
 });
+
+test('the first of a Mac model takes the housing fields of another chip variant and the processor family from the title', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.chassisOf('MacBook Pro 14" L24 M4 Max 36GB 1TB SSD SB Refurbished 5* M'), e.chassisOf('MacBook Pro 14" L24 M4 Pro 24GB 512SSD SB Refurbished 5* M'));
+  assert.notEqual(e.chassisOf('MacBook Pro 14" L24 M4 Max 36GB 1TB SSD SB Refurbished 5* M'), e.chassisOf('MacBook Pro 16" L24 M4 Max 36GB 1TB SSD SB Refurbished 5* M'));
+  assert.equal(e.chassisOf('iPhone 15 Pro Max 256GB Black Refurbished 5*'), '');
+  assert.equal(e.macChipFamily('MacBook Pro 14" L24 M4 Max 36GB 1TB SSD SB Refurbished 5* M'), 'Apple M4 Max');
+  assert.equal(e.macChipFamily('Mac Mini M2 Pro 16GB 512SSD Refurbished 4*'), 'Apple M2 Pro');
+  assert.equal(e.macChipFamily('iPhone 15 Pro 128GB Black Refurbished 5*'), null);
+  const result = plain(e.enrichMetafields('MacBook Pro 14" L24 M4 Max 36GB 1TB SSD SB Refurbished 5* M', [{
+    sku: 'PRO', title: 'MacBook Pro 14" L24 M4 Pro 24GB 512SSD SB Refurbished 5* M', lead: 3,
+    metafields: [mf('magento.modeljaar', 'Late 2024'), mf('magento.modelmacbook', 'MacBook Pro 14"'), mf('magento.usbc', '3'), mf('magento.processor_family', 'Apple M4 Pro'), mf('magento.garantie', '24 maanden')],
+  }]));
+  const got = Object.fromEntries(result.metafields.map(m => [`${m.namespace}.${m.key}`, m.value]));
+  assert.equal(got['magento.modeljaar'], 'Late 2024');
+  assert.equal(got['magento.modelmacbook'], 'MacBook Pro 14"');
+  assert.equal(got['magento.garantie'], '24 maanden');
+  assert.equal(got['magento.processor_family'], 'Apple M4 Max');
+  assert.equal(got['magento.usbc'], undefined);
+  assert.equal(result.sources['magento.modeljaar'], 'PRO');
+});
