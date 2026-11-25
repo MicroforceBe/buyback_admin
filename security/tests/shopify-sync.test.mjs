@@ -1248,3 +1248,11 @@ test('a refurbished device that keeps selling at 0 (CONTINUE) is set to DENY; DE
   }
 });
 
+
+test('Galaxy S, Z and Note: "5G" in the title does not make another model; the A series keeps it', async () => {
+  const e = await loadEnrich();
+  assert.equal(e.modelOf('Samsung Galaxy S25 128GB Blueblack Refurbished 5* M'), e.modelOf('Samsung Galaxy S25 5G 128GB Navy Refurbished 5* M'));
+  assert.equal(e.modelOf('Samsung Galaxy Z Flip6 5G 256GB Blue Refurbished 4*'), e.modelOf('Samsung Galaxy Z Flip6 256GB Mint Refurbished 4*'));
+  assert.notEqual(e.modelOf('Samsung Galaxy A15 5G 128GB Black Refurbished 4*'), e.modelOf('Samsung Galaxy A15 128GB Black Refurbished 4*'));
+  assert.notEqual(e.modelOf('Samsung Galaxy S25 Ultra 5G 256GB Titanium Gray Refurb 5* M'), e.modelOf('Samsung Galaxy S25 128GB Blueblack Refurbished 5* M'));
+});
