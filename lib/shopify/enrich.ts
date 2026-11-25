@@ -160,7 +160,11 @@ const NON_MODEL = new Set(['refurbished', 'refurb', 'nieuw', 'new', 'm', 'qwerty
 export function modelOf(title: string): string {
   // Remove condition stars before punctuation is stripped; keep numeric model generations.
   // Hyphens count as spaces, so "M1-Max" and "M1 Max" are the same model.
-  const words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+]+/g, ' ').trim().split(' ').filter(Boolean);
+  let words = title.toLowerCase().replace(/\b\d+\s*\*/g, ' ').replace(/[^a-z0-9.+]+/g, ' ').trim().split(' ').filter(Boolean);
+  // Every Galaxy S, Z and Note is 5G, so "Galaxy S25 5G" and "Galaxy S25" are one model (Olivier, 25/11). The A series keeps
+  // 5G apart: there the 4G and 5G versions are different devices.
+  const gi = words.indexOf('galaxy');
+  if (gi >= 0 && /^(s\d|z|note)/.test(words[gi + 1] ?? '')) words = words.filter(w => w !== '5g');
   const cut = words.findIndex(w => CAPACITY_TOKEN.test(w));
   if (cut > 0) return words.slice(0, cut).join(' ');
   return words.filter(w => !COLOUR_ALIASES[w] && !COLOUR_WORDS.has(w) && !NON_MODEL.has(w)).join(' ');
