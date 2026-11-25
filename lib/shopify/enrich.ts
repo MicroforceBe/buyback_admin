@@ -74,6 +74,29 @@ const COLOUR = new Set(['magento.colour_of_product', 'custom.color_swatch', 'sho
 const CAPACITY = new Set(['magento.internal_memory', 'magento.internal_storage_capacity', 'magento.solid_state_drive_capacity', 'magento.discrete_graphics_adapter_mem']);
 const BY_STARS = new Set(['custom.wat_mag_je_verwachten_']);
 const CONDITION_FIELD = 'magento.conditie';
+/**
+ * Fields that are the same for every chip variant of one Mac housing (e.g. MacBook Pro 14" L24 with M4,
+ * M4 Pro or M4 Max). Used only when no product of exactly the same model exists. USB-C is left out:
+ * the number of ports can differ per chip (MacBook Pro 14" M3: 2, M3 Pro/Max: 3).
+ */
+const CHASSIS = new Set(['magento.modeljaar', 'magento.modelmacbook', 'magento.display_resolution', 'magento.display_diagonal', 'magento.hdmi_ports_quantity', 'magento.garantie']);
+const MAC = /\b(macbook|imac|mac mini|mac studio)\b/;
+
+/** The housing of an Apple-silicon Mac model: the chip variant (Pro, Max, Ultra after M1–M9) removed. "" for other devices. */
+export function chassisOf(title: string): string {
+  if (!MAC.test(title.toLowerCase())) return '';
+  const words = modelOf(title).split(' ');
+  return words.filter((w, i) => !(/^(pro|max|ultra)$/.test(w) && i > 0 && /^m\d$/.test(words[i - 1]))).join(' ');
+}
+
+/** Processor family of an Apple-silicon Mac from its title ("… M4 Max 36GB …" → "Apple M4 Max"), or null. */
+export function macChipFamily(title: string): string | null {
+  if (!MAC.test(title.toLowerCase())) return null;
+  const m = title.match(/\bM(\d)(?:[\s-]+(Pro|Max|Ultra))?\b/i);
+  if (!m) return null;
+  const variant = m[2] ? ' ' + m[2][0].toUpperCase() + m[2].slice(1).toLowerCase() : '';
+  return `Apple M${m[1]}${variant}`;
+}
 
 const id = (m: { namespace: string; key: string }) => `${m.namespace}.${m.key}`;
 // Multi-word colours, so a title with "Rose Gold" is never matched to a "Gold" reference even when
@@ -225,6 +248,15 @@ export function enrichMetafields(title: string, refs: Reference[]): { metafields
     const k = id(m);
     if (k === CONDITION_FIELD || COLOUR.has(k) || CAPACITY.has(k) || BY_STARS.has(k) || !usable(m)) continue;
     set(m, modelRef!.sku);
+  }
+  // First of its model (e.g. the first MacBook Pro 14" M4 Max): housing fields from another chip variant
+  // of the same housing, and the processor family from the title.
+  if (!modelRef) {
+    const chassis = chassisOf(title);
+    const chassisRef = chassis ? refs.find(r => chassisOf(r.title) === chassis) : undefined;
+    for (const m of chassisRef?.metafields ?? []) if (CHASSIS.has(id(m)) && usable(m)) set(m, chassisRef!.sku);
+    const family = macChipFamily(title);
+    if (family) set({ namespace: 'magento', key: 'processor_family', type: 'single_line_text_field', value: family }, 'titel');
   }
   return { metafields: [...out.values()], sources };
 }
