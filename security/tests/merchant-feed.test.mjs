@@ -412,10 +412,12 @@ test('colour, storage/memory and highlights from the title; only facts that alwa
   assert.deepEqual(plain(f.specsOf('Dell Latitude 5320 I5 8GB 256SSD 13" W11 Refurbished 4*', 'Laptop')), { storage: '256 GB SSD', memory: '8 GB' });
   assert.deepEqual(plain(f.specsOf('APPLE MAGIC MOUSE 2 REFURBISHED', 'Accessoire/overig')), {});
   assert.deepEqual(plain(f.highlightsOf('Smartphone', 'Apple', '5', 'iPhone 13 128GB Blue Refurbished 5* M')), ['Premium originele kwaliteit', 'Batterij minimaal 85% of kies een nieuwe batterij', '2 jaar garantie', 'Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie']);
-  assert.deepEqual(plain(f.highlightsOf('Laptop', 'Dell', '3')), ['Batterij minimaal 85%', 'Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie']);
+  assert.deepEqual(plain(f.highlightsOf('Laptop', 'Dell', '3')), ['Batterij in goede staat', 'Gecontroleerd op 40 punten', 'Met kwaliteitsgarantie']);
   // Battery per device (Olivier, 2026-11): MacBook at least 80% or a new one; iPad at least 80%; Samsung 85%, no new battery.
   assert.ok(f.highlightsOf('Laptop', 'Apple', '4', 'MacBook Air 13" L20 M1 8GB 256SSD SG Refurbished 4*').includes('Batterij minimaal 80% of kies een nieuwe batterij'));
   assert.ok(f.highlightsOf('Tablet', 'Apple', '5', 'iPad 2021 10.2 64GB Wifi Space Grey Refurbished 5*').includes('Batterij minimaal 80%'));
+  assert.ok(!f.highlightsOf('Smartwatch', 'Apple', '5', 'Apple Watch Series 9 45mm GPS Refurbished 5*').includes('2 jaar garantie'));
+  assert.ok(f.highlightsOf('Laptop', 'Dell', '4', 'Dell Latitude 5440 i5 16GB 512SSD Refurbished 4*').includes('Batterij in goede staat'));
   assert.ok(f.highlightsOf('Smartphone', 'Samsung', '4', 'Samsung Galaxy S24 5G 128GB Silver Refurbished 4* M').includes('Batterij minimaal 85%'));
   assert.deepEqual(plain(f.highlightsOf('Accessoire/overig', 'Apple', '5')), []);
   for (const h of f.highlightsOf('Smartphone', 'Apple', '5')) assert.doesNotMatch(h, /verzend|retour|€|gratis|prijs/i); // Google: no price/shipping/returns

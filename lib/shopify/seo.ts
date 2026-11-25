@@ -98,7 +98,7 @@ const CONDITION_PHRASE: Record<string, string> = { '5': 'in nieuwstaat', '4': 'i
 
 /**
  * The battery promise (Olivier, 2026-11): every refurbished device with a battery has at least 85%,
- * MacBooks and iPads at least 80%; for iPhones and MacBooks the customer can choose a new battery.
+ * MacBooks and iPads at least 80%, Windows laptops 'in good condition'; for iPhones and MacBooks the customer can choose a new battery.
  * Longest form first; none for devices without a battery (desktops, monitors, accessories).
  */
 export function batteryPhrases(title: string): [string, string][] {
@@ -108,7 +108,9 @@ export function batteryPhrases(title: string): [string, string][] {
   if (/\bmacbook\b/.test(t)) return [['een batterij van minstens 80% of een nieuwe', 'batterij min. 80% of een nieuwe'], ['een batterij van minstens 80%', 'batterij min. 80%']];
   if (/\bipad\b/.test(t)) return [['een batterij van minstens 80%', 'batterij min. 80%']];
   if (/\b(imac|mac mini|mac studio|mac pro|desktop|all-in-one|optiplex|monitor|beeldscherm)\b/.test(t)) return [];
-  if (/\b(phone|smartphone|galaxy|pixel|ipad|tablet|tab|watch|laptop|notebook|chromebook|latitude|thinkpad|elitebook|probook|surface|airpods)\b/.test(t)) return [['een batterij van minstens 85%', 'batterij min. 85%']];
+  // Windows laptops (Olivier, 17/11): battery in good condition, no percentage and no new battery.
+  if (/\b(laptop|notebook|chromebook|latitude|precision|thinkpad|elitebook|probook|zbook|surface)\b/.test(t)) return [['een batterij in goede staat', 'batterij in goede staat']];
+  if (/\b(phone|smartphone|galaxy|pixel|ipad|tablet|tab|watch|airpods)\b/.test(t)) return [['een batterij van minstens 85%', 'batterij min. 85%']];
   return [];
 }
 

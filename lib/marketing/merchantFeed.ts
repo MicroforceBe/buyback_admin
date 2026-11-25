@@ -221,13 +221,14 @@ const BATTERY_KINDS = new Set(['Smartphone', 'Tablet', 'Laptop', 'Smartwatch']);
 
 /**
  * Battery promise per device (Olivier, 2026-11): iPhone at least 85% or a new battery by choice; MacBook at
- * least 80% or a new battery by choice; iPad at least 80%; other devices with a battery at least 85%.
+ * least 80% or a new battery by choice; iPad at least 80%; Windows laptops in good condition; other devices with a battery at least 85%.
  */
-function batteryHighlight(title: string): string {
+function batteryHighlight(title: string, kind: string): string {
   const t = title.toLowerCase();
   if (/\biphone\b/.test(t)) return 'Batterij minimaal 85% of kies een nieuwe batterij';
   if (/\bmacbook\b/.test(t)) return 'Batterij minimaal 80% of kies een nieuwe batterij';
   if (/\bipad\b/.test(t)) return 'Batterij minimaal 80%';
+  if (kind === 'Laptop') return 'Batterij in goede staat';
   return 'Batterij minimaal 85%';
 }
 const DEVICE_KINDS = new Set(['Smartphone', 'Tablet', 'Laptop', 'Desktop', 'Monitor', 'Smartwatch']);
@@ -241,9 +242,11 @@ export function highlightsOf(kind: string, brand: string | undefined, stars: str
   if (!DEVICE_KINDS.has(kind)) return [];
   const out: string[] = [];
   if (stars === '4' || stars === '5') out.push('Premium originele kwaliteit');
-  if (BATTERY_KINDS.has(kind)) out.push(batteryHighlight(title));
-  if (brand === 'Apple') out.push('2 jaar garantie');
-  out.push('Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie');
+  if (BATTERY_KINDS.has(kind)) out.push(batteryHighlight(title, kind));
+  // Apple Watch has 12 months (magento.garantie), the other Apple devices 24.
+  if (brand === 'Apple' && kind !== 'Smartwatch') out.push('2 jaar garantie');
+  // Test points (Olivier): laptops and MacBooks 40, phones and tablets 50.
+  out.push(kind === 'Laptop' ? 'Gecontroleerd op 40 punten' : 'Gecontroleerd op 50 punten', 'Met kwaliteitsgarantie');
   return out;
 }
 
