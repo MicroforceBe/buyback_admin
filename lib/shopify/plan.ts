@@ -582,6 +582,7 @@ export function addBatteryTags(plan: Plan, input: { current: CurrentState[]; max
 export type ProductSetInput = {
   files?: { originalSource: string; contentType: 'IMAGE'; alt: string; duplicateResolutionMode: 'APPEND_UUID' }[];
   title: string; vendor?: string; productType?: string; status: 'DRAFT'; tags: string[]; descriptionHtml?: string;
+  seo?: { title: string; description: string };
   productOptions: { name: string; values: { name: string }[] }[];
   metafields: { namespace: string; key: string; type: string; value: string }[];
   variants: {

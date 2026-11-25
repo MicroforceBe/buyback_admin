@@ -1198,3 +1198,20 @@ test('an ERP draft that only Shopify still holds becomes UNLISTED in the same ru
     assert.deepEqual(order, ['SyncInventory', failInventory ? 'status:DRAFT' : 'status:UNLISTED']);
   }
 });
+
+test('a new draft gets its SEO title and meta description at creation, with the TinySEO skip tag, logged as a catalogue fix', async () => {
+  const { db, log } = fakeDb({ mode: 'live', createDrafts: true, rows: [csvRow(), csvRow({ 'Variant SKU [ID]': 'SKU1NEW', Title: 'iPhone 13 128GB Blue Refurbished 4*' })] });
+  const { sync } = await loadModules(db);
+  const fake = fakeClient([current({ title: 'iPhone 13 128GB Blue Refurbished 5*' })]);
+  const result = plain(await sync.runShopifySync({ trigger: 'cron', actor: 'cron' }, { client: fake.client }));
+  const input = plain(fake.mutations.find(m => m[0] === 'CreateDraftProduct')[1].input);
+  assert.ok(input.seo.title.startsWith('Refurbished iPhone 13 128GB Blue'));
+  assert.ok(input.seo.title.length <= 60 && input.seo.description.length <= 155);
+  assert.match(input.seo.description, /^Op zoek naar een refurbished iPhone 13 128GB Blue/);
+  assert.ok(input.tags.includes('tinyimg_metadata_skip'));
+  const fix = plain(log.find(l => l.table === 'shopify_catalog_fixes' && l.op === 'insert').row);
+  assert.equal(fix.kind, 'seo');
+  assert.equal(fix.product_id, 'gid://shopify/Product/999');
+  assert.deepEqual(fix.new_value, { title: input.seo.title, description: input.seo.description, generated: { title: true, description: true } });
+  assert.equal(result.counts.newSeo, 1);
+});
