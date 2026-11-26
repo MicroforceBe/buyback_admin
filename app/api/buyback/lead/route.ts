@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { verifyLeadPrice, LeadPriceError } from '@/lib/verifyLeadPrice';
 import { createClient } from '@supabase/supabase-js';
 import { sendStatusMail } from '@/app/api/buyback/email/sendStatusMail';
+import { leadAllowed, isTestLead } from '@/lib/leadRateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -110,6 +111,11 @@ export async function POST(req: Request) {
     return j({ error: 'Missing fields: model, answers, base_price_cents, final_price_cents' }, 400);
   }
 
+  // Limiet per bezoeker (spam/bots). Faalt de controle, dan gaat de aanvraag gewoon door.
+  if (!(await leadAllowed(supabase, req, process.env))) {
+    return j({ error: 'Te veel aanvragen. Probeer het later opnieuw.', code: 'RATE_LIMITED' }, 429);
+  }
+
   let quote: Awaited<ReturnType<typeof verifyLeadPrice>>;
   try {
     quote = await verifyLeadPrice(supabase, body);
@@ -168,7 +174,7 @@ export async function POST(req: Request) {
   const { data, error } = await supabase
     .from('buyback_leads')
     .insert([{
-      source, model, capacity_gb, answers,
+      source: isTestLead(email, process.env) ? 'test' : source, model, capacity_gb, answers,
       variant: variant || null,
       base_price_cents: quote.base_price_cents, final_price_cents: quote.final_price_cents,
       final_price_with_voucher_cents, voucher_bonus_cents,
