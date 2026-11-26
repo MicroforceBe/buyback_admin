@@ -92,8 +92,9 @@ Dit vervangt voor MacBooks de knop van de app Stok; andere producten houden Stok
 - **Uitschrijven:** link in elke mail (en `List-Unsubscribe`) naar `/api/public/aanvraag/uitschrijven`; de pagina toont een
   knop, pas die schrijft uit (mailscanners openen links automatisch).
 - **Mails:** Nederlands, Frans of Engels (taal van de pagina) via Resend. Afzender `SHOP_MAIL_FROM`, anders `MAIL_FROM`.
-- **Overzicht:** *Marketing → Aanvragen "Op aanvraag"* (`/admin/marketing/aanvragen`): vraag per configuratie (open, per
-  aanvaarde staat, oudste, verwittigd in 30 dagen). Namen en e-mailadressen alleen voor beheerders. Later: beschikbaarheid
+- **Overzicht:** *Inkoopvraag* in het menu (`/admin/inkoop`; de oude link `/admin/marketing/aanvragen` stuurt door): kerncijfers
+  (open aanvragen, klanten, nieuw in 7 dagen, verwittigd in 30 dagen), vraag per model (klanten, aanvragen, gevraagde configuraties,
+  oudste) en vraag per configuratie (klanten, open, per aanvaarde staat, oudste, verwittigd in 30 dagen). Namen en e-mailadressen alleen voor beheerders. Later: beschikbaarheid
   bij leveranciers ernaast, zodra hun lijsten digitaal binnenkomen.
 - **Nieuw in Box (staat 6):** uitverkochte Nieuw in Box-toestellen ("Niet vermeld") staan ook in de lijst. Het formulier biedt
   "Nieuw in Box" als staat alleen aan op een modelpagina waar uitsluitend Nieuw in Box-toestellen bestaan; elders telt een

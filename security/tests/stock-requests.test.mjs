@@ -325,3 +325,22 @@ test('iPad: opslag + Wi-Fi of Cellular als configuratie, aanvragen op iPad-model
   }
   for (const k of ['256GB Wifi', 'M2', '256 GB', '256GB Cellular x']) assert.equal(db.test(k), false, k);
 });
+
+test('model demand counts unique customers per model without returning e-mail addresses', async () => {
+  const { modelDemand, collectionName } = await core();
+  const now = Date.parse('2026-11-25T12:00:00Z');
+  const rows = [
+    { collection_handle: 'refurbished-ipad-air-7-11-2025', config_key: '128GB Wi-Fi', grades: [4, 5], status: 'open', created_at: '2026-11-23T10:00:00Z', notified_at: null, email: 'A@x.be' },
+    { collection_handle: 'refurbished-ipad-air-7-11-2025', config_key: '256GB Wi-Fi', grades: [4, 5], status: 'open', created_at: '2026-11-23T10:01:00Z', notified_at: null, email: 'a@x.be ' },
+    { collection_handle: 'refurbished-iphone-16', config_key: '256GB', grades: [3, 5], status: 'open', created_at: '2026-11-24T10:00:00Z', notified_at: null, email: 'b@x.be' },
+    { collection_handle: 'refurbished-iphone-16', config_key: '256GB', grades: [5], status: 'open', created_at: '2026-11-10T10:00:00Z', notified_at: null, email: 'c@x.be' },
+    { collection_handle: 'refurbished-iphone-16', config_key: '128GB', grades: [5], status: 'notified', created_at: '2026-11-01T10:00:00Z', notified_at: '2026-11-02T10:00:00Z', email: 'd@x.be' },
+  ];
+  const out = plain(modelDemand(rows, now));
+  assert.deepEqual(out, [
+    { collection: 'refurbished-iphone-16', open: 2, customers: 2, configs: ['256GB'], oldest: '2026-11-10T10:00:00Z', last7: 1 },
+    { collection: 'refurbished-ipad-air-7-11-2025', open: 2, customers: 1, configs: ['128GB Wi-Fi', '256GB Wi-Fi'], oldest: '2026-11-23T10:00:00Z', last7: 2 },
+  ]);
+  assert.ok(!JSON.stringify(out).includes('@'), 'no e-mail addresses in the summary');
+  assert.equal(collectionName('ipad-pro-2021-129'), 'iPad Pro 12,9″ 2021');
+});
