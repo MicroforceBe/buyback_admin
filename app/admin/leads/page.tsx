@@ -93,6 +93,7 @@ type StatusHistoryEntry = {
 type Lead = {
   id: string;
   order_code: string | null;
+  source?: string | null;
   created_at: string | null;
 
   // toestel
@@ -577,6 +578,7 @@ export default async function LeadsPage({
       [
         "id",
         "order_code",
+        "source",
         "created_at",
         "model",
         "capacity_gb",
@@ -1145,6 +1147,9 @@ export default async function LeadsPage({
                         <div>
                           <div className="font-mono">
                             {lead.order_code ?? "—"}
+                            {lead.source === "test" && (
+                              <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">TEST</span>
+                            )}
                           </div>
                           <div className="text-[11px] text-gray-500 flex items-center gap-2 whitespace-nowrap">
                             <span>

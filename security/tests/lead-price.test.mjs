@@ -19,6 +19,7 @@ async function harness({tableError,catalog,category,assignments=[],sets=[]}={}){
  const cache=new Map();
  async function load(file){if(cache.has(file))return cache.get(file);const m=new vm.SourceTextModule(stripTypeScriptTypes(fs.readFileSync(new URL(file,root),'utf8'),{mode:'strip'}),{context});cache.set(file,m);await m.link(async spec=>{
   if(spec==='@/lib/verifyLeadPrice')return load('lib/verifyLeadPrice.ts');
+  if(spec==='@/lib/leadRateLimit')return load('lib/leadRateLimit.ts');
   const deps={'next/server':{NextResponse:Response},'@supabase/supabase-js':{createClient:()=>db},'@/app/api/buyback/email/sendStatusMail':{sendStatusMail:async value=>{state.mails.push(value);return {skipped:true};}}};
   const e=deps[spec];if(!e)throw Error('Unmocked dependency '+spec);return new vm.SyntheticModule(Object.keys(e),function(){for(const[k,v]of Object.entries(e))this.setExport(k,v);},{context});});return m;}
  const helper=await load('lib/verifyLeadPrice.ts');await helper.evaluate();
