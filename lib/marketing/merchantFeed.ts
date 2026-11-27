@@ -379,6 +379,9 @@ export type SentRow = { offer_id: string; hash: string; test: boolean; sent_at: 
 export type LocalUpdate = { offer: FeedOffer; removeStores: string[] };
 /** Google lets offers expire 30 days after their last upload; unchanged offers are re-sent after this many days. */
 export const REFRESH_AFTER_DAYS = 20;
+/** Google lets local (in-store) inventory expire after 14 days and advises a daily refresh: without it the
+ *  product shows "Ontbrekende gegevens over lokale voorraad" and loses its local listing. Re-sent after 1 day. */
+export const LOCAL_REFRESH_AFTER_DAYS = 1;
 
 /**
  * What to send: new or changed offers, unchanged offers that are getting old (refresh, oldest first), and
@@ -389,6 +392,7 @@ export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boo
   const byId = new Map(sent.map(r => [r.offer_id, r]));
   const wanted = new Set(offers.map(o => o.input.offerId));
   const staleBefore = (opts.now ?? new Date()).getTime() - REFRESH_AFTER_DAYS * 86_400_000;
+  const localStaleBefore = (opts.now ?? new Date()).getTime() - LOCAL_REFRESH_AFTER_DAYS * 86_400_000;
   const upserts = offers.filter(o => byId.get(o.input.offerId)?.hash !== o.hash);
   const refreshes = offers
     .filter(o => { const r = byId.get(o.input.offerId); return r && r.hash === o.hash && new Date(r.sent_at).getTime() < staleBefore; })
@@ -402,7 +406,7 @@ export function planFeed(offers: FeedOffer[], sent: SentRow[], opts: { test: boo
     if (!r) continue;
     const now = new Set((o.local ?? []).map(l => l.storeCode));
     const removeStores = (r.local_stores ?? []).filter(code => !now.has(code));
-    const ageing = !!o.localHash && (!r.local_sent_at || new Date(r.local_sent_at).getTime() < staleBefore);
+    const ageing = !!o.localHash && (!r.local_sent_at || new Date(r.local_sent_at).getTime() < localStaleBefore);
     if ((o.localHash && r.local_hash !== o.localHash) || removeStores.length || ageing) local.push({ offer: o, removeStores });
   }
   return { upserts, refreshes, deletes, local, unchanged: offers.length - upserts.length - refreshes.length };

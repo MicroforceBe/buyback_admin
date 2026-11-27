@@ -327,6 +327,17 @@ test('plan: stock per store only for offers Google already has; changed, removed
   assert.deepEqual(byId.moved, []);
 });
 
+test('plan: stock per store is re-sent daily (Google drops it after 14 days)', async () => {
+  const f = await feed();
+  assert.equal(f.LOCAL_REFRESH_AFTER_DAYS <= 2, true);
+  const inv = { storeCode: 'A', localInventoryAttributes: { availability: 'IN_STOCK', quantity: '1' } };
+  const o = id => ({ productId: 'P', hash: 'h', localHash: 'L', local: [inv], input: { offerId: id } });
+  const now = new Date('2026-11-30T12:00:00Z');
+  const row = (id, at) => ({ offer_id: id, hash: 'h', test: false, sent_at: '2026-11-30T00:00:00Z', local_hash: 'L', local_stores: ['A'], local_sent_at: at });
+  const p = plain(f.planFeed([o('today'), o('twoDays'), o('tenDays')], [row('today', '2026-11-30T06:00:00Z'), row('twoDays', '2026-11-28T12:00:00Z'), row('tenDays', '2026-11-20T12:00:00Z')], { test: false, now }));
+  assert.deepEqual(p.local.map(u => u.offer.input.offerId).sort(), ['tenDays', 'twoDays']);
+});
+
 test('run sends the stock per store for offers sent earlier and remembers it', async () => {
   const run = await runModule();
   const f = await feed();
