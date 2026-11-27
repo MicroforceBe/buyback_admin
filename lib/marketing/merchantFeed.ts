@@ -30,6 +30,7 @@ function feedFragment() {
   id legacyResourceId title status vendor productType descriptionHtml onlineStoreUrl category { name fullName }
   refurbished: metafield(namespace: "custom", key: "refurbished_product") { value }
   manufacturer: metafield(namespace: "magento", key: "manufacturer") { value }
+  tags collections(first: 50) { nodes { handle } }
   media(first: 10) { nodes { ... on MediaImage { image { url } } } }
   variants(first: 5) { pageInfo { hasNextPage endCursor } nodes { ...FeedVariant } }
 }
@@ -62,6 +63,7 @@ export type FeedProduct = {
   id: string; legacyResourceId: string; title: string; status: string; vendor: string | null; productType: string | null; descriptionHtml: string | null; onlineStoreUrl: string | null;
   category: { name: string; fullName: string } | null;
   refurbished: { value: string } | null; manufacturer: { value: string } | null;
+  tags?: string[]; collections?: { nodes: { handle: string }[] };
   media: { nodes: ({ image?: { url: string } | null } | null)[] };
   variants: { pageInfo?: { hasNextPage: boolean; endCursor: string | null }; nodes: FeedVariant[] };
 };
@@ -72,6 +74,7 @@ export type ProductInput = {
   productAttributes: {
     title: string; description: string; link: string; imageLink: string; additionalImageLinks?: string[];
     availability: 'IN_STOCK' | 'OUT_OF_STOCK'; price: Price; condition: 'REFURBISHED';
+    salePrice?: Price; salePriceEffectiveDate?: { startTime: string; endTime: string };
     brand?: string; gtins?: string[]; identifierExists?: boolean; googleProductCategory?: string; productTypes?: string[]; itemGroupId?: string;
     color?: string; productHighlights?: string[]; productDetails?: { sectionName: string; attributeName: string; attributeValue: string }[];
     customLabel0: string; customLabel1: string; customLabel2: string; customLabel3: string; customLabel4: string;
@@ -297,10 +300,25 @@ export function offerHash(input: ProductInput): string {
 }
 
 /**
+ * Black Friday 2026 (Olivier, 23/11): a fixed amount off per device, the same automatic discounts the checkout
+ * applies. The amount comes from the hidden collection the device is in (bf-model-10 ... bf-model-100);
+ * a device tagged bf-uit is excluded. Google gets it as a sale price with an end date, so the struck-through
+ * price disappears by itself when the action ends. Outside the period nothing is sent.
+ */
+export const BF_CAMPAIGN = { start: '2026-11-23T07:30:00Z', end: '2026-11-30T22:59:59Z', prefix: 'bf-model-', excludeTag: 'bf-uit' };
+export function bfDiscount(p: Pick<FeedProduct, 'tags' | 'collections'>, now: Date = new Date(), c = BF_CAMPAIGN): number {
+  const t = now.getTime();
+  if (t < Date.parse(c.start) || t > Date.parse(c.end)) return 0;
+  if ((p.tags ?? []).some(tag => tag.toLowerCase() === c.excludeTag)) return 0;
+  const amounts = (p.collections?.nodes ?? []).map(n => n.handle.startsWith(c.prefix) ? Number(n.handle.slice(c.prefix.length)) : NaN).filter(n => Number.isFinite(n) && n > 0);
+  return amounts.length ? Math.max(...amounts) : 0;
+}
+
+/**
  * Offers for one Shopify product, or the reason it is not sent. Test offers carry the test prefix and
  * are excluded from every destination, so they can be checked in Merchant Center without being shown.
  */
-export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes; gtins?: Map<string, string>; pickup?: Set<string> }): { offers: FeedOffer[]; skip?: Skip } {
+export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?: StoreCodes; gtins?: Map<string, string>; pickup?: Set<string>; now?: Date }): { offers: FeedOffer[]; skip?: Skip } {
   const skip = (reason: string) => ({ offers: [], skip: { productId: p.id, title: p.title, reason } });
   if (p.status !== 'ACTIVE') return skip('niet actief');
   if (p.refurbished?.value !== 'true') return skip('niet refurbished');
@@ -316,6 +334,7 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
   const variants = p.variants.nodes.filter(v => isPositive(v.price));
   if (!variants.length) return skip('geen prijs');
   const many = p.variants.nodes.length > 1;
+  const bf = bfDiscount(p, opts.now);
 
   const offers = variants.map(v => {
     const selling = Number(v.price);
@@ -351,6 +370,11 @@ export function productOffers(p: FeedProduct, opts: { test: boolean; storeCodes?
         // Only the selling price: the Shopify compare-at price is often the new-device price, which was
         // never asked; Google (and Belgian law) only allow a struck-through price that was really charged.
         price: { amountMicros: micros(v.price), currencyCode: CURRENCY },
+        // Black Friday: the price the checkout really charges, only during the action (see BF_CAMPAIGN).
+        ...(bf > 0 && selling - bf > 0 ? {
+          salePrice: { amountMicros: micros((selling - bf).toFixed(2)), currencyCode: CURRENCY },
+          salePriceEffectiveDate: { startTime: BF_CAMPAIGN.start, endTime: BF_CAMPAIGN.end },
+        } : {}),
         condition: 'REFURBISHED',
         ...(brand ? { brand: brand.slice(0, 70) } : {}),
         ...(gtin ? { gtins: [gtin] } : { identifierExists: false }),

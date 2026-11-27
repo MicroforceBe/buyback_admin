@@ -96,6 +96,24 @@ test('variants: own link, title, group; no sale price; invalid barcode', async (
   assert.equal(a.customLabel2, '1000+'); assert.equal(a.customLabel4, 'uitverkocht');
 });
 
+test('Black Friday: sale price from the bf-model collection, only during the action, bf-uit excluded', async () => {
+  const f = await feed();
+  const during = new Date('2026-11-27T10:00:00Z'), after = new Date('2026-12-01T00:00:00Z'), before = new Date('2026-11-20T00:00:00Z');
+  const bf = (over = {}) => product({ collections: { nodes: [{ handle: 'refurbished-iphone-13' }, { handle: 'bf-model-30' }] }, tags: ['cat_iPhone'], ...over });
+  const attr = (p, now) => plain(f.productOffers(p, { test: false, now })).offers[0].input.productAttributes;
+  const a = attr(bf(), during);
+  assert.deepEqual(a.price, { amountMicros: '449000000', currencyCode: 'EUR' });
+  assert.deepEqual(a.salePrice, { amountMicros: '419000000', currencyCode: 'EUR' });
+  assert.deepEqual(a.salePriceEffectiveDate, { startTime: f.BF_CAMPAIGN.start, endTime: f.BF_CAMPAIGN.end });
+  assert.equal(attr(bf(), after).salePrice, undefined);
+  assert.equal(attr(bf(), before).salePrice, undefined);
+  assert.equal(attr(bf({ tags: ['BF-uit'] }), during).salePrice, undefined);
+  assert.equal(attr(product(), during).salePrice, undefined); // in no bf collection
+  assert.equal(f.bfDiscount({ collections: { nodes: [{ handle: 'bf-model-20' }, { handle: 'bf-model-50' }, { handle: 'bf-acc-25' }] } }, during), 50);
+  // the sale price changes the offer, so Google gets it in the next run
+  assert.notEqual(plain(f.productOffers(bf(), { test: false, now: during })).offers[0].hash, plain(f.productOffers(bf(), { test: false, now: after })).offers[0].hash);
+});
+
 test('helpers: GTIN check digit, brand, kind, product IDs', async () => {
   const f = await feed();
   assert.equal(f.validGtin('8718256931147'), '8718256931147');
