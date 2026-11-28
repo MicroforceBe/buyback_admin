@@ -56,6 +56,7 @@ export async function POST(request: Request) {
   const { data: token, error } = await supabaseAdmin.rpc('submit_shop_stock_request', {
     p_name: v.name, p_email: v.email, p_language: v.language, p_collection: v.collection,
     p_configs: v.keys.map(key => ({ key, label: configLabel(key, 'nl') })), p_grades: v.grades, p_ip_hash: ipHash(request), p_consent_version: v.consentVersion,
+    ...(v.colours.length ? { p_colors: v.colours } : {}),
   });
   if (error || typeof token !== 'string') {
     if (error?.message?.includes('STOCK_REQUEST_RATE_LIMIT')) return NextResponse.json({ error: 'rate' }, { status: 429, headers });
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
       const c = client ? await fetchCollection(client, v.collection) : null;
       if (c) { const img = pickImages(v.keys, c.products, collectionKind(v.collection)); items = v.keys.map(key => ({ key, model: modelName(c.title), image: img[key] })); }
     } catch { /* zonder foto */ }
-    await sendShopMail(v.email, confirmationMail(v.language, v.name, items, v.grades, link, v.collection), link);
+    await sendShopMail(v.email, confirmationMail(v.language, v.name, items, v.grades, link, v.collection, v.colours), link);
   } catch {
     console.error('[STOCK REQUEST] confirmation mail failed'); // de aanvraag zelf is bewaard
   }

@@ -61,7 +61,7 @@ test('configuratie komt uit de ERP-velden, nooit uit de handle', async () => {
 test('parseRequest accepts a valid request and rejects bad input', async () => {
   const { parseRequest } = await core();
   const ok = { name: ' Jan  Peeters ', email: 'Jan@Example.BE ', language: 'fr', collection: 'refurbished-macbook-air-13-m2', configs: ['M2/16GB/1TB', 'M2/16GB/1TB', 'M2/8GB/256GB'], grades: [5, 4, 4], consent: true, website: '' };
-  assert.deepEqual(plain(parseRequest(ok)), { ok: true, value: { name: 'Jan Peeters', email: 'jan@example.be', language: 'fr', collection: 'refurbished-macbook-air-13-m2', keys: ['M2/16GB/1TB', 'M2/8GB/256GB'], grades: [4, 5], consentVersion: 'v1' } });
+  assert.deepEqual(plain(parseRequest(ok)), { ok: true, value: { name: 'Jan Peeters', email: 'jan@example.be', language: 'fr', collection: 'refurbished-macbook-air-13-m2', keys: ['M2/16GB/1TB', 'M2/8GB/256GB'], grades: [4, 5], colours: [], consentVersion: 'v1' } });
   assert.equal(parseRequest({ ...ok, consentVersion: 'nl-2026-11-12' }).value.consentVersion, 'nl-2026-11-12');
   assert.equal(parseRequest({ ...ok, consentVersion: '<x>' }).value.consentVersion, 'v1');
   assert.deepEqual(plain(parseRequest({ ...ok, grades: undefined }).value.grades), [3, 4, 5]);
@@ -324,4 +324,31 @@ test('iPad: opslag + Wi-Fi of Cellular als configuratie, aanvragen op iPad-model
     assert.equal(MAC_KEY.test(k) || IPHONE_KEY.test(k) || IPAD_KEY.test(k), true, k);
   }
   for (const k of ['256GB Wifi', 'M2', '256 GB', '256GB Cellular x']) assert.equal(db.test(k), false, k);
+});
+
+test('kleur (28/11): optioneel, gevalideerd, en alleen toestellen met een gekozen kleurbolletje matchen', async () => {
+  const { parseRequest, parseColours, coloursLabel, matchRequests, confirmationMail } = await core();
+  assert.deepEqual(plain(parseColours(undefined)), []);
+  assert.deepEqual(plain(parseColours([{ id: '144231301452', name: ' Groen ' }, { id: '144231301452', name: 'Groen' }])), [{ id: '144231301452', name: 'Groen' }]);
+  assert.equal(parseColours([{ id: 'gid://x', name: 'Groen' }]), null);
+  assert.equal(parseColours([{ id: '144231301452', name: '<b>Groen</b>' }]), null);
+  assert.equal(parseColours(Array.from({ length: 13 }, (_, i) => ({ id: String(10000 + i), name: 'K' }))), null);
+  const ok = { name: 'Jan', email: 'jan@example.be', language: 'nl', collection: 'refurbished-iphone-15', configs: ['128GB'], grades: [5], consent: true };
+  assert.deepEqual(plain(parseRequest({ ...ok, colors: [{ id: '144231301452', name: 'Groen' }] }).value.colours), [{ id: '144231301452', name: 'Groen' }]);
+  assert.equal(parseRequest({ ...ok, colors: 'groen' }).error, 'invalid');
+  assert.equal(coloursLabel([], 'nl'), null);
+  assert.equal(coloursLabel([{ id: '1', name: 'Groen' }, { id: '2', name: 'Zwart' }, { id: '3', name: 'Blauw' }], 'nl'), 'Groen, Zwart of Blauw');
+  assert.equal(coloursLabel([{ id: '1', name: 'Green' }, { id: '2', name: 'Black' }], 'en'), 'Green or Black');
+  const req = (id, colors) => ({ id, name: 'Jan', email: 'jan@example.be', language: 'nl', collection_handle: 'refurbished-iphone-15', config_key: '128GB', config_label: 'x', grades: [4, 5], colors, token: 't' });
+  const products = new Map([['refurbished-iphone-15', [
+    { handle: 'zwart', status: 'ACTIVE', totalInventory: 1, price: 529, swatch: '111', erp: erp({ condition: '4* Zeer Goed' }) },
+    { handle: 'groen', status: 'ACTIVE', totalInventory: 1, price: 569, swatch: '222', erp: erp() },
+    { handle: 'zonder-bolletje', status: 'ACTIVE', totalInventory: 1, price: 499, erp: erp() },
+  ]]]);
+  const m = matchRequests([req('a', []), req('b', [{ id: '222', name: 'Groen' }]), req('c', [{ id: '333', name: 'Roze' }]), req('d', null)], products);
+  assert.deepEqual(plain(m.map(x => [x.request.id, x.product.handle])), [['a', 'zonder-bolletje'], ['b', 'groen'], ['d', 'zonder-bolletje']]);
+  const mail = confirmationMail('nl', 'Jan', ['128GB'], [5], 'https://x/u', 'refurbished-iphone-15', [{ id: '222', name: 'Groen' }]);
+  assert.match(mail.text, /Kleur: Groen\./);
+  assert.match(mail.html, /Gekozen kleur/);
+  assert.doesNotMatch(confirmationMail('nl', 'Jan', ['128GB'], [5], 'https://x/u').text, /Kleur:/);
 });

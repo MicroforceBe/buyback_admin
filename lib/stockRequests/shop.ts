@@ -9,10 +9,10 @@ import { ERP_FIELDS_GQL, erpFields, type ErpRaw } from '@/lib/shopify/erp';
 const COLLECTION_QUERY = `query StockRequestCollection($handle: String!) {
   collectionByIdentifier(identifier: { handle: $handle }) {
     title
-    products(first: 250) { nodes { handle status totalInventory priceRangeV2 { minVariantPrice { amount } } featuredMedia { preview { image { url } } }${ERP_FIELDS_GQL} } }
+    products(first: 250) { nodes { handle status totalInventory priceRangeV2 { minVariantPrice { amount } } featuredMedia { preview { image { url } } } swatchRef: metafield(namespace: "custom", key: "color_swatch") { value }${ERP_FIELDS_GQL} } }
   }
 }`;
-type Raw = { collectionByIdentifier: { title: string; products: { nodes: (ErpRaw & { handle: string; status: string; totalInventory: number | null; priceRangeV2?: { minVariantPrice?: { amount?: string } }; featuredMedia?: { preview?: { image?: { url?: string } | null } | null } | null })[] } } | null };
+type Raw = { collectionByIdentifier: { title: string; products: { nodes: (ErpRaw & { handle: string; status: string; totalInventory: number | null; priceRangeV2?: { minVariantPrice?: { amount?: string } }; featuredMedia?: { preview?: { image?: { url?: string } | null } | null } | null; swatchRef?: { value?: string | null } | null })[] } } | null };
 
 export type ShopCollection = { title: string; products: ShopProduct[] };
 
@@ -32,6 +32,8 @@ export async function fetchCollection(client: ShopifyClient, handle: string): Pr
       price: n.priceRangeV2?.minVariantPrice?.amount ? Number(n.priceRangeV2.minVariantPrice.amount) : null,
       image: n.featuredMedia?.preview?.image?.url ?? null,
       erp: erpFields(n),
+      // Nummer van het kleurbolletje (custom.color_swatch), om een gekozen kleur te vergelijken.
+      swatch: /^gid:\/\/shopify\/Metaobject\/(\d+)$/.exec(n.swatchRef?.value ?? '')?.[1] ?? '',
     })),
   };
 }
