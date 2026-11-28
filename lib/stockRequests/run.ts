@@ -21,7 +21,7 @@ export async function runStockRequests(): Promise<RunResult> {
   await supabaseAdmin.from('shop_stock_requests').delete().in('status', ['notified', 'unsubscribed', 'expired']).lt('updated_at', new Date(Date.now() - 60 * 86400_000).toISOString());
   await supabaseAdmin.from('shop_stock_mail_log').delete().lt('sent_at', new Date(Date.now() - 2 * 86400_000).toISOString());
   const { data, error } = await supabaseAdmin.from('shop_stock_requests')
-    .select('id,name,email,language,collection_handle,config_key,config_label,grades,token')
+    .select('id,name,email,language,collection_handle,config_key,config_label,grades,colors,token')
     .eq('status', 'open').order('created_at', { ascending: true }).limit(2000);
   if (error) throw new Error('Aanvragen lezen mislukt.');
   const open = (data ?? []) as OpenRequest[];

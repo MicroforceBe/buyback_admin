@@ -73,7 +73,33 @@ export function isIpadCollection(collection: string): boolean {
   return /^(refurbished-|refurbshed-|microforce-ipad-)?ipad-[a-z0-9-]{1,80}$/.test(h);
 }
 
-export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; consentVersion: string };
+/** Gekozen kleur: nummer van het kleurbolletje (custom.color_swatch) en de naam zoals de klant ze zag. Leeg = elke kleur. */
+export type Colour = { id: string; name: string };
+export const MAX_COLOURS = 12;
+export type RequestInput = { name: string; email: string; language: Lang; collection: string; keys: string[]; grades: number[]; colours: Colour[]; consentVersion: string };
+
+/** Kleuren uit de body: [{ id: "144231301452", name: "Groen" }]. Ongeldig = null (de aanvraag wordt geweigerd). */
+export function parseColours(raw: unknown): Colour[] | null {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_COLOURS) return null;
+  const out: Colour[] = [];
+  for (const c of raw) {
+    if (!c || typeof c !== 'object') return null;
+    const id = String((c as Record<string, unknown>).id ?? '').trim();
+    const name = String((c as Record<string, unknown>).name ?? '').trim().replace(/\s+/g, ' ');
+    if (!/^[0-9]{5,20}$/.test(id) || !/^[^<>"&\u0000-\u001f]{1,40}$/.test(name)) return null;
+    if (!out.some(x => x.id === id)) out.push({ id, name });
+  }
+  return out;
+}
+
+/** Kleuren als tekst: "Groen of Zwart"; geen kleur gekozen = null (elke kleur is goed). */
+export function coloursLabel(colours: Colour[] | null | undefined, lang: Lang): string | null {
+  const names = (colours ?? []).map(c => c.name).filter(Boolean);
+  if (!names.length) return null;
+  const or = lang === 'fr' ? ' ou ' : lang === 'en' ? ' or ' : ' of ';
+  return names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + or + names[names.length - 1];
+}
 export type ParseResult = { ok: true; value: RequestInput } | { ok: false; error: 'invalid' | 'consent' } | { ok: false; error: 'spam' };
 
 /** Controleert de body van POST /api/public/aanvraag. Het veld "website" is een val voor bots (moet leeg zijn). */
@@ -95,14 +121,16 @@ export function parseRequest(body: unknown): ParseResult {
   if (!grades.length || !grades.every(g => g === 3 || g === 4 || g === 5 || g === 6)) return { ok: false, error: 'invalid' };
   const keyOk = soort === 'mac' ? MAC_KEY : soort === 'ipad' ? IPAD_KEY : IPHONE_KEY;
   if (!keys.length || keys.length > MAX_CONFIGS || !keys.every(k => keyOk.test(k))) return { ok: false, error: 'invalid' };
+  const colours = parseColours(b.colors);
+  if (!colours) return { ok: false, error: 'invalid' };
   if (b.consent !== true) return { ok: false, error: 'consent' };
   // Versie van de toestemmingstekst (bewijs van toestemming), bv. "nl-2026-11-12".
   const consentVersion = typeof b.consentVersion === 'string' && /^[a-z0-9.-]{1,24}$/.test(b.consentVersion) ? b.consentVersion : 'v1';
-  return { ok: true, value: { name, email, language, collection, keys, grades, consentVersion } };
+  return { ok: true, value: { name, email, language, collection, keys, grades, colours, consentVersion } };
 }
 
-export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; token: string };
-export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null; erp?: ErpFields };
+export type OpenRequest = { id: string; name: string; email: string; language: Lang; collection_handle: string; config_key: string; config_label: string; grades: number[]; colors?: Colour[] | null; token: string };
+export type ShopProduct = { handle: string; status: string; totalInventory: number | null; price: number | null; image?: string | null; erp?: ErpFields; swatch?: string };
 export type Match = { request: OpenRequest; product: { handle: string; grade: number; price: number | null; image?: string | null }; model?: string };
 
 /** Per open aanvraag het goedkoopste actieve toestel op voorraad met die configuratie in een van de gekozen staten. */
@@ -116,6 +144,9 @@ export function matchRequests(requests: OpenRequest[], productsByCollection: Map
       const grade = erpGrade(p.erp?.condition);
       // Een toestel Nieuw in Box (6) is ook goed voor wie "Als nieuw" (5) koos.
       if (!r.grades.includes(grade) && !(grade === 6 && r.grades.includes(5))) continue;
+      // Kleur gekozen (28/11): alleen een toestel met een van die kleurbolletjes; zonder kleurbolletje telt het niet mee.
+      const wanted = (r.colors ?? []).map(c => c.id);
+      if (wanted.length && !(p.swatch && wanted.includes(p.swatch))) continue;
       if (!best || (p.price ?? Infinity) < (best.price ?? Infinity)) best = { handle: p.handle, grade, price: p.price, image: p.image ?? null };
     }
     if (best) out.push({ request: r, product: best });
@@ -165,7 +196,7 @@ export const TEXT = {
     confirmIntro: 'We gaan aan de slag om zo snel mogelijk het geschikte toestel voor jou te vinden. Als jouw gewenst model bestelbaar is of terug op voorraad is, brengen we je op de hoogte.',
     yourRequest: 'Jouw aanvraag', looks: 'Gekozen uiterlijk', band: 'Refurbished met 24 maanden garantie', mikeSearch: 'Ik ga alvast op zoek voor jou.', mikeFound: 'Ik heb iets voor je gevonden!',
     tpExcellent: 'Uitstekend', tpReviews: (n: string) => `op basis van ${n} reviews`, tpLink: 'Lees onze reviews op Trustpilot', shops: 'Winkels in jouw buurt: Gentbrugge · Antwerpen · Oudenaarde',
-    gradeLine: (g: string) => `Staat: ${g}.`, anyGrade: 'Elke staat is goed.',
+    gradeLine: (g: string) => `Staat: ${g}.`, anyGrade: 'Elke staat is goed.', colourLine: (c: string) => `Kleur: ${c}.`, colourTitle: 'Gekozen kleur',
     confirmOutro: 'Je aanvraag blijft 6 maanden geldig. We gebruiken je gegevens alleen hiervoor.',
     availSubject: 'Je MacBook is terug op voorraad bij Microforce',
     availIntro: 'Goed nieuws: een MacBook waarvoor je een verwittiging vroeg, is terug op voorraad.',
@@ -181,7 +212,7 @@ export const TEXT = {
     confirmIntro: 'Nous nous mettons au travail pour trouver au plus vite l’appareil qui vous convient. Dès que le modèle souhaité peut être commandé ou est de nouveau en stock, nous vous prévenons.',
     yourRequest: 'Votre demande', looks: 'Aspect choisi', band: 'Reconditionné avec 24 mois de garantie', mikeSearch: 'Je pars déjà à la recherche pour vous.', mikeFound: 'J’ai trouvé quelque chose pour vous !',
     tpExcellent: 'Excellent', tpReviews: (n: string) => `sur la base de ${n} avis`, tpLink: 'Lisez nos avis sur Trustpilot', shops: 'Nos magasins : Gentbrugge · Anvers · Audenarde',
-    gradeLine: (g: string) => `État : ${g}.`, anyGrade: 'Tous les états conviennent.',
+    gradeLine: (g: string) => `État : ${g}.`, anyGrade: 'Tous les états conviennent.', colourLine: (c: string) => `Couleur : ${c}.`, colourTitle: 'Couleur choisie',
     confirmOutro: 'Votre demande reste valable 6 mois. Nous utilisons vos données uniquement à cette fin.',
     availSubject: 'Votre MacBook est de nouveau en stock chez Microforce',
     availIntro: 'Bonne nouvelle : un MacBook pour lequel vous avez demandé une alerte est de nouveau en stock.',
@@ -197,7 +228,7 @@ export const TEXT = {
     confirmIntro: 'We are getting to work to find the right device for you as quickly as possible. As soon as your chosen model can be ordered or is back in stock, we will let you know.',
     yourRequest: 'Your request', looks: 'Chosen condition', band: 'Refurbished with a 24-month warranty', mikeSearch: 'I’m already searching for you.', mikeFound: 'I found something for you!',
     tpExcellent: 'Excellent', tpReviews: (n: string) => `based on ${n} reviews`, tpLink: 'Read our reviews on Trustpilot', shops: 'Our shops: Gentbrugge · Antwerp · Oudenaarde',
-    gradeLine: (g: string) => `Condition: ${g}.`, anyGrade: 'Any condition is fine.',
+    gradeLine: (g: string) => `Condition: ${g}.`, anyGrade: 'Any condition is fine.', colourLine: (c: string) => `Colour: ${c}.`, colourTitle: 'Chosen colour',
     confirmOutro: 'Your request stays valid for 6 months. We only use your details for this.',
     availSubject: 'Your MacBook is back in stock at Microforce',
     availIntro: 'Good news: a MacBook you asked us to notify you about is back in stock.',
@@ -334,21 +365,24 @@ function itemRow(item: MailItem, lang: Lang, extra = ''): string {
 }
 
 /** Bevestiging na het aanvragen. */
-export function confirmationMail(lang: Lang, name: string, keys: (string | MailItem)[], grades: number[], unsubscribeUrl: string, collection = ''): Mail {
+export function confirmationMail(lang: Lang, name: string, keys: (string | MailItem)[], grades: number[], unsubscribeUrl: string, collection = '', colours: Colour[] = []): Mail {
   const t = TEXT[lang];
   const items: MailItem[] = keys.map(k => (typeof k === 'string' ? { key: k } : k));
   const labels = items.map(i => (i.model ? i.model + ' – ' : '') + configLabel(i.key, lang));
   const gl = gradesLabel(grades, lang);
   const grade = gl ? t.gradeLine(gl) : t.anyGrade;
+  const kl = coloursLabel(colours, lang);
   const html = frame(lang, `<p style="margin:0 0 6px;font-size:20px;font-weight:700">${escapeHtml(t.confirmTitle)}</p>`
     + `<p style="margin:0 0 14px">${escapeHtml(t.hi(name))}</p><p style="margin:0 0 16px">${escapeHtml(t.confirmIntro)}</p>`
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafc;border:1px solid #e3e9f0;border-radius:12px"><tr><td style="padding:14px 14px 6px">`
     + `<p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.yourRequest)}</p>`
     + items.map(i => itemRow(i, lang)).join('')
     + `<p style="margin:6px 0 8px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.looks)}</p>`
-    + gradePills(grades, lang) + `</td></tr></table>`
+    + gradePills(grades, lang)
+    + (kl ? `<p style="margin:10px 0 6px;font-size:13px;font-weight:700;color:#5b6470;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(t.colourTitle)}</p><p style="margin:0 0 8px;font-size:14px;color:#14222f">${escapeHtml(kl)}</p>` : '')
+    + `</td></tr></table>`
     + `<p style="margin:12px 0 0;font-size:13px;color:#5b6470">${escapeHtml(t.confirmOutro)}</p>`, unsubscribeUrl, 'zoek', collection);
-  const text = [t.confirmTitle, '', t.hi(name), '', t.confirmIntro, '', t.yourRequest + ':', ...labels.map(l => '- ' + l), grade, '', t.confirmOutro, '', `"${t.mikeSearch}"`, t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
+  const text = [t.confirmTitle, '', t.hi(name), '', t.confirmIntro, '', t.yourRequest + ':', ...labels.map(l => '- ' + l), grade, ...(kl ? [t.colourLine(kl)] : []), '', t.confirmOutro, '', `"${t.mikeSearch}"`, t.sign, '', `${t.unsub}: ${unsubscribeUrl}`].join('\n');
   return { subject: t.confirmSubject, html, text };
 }
 

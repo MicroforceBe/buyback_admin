@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { requirePageAccess } from '@/lib/security/access';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { collectionName, configLabel, demandSummary, GRADE, gradesLabel, type DemandRow } from '@/lib/stockRequests/core';
+import { collectionName, coloursLabel, configLabel, demandSummary, GRADE, gradesLabel, type Colour, type DemandRow } from '@/lib/stockRequests/core';
 
 export const dynamic = 'force-dynamic';
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', dateStyle: 'short' }) : '—');
@@ -19,7 +19,7 @@ export default async function AanvragenPage() {
   const demand = demandSummary(rows);
   const openCount = rows.filter(r => r.status === 'open').length;
   const people = isAdmin
-    ? ((await supabaseAdmin.from('shop_stock_requests').select('created_at,name,email,language,collection_handle,config_key,grades,status,notified_at,notified_handle')
+    ? ((await supabaseAdmin.from('shop_stock_requests').select('created_at,name,email,language,collection_handle,config_key,grades,colors,status,notified_at,notified_handle')
       .order('created_at', { ascending: false }).limit(200)).data ?? [])
     : [];
 
@@ -69,7 +69,7 @@ export default async function AanvragenPage() {
                     <td className="py-2 pr-3 whitespace-nowrap">{fmt(p.created_at)}</td>
                     <td className="pr-3">{p.name}<div className="text-xs text-slate-500">{p.email}</div></td>
                     <td className="pr-3 uppercase">{p.language}</td>
-                    <td className="pr-3">{collectionName(p.collection_handle)}<div className="text-xs text-slate-500">{configLabel(p.config_key, 'nl')}</div></td>
+                    <td className="pr-3">{collectionName(p.collection_handle)}<div className="text-xs text-slate-500">{configLabel(p.config_key, 'nl')}{coloursLabel(p.colors as Colour[] | null, 'nl') ? ` · ${coloursLabel(p.colors as Colour[] | null, 'nl')}` : ''}</div></td>
                     <td className="pr-3">{gradesLabel(p.grades ?? [], 'nl') ?? 'elke'}</td>
                     <td>{STATUS[p.status] ?? p.status}{p.status === 'notified' && <div className="text-xs text-slate-500">{fmt(p.notified_at)}{p.notified_handle ? <> · <a className="text-sky-700 hover:underline" href={`https://microforce.be/products/${encodeURIComponent(p.notified_handle)}`} target="_blank" rel="noreferrer">toestel</a></> : null}</div>}</td>
                   </tr>
